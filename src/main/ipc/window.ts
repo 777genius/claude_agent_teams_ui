@@ -4,6 +4,7 @@
  * can provide conventional min / maximize / close buttons.
  */
 
+import { WINDOW_IS_FULLSCREEN } from '@preload/constants/ipcChannels';
 import { createLogger } from '@shared/utils/logger';
 import { BrowserWindow, type IpcMain } from 'electron';
 
@@ -40,6 +41,11 @@ export function registerWindowHandlers(ipcMain: IpcMain): void {
     return win != null && !win.isDestroyed() && win.isMaximized();
   });
 
+  ipcMain.handle(WINDOW_IS_FULLSCREEN, (): boolean => {
+    const win = getMainWindow();
+    return win != null && !win.isDestroyed() && win.isFullScreen();
+  });
+
   logger.info('Window handlers registered');
 }
 
@@ -48,5 +54,6 @@ export function removeWindowHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('window:maximize');
   ipcMain.removeHandler('window:close');
   ipcMain.removeHandler('window:isMaximized');
+  ipcMain.removeHandler(WINDOW_IS_FULLSCREEN);
   logger.info('Window handlers removed');
 }

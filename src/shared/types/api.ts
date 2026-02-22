@@ -466,7 +466,11 @@ export interface ElectronAPI {
     maximize: () => Promise<void>;
     close: () => Promise<void>;
     isMaximized: () => Promise<boolean>;
+    isFullScreen: () => Promise<boolean>;
   };
+
+  /** Subscribe to fullscreen changes (e.g. to remove macOS traffic light padding in fullscreen) */
+  onFullScreenChange: (callback: (isFullScreen: boolean) => void) => () => void;
 
   // Updater API
   updater: UpdaterAPI;

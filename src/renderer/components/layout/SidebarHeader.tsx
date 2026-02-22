@@ -251,7 +251,7 @@ export const SidebarHeader = (): React.JSX.Element => {
     >
       {/* ROW 1: Logo in corner, project selector fills width, collapse button */}
       <div
-        className="flex select-none items-center gap-2 pr-2"
+        className="flex select-none items-center gap-1.5 pr-1"
         style={
           {
             height: `${HEADER_ROW1_HEIGHT}px`,

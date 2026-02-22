@@ -172,6 +172,12 @@ export const WINDOW_CLOSE = 'window:close';
 /** Whether the window is currently maximized */
 export const WINDOW_IS_MAXIMIZED = 'window:isMaximized';
 
+/** Whether the window is in fullscreen (macOS native fullscreen) */
+export const WINDOW_IS_FULLSCREEN = 'window:isFullScreen';
+
+/** Event: (isFullScreen: boolean) when window enters or leaves fullscreen */
+export const WINDOW_FULLSCREEN_CHANGED = 'window:fullscreen-changed';
+
 // =============================================================================
 // Team API Channels
 // =============================================================================

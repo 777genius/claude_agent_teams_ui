@@ -46,6 +46,7 @@ const logger = createLogger('App');
 // IPC channel constants (duplicated from @preload to avoid boundary violation)
 const SSH_STATUS = 'ssh:status';
 const CONTEXT_CHANGED = 'context:changed';
+const WINDOW_FULLSCREEN_CHANGED = 'window:fullscreen-changed';
 const HTTP_SERVER_START = 'httpServer:start';
 const HTTP_SERVER_STOP = 'httpServer:stop';
 const HTTP_SERVER_GET_STATUS = 'httpServer:getStatus';
@@ -491,11 +492,27 @@ function createWindow(): void {
     });
   }
 
+  // Notify renderer when entering/leaving fullscreen (so traffic light padding can be removed)
+  mainWindow.on('enter-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(WINDOW_FULLSCREEN_CHANGED, true);
+    }
+  });
+  mainWindow.on('leave-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(WINDOW_FULLSCREEN_CHANGED, false);
+    }
+  });
+
   // Set traffic light position + notify renderer on first load, and auto-check for updates
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       syncTrafficLightPosition(mainWindow);
-      // Auto-check for updates 3 seconds after window loads
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(WINDOW_FULLSCREEN_CHANGED, mainWindow.isFullScreen());
+        }
+      }, 0);
       setTimeout(() => updaterService.checkForUpdates(), 3000);
     }
   });

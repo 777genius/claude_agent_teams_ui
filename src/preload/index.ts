@@ -48,6 +48,8 @@ import {
   UPDATER_INSTALL,
   UPDATER_STATUS,
   WINDOW_CLOSE,
+  WINDOW_FULLSCREEN_CHANGED,
+  WINDOW_IS_FULLSCREEN,
   WINDOW_IS_MAXIMIZED,
   WINDOW_MAXIMIZE,
   WINDOW_MINIMIZE,
@@ -394,6 +396,16 @@ const electronAPI: ElectronAPI = {
     maximize: () => ipcRenderer.invoke(WINDOW_MAXIMIZE),
     close: () => ipcRenderer.invoke(WINDOW_CLOSE),
     isMaximized: () => ipcRenderer.invoke(WINDOW_IS_MAXIMIZED) as Promise<boolean>,
+    isFullScreen: () => ipcRenderer.invoke(WINDOW_IS_FULLSCREEN) as Promise<boolean>,
+  },
+
+  onFullScreenChange: (callback: (isFullScreen: boolean) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, isFullScreen: boolean): void =>
+      callback(isFullScreen);
+    ipcRenderer.on(WINDOW_FULLSCREEN_CHANGED, listener);
+    return (): void => {
+      ipcRenderer.removeListener(WINDOW_FULLSCREEN_CHANGED, listener);
+    };
   },
 
   onTodoChange: (callback: (event: IpcFileChangePayload) => void): (() => void) => {

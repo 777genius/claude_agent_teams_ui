@@ -8,6 +8,7 @@
 
 import { isElectronMode } from '@renderer/api';
 import { getTrafficLightPaddingForZoom } from '@renderer/constants/layout';
+import { useFullScreen } from '@renderer/hooks/useFullScreen';
 import { useKeyboardShortcuts } from '@renderer/hooks/useKeyboardShortcuts';
 import { useZoomFactor } from '@renderer/hooks/useZoomFactor';
 
@@ -21,10 +22,14 @@ import { Sidebar } from './Sidebar';
 import { WindowsTitleBar } from './WindowsTitleBar';
 
 export const TabbedLayout = (): React.JSX.Element => {
-  // Enable keyboard shortcuts
   useKeyboardShortcuts();
   const zoomFactor = useZoomFactor();
-  const trafficLightPadding = isElectronMode() ? getTrafficLightPaddingForZoom(zoomFactor) : 0;
+  const isFullScreen = useFullScreen();
+  const trafficLightPadding = !isElectronMode()
+    ? 0
+    : isFullScreen
+      ? 8
+      : getTrafficLightPaddingForZoom(zoomFactor);
 
   return (
     <div
