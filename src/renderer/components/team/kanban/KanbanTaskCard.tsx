@@ -60,7 +60,7 @@ export const KanbanTaskCard = ({
   task,
   teamName,
   columnId,
-  kanbanTaskState,
+  kanbanTaskState: _kanbanTaskState,
   hasReviewers,
   taskMap,
   onRequestReview,

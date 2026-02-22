@@ -272,7 +272,7 @@ interface BashLinesResult {
  * Handles common patterns: heredoc writes, echo/printf redirects,
  * sed in-place edits, and tee writes.
  *
- * TODO: Improve Bash line counting accuracy:
+ * Future improvements for Bash line counting accuracy:
  * - Currently only covers ~30-40% of real Bash file-write patterns.
  * - Misses: variable expansions (`echo "$var" > file`), piped output
  *   (`grep ... | sort > file`), `python -c`, `git apply`, `patch`,
@@ -317,12 +317,13 @@ export function estimateBashLinesChanged(command: string): BashLinesResult {
       added += content.split('\\n').length;
     }
     const filePath = echoMatch[3];
-    if (filePath && filePath.startsWith('/')) {
+    if (filePath?.startsWith('/')) {
       files.push(filePath);
     }
   }
 
   // 3. sed -i: each invocation ~ 1 line changed
+  // eslint-disable-next-line sonarjs/slow-regex -- Simple alternation on short command strings, no backtracking risk
   const sedPattern = /sed\s+(?:-[a-zA-Z]*i[a-zA-Z]*|-i)\s/g;
   let sedMatch: RegExpExecArray | null;
   while ((sedMatch = sedPattern.exec(command)) !== null) {

@@ -127,6 +127,7 @@ export const TaskFiltersPopover = ({
             />
           </div>
 
+          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- Checkbox is a custom component wrapping native input */}
           <label className="flex cursor-pointer items-center gap-2 text-[12px] text-text">
             <Checkbox
               checked={filters.unreadOnly}
