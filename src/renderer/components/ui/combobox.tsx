@@ -84,7 +84,7 @@ export const Combobox = ({
           </div>
           <CommandPrimitive.List
             id={listboxId}
-            className="max-h-72 overflow-y-auto overscroll-contain p-1"
+            className="max-h-72 overflow-y-auto overscroll-contain px-2 py-1"
             onWheel={(e) => e.stopPropagation()}
           >
             <CommandPrimitive.Empty className="px-2 py-4 text-center text-xs text-[var(--color-text-muted)]">
@@ -111,7 +111,7 @@ export const Combobox = ({
                       setOpen(false);
                       setSearch('');
                     }}
-                    className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none data-[selected=true]:bg-[var(--color-surface-raised)] data-[selected=true]:text-[var(--color-text)]"
+                    className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-0 pr-2 text-xs outline-none data-[selected=true]:bg-[var(--color-surface-raised)] data-[selected=true]:text-[var(--color-text)]"
                   >
                     {renderOption ? (
                       renderOption(option, isSelected, search)
