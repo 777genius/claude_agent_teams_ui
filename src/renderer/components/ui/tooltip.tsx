@@ -29,4 +29,4 @@ const TooltipContent = React.forwardRef<
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipContent, TooltipPortal, TooltipProvider, TooltipTrigger };
-/* eslint-enable react/jsx-props-no-spreading */
+/* eslint-enable react/jsx-props-no-spreading -- Standard Radix/shadcn pattern */

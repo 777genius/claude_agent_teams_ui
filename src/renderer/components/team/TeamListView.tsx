@@ -14,7 +14,7 @@ import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { useStore } from '@renderer/store';
 import { buildTaskCountsByTeam, normalizePath } from '@renderer/utils/pathNormalize';
 import { getBaseName } from '@renderer/utils/pathUtils';
-import { Copy, FolderOpen, Search, Trash2 } from 'lucide-react';
+import { CheckCircle, Clock, Copy, FolderOpen, Play, Search, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { CreateTeamDialog } from './dialogs/CreateTeamDialog';
@@ -494,34 +494,54 @@ export const TeamListView = (): React.JSX.Element => {
                       )}
                       {(() => {
                         const tc = taskCountsByTeam.get(team.teamName);
-                        if (
-                          !tc ||
-                          (tc.pending === 0 && tc.inProgress === 0 && tc.completed === 0)
-                        ) {
-                          return (
-                            <Badge variant="secondary" className="text-[10px] font-normal">
-                              Tasks: 0
-                            </Badge>
-                          );
-                        }
+                        const pending = tc?.pending ?? 0;
+                        const inProgress = tc?.inProgress ?? 0;
+                        const completed = tc?.completed ?? 0;
+                        const totalTasks = pending + inProgress + completed;
+                        const completedRatio = totalTasks > 0 ? completed / totalTasks : 0;
                         return (
-                          <>
-                            {tc.inProgress > 0 && (
-                              <span className="inline-flex items-center rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                {tc.inProgress} active
+                          <div className="mt-2 w-full space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-raised)]"
+                                role="progressbar"
+                                aria-valuenow={completed}
+                                aria-valuemin={0}
+                                aria-valuemax={totalTasks}
+                                aria-label={`Tasks ${completed}/${totalTasks} completed`}
+                              >
+                                <div
+                                  className="h-full rounded-full bg-emerald-500 transition-all duration-200"
+                                  style={{ width: `${Math.round(completedRatio * 100)}%` }}
+                                />
+                              </div>
+                              <span className="shrink-0 text-[10px] font-medium tracking-tight text-[var(--color-text-muted)]">
+                                {completed}/{totalTasks}
                               </span>
+                            </div>
+                            {totalTasks > 0 && (
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-[var(--color-text-muted)]">
+                                {inProgress > 0 && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Play size={10} className="shrink-0 text-blue-400" />
+                                    {inProgress} in_progress
+                                  </span>
+                                )}
+                                {pending > 0 && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Clock size={10} className="shrink-0 text-amber-400" />
+                                    {pending} pending
+                                  </span>
+                                )}
+                                {completed > 0 && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <CheckCircle size={10} className="shrink-0 text-emerald-400" />
+                                    {completed} completed
+                                  </span>
+                                )}
+                              </div>
                             )}
-                            {tc.pending > 0 && (
-                              <span className="inline-flex items-center rounded-full bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
-                                {tc.pending} pending
-                              </span>
-                            )}
-                            {tc.completed > 0 && (
-                              <span className="inline-flex items-center rounded-full bg-green-500/15 px-1.5 py-0.5 text-[10px] font-medium text-green-400">
-                                {tc.completed} done
-                              </span>
-                            )}
-                          </>
+                          </div>
                         );
                       })()}
                     </div>
