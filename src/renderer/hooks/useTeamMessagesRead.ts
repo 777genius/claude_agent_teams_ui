@@ -13,7 +13,7 @@ export function useTeamMessagesRead(teamName: string): {
   const readSet = useMemo(
     () => {
       if (version < 0) return new Set<string>();
-      return teamName ? getReadSetStorage(teamName) : new Set();
+      return teamName ? getReadSetStorage(teamName) : new Set<string>();
     },
     [teamName, version]
   );
