@@ -1,3 +1,2 @@
 ignoredBuiltDependencies:
-  - electron
   - esbuild
