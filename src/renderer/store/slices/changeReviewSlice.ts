@@ -263,13 +263,20 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
     set({ applying: true, applyError: null });
 
     try {
-      // Stale check: re-fetch changes and compare computedAt
+      // Stale check: re-fetch changes and compare content fingerprint
       const state = get();
-      const currentComputedAt = state.activeChangeSet?.computedAt;
+      const current = state.activeChangeSet;
+      const fingerprint = (cs: {
+        totalFiles: number;
+        totalLinesAdded: number;
+        totalLinesRemoved: number;
+        files: { filePath: string }[];
+      }) =>
+        `${cs.totalFiles}:${cs.totalLinesAdded}:${cs.totalLinesRemoved}:${cs.files.map((f) => f.filePath).join(',')}`;
 
-      if (memberName) {
+      if (memberName && current) {
         const fresh = await api.review.getAgentChanges(teamName, memberName);
-        if (fresh.computedAt !== currentComputedAt) {
+        if (fingerprint(fresh) !== fingerprint(current)) {
           set({
             activeChangeSet: fresh,
             applying: false,
@@ -277,9 +284,9 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
           });
           return;
         }
-      } else if (taskId) {
+      } else if (taskId && current) {
         const fresh = await api.review.getTaskChanges(teamName, taskId);
-        if (fresh.computedAt !== currentComputedAt) {
+        if (fingerprint(fresh) !== fingerprint(current)) {
           set({
             activeChangeSet: fresh,
             applying: false,
