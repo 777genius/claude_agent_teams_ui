@@ -63,7 +63,7 @@ export const GlobalTaskDetailDialog = (): React.JSX.Element | null => {
       members={activeMembers}
       onClose={closeGlobalTaskDetail}
       onOwnerChange={undefined}
-      footerExtra={
+      headerExtra={
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)]"

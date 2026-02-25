@@ -1,8 +1,17 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
-import { Check, Circle, CircleDot, File, FolderOpen, X as XIcon } from 'lucide-react';
+import {
+  Check,
+  ChevronRight,
+  Circle,
+  CircleDot,
+  File,
+  Folder,
+  FolderOpen,
+  X as XIcon,
+} from 'lucide-react';
 
 import type { HunkDecision } from '@shared/types';
 import type { FileChangeSummary } from '@shared/types/review';
@@ -92,7 +101,7 @@ function getFileStatus(
   return 'mixed';
 }
 
-const FileStatusIcon = ({ status }: { status: FileStatus }) => {
+const FileStatusIcon = ({ status }: { status: FileStatus }): JSX.Element => {
   switch (status) {
     case 'accepted':
       return <Check className="size-3 shrink-0 text-green-400" />;
@@ -116,6 +125,8 @@ const TreeItem = ({
   viewedSet,
   onMarkViewed,
   onUnmarkViewed,
+  collapsedFolders,
+  onToggleFolder,
 }: {
   node: TreeNode;
   selectedFilePath: string | null;
@@ -126,7 +137,9 @@ const TreeItem = ({
   viewedSet?: Set<string>;
   onMarkViewed?: (filePath: string) => void;
   onUnmarkViewed?: (filePath: string) => void;
-}) => {
+  collapsedFolders: Set<string>;
+  onToggleFolder: (fullPath: string) => void;
+}): JSX.Element => {
   if (node.isFile && node.file) {
     const isSelected = node.file.filePath === selectedFilePath;
     const isActive = node.file.filePath === activeFilePath && !isSelected;
@@ -184,37 +197,80 @@ const TreeItem = ({
     );
   }
 
+  const isOpen = !collapsedFolders.has(node.fullPath);
+  const FolderIcon = isOpen ? FolderOpen : Folder;
+
   return (
     <div>
-      <div
-        className="flex items-center gap-2 px-2 py-1 text-xs text-text-muted"
+      <button
+        type="button"
+        onClick={() => onToggleFolder(node.fullPath)}
+        className="flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-xs text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        aria-label={isOpen ? `Collapse ${node.name}` : `Expand ${node.name}`}
       >
-        <FolderOpen className="size-3.5 shrink-0" />
+        <ChevronRight
+          size={12}
+          className={cn('shrink-0 transition-transform duration-150', isOpen && 'rotate-90')}
+        />
+        <FolderIcon className="size-3.5 shrink-0" />
         <span className="truncate">{node.name}</span>
-      </div>
-      {[...node.children]
-        .sort((a, b) => {
-          if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
-          return a.name.localeCompare(b.name);
-        })
-        .map((child) => (
-          <TreeItem
-            key={child.fullPath}
-            node={child}
-            selectedFilePath={selectedFilePath}
-            activeFilePath={activeFilePath}
-            onSelectFile={onSelectFile}
-            depth={depth + 1}
-            hunkDecisions={hunkDecisions}
-            viewedSet={viewedSet}
-            onMarkViewed={onMarkViewed}
-            onUnmarkViewed={onUnmarkViewed}
-          />
-        ))}
+      </button>
+      {isOpen &&
+        [...node.children]
+          .sort((a, b) => {
+            if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
+            return a.name.localeCompare(b.name);
+          })
+          .map((child) => (
+            <TreeItem
+              key={child.fullPath}
+              node={child}
+              selectedFilePath={selectedFilePath}
+              activeFilePath={activeFilePath}
+              onSelectFile={onSelectFile}
+              depth={depth + 1}
+              hunkDecisions={hunkDecisions}
+              viewedSet={viewedSet}
+              onMarkViewed={onMarkViewed}
+              onUnmarkViewed={onUnmarkViewed}
+              collapsedFolders={collapsedFolders}
+              onToggleFolder={onToggleFolder}
+            />
+          ))}
     </div>
   );
 };
+
+function applyExpandAncestors(prev: Set<string>, ancestors: string[]): Set<string> {
+  const collapsedAncestors = ancestors.filter((a) => prev.has(a));
+  if (collapsedAncestors.length === 0) return prev;
+  const next = new Set(prev);
+  for (const a of collapsedAncestors) {
+    next.delete(a);
+  }
+  return next;
+}
+
+function getAncestorFolderPaths(tree: TreeNode[], filePath: string): string[] {
+  const paths: string[] = [];
+
+  function walk(nodes: TreeNode[], ancestors: string[]): boolean {
+    for (const node of nodes) {
+      if (node.isFile && node.file?.filePath === filePath) {
+        paths.push(...ancestors);
+        return true;
+      }
+      if (!node.isFile) {
+        if (walk(node.children, [...ancestors, node.fullPath])) return true;
+      }
+    }
+    return false;
+  }
+
+  walk(tree, []);
+  return paths;
+}
 
 export const ReviewFileTree = ({
   files,
@@ -224,9 +280,35 @@ export const ReviewFileTree = ({
   onMarkViewed,
   onUnmarkViewed,
   activeFilePath,
-}: ReviewFileTreeProps) => {
+}: ReviewFileTreeProps): JSX.Element => {
   const hunkDecisions = useStore((state) => state.hunkDecisions);
   const tree = useMemo(() => buildTree(files), [files]);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+
+  const toggleFolder = useCallback((fullPath: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) {
+        next.delete(fullPath);
+      } else {
+        next.add(fullPath);
+      }
+      return next;
+    });
+  }, []);
+
+  // Auto-expand parent folders when a file is selected or becomes active
+  useEffect(() => {
+    const targetPath = selectedFilePath ?? activeFilePath;
+    if (!targetPath) return;
+
+    const ancestors = getAncestorFolderPaths(tree, targetPath);
+    if (ancestors.length === 0) return;
+
+    queueMicrotask(() => {
+      setCollapsedFolders((prev) => applyExpandAncestors(prev, ancestors));
+    });
+  }, [selectedFilePath, activeFilePath, tree]);
 
   // Auto-scroll tree to active file when scroll-spy updates
   useEffect(() => {
@@ -263,6 +345,8 @@ export const ReviewFileTree = ({
             viewedSet={viewedSet}
             onMarkViewed={onMarkViewed}
             onUnmarkViewed={onUnmarkViewed}
+            collapsedFolders={collapsedFolders}
+            onToggleFolder={toggleFolder}
           />
         ))}
     </div>

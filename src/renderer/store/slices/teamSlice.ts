@@ -199,7 +199,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     });
   },
 
-  openTeamTab: (teamName: string, projectPath?: string, taskId?: string) => {
+  openTeamTab: (teamName: string, projectPath?: string, _taskId?: string) => {
     if (!teamName.trim()) {
       return;
     }
@@ -236,10 +236,6 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
         label: displayName,
         teamName,
       });
-    }
-
-    if (taskId) {
-      set({ kanbanFilterQuery: `#${taskId}` });
     }
   },
 

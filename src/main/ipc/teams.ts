@@ -1428,7 +1428,37 @@ async function handleKillProcess(
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
     return { success: false, error: 'pid must be a positive integer' };
   }
-  return wrapTeamHandler('killProcess', () => getTeamDataService().killProcess(vTeam.value!, pid));
+  return wrapTeamHandler('killProcess', async () => {
+    const tn = vTeam.value!;
+    const pidNum = pid;
+
+    // Read process label before killing (for notification message)
+    let processLabel = `PID ${pidNum}`;
+    try {
+      const data = await getTeamDataService().getTeamData(tn);
+      const proc = data.processes?.find((p) => p.pid === pidNum);
+      if (proc) {
+        processLabel = proc.label + (proc.port != null ? ` (:${proc.port})` : '');
+      }
+    } catch {
+      // best-effort label lookup
+    }
+
+    await getTeamDataService().killProcess(tn, pidNum);
+
+    // Notify the team lead about the killed process
+    const provisioning = getTeamProvisioningService();
+    if (provisioning.isTeamAlive(tn)) {
+      const message =
+        `Process "${processLabel}" (PID ${pidNum}) has been stopped by the user from the UI. ` +
+        `You may need to restart it if it was still needed.`;
+      try {
+        await provisioning.sendMessageToTeam(tn, message);
+      } catch {
+        logger.warn(`Failed to notify lead about killed process ${pidNum} in ${tn}`);
+      }
+    }
+  });
 }
 
 async function handleAddTaskComment(

@@ -1,12 +1,8 @@
+import { useStore } from '@renderer/store';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { ExternalLink, Square, Terminal } from 'lucide-react';
 
-import type { TeamProcess } from '@shared/types';
-
-interface ProcessesSectionProps {
-  teamName: string;
-  processes: TeamProcess[];
-}
+import { MemberBadge } from './MemberBadge';
 
 function formatShortTime(date: Date): string {
   const distance = formatDistanceToNowStrict(date, { addSuffix: false });
@@ -27,11 +23,15 @@ function formatShortTime(date: Date): string {
     .replace(' year', 'y');
 }
 
-export const ProcessesSection = ({
-  teamName,
-  processes,
-}: ProcessesSectionProps): React.JSX.Element => {
-  const sorted = [...processes].sort((a, b) => {
+export const ProcessesSection = (): React.JSX.Element | null => {
+  const teamName = useStore((s) => s.selectedTeamName);
+  const data = useStore((s) => s.selectedTeamData);
+
+  if (!teamName || !data?.processes?.length) return null;
+
+  const memberColorMap = new Map(data.members.map((m) => [m.name, m.color]));
+
+  const sorted = [...data.processes].sort((a, b) => {
     const aAlive = !a.stoppedAt;
     const bAlive = !b.stoppedAt;
     if (aAlive !== bAlive) return aAlive ? -1 : 1;
@@ -53,9 +53,16 @@ export const ProcessesSection = ({
           >
             {/* Status indicator */}
             <span
-              className={`inline-block size-2 shrink-0 rounded-full ${alive ? 'bg-emerald-400' : 'bg-zinc-500'}`}
+              className="relative inline-flex size-2 shrink-0"
               title={alive ? 'Running' : 'Stopped'}
-            />
+            >
+              {alive && (
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+              )}
+              <span
+                className={`relative inline-flex size-2 rounded-full ${alive ? 'bg-emerald-400' : 'bg-zinc-500'}`}
+              />
+            </span>
 
             {/* Icon + label — takes available space */}
             <Terminal size={12} className="shrink-0 text-[var(--color-text-muted)]" />
@@ -69,13 +76,21 @@ export const ProcessesSection = ({
             {/* Port + URL inline — only when present */}
             {(proc.port != null || proc.url) && (
               <span className="min-w-0 truncate text-[var(--color-text-secondary)]">
-                {proc.port != null && `:${proc.port}`}
-                {proc.port != null && proc.url && ' '}
-                {proc.url}
+                {proc.port != null && !proc.url && `:${proc.port}`}
+                {proc.url && (
+                  <button
+                    type="button"
+                    className="text-[var(--color-text-secondary)] underline decoration-dotted underline-offset-2 transition-colors hover:text-blue-400"
+                    onClick={() => void window.electronAPI.openExternal(proc.url!)}
+                    title={proc.url}
+                  >
+                    {proc.url}
+                  </button>
+                )}
               </span>
             )}
 
-            {/* Right-aligned group: Kill button, Open button, author, time */}
+            {/* Right-aligned group: Kill button, Open button, member badge, PID, time */}
             <span className="ml-auto flex shrink-0 items-center gap-2">
               {alive && (
                 <button
@@ -99,8 +114,12 @@ export const ProcessesSection = ({
                   Open
                 </button>
               )}
+              <span className="font-mono text-[var(--color-text-muted)]">PID{proc.pid}</span>
               {proc.registeredBy && (
-                <span className="text-[var(--color-text-muted)]">{proc.registeredBy}</span>
+                <MemberBadge
+                  name={proc.registeredBy}
+                  color={memberColorMap.get(proc.registeredBy)}
+                />
               )}
               <span className="text-[var(--color-text-muted)]">{timeStr}</span>
             </span>

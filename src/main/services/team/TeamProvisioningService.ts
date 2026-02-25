@@ -26,6 +26,7 @@ import { TeamConfigReader } from './TeamConfigReader';
 import { TeamInboxReader } from './TeamInboxReader';
 import { TeamMembersMetaStore } from './TeamMembersMetaStore';
 import { TeamSentMessagesStore } from './TeamSentMessagesStore';
+import { TeamTaskReader } from './TeamTaskReader';
 
 import type {
   InboxMessage,
@@ -37,6 +38,7 @@ import type {
   TeamProvisioningPrepareResult,
   TeamProvisioningProgress,
   TeamProvisioningState,
+  TeamTask,
 } from '@shared/types';
 
 const logger = createLogger('Service:TeamProvisioning');
@@ -368,6 +370,38 @@ function getAgentLanguageInstruction(): string {
   return `IMPORTANT: Communicate in ${languageName}. All messages, summaries, and task descriptions MUST be in ${languageName}.`;
 }
 
+/** Build a concise task snapshot for a specific member (pending/in_progress tasks only). */
+function buildMemberTaskSnapshot(memberName: string, tasks: TeamTask[]): string {
+  const activeTasks = tasks.filter(
+    (t) =>
+      t.owner === memberName &&
+      (t.status === 'pending' || t.status === 'in_progress') &&
+      !t.id.startsWith('_internal')
+  );
+  if (activeTasks.length === 0) return '';
+
+  const lines = activeTasks.map((t) => {
+    const desc = t.description ? ` — ${t.description.slice(0, 120)}` : '';
+    return `  - #${t.id} [${t.status}] ${t.subject}${desc}`;
+  });
+  return `\nYour pending tasks from last session (RESUME these immediately):\n${lines.join('\n')}\n`;
+}
+
+/** Build a full task board snapshot for the lead. */
+function buildTaskBoardSnapshot(tasks: TeamTask[]): string {
+  const active = tasks.filter(
+    (t) => (t.status === 'pending' || t.status === 'in_progress') && !t.id.startsWith('_internal')
+  );
+  if (active.length === 0) return '\nNo pending tasks on the board.\n';
+
+  const lines = active.map((t) => {
+    const owner = t.owner ? ` (owner: ${t.owner})` : ' (unassigned)';
+    const desc = t.description ? ` — ${t.description.slice(0, 120)}` : '';
+    return `  - #${t.id} [${t.status}]${owner} ${t.subject}${desc}`;
+  });
+  return `\nCurrent task board (pending/in_progress):\n${lines.join('\n')}\n`;
+}
+
 function buildProvisioningPrompt(request: TeamCreateRequest): string {
   const displayName = request.displayName?.trim() || request.teamName;
   const description = request.description?.trim() || 'No description';
@@ -445,7 +479,8 @@ ${members}
 
 function buildLaunchPrompt(
   request: TeamLaunchRequest,
-  members: TeamCreateRequest['members']
+  members: TeamCreateRequest['members'],
+  tasks: TeamTask[]
 ): string {
   const membersBlock = buildMembersPrompt(members);
   const userPromptBlock = request.prompt?.trim()
@@ -455,17 +490,43 @@ function buildLaunchPrompt(
   const processRegistration = buildProcessRegistrationProtocol(request.teamName);
   const languageInstruction = getAgentLanguageInstruction();
   const agentBlockPolicy = buildAgentBlockUsagePolicy();
+  const taskBoardSnapshot = buildTaskBoardSnapshot(tasks);
 
   const leadName = members.find((m) => m.role?.toLowerCase().includes('lead'))?.name || 'team-lead';
   const teamCtlOps = buildTeamCtlOpsInstructions(request.teamName, leadName);
 
+  // Build per-member task snapshots to include in each teammate's spawn prompt
+  const memberTaskBlocks = new Map<string, string>();
+  for (const m of members) {
+    const snapshot = buildMemberTaskSnapshot(m.name, tasks);
+    if (snapshot) memberTaskBlocks.set(m.name, snapshot);
+  }
+
+  // Build the teammate spawn prompt template with member-specific task injection
+  const memberSpawnInstructions = members
+    .map((m) => {
+      const taskBlock = memberTaskBlocks.get(m.name) || '';
+      const resumeInstruction = taskBlock
+        ? `Include these tasks in the prompt for ${m.name} so they know what to resume:${taskBlock}`
+        : `${m.name} has no pending tasks — tell them to wait for new assignments.`;
+
+      return `   For "${m.name}":
+   - prompt:
+     You are ${m.name}, a ${m.role || 'team member'} on team "${request.teamName}".
+     ${languageInstruction}
+     The team has been reconnected after a restart.${taskBlock}
+     ${taskBlock ? 'Resume your pending tasks immediately — start with in_progress tasks first, then pending.' : 'Wait for new task assignments.'}
+     Note: ${resumeInstruction}`;
+    })
+    .join('\n\n');
+
   return `You are running in a non-interactive CLI session. Do not ask questions. Do everything in a single turn.
 You are "${leadName}", the team lead.
 
-Goal: Reconnect with existing team "${request.teamName}".
+Goal: Reconnect with existing team "${request.teamName}" and resume pending work.
 ${userPromptBlock}
 ${languageInstruction}
-
+${taskBoardSnapshot}
 Constraints:
 - Do NOT call TeamDelete under any circumstances.
 - Do NOT use TodoWrite.
@@ -491,28 +552,23 @@ Steps (execute in this exact order):
 
 1) Read team config at ~/.claude/teams/${request.teamName}/config.json — understand current team state.
 
-2) Read tasks from ~/.claude/tasks/${request.teamName}/ (JSON files) and kanban state from ~/.claude/teams/${request.teamName}/kanban-state.json — understand pending work.
-
-3) Spawn each existing member as a live teammate using the Task tool:
+2) Spawn each existing member as a live teammate using the Task tool:
    - team_name: "${request.teamName}"
    - name: the member's name
    - subagent_type: "general-purpose"
-   - prompt:
-     You are {name}, a {role} on team "${request.teamName}".
-     ${languageInstruction}
-     The team has been reconnected. Introduce yourself briefly (name and role) and confirm you are ready.
-     Then resume any pending work you own (if any) and wait for new assignments.
-     Include the following agent-only instructions verbatim in the prompt:
+   - IMPORTANT: Include each member's pending tasks in their spawn prompt so they resume work immediately.
+     Include the following agent-only instructions verbatim in each teammate's prompt:
 
 ${taskProtocol}
 
 ${processRegistration}
 
-4) If user instructions explicitly ask to create tasks OR describe substantial/assigned work that should be tracked — create tasks on the team board.
-   - Prefer fewer, broader tasks over many micro-tasks.
-   - Avoid duplicate notifications for the same assignment.
+   Per-member spawn instructions:
+${memberSpawnInstructions}
 
-5) After all steps, output a short summary.
+3) After spawning all members, check the task board. If any pending tasks are unassigned, assign them to appropriate members using teamctl.
+
+4) After all steps, output a short summary of reconnected members and resumed tasks.
 
 Members:
 ${membersBlock}
@@ -1105,7 +1161,16 @@ export class TeamProvisioningService {
     this.activeByTeam.set(request.teamName, runId);
     run.onProgress(run.progress);
 
-    const prompt = buildLaunchPrompt(request, expectedMemberSpecs);
+    // Read existing tasks to include in teammate prompts for work resumption
+    const taskReader = new TeamTaskReader();
+    let existingTasks: TeamTask[] = [];
+    try {
+      existingTasks = await taskReader.getTasks(request.teamName);
+    } catch (error) {
+      logger.warn(`[${request.teamName}] Failed to read tasks for launch prompt: ${String(error)}`);
+    }
+
+    const prompt = buildLaunchPrompt(request, expectedMemberSpecs, existingTasks);
     let child: ReturnType<typeof spawn>;
     const { env: shellEnv, authSource } = await this.buildProvisioningEnv();
     if (authSource === 'none') {

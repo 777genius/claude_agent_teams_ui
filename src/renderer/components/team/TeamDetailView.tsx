@@ -863,7 +863,7 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
           members={activeMembers}
           onFilterChange={setKanbanFilter}
           toolbarLeft={
-            <div className="relative">
+            <div className="relative max-w-[240px]">
               <Search
                 size={14}
                 className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
@@ -1000,7 +1000,7 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
           badge={data.processes.filter((p) => !p.stoppedAt).length}
           defaultOpen
         >
-          <ProcessesSection teamName={teamName} processes={data.processes} />
+          <ProcessesSection />
         </CollapsibleTeamSection>
       )}
 
