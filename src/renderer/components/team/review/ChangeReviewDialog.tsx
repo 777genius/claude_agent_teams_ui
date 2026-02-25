@@ -29,6 +29,7 @@ interface ChangeReviewDialogProps {
   mode: 'agent' | 'task';
   memberName?: string;
   taskId?: string;
+  initialFilePath?: string;
 }
 
 function isTaskChangeSetV2(cs: { teamName: string }): cs is TaskChangeSetV2 {
@@ -42,6 +43,7 @@ export const ChangeReviewDialog = ({
   mode,
   memberName,
   taskId,
+  initialFilePath,
 }: ChangeReviewDialogProps): React.ReactElement | null => {
   const {
     activeChangeSet,
@@ -91,6 +93,9 @@ export const ChangeReviewDialog = ({
       ? (editorViewMapRef.current.get(activeFilePath) ?? null)
       : null;
   }, [activeFilePath]);
+
+  // One-shot scroll-to-file ref (for initialFilePath)
+  const initialScrollDoneRef = useRef(false);
 
   // Continuous scroll navigation
   const { scrollToFile, isProgrammaticScroll } = useContinuousScrollNav({
@@ -254,6 +259,22 @@ export const ChangeReviewDialog = ({
     fetchTaskChanges,
     clearChangeReview,
   ]);
+
+  // Reset initial scroll flag when initialFilePath changes
+  useEffect(() => {
+    initialScrollDoneRef.current = false;
+  }, [initialFilePath]);
+
+  // Scroll to initialFilePath once data is loaded
+  useEffect(() => {
+    if (!activeChangeSet || !initialFilePath || initialScrollDoneRef.current) return;
+    const hasFile = activeChangeSet.files.some((f) => f.filePath === initialFilePath);
+    if (!hasFile) return;
+    initialScrollDoneRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollToFile(initialFilePath));
+    });
+  }, [activeChangeSet, initialFilePath, scrollToFile]);
 
   // Escape to close
   useEffect(() => {
