@@ -37,22 +37,31 @@ export const QuickOpenDialog = ({
   const [allFiles, setAllFiles] = useState<QuickOpenFile[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Load all project files on mount via backend API
+  // Reset state when projectPath changes (React-approved setState-during-render pattern)
+  const [prevProjectPath, setPrevProjectPath] = useState(projectPath);
+  if (prevProjectPath !== projectPath) {
+    setPrevProjectPath(projectPath);
+    setLoading(true);
+    setAllFiles([]);
+  }
+
+  // Load all project files via backend API
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
 
-    window.electronAPI.editor
-      .listFiles()
-      .then((files) => {
+    const fetchFiles = async (): Promise<void> => {
+      try {
+        const files = await window.electronAPI.editor.listFiles();
         if (!cancelled) {
           setAllFiles(files);
           setLoading(false);
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+
+    void fetchFiles();
 
     return () => {
       cancelled = true;

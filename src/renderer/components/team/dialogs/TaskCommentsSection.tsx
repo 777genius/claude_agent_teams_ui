@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { ReplyQuoteBlock } from '@renderer/components/team/activity/ReplyQuoteBlock';
@@ -54,11 +54,15 @@ export const TaskCommentsSection = ({
   const [expandedCommentIds, setExpandedCommentIds] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COMMENTS);
 
-  useEffect(() => {
+  // Reset state when task changes (React-approved setState-during-render pattern)
+  const resetKey = teamIdKey(teamName, taskId);
+  const [prevResetKey, setPrevResetKey] = useState(resetKey);
+  if (prevResetKey !== resetKey) {
+    setPrevResetKey(resetKey);
     setVisibleCount(INITIAL_VISIBLE_COMMENTS);
     setExpandedCommentIds(new Set());
     setReplyTo(null);
-  }, [teamIdKey(teamName, taskId)]);
+  }
 
   const toggleCommentExpanded = useCallback((commentId: string) => {
     setExpandedCommentIds((prev) => {
