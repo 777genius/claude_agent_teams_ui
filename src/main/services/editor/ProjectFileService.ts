@@ -90,51 +90,58 @@ export class ProjectFileService {
     }
 
     const dirents = await fs.readdir(normalizedDir, { withFileTypes: true });
-    const entries: FileTreeEntry[] = [];
-    let truncated = false;
+
+    // Phase 1: classify entries without I/O (instant)
+    const pendingEntries: {
+      dirent: { name: string };
+      entryPath: string;
+      type: 'file' | 'directory' | 'symlink';
+    }[] = [];
 
     for (const dirent of dirents) {
-      // Ignore well-known noise
       if (dirent.isDirectory() && IGNORED_DIRS.has(dirent.name)) continue;
       if (dirent.isFile() && IGNORED_FILES.has(dirent.name)) continue;
 
       const entryPath = path.join(normalizedDir, dirent.name);
+      if (!isPathWithinRoot(entryPath, projectRoot)) continue;
+      if (isGitInternalPath(entryPath)) continue;
 
-      // Symlink handling: resolve and re-check containment
       if (dirent.isSymbolicLink()) {
-        try {
-          const realPath = await fs.realpath(entryPath);
-          if (!isPathWithinAllowedDirectories(realPath, projectRoot)) {
-            continue; // Silently skip symlinks that escape project root (SEC-2)
-          }
-          const realStat = await fs.stat(realPath);
-          const entry = this.buildEntry(
-            dirent.name,
-            entryPath,
-            realStat.isDirectory() ? 'directory' : 'file',
-            realStat.isFile() ? realStat.size : undefined
-          );
-          entries.push(entry);
-        } catch {
-          // Broken symlink — skip silently
-          continue;
-        }
+        pendingEntries.push({ dirent, entryPath, type: 'symlink' });
       } else if (dirent.isDirectory()) {
-        entries.push(this.buildEntry(dirent.name, entryPath, 'directory'));
+        pendingEntries.push({ dirent, entryPath, type: 'directory' });
       } else if (dirent.isFile()) {
-        try {
-          const fileStat = await fs.stat(entryPath);
-          entries.push(this.buildEntry(dirent.name, entryPath, 'file', fileStat.size));
-        } catch {
-          // Can't stat — include without size
-          entries.push(this.buildEntry(dirent.name, entryPath, 'file'));
-        }
+        pendingEntries.push({ dirent, entryPath, type: 'file' });
       }
-      // Skip other types (block devices, sockets, etc.)
 
-      if (entries.length >= maxEntries) {
-        truncated = true;
-        break;
+      if (pendingEntries.length >= maxEntries) break;
+    }
+
+    // Phase 2: resolve entries in parallel (I/O-bound)
+    const STAT_CONCURRENCY = 50;
+    const entries: FileTreeEntry[] = [];
+
+    for (let i = 0; i < pendingEntries.length; i += STAT_CONCURRENCY) {
+      const batch = pendingEntries.slice(i, i + STAT_CONCURRENCY);
+      const resolved = await Promise.all(
+        batch.map(async ({ dirent, entryPath, type }) => {
+          if (type === 'directory') {
+            return this.buildEntry(dirent.name, entryPath, 'directory');
+          }
+          if (type === 'symlink') {
+            return this.resolveSymlinkEntry(dirent.name, entryPath, projectRoot);
+          }
+          // file — stat for size
+          try {
+            const fileStat = await fs.stat(entryPath);
+            return this.buildEntry(dirent.name, entryPath, 'file', fileStat.size);
+          } catch {
+            return this.buildEntry(dirent.name, entryPath, 'file');
+          }
+        })
+      );
+      for (const entry of resolved) {
+        if (entry) entries.push(entry);
       }
     }
 
@@ -144,7 +151,7 @@ export class ProjectFileService {
       return a.name.localeCompare(b.name);
     });
 
-    return { entries, truncated };
+    return { entries, truncated: pendingEntries.length >= maxEntries };
   }
 
   /**
@@ -609,6 +616,26 @@ export class ProjectFileService {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  private async resolveSymlinkEntry(
+    name: string,
+    entryPath: string,
+    projectRoot: string
+  ): Promise<FileTreeEntry | null> {
+    try {
+      const realPath = await fs.realpath(entryPath);
+      if (!isPathWithinAllowedDirectories(realPath, projectRoot)) return null;
+      const realStat = await fs.stat(realPath);
+      return this.buildEntry(
+        name,
+        entryPath,
+        realStat.isDirectory() ? 'directory' : 'file',
+        realStat.isFile() ? realStat.size : undefined
+      );
+    } catch {
+      return null; // broken symlink
+    }
+  }
 
   private buildEntry(
     name: string,

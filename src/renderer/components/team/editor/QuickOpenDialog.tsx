@@ -5,7 +5,7 @@
  * Loads ALL project files via backend API on mount (not limited to expanded dirs).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useStore } from '@renderer/store';
 import { Command } from 'cmdk';
@@ -14,6 +14,8 @@ import { Loader2 } from 'lucide-react';
 import { FileIcon } from './FileIcon';
 
 import type { QuickOpenFile } from '@shared/types/editor';
+
+const MAX_RENDERED = 100;
 
 // =============================================================================
 // Types
@@ -97,7 +99,24 @@ export const QuickOpenDialog = ({
     [allFiles, onSelectFile, onClose]
   );
 
-  const fileItems = allFiles;
+  const [search, setSearch] = useState('');
+
+  const filteredFiles = useMemo(() => {
+    if (!search.trim()) return allFiles.slice(0, MAX_RENDERED);
+    const q = search.toLowerCase();
+    const matches: QuickOpenFile[] = [];
+    for (const file of allFiles) {
+      if (file.relativePath.toLowerCase().includes(q)) {
+        matches.push(file);
+        if (matches.length >= MAX_RENDERED) break;
+      }
+    }
+    return matches;
+  }, [allFiles, search]);
+
+  const hasMore = !search.trim()
+    ? allFiles.length > MAX_RENDERED
+    : filteredFiles.length >= MAX_RENDERED;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]">
@@ -119,8 +138,10 @@ export const QuickOpenDialog = ({
         aria-label="Quick Open"
         className="relative z-10 w-[520px] overflow-hidden rounded-lg border border-border-emphasis bg-surface shadow-2xl"
       >
-        <Command label="Quick Open" shouldFilter={true}>
+        <Command label="Quick Open" shouldFilter={false}>
           <Command.Input
+            value={search}
+            onValueChange={setSearch}
             placeholder="Search files by name..."
             className="w-full border-b border-border bg-transparent px-4 py-3 text-sm text-text outline-none placeholder:text-text-muted"
             autoFocus
@@ -132,12 +153,10 @@ export const QuickOpenDialog = ({
                 <span>Loading files...</span>
               </div>
             )}
-            {!loading && (
-              <Command.Empty className="p-6 text-center text-sm text-text-muted">
-                No files found
-              </Command.Empty>
+            {!loading && filteredFiles.length === 0 && (
+              <div className="p-6 text-center text-sm text-text-muted">No files found</div>
             )}
-            {fileItems.map((file) => {
+            {filteredFiles.map((file) => {
               return (
                 <Command.Item
                   key={file.path}
@@ -153,6 +172,13 @@ export const QuickOpenDialog = ({
                 </Command.Item>
               );
             })}
+            {hasMore && (
+              <div className="p-2 text-center text-xs text-text-muted">
+                {search
+                  ? 'Refine search to see more...'
+                  : `Type to search ${allFiles.length} files...`}
+              </div>
+            )}
           </Command.List>
         </Command>
       </div>

@@ -222,17 +222,18 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
 
     try {
       await api.editor.open(projectPath);
-      const result = await api.editor.readDir(projectPath);
+
+      // Parallelize: readDir + git status + watcher setup run concurrently
+      const [result] = await Promise.all([
+        api.editor.readDir(projectPath),
+        get().fetchGitStatus(),
+        get().toggleWatcher(true),
+      ]);
+
       set({
         editorFileTree: result.entries,
         editorFileTreeLoading: false,
       });
-
-      // Fetch git status in background (non-blocking)
-      void get().fetchGitStatus();
-
-      // Auto-enable file watcher (standard editor behavior)
-      void get().toggleWatcher(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.error('Failed to open editor:', message);

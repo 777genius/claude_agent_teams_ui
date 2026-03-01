@@ -147,6 +147,7 @@ export class FileSearchService {
     }
 
     const sorted = [...entries].sort((a, b) => a.name.localeCompare(b.name));
+    const subdirs: string[] = [];
 
     for (const entry of sorted) {
       if (signal?.aborted || files.length >= MAX_FILES) break;
@@ -158,7 +159,7 @@ export class FileSearchService {
 
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
-        await this.collectFilePaths(projectRoot, fullPath, files, signal);
+        subdirs.push(fullPath);
       } else if (entry.isFile()) {
         if (IGNORED_FILES.has(entry.name)) continue;
         const relativePath = fullPath.startsWith(projectRoot)
@@ -166,6 +167,14 @@ export class FileSearchService {
           : entry.name;
         files.push({ path: fullPath, name: entry.name, relativePath });
       }
+    }
+
+    // Parallel subdirectory traversal (batched)
+    const DIR_CONCURRENCY = 10;
+    for (let i = 0; i < subdirs.length; i += DIR_CONCURRENCY) {
+      if (signal?.aborted || files.length >= MAX_FILES) break;
+      const batch = subdirs.slice(i, i + DIR_CONCURRENCY);
+      await Promise.all(batch.map((dir) => this.collectFilePaths(projectRoot, dir, files, signal)));
     }
   }
 

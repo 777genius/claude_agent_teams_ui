@@ -100,6 +100,15 @@ export const EditorFileTree = ({
   const autoExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Defer DnD initialization — mount tree without drag/drop first, enable after idle
+  const [dndReady, setDndReady] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setDndReady(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   // Cleanup auto-expand timer on unmount
   useEffect(() => {
     return () => {
@@ -149,12 +158,12 @@ export const EditorFileTree = ({
     return { index: parentIdx + 1, depth: flatItems[parentIdx].depth + 1 };
   }, [newItemState, flatItems]);
 
-  // Virtual scrolling — increase overscan during drag for more drop targets
+  // Virtual scrolling — reduced overscan during initial mount, increase during drag
   const virtualizer = useVirtualizer({
     count: flatItems.length + (newItemInsert ? 1 : 0),
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ITEM_HEIGHT,
-    overscan: draggedItem ? 20 : 10,
+    overscan: !dndReady ? 3 : draggedItem ? 20 : 10,
   });
 
   // Git status lookup: absolute path → status type
@@ -451,17 +460,8 @@ export const EditorFileTree = ({
               const item = flatItems[flatIdx];
 
               return (
-                <DraggableTreeItem
+                <div
                   key={item.node.fullPath}
-                  item={item}
-                  activeNodePath={activeNodePath}
-                  gitStatusMap={gitStatusMap}
-                  dropTargetPath={dropTargetPath}
-                  isDragActive={!!draggedItem}
-                  onClick={handleNodeClick}
-                  isRenaming={renamingPath === item.node.fullPath}
-                  onRenameSubmit={handleRenameSubmit}
-                  onRenameCancel={handleRenameCancel}
                   style={{
                     position: 'absolute',
                     top: `${virtualItem.start}px`,
@@ -469,7 +469,19 @@ export const EditorFileTree = ({
                     width: '100%',
                     height: `${virtualItem.size}px`,
                   }}
-                />
+                >
+                  <DraggableTreeItem
+                    item={item}
+                    activeNodePath={activeNodePath}
+                    gitStatusMap={gitStatusMap}
+                    dropTargetPath={dropTargetPath}
+                    isDragActive={!!draggedItem}
+                    onClick={handleNodeClick}
+                    isRenaming={renamingPath === item.node.fullPath}
+                    onRenameSubmit={handleRenameSubmit}
+                    onRenameCancel={handleRenameCancel}
+                  />
+                </div>
               );
             })}
           </div>
@@ -556,7 +568,6 @@ interface DraggableTreeItemProps {
   dropTargetPath: string | null;
   isDragActive: boolean;
   onClick: (node: TreeNode<FileTreeEntry>) => void;
-  style: React.CSSProperties;
   isRenaming?: boolean;
   onRenameSubmit?: (newName: string) => void;
   onRenameCancel?: () => void;
@@ -571,7 +582,6 @@ const DraggableTreeItem = React.memo(
     dropTargetPath,
     isDragActive,
     onClick,
-    style,
     isRenaming,
     onRenameSubmit,
     onRenameCancel,
@@ -651,17 +661,12 @@ const DraggableTreeItem = React.memo(
         role="treeitem"
         aria-selected={node.isFile ? isSelected : undefined}
         aria-expanded={!node.isFile ? isExpanded : undefined}
-        className={`flex cursor-pointer select-none items-center gap-1 truncate px-2 text-xs transition-colors hover:bg-surface-raised ${
+        className={`flex h-full cursor-pointer select-none items-center gap-1 truncate px-2 text-xs transition-colors hover:bg-surface-raised ${
           isSelected ? 'bg-surface-raised text-text' : 'text-text-secondary'
         } ${isDragging ? 'opacity-30' : ''} ${
           isDropTarget ? 'rounded bg-blue-400/10 ring-2 ring-blue-400/50' : ''
         } ${isInsideDropTarget && !isDropTarget ? 'border-l-2 border-l-blue-400/40 bg-blue-400/5' : ''}`}
-        style={{
-          ...style,
-          paddingLeft: `${visualDepth * INDENT_PX + 8}px`,
-          display: 'flex',
-          alignItems: 'center',
-        }}
+        style={{ paddingLeft: `${visualDepth * INDENT_PX + 8}px` }}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
         tabIndex={0}
