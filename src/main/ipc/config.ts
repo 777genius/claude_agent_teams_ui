@@ -981,7 +981,11 @@ async function handleFindWslClaudeRoots(
       // Fallback: query the default WSL user, then try Windows USERNAME
       const wslUser = await resolveWslDefaultUser(distro);
       const fallbackUser = wslUser || process.env.USERNAME;
-      const fallbackHomePath = fallbackUser ? `/home/${fallbackUser}` : null;
+      const fallbackHomePath = fallbackUser
+        ? fallbackUser === 'root'
+          ? '/root'
+          : `/home/${fallbackUser}`
+        : null;
       const normalizedHome =
         normalizeWslHomePath(resolvedHomePath ?? '') ??
         (fallbackHomePath ? normalizeWslHomePath(fallbackHomePath) : null);

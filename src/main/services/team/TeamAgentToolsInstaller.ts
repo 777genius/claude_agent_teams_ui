@@ -153,7 +153,26 @@ function atomicWrite(filePath, data) {
     '.' +
     String(Math.random().toString(16).slice(2));
   fs.writeFileSync(tmp, data, 'utf8');
-  fs.renameSync(tmp, filePath);
+  // On Windows, fs.renameSync can throw EPERM/EACCES when another process
+  // is concurrently renaming to the same target. Retry with backoff.
+  const maxRetries = process.platform === 'win32' ? 5 : 1;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      fs.renameSync(tmp, filePath);
+      return;
+    } catch (e) {
+      if (attempt < maxRetries - 1 && e && (e.code === 'EPERM' || e.code === 'EACCES')) {
+        // Busy wait — small random delay to reduce contention
+        const ms = Math.floor(Math.random() * 50) + 10;
+        const end = Date.now() + ms;
+        while (Date.now() < end) { /* spin */ }
+        continue;
+      }
+      // Clean up temp file on final failure
+      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+      throw e;
+    }
+  }
 }
 
 function normalizeStatus(value) {

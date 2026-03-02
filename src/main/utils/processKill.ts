@@ -10,7 +10,8 @@ import path from 'path';
  *     it calls TerminateProcess() which is equivalent to SIGKILL (immediate, ungraceful).
  *   - `taskkill /T` also kills child processes, preventing orphaned process trees.
  *
- * Throws if the process cannot be killed (except ESRCH — process already dead).
+ * On Unix, throws if the process cannot be killed (except ESRCH — process already dead).
+ * On Windows, taskkill is best-effort (async fire-and-forget) to match killProcessTree() semantics.
  */
 export function killProcessByPid(pid: number): void {
   if (process.platform === 'win32') {

@@ -97,9 +97,8 @@ async function collectNvmWindowsCandidates(): Promise<string[]> {
 
   const exts = getWindowsExecutableExtensions();
   return versions
-    .flatMap((version) => exts.map((ext) => path.join(nvmRoot, version, `claude${ext}`)))
-    .sort((a, b) => a.localeCompare(b))
-    .reverse();
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }))
+    .flatMap((version) => exts.map((ext) => path.join(nvmRoot, version, `claude${ext}`)));
 }
 
 async function resolveFromPathEnv(binaryName: string): Promise<string | null> {

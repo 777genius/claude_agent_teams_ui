@@ -2702,11 +2702,18 @@ export class TeamProvisioningService {
     const electronHome = getHomeDir();
     const isWindows = process.platform === 'win32';
     const home = shellEnv.HOME?.trim() || electronHome;
+    let osUsername = '';
+    try {
+      osUsername = os.userInfo().username;
+    } catch {
+      // os.userInfo() can throw SystemError in restricted environments (no passwd entry, Docker, etc.)
+    }
     const user =
       shellEnv.USER?.trim() ||
       process.env.USER?.trim() ||
       process.env.USERNAME?.trim() ||
-      os.userInfo().username;
+      osUsername ||
+      'unknown';
 
     // Shell: on Windows there is no SHELL env var; use COMSPEC (cmd.exe / powershell).
     // On Unix, prefer the user's login shell from env or fall back to /bin/zsh.
