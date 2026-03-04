@@ -758,9 +758,9 @@ function buildLaunchPrompt(
 
   let step2And3Block: string;
   if (isSolo) {
-    step2And3Block = `2) Skip — solo team, no teammates to spawn.
+    step2And3Block = `3) Skip — solo team, no teammates to spawn.
 
-3) SOLO TASK EXECUTION (IMPORTANT — timing matters):
+4) SOLO TASK EXECUTION (IMPORTANT — timing matters):
    - Do NOT start executing tasks in THIS reconnect turn.
    - This turn is ONLY to reconnect and confirm you are ready.
    - After the reconnect is marked ready, you will receive a follow-up message telling you to begin work.
@@ -808,7 +808,7 @@ function buildLaunchPrompt(
       })
       .join('\n\n');
 
-    step2And3Block = `2) Spawn each existing member as a live teammate using the Task tool:
+    step2And3Block = `3) Spawn each existing member as a live teammate using the Task tool:
    - team_name: "${request.teamName}"
    - name: the member's name
    - subagent_type: "general-purpose"
@@ -822,7 +822,7 @@ ${processRegistration}
    Per-member spawn instructions:
 ${memberSpawnInstructions}
 
-3) After spawning all members, check the task board. If any pending tasks are unassigned, assign them to appropriate members using teamctl.`;
+4) After spawning all members, check the task board. If any pending tasks are unassigned, assign them to appropriate members using teamctl.`;
   }
 
   const membersFooter = membersBlock
@@ -863,11 +863,15 @@ ${agentBlockPolicy}
 
 Steps (execute in this exact order):
 
-1) Read team config at ~/.claude/teams/${request.teamName}/config.json — understand current team state.
+1) TeamCreate — create team "${request.teamName}":
+   - description: "Reconnecting existing team"
+   NOTE: The team directory already exists on disk. TeamCreate will register you as a member of this team so that SendMessage routes messages correctly.
+
+2) Read team config at ~/.claude/teams/${request.teamName}/config.json — understand current team state.
 
 ${step2And3Block}
 
-4) After all steps, output a short summary of reconnected members and what happens next.
+5) After all steps, output a short summary of reconnected members and what happens next.
 
 ${membersFooter}
 `;
