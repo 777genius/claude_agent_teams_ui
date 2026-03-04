@@ -779,35 +779,39 @@ export class TeamDataService {
 
     if (shouldStart && request.owner) {
       try {
-        const toolPath = await this.toolsInstaller.ensureInstalled();
-
-        // Build notification with full context — inbox is the primary delivery
-        // channel to agents (Claude Code monitors inbox via fs.watch)
-        const parts = [`New task assigned to you: #${task.id} "${task.subject}".`];
-
-        if (request.description?.trim()) {
-          parts.push(`\nDescription:\n${request.description.trim()}`);
-        }
-
-        if (request.prompt?.trim()) {
-          parts.push(`\nInstructions:\n${request.prompt.trim()}`);
-        }
-
-        parts.push(
-          `\n${AGENT_BLOCK_OPEN}`,
-          `Update task status using:`,
-          `node "${toolPath}" --team ${teamName} task start ${task.id}`,
-          `node "${toolPath}" --team ${teamName} task complete ${task.id}`,
-          AGENT_BLOCK_CLOSE
-        );
-
         const leadName = await this.resolveLeadName(teamName);
-        await this.sendMessage(teamName, {
-          member: request.owner,
-          from: leadName,
-          text: parts.join('\n'),
-          summary: `New task #${task.id} assigned`,
-        });
+
+        // Skip inbox notification when lead assigns a task to themselves (solo teams)
+        if (!this.isLeadOwner(request.owner, leadName)) {
+          const toolPath = await this.toolsInstaller.ensureInstalled();
+
+          // Build notification with full context — inbox is the primary delivery
+          // channel to agents (Claude Code monitors inbox via fs.watch)
+          const parts = [`New task assigned to you: #${task.id} "${task.subject}".`];
+
+          if (request.description?.trim()) {
+            parts.push(`\nDescription:\n${request.description.trim()}`);
+          }
+
+          if (request.prompt?.trim()) {
+            parts.push(`\nInstructions:\n${request.prompt.trim()}`);
+          }
+
+          parts.push(
+            `\n${AGENT_BLOCK_OPEN}`,
+            `Update task status using:`,
+            `node "${toolPath}" --team ${teamName} task start ${task.id}`,
+            `node "${toolPath}" --team ${teamName} task complete ${task.id}`,
+            AGENT_BLOCK_CLOSE
+          );
+
+          await this.sendMessage(teamName, {
+            member: request.owner,
+            from: leadName,
+            text: parts.join('\n'),
+            summary: `New task #${task.id} assigned`,
+          });
+        }
       } catch {
         // Best-effort notification — don't fail task creation if message fails
       }
@@ -830,24 +834,28 @@ export class TeamDataService {
 
     if (task.owner) {
       try {
-        const toolPath = await this.toolsInstaller.ensureInstalled();
-        const parts = [`Task #${task.id} "${task.subject}" has been started.`];
-        if (task.description?.trim()) {
-          parts.push(`\nDetails:\n${task.description.trim()}`);
-        }
-        parts.push(
-          `\n${AGENT_BLOCK_OPEN}`,
-          `Update task status using:`,
-          `node "${toolPath}" --team ${teamName} task complete ${task.id}`,
-          AGENT_BLOCK_CLOSE
-        );
         const leadName = await this.resolveLeadName(teamName);
-        await this.sendMessage(teamName, {
-          member: task.owner,
-          from: leadName,
-          text: parts.join('\n'),
-          summary: `Task #${task.id} started`,
-        });
+
+        // Skip inbox notification when lead starts their own task (solo teams)
+        if (!this.isLeadOwner(task.owner, leadName)) {
+          const toolPath = await this.toolsInstaller.ensureInstalled();
+          const parts = [`Task #${task.id} "${task.subject}" has been started.`];
+          if (task.description?.trim()) {
+            parts.push(`\nDetails:\n${task.description.trim()}`);
+          }
+          parts.push(
+            `\n${AGENT_BLOCK_OPEN}`,
+            `Update task status using:`,
+            `node "${toolPath}" --team ${teamName} task complete ${task.id}`,
+            AGENT_BLOCK_CLOSE
+          );
+          await this.sendMessage(teamName, {
+            member: task.owner,
+            from: leadName,
+            text: parts.join('\n'),
+            summary: `Task #${task.id} started`,
+          });
+        }
       } catch {
         // Best-effort notification
       }

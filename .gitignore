@@ -43,6 +43,7 @@ notification_example/
 temp/
 .claude/*.local.json
 .claude/agent-memory/*
+.claude/worktrees/
 
 
 eslint-fix/

@@ -1002,29 +1002,32 @@ async function main() {
       if (notify && task.owner) {
         const from =
           typeof args.flags.from === 'string' && args.flags.from.trim() ? args.flags.from.trim() : inferLeadName(paths);
-        const parts = ['New task assigned to you: #' + String(task.id) + ' "' + String(task.subject) + '".'];
-        const rawDesc = typeof args.flags.description === 'string' ? args.flags.description.trim()
-          : typeof args.flags.desc === 'string' ? args.flags.desc.trim() : '';
-        if (rawDesc && rawDesc !== task.subject) {
-          parts.push('\nDescription:\n' + rawDesc);
+        // Skip inbox notification when lead assigns a task to themselves (solo teams)
+        if (task.owner.toLowerCase() !== from.toLowerCase()) {
+          const parts = ['New task assigned to you: #' + String(task.id) + ' "' + String(task.subject) + '".'];
+          const rawDesc = typeof args.flags.description === 'string' ? args.flags.description.trim()
+            : typeof args.flags.desc === 'string' ? args.flags.desc.trim() : '';
+          if (rawDesc && rawDesc !== task.subject) {
+            parts.push('\nDescription:\n' + rawDesc);
+          }
+          const prompt = typeof args.flags.prompt === 'string' ? args.flags.prompt.trim() : '';
+          if (prompt) {
+            parts.push('\nInstructions:\n' + prompt);
+          }
+          parts.push(
+            '\n' + ${JSON.stringify(AGENT_BLOCK_OPEN)},
+            'Update task status using:',
+            'node "' + __filename + '" --team ' + String(teamName) + ' task start ' + String(task.id),
+            'node "' + __filename + '" --team ' + String(teamName) + ' task complete ' + String(task.id),
+            ${JSON.stringify(AGENT_BLOCK_CLOSE)}
+          );
+          sendInboxMessage(paths, teamName, {
+            to: task.owner,
+            text: parts.join('\n'),
+            summary: 'New task #' + String(task.id) + ' assigned',
+            from,
+          });
         }
-        const prompt = typeof args.flags.prompt === 'string' ? args.flags.prompt.trim() : '';
-        if (prompt) {
-          parts.push('\nInstructions:\n' + prompt);
-        }
-        parts.push(
-          '\n' + ${JSON.stringify(AGENT_BLOCK_OPEN)},
-          'Update task status using:',
-          'node "' + __filename + '" --team ' + String(teamName) + ' task start ' + String(task.id),
-          'node "' + __filename + '" --team ' + String(teamName) + ' task complete ' + String(task.id),
-          ${JSON.stringify(AGENT_BLOCK_CLOSE)}
-        );
-        sendInboxMessage(paths, teamName, {
-          to: task.owner,
-          text: parts.join('\n'),
-          summary: 'New task #' + String(task.id) + ' assigned',
-          from,
-        });
       }
       process.stdout.write(JSON.stringify(task, null, 2) + '\n');
       return;

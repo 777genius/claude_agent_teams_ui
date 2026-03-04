@@ -58,7 +58,7 @@ const STDOUT_RING_LIMIT = 64 * 1024;
 const LOG_PROGRESS_THROTTLE_MS = 300;
 const UI_LOGS_TAIL_LIMIT = 128 * 1024;
 const SHELL_ENV_TIMEOUT_MS = 12000;
-const CLI_PREPARE_TIMEOUT_MS = 10000;
+// const CLI_PREPARE_TIMEOUT_MS = 10000;
 const PROBE_CACHE_TTL_MS = 60_000;
 const PREFLIGHT_TIMEOUT_MS = 30000;
 const PREFLIGHT_AUTH_RETRY_DELAY_MS = 2000;
@@ -69,6 +69,9 @@ const TASK_WAIT_FALLBACK_MS = 15_000;
 const TEAM_JSON_READ_TIMEOUT_MS = 5_000;
 const TEAM_CONFIG_MAX_BYTES = 10 * 1024 * 1024;
 const TEAM_INBOX_MAX_BYTES = 2 * 1024 * 1024;
+const PREFLIGHT_PING_PROMPT = 'Reply with the single word PONG and nothing else';
+const PREFLIGHT_PING_ARGS = ['-p', PREFLIGHT_PING_PROMPT, '--output-format', 'text'] as const;
+const PREFLIGHT_EXPECTED = 'PONG';
 
 const execFileAsync = promisify(execFile);
 
@@ -3873,6 +3876,7 @@ export class TeamProvisioningService {
   /**
    * Two-stage preflight check:
    * 1. `claude --version` — verifies binary is executable and returns version info.
+   *    (currently disabled for speed; keep commented for debugging)
    * 2. `claude -p "ping"` — verifies that `-p` mode is actually authenticated.
    *    This catches the common case where interactive `claude` works (OAuth/keychain)
    *    but `-p` mode fails with "Not logged in" due to missing env vars.
@@ -3885,19 +3889,19 @@ export class TeamProvisioningService {
     // Stage 1: verify binary works (awaited first for clearer errors)
     // Important: keep this sequential with Stage 2 to avoid auth/credential-store races
     // when multiple `claude` processes start simultaneously (most visible on Windows).
-    const versionProbe = await this.spawnProbe(
-      claudePath,
-      ['--version'],
-      cwd,
-      env,
-      CLI_PREPARE_TIMEOUT_MS
-    );
-    if (versionProbe.exitCode !== 0) {
-      const errorText =
-        buildCombinedLogs(versionProbe.stdout, versionProbe.stderr) ||
-        `Claude CLI exited with code ${versionProbe.exitCode ?? 'unknown'} during warm-up`;
-      throw new Error(`Failed to warm up Claude CLI: ${errorText}`);
-    }
+    // const versionProbe = await this.spawnProbe(
+    //   claudePath,
+    //   ['--version'],
+    //   cwd,
+    //   env,
+    //   CLI_PREPARE_TIMEOUT_MS
+    // );
+    // if (versionProbe.exitCode !== 0) {
+    //   const errorText =
+    //     buildCombinedLogs(versionProbe.stdout, versionProbe.stderr) ||
+    //     `Claude CLI exited with code ${versionProbe.exitCode ?? 'unknown'} during warm-up`;
+    //   throw new Error(`Failed to warm up Claude CLI: ${errorText}`);
+    // }
 
     // Stage 2: verify `-p` mode auth actually works (with retry for stale locks after Ctrl+C)
     for (let attempt = 1; attempt <= PREFLIGHT_AUTH_MAX_RETRIES; attempt++) {
@@ -3905,7 +3909,7 @@ export class TeamProvisioningService {
       try {
         pingProbe = await this.spawnProbe(
           claudePath,
-          ['-p', 'Reply with the single word PONG and nothing else', '--output-format', 'text'],
+          [...PREFLIGHT_PING_ARGS],
           cwd,
           env,
           PREFLIGHT_TIMEOUT_MS
@@ -3956,7 +3960,7 @@ export class TeamProvisioningService {
       }
 
       const pongCandidate = pingProbe.stdout.trim() || pingProbe.stderr.trim();
-      const isPong = pongCandidate.toUpperCase() === 'PONG';
+      const isPong = pongCandidate.toUpperCase() === PREFLIGHT_EXPECTED;
       if (!isPong) {
         return {
           warning:

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
@@ -56,16 +56,49 @@ interface SidebarTaskItemProps {
   task: GlobalTask;
   hideTeamName?: boolean;
   showTeamName?: boolean;
+  /** The composite key "teamName:taskId" of the task being renamed, or null */
+  renamingKey?: string | null;
+  /** Called when rename is completed with Enter or blur */
+  onRenameComplete?: (teamName: string, taskId: string, newSubject: string) => void;
+  /** Called when rename is cancelled with Escape */
+  onRenameCancel?: () => void;
+  /** Returns a custom display subject if the task was renamed locally */
+  getDisplaySubject?: (task: GlobalTask) => string | undefined;
 }
 
 export const SidebarTaskItem = ({
   task,
   hideTeamName,
   showTeamName,
+  renamingKey,
+  onRenameComplete,
+  onRenameCancel,
+  getDisplaySubject,
 }: SidebarTaskItemProps): React.JSX.Element => {
   const openGlobalTaskDetail = useStore((s) => s.openGlobalTaskDetail);
   const teamMembers = useStore((s) => s.teamByName[task.teamName]?.members);
   const unreadCount = useUnreadCommentCount(task.teamName, task.id, task.comments);
+
+  const isRenaming = renamingKey === `${task.teamName}:${task.id}`;
+  const displaySubject = getDisplaySubject?.(task) ?? task.subject;
+  const [editValue, setEditValue] = useState(displaySubject);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when rename starts
+  useEffect(() => {
+    if (isRenaming && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isRenaming]);
+
+  // Reset edit value when renaming starts
+  useEffect(() => {
+    if (isRenaming) {
+      setEditValue(displaySubject);
+    }
+  }, [isRenaming, displaySubject]);
+
   const cfg =
     task.kanbanColumn === 'approved'
       ? ({ icon: ShieldCheck, color: 'text-teal-400', label: 'approved' } as const)
@@ -105,25 +138,66 @@ export const SidebarTaskItem = ({
       type="button"
       className={`flex w-full cursor-pointer flex-col justify-center border-b px-3 py-1.5 text-left transition-colors hover:bg-surface-raised ${task.teamDeleted ? 'opacity-50' : ''}`}
       style={{ borderColor: 'var(--color-border)' }}
-      onClick={() => openGlobalTaskDetail(task.teamName, task.id)}
+      onClick={() => {
+        if (!isRenaming) {
+          openGlobalTaskDetail(task.teamName, task.id);
+        }
+      }}
     >
       {/* Row 1: status + subject */}
       <div className="flex w-full items-start gap-1.5 overflow-hidden">
         <StatusIcon className={`mt-0.5 size-3 shrink-0 ${cfg.color}`} />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="line-clamp-2 text-[13px] font-medium leading-tight"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
-              {task.subject}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={6}>
-            {task.subject}
-          </TooltipContent>
-        </Tooltip>
-        {unreadCount > 0 && (
+        {isRenaming ? (
+          <input
+            ref={inputRef}
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const trimmed = editValue.trim();
+                if (trimmed && trimmed !== task.subject) {
+                  onRenameComplete?.(task.teamName, task.id, trimmed);
+                } else {
+                  onRenameCancel?.();
+                }
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                onRenameCancel?.();
+              }
+            }}
+            onBlur={() => {
+              const trimmed = editValue.trim();
+              if (trimmed && trimmed !== task.subject) {
+                onRenameComplete?.(task.teamName, task.id, trimmed);
+              } else {
+                onRenameCancel?.();
+              }
+            }}
+            className="min-w-0 flex-1 rounded border bg-transparent px-1 py-0 text-[13px] font-medium leading-tight text-text focus:outline-none"
+            style={{
+              borderColor: 'var(--color-border-emphasis)',
+              backgroundColor: 'var(--color-surface-raised)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="line-clamp-2 text-[13px] font-medium leading-tight"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                {displaySubject}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={6}>
+              {displaySubject}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {unreadCount > 0 && !isRenaming && (
           <span
             className="size-1.5 shrink-0 rounded-full bg-blue-400"
             title={`${unreadCount} unread`}

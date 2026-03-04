@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
+import { useTaskLocalState } from '@renderer/hooks/useTaskLocalState';
 import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
 import { normalizePath } from '@renderer/utils/pathNormalize';
@@ -10,12 +12,13 @@ import {
   groupTasksByProject,
   sortTasksByFreshness,
 } from '@renderer/utils/taskGrouping';
-import { ListTodo, Search, X } from 'lucide-react';
+import { Archive, ListTodo, Pin, Search, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { Combobox, type ComboboxOption } from '../ui/combobox';
 
 import { SidebarTaskItem } from './SidebarTaskItem';
+import { TaskContextMenu } from './TaskContextMenu';
 import { TaskFiltersPopover } from './TaskFiltersPopover';
 import {
   defaultTaskFiltersState,
@@ -118,9 +121,12 @@ export const GlobalTaskList = ({
   const setFiltersPopoverOpen = externalOnFiltersPopoverOpenChange ?? setInternalFiltersPopoverOpen;
   const [searchQuery, setSearchQuery] = useState('');
   const [groupingMode, setGroupingModeState] = useState<TaskGroupingMode>(loadGroupingMode);
+  const [showArchived, setShowArchived] = useState(false);
+  const [renamingTaskKey, setRenamingTaskKey] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const hasFetchedRef = useRef(false);
   const readState = useReadStateSnapshot();
+  const taskLocalState = useTaskLocalState();
 
   // Local project filter (independent from sessions tab)
   const [localProjectFilter, setLocalProjectFilter] = useState<string | null>(null);
@@ -128,6 +134,11 @@ export const GlobalTaskList = ({
   const setGroupingMode = (mode: TaskGroupingMode): void => {
     setGroupingModeState(mode);
     saveGroupingMode(mode);
+  };
+
+  const handleRenameComplete = (teamName: string, taskId: string, newSubject: string): void => {
+    taskLocalState.renameTask(teamName, taskId, newSubject);
+    setRenamingTaskKey(null);
   };
 
   // Fetch tasks on mount — loading guard in the store action prevents
@@ -181,6 +192,12 @@ export const GlobalTaskList = ({
       );
     }
     result = applySearch(result, searchQuery);
+    // Archive filtering
+    if (showArchived) {
+      result = result.filter((t) => taskLocalState.isArchived(t.teamName, t.id));
+    } else {
+      result = result.filter((t) => !taskLocalState.isArchived(t.teamName, t.id));
+    }
     return result;
   }, [
     globalTasks,
@@ -190,19 +207,32 @@ export const GlobalTaskList = ({
     filters.unreadOnly,
     searchQuery,
     readState,
+    showArchived,
+    taskLocalState,
   ]);
 
-  const sortedFlat = useMemo(() => sortTasksByFreshness(filtered), [filtered]);
-  const grouped = useMemo(() => groupTasksByDate(filtered), [filtered]);
+  // Split into pinned and normal (non-pinned) tasks
+  const pinnedTasks = useMemo(
+    () => filtered.filter((t) => taskLocalState.isPinned(t.teamName, t.id)),
+    [filtered, taskLocalState]
+  );
+  const normalTasks = useMemo(
+    () => filtered.filter((t) => !taskLocalState.isPinned(t.teamName, t.id)),
+    [filtered, taskLocalState]
+  );
+
+  const sortedFlat = useMemo(() => sortTasksByFreshness(normalTasks), [normalTasks]);
+  const grouped = useMemo(() => groupTasksByDate(normalTasks), [normalTasks]);
   const categories = useMemo(() => getNonEmptyTaskCategories(grouped), [grouped]);
-  const projectGroups = useMemo(() => groupTasksByProject(filtered), [filtered]);
+  const projectGroups = useMemo(() => groupTasksByProject(normalTasks), [normalTasks]);
 
   const hasContent =
-    groupingMode === 'none'
+    pinnedTasks.length > 0 ||
+    (groupingMode === 'none'
       ? sortedFlat.length > 0
       : groupingMode === 'time'
         ? categories.length > 0
-        : projectGroups.some((g) => g.tasks.length > 0);
+        : projectGroups.some((g) => g.tasks.length > 0));
 
   return (
     <div className="flex size-full min-w-0 flex-col">
@@ -266,6 +296,35 @@ export const GlobalTaskList = ({
         />
       </div>
 
+      {/* Pinned tasks section */}
+      {pinnedTasks.length > 0 && !showArchived && (
+        <div className="shrink-0 border-b" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="flex items-center gap-1 px-2 py-1">
+            <Pin className="size-3 text-text-muted" />
+            <span className="text-[11px] text-text-muted">Pinned</span>
+          </div>
+          {sortTasksByFreshness(pinnedTasks).map((task) => (
+            <TaskContextMenu
+              key={`pinned-${task.teamName}-${task.id}`}
+              task={task}
+              isPinned={true}
+              isArchived={false}
+              onTogglePin={() => taskLocalState.togglePin(task.teamName, task.id)}
+              onToggleArchive={() => taskLocalState.toggleArchive(task.teamName, task.id)}
+              onRename={() => setRenamingTaskKey(`${task.teamName}:${task.id}`)}
+            >
+              <SidebarTaskItem
+                task={task}
+                showTeamName
+                renamingKey={renamingTaskKey}
+                onRenameComplete={handleRenameComplete}
+                getDisplaySubject={(t) => taskLocalState.getRenamedSubject(t.teamName, t.id)}
+              />
+            </TaskContextMenu>
+          ))}
+        </div>
+      )}
+
       {/* Grouping mode — compact segmented toggle */}
       <div className="flex shrink-0 items-center gap-1.5 px-2 py-1">
         <span className="shrink-0 text-[11px] text-text-muted">Group by:</span>
@@ -293,6 +352,28 @@ export const GlobalTaskList = ({
             );
           })}
         </div>
+        {/* Archive toggle */}
+        <div className="ml-auto">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setShowArchived(!showArchived)}
+                className={cn(
+                  'rounded p-0.5 transition-colors',
+                  showArchived
+                    ? 'bg-surface-raised text-text-secondary'
+                    : 'text-text-muted hover:text-text-secondary'
+                )}
+              >
+                <Archive className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {showArchived ? 'Hide archived' : 'Show archived'}
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Content */}
@@ -316,7 +397,23 @@ export const GlobalTaskList = ({
 
         {groupingMode === 'none' &&
           sortedFlat.map((task) => (
-            <SidebarTaskItem key={`${task.teamName}-${task.id}`} task={task} showTeamName />
+            <TaskContextMenu
+              key={`${task.teamName}-${task.id}`}
+              task={task}
+              isPinned={taskLocalState.isPinned(task.teamName, task.id)}
+              isArchived={taskLocalState.isArchived(task.teamName, task.id)}
+              onTogglePin={() => taskLocalState.togglePin(task.teamName, task.id)}
+              onToggleArchive={() => taskLocalState.toggleArchive(task.teamName, task.id)}
+              onRename={() => setRenamingTaskKey(`${task.teamName}:${task.id}`)}
+            >
+              <SidebarTaskItem
+                task={task}
+                showTeamName
+                renamingKey={renamingTaskKey}
+                onRenameComplete={handleRenameComplete}
+                getDisplaySubject={(t) => taskLocalState.getRenamedSubject(t.teamName, t.id)}
+              />
+            </TaskContextMenu>
           ))}
 
         {groupingMode === 'project' &&
@@ -347,7 +444,24 @@ export const GlobalTaskList = ({
                           Team: {task.teamDisplayName}
                         </div>
                       )}
-                      <SidebarTaskItem task={task} hideTeamName />
+                      <TaskContextMenu
+                        task={task}
+                        isPinned={taskLocalState.isPinned(task.teamName, task.id)}
+                        isArchived={taskLocalState.isArchived(task.teamName, task.id)}
+                        onTogglePin={() => taskLocalState.togglePin(task.teamName, task.id)}
+                        onToggleArchive={() => taskLocalState.toggleArchive(task.teamName, task.id)}
+                        onRename={() => setRenamingTaskKey(`${task.teamName}:${task.id}`)}
+                      >
+                        <SidebarTaskItem
+                          task={task}
+                          hideTeamName
+                          renamingKey={renamingTaskKey}
+                          onRenameComplete={handleRenameComplete}
+                          getDisplaySubject={(t) =>
+                            taskLocalState.getRenamedSubject(t.teamName, t.id)
+                          }
+                        />
+                      </TaskContextMenu>
                     </div>
                   );
                 })}
@@ -380,7 +494,23 @@ export const GlobalTaskList = ({
                           Team: {task.teamDisplayName}
                         </div>
                       )}
-                      <SidebarTaskItem task={task} />
+                      <TaskContextMenu
+                        task={task}
+                        isPinned={taskLocalState.isPinned(task.teamName, task.id)}
+                        isArchived={taskLocalState.isArchived(task.teamName, task.id)}
+                        onTogglePin={() => taskLocalState.togglePin(task.teamName, task.id)}
+                        onToggleArchive={() => taskLocalState.toggleArchive(task.teamName, task.id)}
+                        onRename={() => setRenamingTaskKey(`${task.teamName}:${task.id}`)}
+                      >
+                        <SidebarTaskItem
+                          task={task}
+                          renamingKey={renamingTaskKey}
+                          onRenameComplete={handleRenameComplete}
+                          getDisplaySubject={(t) =>
+                            taskLocalState.getRenamedSubject(t.teamName, t.id)
+                          }
+                        />
+                      </TaskContextMenu>
                     </div>
                   );
                 })}
