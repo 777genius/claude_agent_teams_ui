@@ -49,6 +49,8 @@ interface MarkdownViewerProps {
   label?: string; // Optional label like "Thinking", "Output", etc.
   /** When provided, enables search term highlighting within the markdown */
   itemId?: string;
+  /** Optional override for search highlighting (local search, e.g. Claude logs) */
+  searchQueryOverride?: string;
   /** When true, shows a copy button (overlay when no label, inline in header when label exists) */
   copyable?: boolean;
   /** When true, renders without wrapper background/border (for embedding inside cards) */
@@ -448,6 +450,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   className = '',
   label,
   itemId,
+  searchQueryOverride,
   copyable = false,
   bare = false,
   baseDir,
@@ -590,9 +593,12 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   }
 
   // Create search context (fresh each render so counter starts at 0)
+  const effectiveQuery = (searchQueryOverride ?? searchQuery).trim();
+  const effectiveMatches = searchQueryOverride ? [] : searchMatches;
+  const effectiveIndex = searchQueryOverride ? -1 : currentSearchIndex;
   const searchCtx =
-    searchQuery && itemId
-      ? createSearchContext(searchQuery, itemId, searchMatches, currentSearchIndex)
+    effectiveQuery && itemId
+      ? createSearchContext(effectiveQuery, itemId, effectiveMatches, effectiveIndex)
       : null;
 
   // Create markdown components with optional search highlighting

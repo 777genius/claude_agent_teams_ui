@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { useStore } from '@renderer/store';
@@ -32,7 +32,6 @@ export const TaskAttachments = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [lightboxSlides, setLightboxSlides] = useState<{ src: string; alt: string }[]>([]);
   const [thumbCache, setThumbCache] = useState<Map<string, string>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -124,6 +123,19 @@ export const TaskAttachments = ({
     [getTaskAttachmentData, teamName, taskId]
   );
 
+  // 1x1 transparent PNG placeholder for slides where thumb is not yet loaded
+  const PLACEHOLDER_SRC =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==';
+
+  const lightboxSlides = useMemo(
+    () =>
+      imageAttachments.map((a) => ({
+        src: thumbCache.get(a.id) ?? PLACEHOLDER_SRC,
+        alt: a.filename,
+      })),
+    [imageAttachments, thumbCache]
+  );
+
   const handlePreview = useCallback(
     (att: TaskAttachmentMeta) => {
       if (!isImageMimeType(att.mimeType)) {
@@ -132,18 +144,10 @@ export const TaskAttachments = ({
       }
       const idx = imageAttachments.findIndex((a) => a.id === att.id);
       if (idx >= 0) {
-        const snapshot = imageAttachments.map((a) => {
-          const dataUrl = thumbCache.get(a.id);
-          return {
-            src: dataUrl ?? `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>`,
-            alt: a.filename,
-          };
-        });
-        setLightboxSlides(snapshot);
         setLightboxIndex(idx);
       }
     },
-    [imageAttachments, thumbCache, handleDownload]
+    [imageAttachments, handleDownload]
   );
 
   // Handle paste events for quick image attachment
@@ -222,7 +226,6 @@ export const TaskAttachments = ({
           open
           onClose={() => {
             setLightboxIndex(null);
-            setLightboxSlides([]);
           }}
           slides={lightboxSlides}
           index={lightboxIndex}

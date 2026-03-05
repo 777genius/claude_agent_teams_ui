@@ -161,6 +161,14 @@ function extractAssistantMessageId(parsed: unknown): string | null {
 }
 
 /**
+ * Module-level timestamp cache keyed by line content.
+ * Ensures re-parses of the same log lines preserve their original timestamps
+ * instead of getting new Date() each time.
+ */
+const lineTimestampCache = new Map<string, Date>();
+const MAX_TIMESTAMP_CACHE_SIZE = 5000;
+
+/**
  * Parses stream-json CLI output lines into structured groups for rich rendering.
  *
  * Each group represents one or more consecutive assistant messages.
@@ -176,8 +184,6 @@ export function parseStreamJsonToGroups(cliLogsTail: string): StreamJsonGroup[] 
   let currentGroupId: string | null = null;
   // Track how many times each messageId has been seen to disambiguate duplicates
   const msgIdOccurrences = new Map<string, number>();
-  // Stable timestamp for the entire parse (deterministic across re-renders)
-  const parseTimestamp = new Date();
 
   const flushGroup = (): void => {
     if (currentItems.length > 0 && currentTimestamp) {
@@ -197,8 +203,10 @@ export function parseStreamJsonToGroups(cliLogsTail: string): StreamJsonGroup[] 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const trimmed = lines[lineIndex].trim();
 
-    // Skip empty lines and stream markers
-    if (!trimmed || trimmed.startsWith('[stdout]') || trimmed.startsWith('[stderr]')) {
+    // Skip empty lines; stream markers break groups
+    if (!trimmed) continue;
+    if (trimmed.startsWith('[stdout]') || trimmed.startsWith('[stderr]')) {
+      flushGroup();
       continue;
     }
 
@@ -219,7 +227,20 @@ export function parseStreamJsonToGroups(cliLogsTail: string): StreamJsonGroup[] 
       continue;
     }
 
-    if (!currentTimestamp) currentTimestamp = parseTimestamp;
+    if (!currentTimestamp) {
+      // Use stable cached timestamp keyed by line content to survive re-parses
+      let ts = lineTimestampCache.get(trimmed);
+      if (!ts) {
+        ts = new Date();
+        if (lineTimestampCache.size >= MAX_TIMESTAMP_CACHE_SIZE) {
+          // Evict oldest entry (first inserted)
+          const firstKey = lineTimestampCache.keys().next().value as string;
+          lineTimestampCache.delete(firstKey);
+        }
+        lineTimestampCache.set(trimmed, ts);
+      }
+      currentTimestamp = ts;
+    }
     if (!currentGroupId) {
       const msgId = extractAssistantMessageId(parsed);
       if (msgId) {
@@ -233,7 +254,7 @@ export function parseStreamJsonToGroups(cliLogsTail: string): StreamJsonGroup[] 
       }
     }
 
-    const items = contentBlocksToDisplayItems(blocks, parseTimestamp, lineIndex);
+    const items = contentBlocksToDisplayItems(blocks, currentTimestamp!, lineIndex);
     currentItems.push(...items);
   }
 

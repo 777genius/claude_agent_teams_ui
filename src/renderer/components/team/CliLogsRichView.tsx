@@ -21,6 +21,8 @@ interface CliLogsRichViewProps {
   order?: 'oldest-first' | 'newest-first';
   onScroll?: (params: { scrollTop: number; scrollHeight: number; clientHeight: number }) => void;
   containerRefCallback?: (el: HTMLDivElement | null) => void;
+  /** Optional local search query override for inline highlighting */
+  searchQueryOverride?: string;
   className?: string;
 }
 
@@ -46,10 +48,12 @@ const FlatGroupItem = ({
   group,
   expandedItemIds,
   onItemClick,
+  searchQueryOverride,
 }: {
   group: StreamJsonGroup;
   expandedItemIds: Set<string>;
   onItemClick: (itemId: string) => void;
+  searchQueryOverride?: string;
 }): React.JSX.Element => {
   const groupItemIds = useMemo(
     () => scopedItemIds(expandedItemIds, group.id),
@@ -66,6 +70,7 @@ const FlatGroupItem = ({
       onItemClick={handleItemClick}
       expandedItemIds={groupItemIds}
       aiGroupId={group.id}
+      searchQueryOverride={searchQueryOverride}
     />
   );
 };
@@ -79,12 +84,14 @@ const StreamGroup = ({
   onToggle,
   expandedItemIds,
   onItemClick,
+  searchQueryOverride,
 }: {
   group: StreamJsonGroup;
   isExpanded: boolean;
   onToggle: () => void;
   expandedItemIds: Set<string>;
   onItemClick: (itemId: string) => void;
+  searchQueryOverride?: string;
 }): React.JSX.Element => {
   // Scope item IDs to this group to avoid cross-group collisions
   const groupItemIds = useMemo(
@@ -122,6 +129,7 @@ const StreamGroup = ({
             onItemClick={handleItemClick}
             expandedItemIds={groupItemIds}
             aiGroupId={group.id}
+            searchQueryOverride={searchQueryOverride}
           />
         </div>
       )}
@@ -134,6 +142,7 @@ export const CliLogsRichView = ({
   order = 'oldest-first',
   onScroll,
   containerRefCallback,
+  searchQueryOverride,
   className,
 }: CliLogsRichViewProps): React.JSX.Element => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -242,6 +251,7 @@ export const CliLogsRichView = ({
             group={group}
             expandedItemIds={expandedItemIds}
             onItemClick={handleItemClick}
+            searchQueryOverride={searchQueryOverride}
           />
         ) : (
           <StreamGroup
@@ -251,6 +261,7 @@ export const CliLogsRichView = ({
             onToggle={() => handleGroupToggle(group.id)}
             expandedItemIds={expandedItemIds}
             onItemClick={handleItemClick}
+            searchQueryOverride={searchQueryOverride}
           />
         )
       )}

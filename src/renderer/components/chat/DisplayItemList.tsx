@@ -29,6 +29,8 @@ interface DisplayItemListProps {
   onItemClick: (itemId: string) => void;
   expandedItemIds: Set<string>;
   aiGroupId: string;
+  /** Optional local search query override for markdown highlighting */
+  searchQueryOverride?: string;
   /** Tool use ID to highlight for error deep linking */
   highlightToolUseId?: string;
   /** Custom highlight color from trigger */
@@ -66,6 +68,7 @@ export const DisplayItemList = ({
   onItemClick,
   expandedItemIds,
   aiGroupId,
+  searchQueryOverride,
   highlightToolUseId,
   highlightColor,
   notificationColorMap,
@@ -120,6 +123,8 @@ export const DisplayItemList = ({
                 preview={truncateText(item.content, 150)}
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
+                markdownItemId={searchQueryOverride ? `${aiGroupId}:${itemKey}` : undefined}
+                searchQueryOverride={searchQueryOverride}
               />
             );
             break;
@@ -143,6 +148,8 @@ export const DisplayItemList = ({
                 preview={truncateText(item.content, 150)}
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
+                markdownItemId={searchQueryOverride ? `${aiGroupId}:${itemKey}` : undefined}
+                searchQueryOverride={searchQueryOverride}
               />
             );
             break;
@@ -235,7 +242,12 @@ export const DisplayItemList = ({
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
               >
-                <MarkdownViewer content={inputContent} copyable />
+                <MarkdownViewer
+                  content={inputContent}
+                  copyable
+                  itemId={searchQueryOverride ? `${aiGroupId}:${itemKey}` : undefined}
+                  searchQueryOverride={searchQueryOverride}
+                />
               </BaseItem>
             );
             break;

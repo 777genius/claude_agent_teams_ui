@@ -988,6 +988,8 @@ interface CachedProbeResult {
 }
 
 let cachedProbeResult: CachedProbeResult | null = null;
+let probeInFlight: Promise<{ claudePath: string; authSource: ProvisioningAuthSource; warning?: string } | null> | null =
+  null;
 
 export class TeamProvisioningService {
   private static readonly CLAUDE_LOG_LINES_LIMIT = 50_000;
@@ -1177,21 +1179,9 @@ export class TeamProvisioningService {
 
   async warmup(): Promise<void> {
     try {
-      if (cachedProbeResult && Date.now() - cachedProbeResult.cachedAtMs < PROBE_CACHE_TTL_MS) {
-        return;
-      }
-      const claudePath = await ClaudeBinaryResolver.resolve();
-      if (!claudePath) return;
-      const { env, authSource } = await this.buildProvisioningEnv();
-      const cwd = process.cwd();
-      const probe = await this.probeClaudeRuntime(claudePath, cwd, env);
-      const warning = probe.warning;
-      if (warning && this.isAuthFailureWarning(warning)) {
-        // Don't pin auth failures in cache — user may log in after startup.
-        cachedProbeResult = null;
-      } else {
-        cachedProbeResult = { claudePath, authSource, warning, cachedAtMs: Date.now() };
-      }
+      if (cachedProbeResult && Date.now() - cachedProbeResult.cachedAtMs < PROBE_CACHE_TTL_MS) return;
+      const result = await this.getCachedOrProbeResult(process.cwd());
+      if (!result) return;
       logger.info('CLI warmup completed');
     } catch (error) {
       logger.warn(`CLI warmup failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -1205,30 +1195,20 @@ export class TeamProvisioningService {
       await ensureCwdExists(targetCwdForValidation);
     }
 
-    if (cachedProbeResult) {
-      const ageMs = Date.now() - cachedProbeResult.cachedAtMs;
-      if (ageMs >= PROBE_CACHE_TTL_MS) {
-        cachedProbeResult = null;
-      } else {
-        const { warning, authSource } = cachedProbeResult;
-        const warnings: string[] = [];
-        if (warning) warnings.push(warning);
-        const isAuthFailure = warning ? this.isAuthFailureWarning(warning) : false;
-        const ready = !warning || authSource !== 'none' || !isAuthFailure;
-        return {
-          ready,
-          message: ready ? 'CLI is warmed up and ready to launch' : warning || 'CLI is not ready',
-          warnings: warnings.length > 0 ? warnings : undefined,
-        };
-      }
+    const cached = this.getFreshCachedProbeResult();
+    if (cached) {
+      const { warning, authSource } = cached;
+      const warnings: string[] = [];
+      if (warning) warnings.push(warning);
+      const isAuthFailure = warning ? this.isAuthFailureWarning(warning) : false;
+      const ready = !warning || authSource !== 'none' || !isAuthFailure;
+      return {
+        ready,
+        message: ready ? 'CLI is warmed up and ready to launch' : warning || 'CLI is not ready',
+        warnings: warnings.length > 0 ? warnings : undefined,
+      };
     }
 
-    const claudePath = await ClaudeBinaryResolver.resolve();
-    if (!claudePath) {
-      throw new Error('Claude CLI not found; install it or provide a valid path');
-    }
-
-    const { env: executionEnv, authSource } = await this.buildProvisioningEnv();
     const targetCwd = cwd?.trim() || process.cwd();
     if (!path.isAbsolute(targetCwd)) {
       throw new Error('cwd must be an absolute path');
@@ -1237,39 +1217,30 @@ export class TeamProvisioningService {
 
     const warnings: string[] = [];
 
+    const probeResult = await this.getCachedOrProbeResult(targetCwd);
+    if (!probeResult?.claudePath) {
+      throw new Error('Claude CLI not found; install it or provide a valid path');
+    }
+
+    const { authSource } = probeResult;
     if (authSource === 'anthropic_api_key') {
       logger.info('Auth: using explicit ANTHROPIC_API_KEY');
     } else if (authSource === 'anthropic_auth_token') {
       logger.info('Auth: using ANTHROPIC_AUTH_TOKEN mapped to ANTHROPIC_API_KEY');
     }
 
-    const probe = await this.probeClaudeRuntime(claudePath, targetCwd, executionEnv);
-
-    if (probe.warning) {
-      const isAuthFailure = this.isAuthFailureWarning(probe.warning);
+    if (probeResult.warning) {
+      const isAuthFailure = this.isAuthFailureWarning(probeResult.warning);
       if (authSource === 'none' && isAuthFailure) {
         // No auth source + preflight indicates auth failure — block to avoid a confusing hang later.
         return {
           ready: false,
-          message: probe.warning,
+          message: probeResult.warning,
           warnings: warnings.length > 0 ? warnings : undefined,
         };
       }
       // Preflight warnings (including timeouts) should not block provisioning.
-      warnings.push(probe.warning);
-    }
-
-    // Cache successful/non-auth-failure results so dialogs don't rerun preflight repeatedly.
-    // Avoid caching auth failures — user may authenticate externally and retry without app restart.
-    if (!probe.warning || !this.isAuthFailureWarning(probe.warning)) {
-      cachedProbeResult = {
-        claudePath,
-        authSource,
-        warning: probe.warning,
-        cachedAtMs: Date.now(),
-      };
-    } else {
-      cachedProbeResult = null;
+      warnings.push(probeResult.warning);
     }
 
     return {
@@ -1277,6 +1248,53 @@ export class TeamProvisioningService {
       message: 'CLI is warmed up and ready to launch',
       warnings: warnings.length > 0 ? warnings : undefined,
     };
+  }
+
+  private getFreshCachedProbeResult(): CachedProbeResult | null {
+    if (!cachedProbeResult) return null;
+    const ageMs = Date.now() - cachedProbeResult.cachedAtMs;
+    if (ageMs >= PROBE_CACHE_TTL_MS) {
+      cachedProbeResult = null;
+      return null;
+    }
+    return cachedProbeResult;
+  }
+
+  private async getCachedOrProbeResult(
+    cwd: string
+  ): Promise<{ claudePath: string; authSource: ProvisioningAuthSource; warning?: string } | null> {
+    const cached = this.getFreshCachedProbeResult();
+    if (cached) {
+      return { claudePath: cached.claudePath, authSource: cached.authSource, warning: cached.warning };
+    }
+
+    if (probeInFlight) {
+      return await probeInFlight;
+    }
+
+    probeInFlight = (async () => {
+      const claudePath = await ClaudeBinaryResolver.resolve();
+      if (!claudePath) return null;
+
+      const { env, authSource } = await this.buildProvisioningEnv();
+      const probe = await this.probeClaudeRuntime(claudePath, cwd, env);
+      const result = { claudePath, authSource, ...(probe.warning ? { warning: probe.warning } : {}) };
+
+      if (!probe.warning || !this.isAuthFailureWarning(probe.warning)) {
+        cachedProbeResult = { ...result, cachedAtMs: Date.now() };
+      } else {
+        // Don't pin auth failures in cache — user may log in externally and retry.
+        cachedProbeResult = null;
+      }
+
+      return result;
+    })();
+
+    try {
+      return await probeInFlight;
+    } finally {
+      probeInFlight = null;
+    }
   }
 
   private isAuthFailureWarning(text: string): boolean {

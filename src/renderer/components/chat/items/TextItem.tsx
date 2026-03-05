@@ -15,6 +15,10 @@ interface TextItemProps {
   preview: string;
   onClick: () => void;
   isExpanded: boolean;
+  /** Optional local search query for inline highlighting */
+  searchQueryOverride?: string;
+  /** Optional stable item id for search highlighting */
+  markdownItemId?: string;
   /** Additional classes for highlighting (e.g., error deep linking) */
   highlightClasses?: string;
   /** Inline styles for highlighting (used by custom hex colors) */
@@ -28,6 +32,8 @@ export const TextItem: React.FC<TextItemProps> = ({
   preview,
   onClick,
   isExpanded,
+  searchQueryOverride,
+  markdownItemId,
   highlightClasses,
   highlightStyle,
   notificationDotColor,
@@ -50,7 +56,13 @@ export const TextItem: React.FC<TextItemProps> = ({
       highlightStyle={highlightStyle}
       notificationDotColor={notificationDotColor}
     >
-      <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable />
+      <MarkdownViewer
+        content={fullContent}
+        maxHeight="max-h-96"
+        copyable
+        itemId={markdownItemId}
+        searchQueryOverride={searchQueryOverride}
+      />
     </BaseItem>
   );
 };
