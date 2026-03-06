@@ -54,6 +54,8 @@ interface ActivityItemProps {
   zebraShade?: boolean;
   /** When true, collapse message body — show only header with expand chevron. */
   forceCollapsed?: boolean;
+  /** Called when user toggles expand/collapse in collapsed mode. Presence enables chevron. */
+  onCollapseToggle?: () => void;
 }
 
 function getStringField(obj: StructuredMessage, key: string): string | null {
@@ -216,6 +218,7 @@ export const ActivityItem = ({
   onRestartTeam,
   zebraShade,
   forceCollapsed,
+  onCollapseToggle,
 }: ActivityItemProps): React.JSX.Element => {
   const colors = getTeamColorSet(memberColor ?? message.color ?? '');
   const formattedRole = formatAgentRole(memberRole);
@@ -295,8 +298,9 @@ export const ActivityItem = ({
     onCreateTask?.(subject, description);
   };
 
-  const isHeaderClickable = Boolean(systemLabel) || forceCollapsed === true;
-  const showChevron = Boolean(systemLabel) || forceCollapsed === true;
+  const isHeaderClickable =
+    Boolean(systemLabel) || forceCollapsed === true || onCollapseToggle != null;
+  const showChevron = isHeaderClickable;
   const isUserSent = message.source === 'user_sent';
   const isSystemMessage = message.from === 'system';
 

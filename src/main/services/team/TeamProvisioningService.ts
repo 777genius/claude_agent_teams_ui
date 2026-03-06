@@ -1804,6 +1804,7 @@ export class TeamProvisioningService {
         'TeamDelete,TodoWrite',
         ...(request.skipPermissions !== false ? ['--dangerously-skip-permissions'] : []),
         ...(request.model ? ['--model', request.model] : []),
+        ...(request.effort ? ['--effort', request.effort] : []),
       ];
       try {
         child = spawnCli(claudePath, spawnArgs, {
@@ -2136,6 +2137,9 @@ export class TeamProvisioningService {
       }
       if (request.model) {
         launchArgs.push('--model', request.model);
+      }
+      if (request.effort) {
+        launchArgs.push('--effort', request.effort);
       }
       // New sessions: CLI creates its own ID. No --resume with synthetic name — docs say
       // --resume is for existing sessions and may show an interactive picker if not found.
@@ -3222,7 +3226,8 @@ export class TeamProvisioningService {
 
   /**
    * Handles a control_request message from CLI stream-json output.
-   * Only `can_use_tool` subtype is processed — others are logged and ignored.
+   * `can_use_tool` → emits to renderer for manual approval.
+   * All other subtypes (hook_callback, etc.) → auto-allowed to prevent deadlock.
    */
   private handleControlRequest(run: ProvisioningRun, msg: Record<string, unknown>): void {
     const requestId = typeof msg.request_id === 'string' ? msg.request_id : null;
@@ -3233,10 +3238,14 @@ export class TeamProvisioningService {
 
     const request = msg.request as Record<string, unknown> | undefined;
     const subtype = request?.subtype;
+
+    // Non-`can_use_tool` subtypes (hook_callback, etc.) are auto-allowed to prevent
+    // CLI deadlock — hooks are user-configured and should not block on manual approval.
     if (subtype !== 'can_use_tool') {
       logger.debug(
-        `[${run.teamName}] control_request subtype=${String(subtype)}, ignoring (only can_use_tool supported)`
+        `[${run.teamName}] control_request subtype=${String(subtype)}, auto-allowing to prevent deadlock`
       );
+      this.autoAllowControlRequest(run, requestId);
       return;
     }
 
@@ -3255,6 +3264,34 @@ export class TeamProvisioningService {
 
     run.pendingApprovals.set(requestId, approval);
     this.emitToolApprovalEvent(approval);
+  }
+
+  /**
+   * Immediately sends an "allow" control_response for a non-tool control_request.
+   * Prevents CLI deadlock for hook_callback and other non-`can_use_tool` subtypes.
+   */
+  private autoAllowControlRequest(run: ProvisioningRun, requestId: string): void {
+    if (!run.child?.stdin?.writable) {
+      logger.warn(`[${run.teamName}] Cannot auto-allow control_request: stdin not writable`);
+      return;
+    }
+
+    const response = {
+      type: 'control_response',
+      response: {
+        subtype: 'success',
+        request_id: requestId,
+        response: { behavior: 'allow' },
+      },
+    };
+
+    run.child.stdin.write(JSON.stringify(response) + '\n', (err) => {
+      if (err) {
+        logger.error(
+          `[${run.teamName}] Failed to auto-allow control_request ${requestId}: ${err.message}`
+        );
+      }
+    });
   }
 
   /**

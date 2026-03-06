@@ -82,13 +82,6 @@ export const ToolApprovalSheet: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [disabled, setDisabled] = useState(false);
 
-  // Auto-focus when new approval arrives
-  useEffect(() => {
-    if (current && containerRef.current) {
-      containerRef.current.focus();
-    }
-  }, [current?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleRespond = useCallback(
     (allow: boolean) => {
       if (!current || disabled) return;

@@ -296,11 +296,14 @@ export interface TeamData {
   isAlive?: boolean;
 }
 
+export type EffortLevel = 'low' | 'medium' | 'high';
+
 export interface TeamLaunchRequest {
   teamName: string;
   cwd: string;
   prompt?: string;
   model?: string;
+  effort?: EffortLevel;
   /** When true, skip --resume and start a fresh session (clears context memory). */
   clearContext?: boolean;
   /** When false, run WITHOUT --dangerously-skip-permissions (manual tool approval). Default: true. */
@@ -385,6 +388,7 @@ export interface TeamCreateRequest {
   cwd: string;
   prompt?: string;
   model?: string;
+  effort?: EffortLevel;
   /** When false, run WITHOUT --dangerously-skip-permissions (manual tool approval). Default: true. */
   skipPermissions?: boolean;
 }

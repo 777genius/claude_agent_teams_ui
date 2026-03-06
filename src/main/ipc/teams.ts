@@ -96,6 +96,7 @@ import type {
   AttachmentMeta,
   AttachmentPayload,
   CreateTaskRequest,
+  EffortLevel,
   GlobalTask,
   IpcResult,
   KanbanColumnId,
@@ -548,6 +549,12 @@ function isProvisioningTeamName(teamName: string): boolean {
   return parts.every((p) => /^[a-z0-9]+$/.test(p));
 }
 
+const VALID_EFFORT_LEVELS: readonly string[] = ['low', 'medium', 'high'];
+
+function isValidEffort(value: unknown): value is EffortLevel {
+  return typeof value === 'string' && VALID_EFFORT_LEVELS.includes(value);
+}
+
 async function validateProvisioningRequest(
   request: unknown
 ): Promise<{ valid: true; value: TeamCreateRequest } | { valid: false; error: string }> {
@@ -645,6 +652,7 @@ async function validateProvisioningRequest(
       cwd,
       prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
       model: typeof payload.model === 'string' ? payload.model.trim() || undefined : undefined,
+      effort: isValidEffort(payload.effort) ? payload.effort : undefined,
       skipPermissions:
         typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
     },
@@ -751,6 +759,7 @@ async function handleLaunchTeam(
         cwd,
         prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
         model: typeof payload.model === 'string' ? payload.model.trim() || undefined : undefined,
+        effort: isValidEffort(payload.effort) ? payload.effort : undefined,
         clearContext: payload.clearContext === true ? true : undefined,
         skipPermissions:
           typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,

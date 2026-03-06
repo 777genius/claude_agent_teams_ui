@@ -24,12 +24,14 @@ import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { normalizePath } from '@renderer/utils/pathNormalize';
 import { AlertTriangle, CheckCircle2, Loader2, RotateCcw, X } from 'lucide-react';
 
+import { EffortLevelSelector } from './EffortLevelSelector';
 import { ProjectPathSelector } from './ProjectPathSelector';
 import { computeEffectiveTeamModel, TeamModelSelector } from './TeamModelSelector';
 
 import type { ActiveTeamRef } from './CreateTeamDialog';
 import type { MentionSuggestion } from '@renderer/types/mention';
 import type {
+  EffortLevel,
   Project,
   ResolvedTeamMember,
   TeamLaunchRequest,
@@ -82,6 +84,9 @@ export const LaunchTeamDialog = ({
   const [skipPermissions, setSkipPermissionsRaw] = useState(
     () => localStorage.getItem('team:lastSkipPermissions') !== 'false'
   );
+  const [selectedEffort, setSelectedEffortRaw] = useState(
+    () => localStorage.getItem('team:lastSelectedEffort') ?? ''
+  );
   const [clearContext, setClearContext] = useState(false);
   const [conflictDismissed, setConflictDismissed] = useState(false);
 
@@ -98,6 +103,11 @@ export const LaunchTeamDialog = ({
   const setSkipPermissions = (value: boolean): void => {
     setSkipPermissionsRaw(value);
     localStorage.setItem('team:lastSkipPermissions', String(value));
+  };
+
+  const setSelectedEffort = (value: string): void => {
+    setSelectedEffortRaw(value);
+    localStorage.setItem('team:lastSelectedEffort', value);
   };
 
   const resetFormState = (): void => {
@@ -291,6 +301,7 @@ export const LaunchTeamDialog = ({
           cwd: effectiveCwd,
           prompt: promptDraft.value.trim() || undefined,
           model: computeEffectiveTeamModel(selectedModel, extendedContext),
+          effort: (selectedEffort as EffortLevel) || undefined,
           clearContext: clearContext || undefined,
           skipPermissions,
         });
@@ -434,6 +445,11 @@ export const LaunchTeamDialog = ({
               value={selectedModel}
               onValueChange={setSelectedModel}
               id="launch-model"
+            />
+            <EffortLevelSelector
+              value={selectedEffort}
+              onValueChange={setSelectedEffort}
+              id="launch-effort"
             />
             <ExtendedContextCheckbox
               id="launch-extended-context"
