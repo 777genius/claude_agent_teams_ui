@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Reply } from 'lucide-react';
 
 import { CopyButton } from '@renderer/components/common/CopyButton';
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
@@ -15,8 +15,14 @@ import {
 } from '@renderer/constants/cssVariables';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { useStore } from '@renderer/store';
+import { agentAvatarUrl } from '@renderer/utils/memberHelpers';
 import { formatToolSummary, parseToolSummary } from '@shared/utils/toolSummary';
 
+import {
+  AnimatedHeightReveal,
+  ENTRY_REVEAL_ANIMATION_MS,
+  ENTRY_REVEAL_EASING,
+} from './AnimatedHeightReveal';
 import { linkifyMentionsInMarkdown, linkifyTaskIdsInMarkdown } from './ActivityItem';
 import { isManagedCollapseState } from './collapseState';
 
@@ -86,7 +92,7 @@ const VIEWPORT_THRESHOLD = 0.15;
 const LIVE_WINDOW_MS = 5_000;
 const COLLAPSED_THOUGHTS_HEIGHT = 200;
 const AUTO_SCROLL_THRESHOLD = 30;
-const THOUGHT_HEIGHT_ANIMATION_MS = 220;
+const THOUGHT_HEIGHT_ANIMATION_MS = ENTRY_REVEAL_ANIMATION_MS;
 
 interface LeadThoughtsGroupRowProps {
   group: LeadThoughtGroup;
@@ -103,6 +109,8 @@ interface LeadThoughtsGroupRowProps {
   onTaskIdClick?: (taskId: string) => void;
   /** Map of member name → color name for @mention badge rendering. */
   memberColorMap?: Map<string, string>;
+  /** Called when user clicks the reply button on a thought. */
+  onReply?: (message: InboxMessage) => void;
 }
 
 function formatTime(timestamp: string): string {
@@ -187,6 +195,7 @@ interface LeadThoughtItemProps {
   shouldAnimate: boolean;
   onTaskIdClick?: (taskId: string) => void;
   memberColorMap?: Map<string, string>;
+  onReply?: (message: InboxMessage) => void;
 }
 
 const LeadThoughtItem = ({
@@ -195,6 +204,7 @@ const LeadThoughtItem = ({
   shouldAnimate,
   onTaskIdClick,
   memberColorMap,
+  onReply,
 }: LeadThoughtItemProps): JSX.Element => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -229,6 +239,7 @@ const LeadThoughtItem = ({
     wrapper.style.opacity = '1';
     wrapper.style.overflow = 'visible';
     wrapper.style.transition = '';
+    wrapper.style.willChange = '';
   }, []);
 
   useLayoutEffect(() => {
@@ -246,12 +257,18 @@ const LeadThoughtItem = ({
       wrapper.style.overflow = 'hidden';
       wrapper.style.height = `${Math.max(startHeight, 0)}px`;
       wrapper.style.opacity = `${startOpacity}`;
+      wrapper.style.willChange = 'height, opacity';
       void wrapper.offsetHeight;
 
       animationFrameRef.current = requestAnimationFrame(() => {
-        wrapper.style.transition = `height ${THOUGHT_HEIGHT_ANIMATION_MS}ms ease, opacity ${THOUGHT_HEIGHT_ANIMATION_MS}ms ease`;
-        wrapper.style.height = `${Math.max(targetHeight, 0)}px`;
-        wrapper.style.opacity = '1';
+        animationFrameRef.current = requestAnimationFrame(() => {
+          wrapper.style.transition = [
+            `height ${THOUGHT_HEIGHT_ANIMATION_MS}ms ${ENTRY_REVEAL_EASING}`,
+            `opacity ${THOUGHT_HEIGHT_ANIMATION_MS}ms ease`,
+          ].join(', ');
+          wrapper.style.height = `${Math.max(targetHeight, 0)}px`;
+          wrapper.style.opacity = '1';
+        });
       });
 
       cleanupTimerRef.current = window.setTimeout(() => {
@@ -352,7 +369,24 @@ const LeadThoughtItem = ({
               <MarkdownViewer content={displayContent} maxHeight="max-h-none" bare />
             </span>
           </div>
-          <div className="absolute right-1 top-0.5 opacity-0 transition-opacity group-hover/thought:opacity-100">
+          <div className="absolute right-1 top-0.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/thought:opacity-100">
+            {onReply ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReply(thought);
+                    }}
+                  >
+                    <Reply size={13} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Reply</TooltipContent>
+              </Tooltip>
+            ) : null}
             <CopyButton text={thought.text} inline />
           </div>
         </div>
@@ -393,6 +427,7 @@ export const LeadThoughtsGroupRow = ({
   collapseState,
   onTaskIdClick,
   memberColorMap,
+  onReply,
 }: LeadThoughtsGroupRowProps): React.JSX.Element => {
   const ref = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -559,7 +594,7 @@ export const LeadThoughtsGroupRow = ({
     [clearPendingScrollSync, expanded, isBodyVisible, queueScrollSync]
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isBodyVisible) return;
     const contentEl = contentRef.current;
     if (!contentEl) return;
@@ -612,11 +647,7 @@ export const LeadThoughtsGroupRow = ({
   }, []);
 
   return (
-    <div
-      ref={ref}
-      className={isNew ? 'message-enter-animate min-h-px' : 'min-h-px'}
-      style={{ overflowAnchor: 'none' }}
-    >
+    <AnimatedHeightReveal animate={isNew} containerRef={ref} style={{ overflowAnchor: 'none' }}>
       <article
         className="group rounded-md [overflow:clip]"
         style={{
@@ -656,15 +687,21 @@ export const LeadThoughtsGroupRow = ({
               }}
             />
           ) : null}
-          {/* Live / offline indicator */}
-          {isLive ? (
-            <span className="pointer-events-none relative inline-flex size-2 shrink-0">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-              <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-            </span>
-          ) : (
-            <span className="inline-flex size-2 shrink-0 rounded-full bg-zinc-500" />
-          )}
+          {/* Lead avatar with optional live indicator */}
+          <div className="relative shrink-0">
+            <img
+              src={agentAvatarUrl(leadName, 24)}
+              alt=""
+              className="size-5 rounded-full bg-[var(--color-surface-raised)]"
+              loading="lazy"
+            />
+            {isLive ? (
+              <span className="absolute -bottom-0.5 -right-0.5 flex size-2.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+                <span className="relative inline-flex size-full rounded-full border-2 border-[var(--color-surface)] bg-emerald-400" />
+              </span>
+            ) : null}
+          </div>
           <MemberBadge name={leadName} color={memberColor} hideAvatar />
           <span className="text-[10px]" style={{ color: CARD_ICON_MUTED }}>
             {thoughts.length} thoughts
@@ -716,6 +753,7 @@ export const LeadThoughtsGroupRow = ({
                   shouldAnimate={isLive && idx === chronologicalThoughts.length - 1}
                   onTaskIdClick={onTaskIdClick}
                   memberColorMap={memberColorMap}
+                  onReply={onReply}
                 />
               ))}
             </div>
@@ -758,6 +796,6 @@ export const LeadThoughtsGroupRow = ({
           </button>
         </div>
       ) : null}
-    </div>
+    </AnimatedHeightReveal>
   );
 };

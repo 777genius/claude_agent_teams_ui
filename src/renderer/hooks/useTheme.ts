@@ -32,11 +32,12 @@ export function useTheme(): {
     // Initialize from cache to prevent flash
     try {
       const cached = localStorage.getItem(THEME_CACHE_KEY);
-      if (cached === 'light') return 'light';
+      if (cached === 'light' || cached === 'dark') return cached;
     } catch {
       // localStorage may not be available
     }
-    return 'dark';
+    // No cache — detect system preference for flash-free first launch
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   // Fetch config on mount if not loaded.
@@ -50,7 +51,7 @@ export function useTheme(): {
   }, [appConfig, configLoading, fetchConfig]);
 
   // Get configured theme
-  const configuredTheme: Theme = appConfig?.general?.theme ?? 'dark';
+  const configuredTheme: Theme = appConfig?.general?.theme ?? 'system';
 
   // Get system theme preference
   const getSystemTheme = useCallback((): ResolvedTheme => {

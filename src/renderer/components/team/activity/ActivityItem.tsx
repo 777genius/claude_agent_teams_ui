@@ -13,7 +13,8 @@ import {
   CARD_ICON_MUTED,
   CARD_TEXT_LIGHT,
 } from '@renderer/constants/cssVariables';
-import { getTeamColorSet } from '@renderer/constants/teamColors';
+import { getTeamColorSet, getThemedBorder } from '@renderer/constants/teamColors';
+import { useTheme } from '@renderer/hooks/useTheme';
 import {
   getMessageTypeLabel,
   getStructuredMessageSummary,
@@ -250,6 +251,7 @@ export const ActivityItem = ({
   collapseState,
 }: ActivityItemProps): React.JSX.Element => {
   const colors = getTeamColorSet(memberColor ?? message.color ?? '');
+  const { isLight } = useTheme();
   const formattedRole = formatAgentRole(memberRole);
 
   const timestamp = Number.isNaN(Date.parse(message.timestamp))
@@ -353,7 +355,7 @@ export const ActivityItem = ({
             ? '3px solid var(--tool-result-error-text)'
             : isSystemMessage
               ? '3px solid var(--system-activity-accent)'
-              : `3px solid ${colors.border}`,
+              : `3px solid ${getThemedBorder(colors, isLight)}`,
       }}
     >
       {/* Header — div with role=button (cannot use <button> due to nested buttons inside) */}

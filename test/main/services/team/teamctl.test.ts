@@ -295,6 +295,37 @@ describe('teamctl.js', () => {
       expect(parsed.owner).toBe('bob');
     });
 
+    it('creates blocked task with reverse links and keeps status pending even with owner', () => {
+      writeTask(claudeDir, '1', { id: '1', subject: 'API contract', status: 'pending' });
+      writeTask(claudeDir, '2', { id: '2', subject: 'Database schema', status: 'pending' });
+      writeTask(claudeDir, '3', { id: '3', subject: 'Frontend shell', status: 'pending' });
+
+      const { stdout, exitCode } = run(claudeDir, [
+        'task',
+        'create',
+        '--subject',
+        'Implement feature',
+        '--owner',
+        'bob',
+        '--blocked-by',
+        '1,2',
+        '--related',
+        '3',
+      ]);
+
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.id).toBe('4');
+      expect(parsed.owner).toBe('bob');
+      expect(parsed.status).toBe('pending');
+      expect(parsed.blockedBy).toEqual(['1', '2']);
+      expect(parsed.related).toEqual(['3']);
+
+      expect(readTask(claudeDir, '1').blocks).toEqual(['4']);
+      expect(readTask(claudeDir, '2').blocks).toEqual(['4']);
+      expect(readTask(claudeDir, '3').related).toEqual(['4']);
+    });
+
     it('increments task IDs', () => {
       run(claudeDir, ['task', 'create', '--subject', 'Task 1']);
       run(claudeDir, ['task', 'create', '--subject', 'Task 2']);
@@ -356,8 +387,9 @@ describe('teamctl.js', () => {
       expect(inbox.length).toBe(1);
       const msg = inbox[0] as Record<string, unknown>;
       expect(msg.from).toBe('alice');
-      expect(String(msg.text)).toContain('New task assigned');
-      expect(String(msg.text)).toContain('#1');
+      expect(String(msg.text)).toMatch(/^New task assigned to you: #1 "Assigned task"\./);
+      expect(msg.summary).toBe('New task #1 assigned');
+      expect(msg.source).toBe('system_notification');
     });
 
     it('sends inbox notification with --notify including prompt and tool instructions', () => {
@@ -564,6 +596,63 @@ describe('teamctl.js', () => {
   });
 
   // =========================================================================
+  // Task Link / Unlink
+  // =========================================================================
+  describe('task link / unlink', () => {
+    beforeEach(() => {
+      writeTask(claudeDir, '1', { id: '1', subject: 'Foundation', status: 'pending' });
+      writeTask(claudeDir, '2', { id: '2', subject: 'Feature', status: 'pending' });
+      writeTask(claudeDir, '3', { id: '3', subject: 'Docs', status: 'pending' });
+    });
+
+    it('task link --blocked-by updates reverse blocks relationship', () => {
+      const { stdout, exitCode } = run(claudeDir, ['task', 'link', '2', '--blocked-by', '1']);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe('OK task #2 blocked-by #1\n');
+      expect(readTask(claudeDir, '2').blockedBy).toEqual(['1']);
+      expect(readTask(claudeDir, '1').blocks).toEqual(['2']);
+    });
+
+    it('task link --blocks delegates to reverse blockedBy relationship', () => {
+      const { stdout, exitCode } = run(claudeDir, ['task', 'link', '1', '--blocks', '2']);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe('OK task #1 blocks #2\n');
+      expect(readTask(claudeDir, '1').blocks).toEqual(['2']);
+      expect(readTask(claudeDir, '2').blockedBy).toEqual(['1']);
+    });
+
+    it('task unlink removes related links symmetrically', () => {
+      expect(run(claudeDir, ['task', 'link', '2', '--related', '3']).exitCode).toBe(0);
+      expect(readTask(claudeDir, '2').related).toEqual(['3']);
+      expect(readTask(claudeDir, '3').related).toEqual(['2']);
+
+      const { stdout, exitCode } = run(claudeDir, ['task', 'unlink', '2', '--related', '3']);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe('OK task #2 unlinked related #3\n');
+      expect(readTask(claudeDir, '2').related).toEqual([]);
+      expect(readTask(claudeDir, '3').related).toEqual([]);
+    });
+
+    it('fails when link type is ambiguous', () => {
+      const { exitCode, stderr } = run(claudeDir, [
+        'task',
+        'link',
+        '2',
+        '--blocked-by',
+        '1',
+        '--related',
+        '3',
+      ]);
+
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain('Specify exactly one');
+    });
+  });
+
+  // =========================================================================
   // Task Set-Owner / Assign
   // =========================================================================
   describe('task set-owner / assign', () => {
@@ -652,8 +741,9 @@ describe('teamctl.js', () => {
       expect(inbox.length).toBe(1);
       const msg = inbox[0] as Record<string, unknown>;
       expect(msg.from).toBe('alice');
-      expect(String(msg.text)).toContain('Task assigned to you');
-      expect(String(msg.text)).toContain('#1');
+      expect(String(msg.text)).toMatch(/^Task assigned to you: #1 "Unowned task"\./);
+      expect(msg.summary).toBe('Task #1 assigned');
+      expect(msg.source).toBe('system_notification');
     });
 
     it('does NOT send notification without --notify', () => {
@@ -749,6 +839,10 @@ describe('teamctl.js', () => {
     it('sends inbox notification to owner (skip self-notification)', () => {
       run(claudeDir, ['task', 'comment', '1', '--text', 'Review this', '--from', 'alice']);
       expect(readInbox(claudeDir, 'bob').length).toBe(1);
+      const msg = readInbox(claudeDir, 'bob')[0] as Record<string, unknown>;
+      expect(String(msg.text)).toBe('Comment on task #1 "Commentable task":\n\nReview this');
+      expect(msg.summary).toBe('Comment on #1');
+      expect(msg.source).toBe('system_notification');
 
       run(claudeDir, ['task', 'comment', '1', '--text', 'Self note', '--from', 'bob']);
       expect(readInbox(claudeDir, 'bob').length).toBe(1); // still 1
@@ -1385,8 +1479,9 @@ describe('teamctl.js', () => {
       const inbox = readInbox(claudeDir, 'bob');
       expect(inbox.length).toBe(1);
       const text = String((inbox[0] as Record<string, unknown>).text);
-      expect(text).toContain('approved');
-      expect(text).toContain('Looks great!');
+      expect(text).toBe('Task #1 approved.\n\nLooks great!');
+      expect((inbox[0] as Record<string, unknown>).summary).toBe('Approved #1');
+      expect((inbox[0] as Record<string, unknown>).source).toBe('system_notification');
       expect((inbox[0] as Record<string, unknown>).from).toBe('alice');
     });
 
@@ -1412,8 +1507,15 @@ describe('teamctl.js', () => {
       expect((readKanban(claudeDir).tasks as Record<string, unknown>)['1']).toBeUndefined();
       expect(readTask(claudeDir, '1').status).toBe('in_progress');
       const text = String((readInbox(claudeDir, 'bob')[0] as Record<string, unknown>).text);
-      expect(text).toContain('Fix the edge case');
-      expect(text).toContain('Please fix');
+      expect(text).toBe(
+        'Task #1 needs fixes.\n\nFix the edge case\n\nPlease fix and mark it as completed when ready.'
+      );
+      expect((readInbox(claudeDir, 'bob')[0] as Record<string, unknown>).summary).toBe(
+        'Fix request for #1'
+      );
+      expect((readInbox(claudeDir, 'bob')[0] as Record<string, unknown>).source).toBe(
+        'system_notification'
+      );
     });
 
     it('request-changes without --comment uses default text', () => {

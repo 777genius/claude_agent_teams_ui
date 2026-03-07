@@ -31,6 +31,8 @@ interface CliLogsRichViewProps {
   /** Optional local search query override for inline highlighting */
   searchQueryOverride?: string;
   className?: string;
+  /** Content rendered at the very bottom of the scroll container (e.g. "Show more" button). */
+  footer?: React.ReactNode;
 }
 
 /**
@@ -237,6 +239,7 @@ export const CliLogsRichView = ({
   containerRefCallback,
   searchQueryOverride,
   className,
+  footer,
 }: CliLogsRichViewProps): React.JSX.Element => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToEdgeRef = useRef(true);
@@ -370,6 +373,7 @@ export const CliLogsRichView = ({
             Waiting for CLI output...
           </p>
         )}
+        {footer}
       </div>
     );
   }
@@ -426,6 +430,7 @@ export const CliLogsRichView = ({
           />
         )
       )}
+      {footer}
     </div>
   );
 };

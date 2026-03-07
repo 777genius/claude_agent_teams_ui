@@ -14,6 +14,18 @@ vi.mock('@preload/constants/ipcChannels', async (importOriginal) => {
   return { ...actual };
 });
 
+// Mock NotificationManager — handleShowMessageNotification calls addTeamNotification
+const { mockAddTeamNotification } = vi.hoisted(() => ({
+  mockAddTeamNotification: vi.fn().mockResolvedValue({ id: 'n1', isRead: false, createdAt: Date.now() }),
+}));
+vi.mock('@main/services/infrastructure/NotificationManager', () => ({
+  NotificationManager: {
+    getInstance: vi.fn().mockReturnValue({
+      addTeamNotification: mockAddTeamNotification,
+    }),
+  },
+}));
+
 import {
   TEAM_ALIVE_LIST,
   TEAM_STOP,
@@ -665,6 +677,61 @@ describe('ipc teams handlers', () => {
       })) as { success: boolean; error: string };
       expect(result.success).toBe(false);
       expect(result.error).toContain('members must be an array');
+    });
+  });
+
+  describe('showMessageNotification', () => {
+    it('returns success on valid notification data', async () => {
+      const handler = handlers.get(TEAM_SHOW_MESSAGE_NOTIFICATION)!;
+      const result = (await handler({} as never, {
+        teamDisplayName: 'My Team',
+        from: 'alice',
+        body: 'Hello!',
+        teamName: 'my-team',
+        teamEventType: 'task_clarification',
+        dedupeKey: 'clarification:my-team:42',
+      })) as { success: boolean };
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects when missing required fields', async () => {
+      const handler = handlers.get(TEAM_SHOW_MESSAGE_NOTIFICATION)!;
+      const result = (await handler({} as never, {
+        teamDisplayName: 'My Team',
+        // missing from and body
+      })) as { success: boolean; error: string };
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Missing required fields');
+    });
+
+    it('rejects null data', async () => {
+      const handler = handlers.get(TEAM_SHOW_MESSAGE_NOTIFICATION)!;
+      const result = (await handler({} as never, null)) as { success: boolean };
+      expect(result.success).toBe(false);
+    });
+
+    it('generates fallback dedupeKey when not provided', async () => {
+      const handler = handlers.get(TEAM_SHOW_MESSAGE_NOTIFICATION)!;
+      const result = (await handler({} as never, {
+        teamDisplayName: 'My Team',
+        teamName: 'my-team',
+        from: 'bob',
+        body: 'Some message',
+      })) as { success: boolean };
+      // Should succeed even without explicit dedupeKey (fallback is generated)
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects when teamName is missing', async () => {
+      const handler = handlers.get(TEAM_SHOW_MESSAGE_NOTIFICATION)!;
+      const result = (await handler({} as never, {
+        teamDisplayName: 'My Team',
+        from: 'alice',
+        body: 'Hello!',
+        // teamName intentionally omitted
+      })) as { success: boolean; error: string };
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('teamName');
     });
   });
 

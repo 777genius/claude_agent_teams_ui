@@ -7,7 +7,7 @@ import { useState } from 'react';
 
 import { getTriggerColorDef } from '@shared/constants/triggerColors';
 import { formatDistanceToNow } from 'date-fns';
-import { ArrowRight, Bot, Check, Trash2 } from 'lucide-react';
+import { ArrowRight, Bot, Check, Trash2, Users } from 'lucide-react';
 
 import type { DetectedError } from '@renderer/types/data';
 
@@ -41,6 +41,7 @@ export const NotificationRow = ({
   const truncatedMessage = truncateMessage(error.message);
   const colorDef = getTriggerColorDef(error.triggerColor);
   const displayName = error.triggerName ?? error.source;
+  const isTeamNotification = error.category === 'team' || error.sessionId?.startsWith('team:');
 
   const handleArchiveClick = (e: React.MouseEvent): void => {
     e.stopPropagation();
@@ -102,6 +103,19 @@ export const NotificationRow = ({
           <span className="truncate text-sm" style={{ color: 'var(--color-text-muted)' }}>
             {projectName}
           </span>
+          {isTeamNotification && !error.subagentId && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+              style={{
+                backgroundColor: 'var(--tag-bg)',
+                border: '1px solid var(--tag-border)',
+                color: 'var(--color-text-muted)',
+              }}
+            >
+              <Users className="size-3" />
+              team
+            </span>
+          )}
           {error.subagentId && (
             <span
               className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"

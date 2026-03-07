@@ -206,8 +206,8 @@ export const createNotificationSlice: StateCreator<AppState, [], [], Notificatio
     // Mark the notification as read
     void state.markNotificationRead(error.id);
 
-    // Team rate-limit notifications: open the team tab instead of a session tab
-    if (error.source === 'rate-limit' && error.sessionId.startsWith('team:')) {
+    // Team notifications (inbox, clarification, status change, rate-limit): open team tab
+    if (error.sessionId.startsWith('team:')) {
       const teamName = error.sessionId.slice('team:'.length);
       state.openTeamTab(teamName, error.context.cwd);
       return;

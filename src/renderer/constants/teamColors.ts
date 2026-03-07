@@ -8,6 +8,8 @@
 export interface TeamColorSet {
   /** Border accent color */
   border: string;
+  /** Border accent color for light theme */
+  borderLight?: string;
   /** Badge background (semi-transparent) */
   badge: string;
   /** Badge background for light theme (more visible on white) */
@@ -85,10 +87,11 @@ const TEAMMATE_COLORS: Record<string, TeamColorSet> = {
   /** Reserved for the human user — never assigned to team members. */
   user: {
     border: '#f5f5f4',
+    borderLight: '#a8a29e',
     badge: 'rgba(245, 245, 244, 0.12)',
-    badgeLight: 'rgba(0, 0, 0, 0.08)',
+    badgeLight: 'rgba(120, 113, 108, 0.14)',
     text: '#d6d3d1',
-    textLight: '#57534e',
+    textLight: '#44403c',
   },
 };
 
@@ -147,4 +150,18 @@ export function getTeamColorSet(colorName: string): TeamColorSet {
  */
 export function getThemedBadge(colorSet: TeamColorSet, isLight: boolean): string {
   return isLight && colorSet.badgeLight ? colorSet.badgeLight : colorSet.badge;
+}
+
+/**
+ * Get the appropriate text color for the current theme.
+ */
+export function getThemedText(colorSet: TeamColorSet, isLight: boolean): string {
+  return isLight && colorSet.textLight ? colorSet.textLight : colorSet.text;
+}
+
+/**
+ * Get the appropriate border color for the current theme.
+ */
+export function getThemedBorder(colorSet: TeamColorSet, isLight: boolean): string {
+  return isLight && colorSet.borderLight ? colorSet.borderLight : colorSet.border;
 }

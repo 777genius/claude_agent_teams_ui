@@ -1,13 +1,16 @@
 /**
- * NotificationManager service - Manages native macOS notifications and error history.
+ * NotificationManager service - Manages native notifications and notification history.
  *
  * Responsibilities:
- * - Store error history at ~/.claude/claude-devtools-notifications.json (max 100 entries)
+ * - Store notification history at ~/.claude/claude-devtools-notifications.json (max 100 entries)
  * - Show native notifications using Electron's Notification API (cross-platform)
- * - Implement throttling (5 seconds per unique error hash)
- * - Respect config.notifications.enabled and snoozedUntil
- * - Filter errors matching ignoredRegex patterns
- * - Filter errors from ignoredProjects
+ * - Two adapters: addError() for error notifications, addTeamNotification() for team events
+ * - Shared internal pipeline: storeNotification() for unconditional storage + IPC emission
+ * - Two-level dedup: dedupeKey for storage dedup, toast throttle (5s) for native toasts
+ * - Storage is unconditional — enabled/snoozed only affect native OS toasts
+ * - Respect config.notifications.enabled and snoozedUntil for toasts
+ * - Filter errors matching ignoredRegex patterns (error-specific)
+ * - Filter errors from ignoredProjects (error-specific)
  * - Auto-prune notifications over 100 on startup
  * - Emit IPC events to renderer: notification:new, notification:updated
  */
@@ -24,6 +27,10 @@ import * as path from 'path';
 import { type DetectedError } from '../error/ErrorMessageBuilder';
 
 const logger = createLogger('Service:NotificationManager');
+import {
+  buildDetectedErrorFromTeam,
+  type TeamNotificationPayload,
+} from '@main/utils/teamNotificationBuilder';
 import { projectPathResolver } from '../discovery/ProjectPathResolver';
 import { gitIdentityResolver } from '../parsing/GitIdentityResolver';
 
@@ -31,6 +38,8 @@ import { ConfigManager } from './ConfigManager';
 
 // Re-export DetectedError for backward compatibility
 export type { DetectedError };
+// Re-export team notification types for callers
+export type { TeamNotificationPayload, TeamEventType } from '@main/utils/teamNotificationBuilder';
 
 /**
  * Stored notification with read status.
@@ -236,18 +245,19 @@ export class NotificationManager extends EventEmitter {
   }
 
   /**
-   * Checks if an error should be throttled.
+   * Checks if a native toast should be throttled.
+   * Uses dedupeKey if present, else falls back to projectId:message hash.
    */
-  private isThrottled(error: DetectedError): boolean {
-    const hash = this.generateErrorHash(error);
-    const lastSeen = this.throttleMap.get(hash);
+  private isToastThrottled(error: DetectedError): boolean {
+    const key = error.dedupeKey ?? this.generateErrorHash(error);
+    const lastSeen = this.throttleMap.get(key);
 
     if (lastSeen && Date.now() - lastSeen < THROTTLE_MS) {
       return true;
     }
 
     // Update throttle map
-    this.throttleMap.set(hash, Date.now());
+    this.throttleMap.set(key, Date.now());
 
     // Clean up old entries periodically
     this.cleanupThrottleMap();
@@ -349,81 +359,90 @@ export class NotificationManager extends EventEmitter {
     return ignoredRepositories.includes(identity.id);
   }
 
-  /**
-   * Determines if an error should generate a notification.
-   */
-  private async shouldNotify(error: DetectedError): Promise<boolean> {
-    // Check if notifications are enabled
-    if (!this.areNotificationsEnabled()) {
-      return false;
-    }
-
-    // Check if error is from an ignored repository
-    if (await this.isFromIgnoredRepository(error)) {
-      return false;
-    }
-
-    // Check if error matches an ignored regex
-    if (this.matchesIgnoredRegex(error)) {
-      return false;
-    }
-
-    // Check throttling (for native toast dedup only — storage is unconditional)
-    if (this.isThrottled(error)) {
-      return false;
-    }
-
-    return true;
-  }
-
   // ===========================================================================
   // Native Notifications
   // ===========================================================================
 
   /**
    * Shows a native notification for an error.
-   * Note: Electron's `subtitle` option only works on macOS.
-   * On Windows/Linux, we prepend the subtitle to the body instead.
+   * Closes over `stored` (StoredNotification) so click handler has full data.
    */
-  private showNativeNotification(error: DetectedError): void {
-    // Guard against standalone/Docker mode where Electron's Notification API is unavailable
+  private showErrorNativeNotification(stored: StoredNotification): void {
+    if (!this.isNativeNotificationSupported()) return;
+
+    const config = this.configManager.getConfig();
+    const isMac = process.platform === 'darwin';
+    const truncatedMessage = stripMarkdown(stored.message).slice(0, 200);
+    const iconPath = isMac ? undefined : getAppIconPath();
+    const notification = new Notification({
+      title: 'Claude Code Error',
+      ...(isMac ? { subtitle: stored.context.projectName } : {}),
+      body: isMac ? truncatedMessage : `${stored.context.projectName}\n${truncatedMessage}`,
+      sound: config.notifications.soundEnabled ? 'default' : undefined,
+      ...(iconPath ? { icon: iconPath } : {}),
+    });
+
+    notification.on('click', () => {
+      this.handleNativeNotificationClick(stored);
+    });
+
+    notification.show();
+  }
+
+  /**
+   * Shows a native notification for a team event.
+   * Uses team-specific formatting (title = team name, subtitle = summary).
+   */
+  private showTeamNativeNotification(
+    stored: StoredNotification,
+    payload: TeamNotificationPayload
+  ): void {
+    if (!this.isNativeNotificationSupported()) return;
+
+    const config = this.configManager.getConfig();
+    const isMac = process.platform === 'darwin';
+    const truncatedBody = stripMarkdown(payload.body).slice(0, 300);
+    const iconPath = isMac ? undefined : getAppIconPath();
+    const notification = new Notification({
+      title: payload.teamDisplayName,
+      ...(isMac ? { subtitle: payload.summary } : {}),
+      body: !isMac && payload.summary ? `${payload.summary}\n${truncatedBody}` : truncatedBody,
+      sound: config.notifications.soundEnabled ? 'default' : undefined,
+      ...(iconPath ? { icon: iconPath } : {}),
+    });
+
+    notification.on('click', () => {
+      this.handleNativeNotificationClick(stored);
+    });
+
+    notification.show();
+  }
+
+  /**
+   * Shared click handler for native notifications — focuses window and emits deep-link.
+   */
+  private handleNativeNotificationClick(stored: StoredNotification): void {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.show();
+      this.mainWindow.focus();
+      this.mainWindow.webContents.send('notification:clicked', stored);
+    }
+    this.emit('notification-clicked', stored);
+  }
+
+  /**
+   * Guard: checks if Electron's Notification API is available.
+   */
+  private isNativeNotificationSupported(): boolean {
     if (
       typeof Notification === 'undefined' ||
       typeof Notification.isSupported !== 'function' ||
       !Notification.isSupported()
     ) {
       logger.warn('Native notifications not supported');
-      return;
+      return false;
     }
-
-    const config = this.configManager.getConfig();
-
-    const isMac = process.platform === 'darwin';
-    const truncatedMessage = stripMarkdown(error.message).slice(0, 200);
-    const iconPath = isMac ? undefined : getAppIconPath();
-    const notification = new Notification({
-      title: 'Claude Code Error',
-      ...(isMac ? { subtitle: error.context.projectName } : {}),
-      body: isMac ? truncatedMessage : `${error.context.projectName}\n${truncatedMessage}`,
-      sound: config.notifications.soundEnabled ? 'default' : undefined,
-      ...(iconPath ? { icon: iconPath } : {}),
-    });
-
-    notification.on('click', () => {
-      // Focus app window
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.show();
-        this.mainWindow.focus();
-
-        // Send deep link to renderer
-        this.mainWindow.webContents.send('notification:clicked', error);
-      }
-
-      // Emit event for other listeners
-      this.emit('notification-clicked', error);
-    });
-
-    notification.show();
+    return true;
   }
 
   // ===========================================================================
@@ -463,15 +482,19 @@ export class NotificationManager extends EventEmitter {
   // ===========================================================================
 
   /**
-   * Adds an error and shows a notification if enabled.
-   * @param error - The detected error to add
-   * @returns The stored notification, or null if filtered/throttled
+   * Stores a notification unconditionally. Emits IPC events to renderer.
+   * Returns null if dedupeKey already exists in storage (storage-level dedupe)
+   * or if toolUseId-based dedup skips it.
    */
-  async addError(error: DetectedError): Promise<StoredNotification | null> {
-    // Wait for async initialization to complete before modifying notifications.
-    // Prevents a race where saveNotifications() overwrites not-yet-loaded data.
+  private async storeNotification(error: DetectedError): Promise<StoredNotification | null> {
     if (this.initPromise) {
       await this.initPromise;
+    }
+
+    // Storage-level dedupe by dedupeKey (persistent, lives as long as notification is in storage)
+    if (error.dedupeKey) {
+      const exists = this.notifications.some((n) => n.dedupeKey === error.dedupeKey);
+      if (exists) return null;
     }
 
     // Deduplicate by toolUseId: the same tool call can appear in both the
@@ -511,12 +534,46 @@ export class NotificationManager extends EventEmitter {
     // Emit authoritative counters (total/unread) so renderer badge stays in sync.
     this.emitNotificationUpdated();
 
-    // Show native notification if enabled and not filtered
-    if (await this.shouldNotify(error)) {
-      this.showNativeNotification(error);
+    return storedNotification;
+  }
+
+  /**
+   * Adds an error notification. Storage is unconditional; native toast respects
+   * enabled/snoozed, ignored repos, ignored regex, and 5s throttle.
+   */
+  async addError(error: DetectedError): Promise<StoredNotification | null> {
+    const stored = await this.storeNotification(error);
+    if (!stored) return null;
+
+    // Error-specific toast policy: repo filter + regex filter + enabled/snoozed + throttle
+    if (
+      this.areNotificationsEnabled() &&
+      !(await this.isFromIgnoredRepository(error)) &&
+      !this.matchesIgnoredRegex(error) &&
+      !this.isToastThrottled(error)
+    ) {
+      this.showErrorNativeNotification(stored);
     }
 
-    return storedNotification;
+    return stored;
+  }
+
+  /**
+   * Adds a team notification. Storage is unconditional; native toast respects
+   * enabled/snoozed, suppressToast flag, and 5s dedupeKey-based throttle.
+   * Skips repo/regex filters (not applicable to team events).
+   */
+  async addTeamNotification(payload: TeamNotificationPayload): Promise<StoredNotification | null> {
+    const error = buildDetectedErrorFromTeam(payload);
+    const stored = await this.storeNotification(error);
+    if (!stored) return null;
+
+    // Team-specific toast policy: enabled/snoozed + suppressToast + dedupeKey throttle only
+    if (!payload.suppressToast && this.areNotificationsEnabled() && !this.isToastThrottled(error)) {
+      this.showTeamNativeNotification(stored, payload);
+    }
+
+    return stored;
   }
 
   /**

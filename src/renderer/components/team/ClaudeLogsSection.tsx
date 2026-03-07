@@ -489,17 +489,6 @@ export const ClaudeLogsSection = ({ teamName }: ClaudeLogsSectionProps): React.J
               +{pendingNewCount} new
             </Button>
           )}
-          {showMoreVisible && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => void loadOlderLogs()}
-              disabled={loadingMore}
-            >
-              {loadingMore ? 'Loading…' : 'Show more'}
-            </Button>
-          )}
         </div>
       </div>
 
@@ -527,6 +516,21 @@ export const ClaudeLogsSection = ({ teamName }: ClaudeLogsSectionProps): React.J
                 void loadOlderLogs();
               }
             }}
+            footer={
+              showMoreVisible ? (
+                <div className="flex justify-center py-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => void loadOlderLogs()}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? 'Loading…' : 'Show more'}
+                  </Button>
+                </div>
+              ) : null
+            }
           />
         ) : null}
         {!error && data.lines.length === 0 ? (

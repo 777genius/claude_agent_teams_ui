@@ -255,7 +255,7 @@ export const SendMessageDialog = ({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="min-w-0 sm:max-w-4xl"
+        className="min-w-0 max-w-3xl"
         onDragEnter={canAttach ? handleDragEnter : undefined}
         onDragLeave={canAttach ? handleDragLeave : undefined}
         onDragOver={canAttach ? handleDragOver : undefined}
@@ -331,9 +331,9 @@ export const SendMessageDialog = ({
 
             <div className={quote ? 'flex flex-col' : 'contents'}>
               {quote ? (
-                <div className="relative overflow-hidden rounded-t-md border border-b-0 border-blue-500/20 bg-blue-950/20 py-2 pl-3 pr-2">
+                <div className="relative overflow-hidden rounded-t-md border border-b-0 border-blue-400/30 bg-blue-100/80 py-2 pl-3 pr-2 dark:border-blue-500/20 dark:bg-blue-950/20">
                   {/* Decorative quotation mark */}
-                  <span className="pointer-events-none absolute -right-1 top-1/2 -translate-y-1/2 select-none font-serif text-[64px] leading-none text-blue-400/[0.08]">
+                  <span className="pointer-events-none absolute -right-1 top-1/2 -translate-y-1/2 select-none font-serif text-[64px] leading-none text-blue-500/[0.08] dark:text-blue-400/[0.08]">
                     &ldquo;
                   </span>
 
@@ -341,7 +341,7 @@ export const SendMessageDialog = ({
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className="absolute right-1.5 top-1.5 z-10 rounded p-0.5 text-blue-300/40 hover:text-blue-200"
+                        className="absolute right-1.5 top-1.5 z-10 rounded p-0.5 text-blue-400/60 hover:text-blue-600 dark:text-blue-300/40 dark:hover:text-blue-200"
                         onClick={() => setQuote(undefined)}
                       >
                         <X size={12} />
@@ -351,11 +351,13 @@ export const SendMessageDialog = ({
                   </Tooltip>
 
                   <div className="mb-1 flex items-center gap-1.5">
-                    <span className="text-[10px] text-blue-300/60">Replying to</span>
+                    <span className="text-[10px] text-blue-600/70 dark:text-blue-300/60">
+                      Replying to
+                    </span>
                     <MemberBadge name={quote.from} color={colorMap.get(quote.from)} size="sm" />
                   </div>
                   <div
-                    className={`pr-5 opacity-50 ${quoteExpanded ? '' : 'max-h-[3.75rem] overflow-hidden'}`}
+                    className={`pr-5 opacity-60 dark:opacity-50 ${quoteExpanded ? '' : 'max-h-[3.75rem] overflow-hidden'}`}
                   >
                     <MarkdownViewer
                       content={quote.text}
@@ -366,7 +368,7 @@ export const SendMessageDialog = ({
                   {isQuoteLong ? (
                     <button
                       type="button"
-                      className="mt-0.5 text-[10px] text-blue-400/60 hover:text-blue-300"
+                      className="mt-0.5 text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400/60 dark:hover:text-blue-300"
                       onClick={() => setQuoteExpanded((v) => !v)}
                     >
                       {quoteExpanded ? 'less' : 'more'}

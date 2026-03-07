@@ -624,21 +624,6 @@ body {
   }
 }
 
-@keyframes message-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.message-enter-animate {
-  animation: message-enter 300ms ease-out both;
-}
-
 @keyframes chat-message-enter {
   from {
     opacity: 0;
@@ -668,6 +653,17 @@ body {
 
 .thought-expand-in {
   animation: thought-expand 350ms ease-out both;
+}
+
+@keyframes att-scale-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .skeleton-card {

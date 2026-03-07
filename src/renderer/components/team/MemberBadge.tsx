@@ -1,4 +1,9 @@
-import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
+import {
+  getTeamColorSet,
+  getThemedBadge,
+  getThemedBorder,
+  getThemedText,
+} from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { agentAvatarUrl } from '@renderer/utils/memberHelpers';
 
@@ -32,8 +37,8 @@ export const MemberBadge = ({
 
   const badgeStyle = {
     backgroundColor: getThemedBadge(colors, isLight),
-    color: colors.text,
-    border: `1px solid ${colors.border}40`,
+    color: getThemedText(colors, isLight),
+    border: `1px solid ${getThemedBorder(colors, isLight)}40`,
   };
 
   const avatar = (

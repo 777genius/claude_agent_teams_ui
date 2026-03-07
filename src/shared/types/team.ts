@@ -516,6 +516,8 @@ export interface ReplaceMembersRequest {
 /** Data sent from renderer to main for native OS team message notification. */
 export interface TeamMessageNotificationData {
   teamDisplayName: string;
+  /** Team directory name (for notification storage and deep-linking). */
+  teamName?: string;
   /** Who sent the message. */
   from: string;
   /** Who received the message (member name or "user"). */
@@ -526,6 +528,16 @@ export interface TeamMessageNotificationData {
   body: string;
   /** Optional sender color for visual context. */
   color?: string;
+  /** Team event sub-type for notification categorization. */
+  teamEventType?: 'task_clarification' | 'task_status_change';
+  /** Stable key for storage deduplication. Required — no fallback to Date.now(). */
+  dedupeKey?: string;
+  /**
+   * When true, the notification is stored in-app but no native OS toast is shown.
+   * Used when per-type toggle is off — storage is unconditional,
+   * but the user opted out of OS interruptions for this event type.
+   */
+  suppressToast?: boolean;
 }
 
 // =============================================================================

@@ -50,6 +50,17 @@ export interface DetectedError {
   triggerId?: string;
   /** Human-readable name of the trigger that produced this notification */
   triggerName?: string;
+  /** Notification domain: 'error' (default/undefined) or 'team' */
+  category?: 'error' | 'team';
+  /** For team notifications: specific event sub-type */
+  teamEventType?:
+    | 'rate_limit'
+    | 'lead_inbox'
+    | 'user_inbox'
+    | 'task_clarification'
+    | 'task_status_change';
+  /** Explicit key for storage deduplication. Two notifications with the same dedupeKey won't be stored twice. */
+  dedupeKey?: string;
   /** Additional context */
   context: {
     /** Display name of the project */

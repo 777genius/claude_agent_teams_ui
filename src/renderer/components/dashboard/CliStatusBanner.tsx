@@ -38,6 +38,9 @@ const VARIANT_STYLES: Record<BannerVariant, { border: string; bg: string }> = {
   warning: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.06)' },
 };
 
+/** Minimum banner height — prevents layout shift between states (loading → installed → checking). */
+const BANNER_MIN_H = 'min-h-[4.25rem]';
+
 // =============================================================================
 // Sub-components
 // =============================================================================
@@ -180,7 +183,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
     if (cliStatusError && !cliStatusLoading) {
       return (
         <div
-          className="mb-6 rounded-lg border-l-4 px-4 py-3"
+          className={`mb-6 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
           style={{
             borderColor: VARIANT_STYLES.error.border,
             backgroundColor: VARIANT_STYLES.error.bg,
@@ -211,7 +214,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
     if (!cliStatusLoading) {
       return (
         <div
-          className="mb-6 flex items-center justify-between gap-3 rounded-lg border-l-4 px-4 py-3"
+          className={`mb-6 flex items-center justify-between gap-3 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
           style={{ borderColor: styles.border, backgroundColor: styles.bg }}
         >
           <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
@@ -232,7 +235,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
     // Loading state: show spinner only while an actual request is in-flight.
     return (
       <div
-        className="mb-6 flex items-center gap-3 rounded-lg border-l-4 px-4 py-3"
+        className={`mb-6 flex items-center gap-3 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
         style={{ borderColor: styles.border, backgroundColor: styles.bg }}
       >
         <Loader2
@@ -250,7 +253,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
   if (installerState === 'downloading') {
     return (
       <div
-        className="mb-6 space-y-2 rounded-lg border-l-4 px-4 py-3"
+        className={`mb-6 space-y-2 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
         style={{ borderColor: styles.border, backgroundColor: styles.bg }}
       >
         <div className="flex items-center justify-between">
@@ -292,11 +295,11 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
       installerState === 'checking' ? 'Checking latest version...' : 'Verifying checksum...';
     return (
       <div
-        className="mb-6 rounded-lg border-l-4 px-4 py-3"
+        className={`mb-6 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
         style={{ borderColor: styles.border, backgroundColor: styles.bg }}
       >
         <div className="flex items-center gap-3">
-          <Loader2 className="size-4 shrink-0 animate-spin text-blue-400" />
+          <Loader2 className="size-4 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {label}
           </span>
@@ -310,11 +313,11 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
   if (installerState === 'installing') {
     return (
       <div
-        className="mb-6 rounded-lg border-l-4 px-4 py-3"
+        className={`mb-6 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
         style={{ borderColor: styles.border, backgroundColor: styles.bg }}
       >
         <div className="flex items-center gap-3">
-          <Loader2 className="size-4 shrink-0 animate-spin text-blue-400" />
+          <Loader2 className="size-4 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Installing Claude CLI...
           </span>
@@ -328,7 +331,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
   if (installerState === 'completed') {
     return (
       <div
-        className="mb-6 flex items-center gap-3 rounded-lg border-l-4 px-4 py-3"
+        className={`mb-6 flex items-center gap-3 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
         style={{ borderColor: styles.border, backgroundColor: styles.bg }}
       >
         <CheckCircle className="size-4 shrink-0" style={{ color: '#4ade80' }} />
@@ -343,7 +346,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
   if (installerState === 'error') {
     return (
       <div
-        className="mb-6 rounded-lg border-l-4 px-4 py-3"
+        className={`mb-6 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
         style={{ borderColor: styles.border, backgroundColor: styles.bg }}
       >
         <ErrorDisplay error={installerError ?? 'Installation failed'} onRetry={handleInstall} />
@@ -446,7 +449,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
   // Installed — show version, path, update info
   return (
     <div
-      className="mb-6 rounded-lg border-l-4 px-4 py-3"
+      className={`mb-6 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
       style={{ borderColor: styles.border, backgroundColor: styles.bg }}
     >
       <div className="flex items-center justify-between">

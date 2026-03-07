@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { toMessageKey } from '@renderer/utils/teamMessageKey';
 
+import { AnimatedHeightReveal } from './AnimatedHeightReveal';
 import { ActivityItem, isNoiseMessage } from './ActivityItem';
 import { findNewestMessageIndex, resolveTimelineCollapseState } from './collapseState';
 import { groupTimelineItems, isLeadThought, LeadThoughtsGroupRow } from './LeadThoughtsGroup';
@@ -106,7 +107,7 @@ const MessageRowWithObserver = ({
   }, [onVisible]);
 
   return (
-    <div ref={ref} className={isNew ? 'message-enter-animate min-h-px' : 'min-h-px'}>
+    <AnimatedHeightReveal animate={isNew} containerRef={ref}>
       <ActivityItem
         message={message}
         teamName={teamName}
@@ -123,7 +124,7 @@ const MessageRowWithObserver = ({
         onRestartTeam={onRestartTeam}
         collapseState={collapseState}
       />
-    </div>
+    </AnimatedHeightReveal>
   );
 };
 
@@ -229,10 +230,7 @@ export const ActivityTimeline = ({
     return result;
   }, [timelineItems]);
 
-  // Determine which items are "new" (should animate).
-  /* eslint-disable react-hooks/refs -- intentional ref access during render for animation tracking */
-
-  const newItemKeys = useMemo(() => {
+  const timelineItemKeys = useMemo(() => {
     const getItemKey = (item: TimelineItem): string => {
       if (item.type === 'lead-thoughts') {
         // Stable key: identify group by its first thought, not by count (which changes)
@@ -242,43 +240,35 @@ export const ActivityTimeline = ({
       return `${msg.messageId ?? item.originalIndex}-${msg.timestamp}-${msg.from}`;
     };
 
-    const allKeys: string[] = [];
-    for (const item of timelineItems) {
-      allKeys.push(getItemKey(item));
-    }
+    return timelineItems.map(getItemKey);
+  }, [timelineItems]);
 
-    // First render: seed known keys, no animations
-    if (!isInitializedRef.current) {
-      isInitializedRef.current = true;
-      for (const key of allKeys) {
-        knownKeysRef.current.add(key);
-      }
-      prevVisibleCountRef.current = visibleCount;
+  const isPaginationExpansion =
+    isInitializedRef.current && visibleCount > prevVisibleCountRef.current;
+
+  const newItemKeys = useMemo(() => {
+    if (!isInitializedRef.current || isPaginationExpansion) {
       return new Set<string>();
     }
 
-    // Pagination expansion ("Show more" / "Show all"): add keys silently
-    const isPaginationExpansion = visibleCount > prevVisibleCountRef.current;
-    prevVisibleCountRef.current = visibleCount;
-
-    if (isPaginationExpansion) {
-      for (const key of allKeys) {
-        knownKeysRef.current.add(key);
-      }
-      return new Set<string>();
-    }
-
-    // Normal update: unknown keys are new items
     const newKeys = new Set<string>();
-    for (const key of allKeys) {
+    for (const key of timelineItemKeys) {
       if (!knownKeysRef.current.has(key)) {
         newKeys.add(key);
-        knownKeysRef.current.add(key);
       }
     }
     return newKeys;
-  }, [timelineItems, visibleCount]);
-  /* eslint-enable react-hooks/refs -- end animation tracking block */
+  }, [isPaginationExpansion, timelineItemKeys]);
+
+  useEffect(() => {
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+    }
+    for (const key of timelineItemKeys) {
+      knownKeysRef.current.add(key);
+    }
+    prevVisibleCountRef.current = visibleCount;
+  }, [timelineItemKeys, visibleCount]);
 
   const handleShowMore = (): void => {
     setVisibleCount((prev) => prev + MESSAGES_PAGE_SIZE);
@@ -354,6 +344,7 @@ export const ActivityTimeline = ({
               collapseState={collapseState}
               onTaskIdClick={onTaskIdClick}
               memberColorMap={colorMap}
+              onReply={onReplyToMessage}
             />
           );
         })()}
@@ -403,6 +394,7 @@ export const ActivityTimeline = ({
                 collapseState={collapseState}
                 onTaskIdClick={onTaskIdClick}
                 memberColorMap={colorMap}
+                onReply={onReplyToMessage}
               />
             </React.Fragment>
           );

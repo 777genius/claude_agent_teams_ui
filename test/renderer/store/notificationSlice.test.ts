@@ -458,6 +458,52 @@ describe('notificationSlice', () => {
       });
     });
 
+    describe('team notification navigation', () => {
+      it('should open team tab for any team notification (sessionId starts with "team:")', () => {
+        const teamError = createMockError({
+          sessionId: 'team:alpha-team',
+          source: 'user_inbox',
+          category: 'team' as never,
+          teamEventType: 'user_inbox' as never,
+        });
+
+        store.getState().navigateToError(teamError);
+
+        // Should open a team tab, not a session tab
+        const tabs = store.getState().openTabs;
+        expect(tabs).toHaveLength(1);
+        expect(tabs[0].type).toBe('team');
+      });
+
+      it('should open team tab for rate-limit notification with team sessionId', () => {
+        const teamError = createMockError({
+          sessionId: 'team:beta-team',
+          source: 'rate_limit',
+          category: 'team' as never,
+          teamEventType: 'rate_limit' as never,
+        });
+
+        store.getState().navigateToError(teamError);
+
+        const tabs = store.getState().openTabs;
+        expect(tabs).toHaveLength(1);
+        expect(tabs[0].type).toBe('team');
+      });
+
+      it('should open team tab regardless of source field value', () => {
+        const teamError = createMockError({
+          sessionId: 'team:gamma-team',
+          source: 'task_clarification',
+        });
+
+        store.getState().navigateToError(teamError);
+
+        const tabs = store.getState().openTabs;
+        expect(tabs).toHaveLength(1);
+        expect(tabs[0].type).toBe('team');
+      });
+    });
+
     describe('existing tab behavior', () => {
       it('should focus existing tab if session is already open', () => {
         // Open target session tab first

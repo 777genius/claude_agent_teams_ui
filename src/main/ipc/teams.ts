@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { setCurrentMainOp } from '@main/services/infrastructure/EventLoopLagMonitor';
 import { getAppIconPath } from '@main/utils/appIcon';
 import { stripMarkdown } from '@main/utils/textFormatting';
@@ -79,10 +77,6 @@ import {
   validateTeamName,
 } from './guards';
 
-/** Track rate limit message keys already notified to avoid duplicate OS notifications across refreshes. */
-const notifiedRateLimitKeys = new Set<string>();
-const RATE_LIMIT_KEYS_MAX = 500;
-
 import { TeamAttachmentStore } from '../services/team/TeamAttachmentStore';
 import { TeamTaskAttachmentStore } from '../services/team/TeamTaskAttachmentStore';
 
@@ -130,7 +124,17 @@ import type {
 const logger = createLogger('IPC:teams');
 
 /**
- * Check messages for rate limit indicators and fire native notifications for new ones.
+ * In-memory set of rate-limit message keys already processed.
+ * Independent of NotificationManager storage — survives notification deletion/pruning.
+ * Without this, deleted rate-limit notifications would re-appear on next getData() scan.
+ */
+const seenRateLimitKeys = new Set<string>();
+const SEEN_RATE_LIMIT_KEYS_MAX = 500;
+
+/**
+ * Check messages for rate limit indicators and fire notifications for new ones.
+ * Uses both in-memory seenRateLimitKeys (to prevent resurrection after deletion)
+ * and NotificationManager dedupeKey (to prevent storage duplicates).
  */
 function checkRateLimitMessages(
   messages: readonly { messageId?: string; from: string; text: string; timestamp: string }[],
@@ -142,33 +146,29 @@ function checkRateLimitMessages(
     if (msg.from === 'user') continue;
     if (!isRateLimitMessage(msg.text)) continue;
 
-    // Prefix key with teamName to avoid collisions across teams
     const rawKey = msg.messageId ?? `${msg.from}:${msg.timestamp}`;
-    const key = `${teamName}:${rawKey}`;
-    if (notifiedRateLimitKeys.has(key)) continue;
-    notifiedRateLimitKeys.add(key);
+    const dedupeKey = `rate-limit:${teamName}:${rawKey}`;
 
-    // Prevent unbounded memory growth
-    if (notifiedRateLimitKeys.size > RATE_LIMIT_KEYS_MAX) {
-      const first = notifiedRateLimitKeys.values().next().value!;
-      notifiedRateLimitKeys.delete(first);
+    // In-memory guard: prevents resurrection after user deletes the notification
+    if (seenRateLimitKeys.has(dedupeKey)) continue;
+    seenRateLimitKeys.add(dedupeKey);
+
+    // Evict oldest entries to prevent unbounded growth
+    if (seenRateLimitKeys.size > SEEN_RATE_LIMIT_KEYS_MAX) {
+      const first = seenRateLimitKeys.values().next().value;
+      if (first) seenRateLimitKeys.delete(first);
     }
 
     void NotificationManager.getInstance()
-      .addError({
-        id: randomUUID(),
-        timestamp: Date.now(),
-        sessionId: `team:${teamName}`,
-        projectId: teamName,
-        filePath: '',
-        source: 'rate-limit',
-        message: `[${msg.from}] ${msg.text.slice(0, 200)}`,
-        triggerColor: 'red',
-        triggerName: 'Rate Limit',
-        context: {
-          projectName: teamDisplayName,
-          cwd: projectPath,
-        },
+      .addTeamNotification({
+        teamEventType: 'rate_limit',
+        teamName,
+        teamDisplayName,
+        from: msg.from,
+        summary: `Rate limit: ${msg.from}`,
+        body: msg.text.slice(0, 200),
+        dedupeKey,
+        projectPath,
       })
       .catch(() => undefined);
   }
@@ -1950,19 +1950,39 @@ async function handleShowMessageNotification(
   if (!d.teamDisplayName || !d.from || !d.body) {
     return { success: false, error: 'Missing required fields (teamDisplayName, from, body)' };
   }
+  if (!d.teamName) {
+    return {
+      success: false,
+      error: 'Missing required field: teamName (needed for deep-link navigation)',
+    };
+  }
 
-  showTeamNativeNotification({
-    title: d.teamDisplayName,
-    subtitle: d.summary ?? `${d.from} → ${d.to ?? 'team'}`,
-    body: d.body,
-  });
+  // Route through NotificationManager for unified storage + native toast.
+  // dedupeKey is required from renderer — built from stable identifiers (taskId, teamName, etc.)
+  const dedupeKey =
+    d.dedupeKey ?? `msg:${d.teamName}:${d.from}:${d.summary ?? d.body.slice(0, 50)}`;
+
+  void NotificationManager.getInstance()
+    .addTeamNotification({
+      teamEventType: d.teamEventType ?? 'task_clarification',
+      teamName: d.teamName,
+      teamDisplayName: d.teamDisplayName,
+      from: d.from,
+      to: d.to,
+      summary: d.summary ?? `${d.from} → ${d.to ?? 'team'}`,
+      body: d.body,
+      dedupeKey,
+      suppressToast: d.suppressToast,
+    })
+    .catch(() => undefined);
+
   return { success: true, data: undefined };
 }
 
 /**
  * Show a native OS notification for a team event.
- * Respects user's notification settings (enabled, snoozed).
- * Cross-platform: macOS, Linux, Windows via Electron Notification API.
+ * @deprecated Use NotificationManager.addTeamNotification() instead for unified storage + toast.
+ * Kept for backward compatibility with any remaining callers.
  */
 export function showTeamNativeNotification(opts: {
   title: string;

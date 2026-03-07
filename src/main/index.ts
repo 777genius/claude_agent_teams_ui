@@ -43,7 +43,6 @@ import { join } from 'path';
 
 import { cleanupEditorState, setEditorMainWindow } from './ipc/editor';
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
-import { showTeamNativeNotification } from './ipc/teams';
 import { startEventLoopLagMonitor } from './services/infrastructure/EventLoopLagMonitor';
 import { HttpServer } from './services/infrastructure/HttpServer';
 import { TeamInboxReader } from './services/team/TeamInboxReader';
@@ -154,9 +153,7 @@ function extractNotificationContent(text: string): { summary: string; body: stri
 }
 
 async function notifyNewInboxMessages(teamName: string, detail: string): Promise<void> {
-  // Check global toggle
   const config = configManager.getConfig();
-  if (!config.notifications.enabled) return;
 
   // Skip orphaned team directories without config.json (e.g., "default").
   // Claude Code may write to these when its internal teamContext is lost after session resume.
@@ -172,14 +169,18 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
   if (!match) return;
   const memberName = match[1];
 
-  // Determine inbox type and check per-inbox toggle
+  // Determine inbox type and per-type toggle state.
+  // Storage is always unconditional; toggles only suppress the OS toast.
   const leadName = teamDataService ? await teamDataService.getLeadMemberName(teamName) : null;
   const isLeadInbox = leadName !== null && memberName === leadName;
   const isUserInbox = memberName === 'user';
 
-  if (isLeadInbox && !config.notifications.notifyOnLeadInbox) return;
-  if (isUserInbox && !config.notifications.notifyOnUserInbox) return;
   if (!isLeadInbox && !isUserInbox) return;
+
+  const suppressToast =
+    !config.notifications.enabled ||
+    (isLeadInbox && !config.notifications.notifyOnLeadInbox) ||
+    (isUserInbox && !config.notifications.notifyOnUserInbox);
 
   const key = `${teamName}:${memberName}`;
 
@@ -205,7 +206,8 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
 
     const teamDisplayName = await resolveTeamDisplayName(teamName);
 
-    for (const msg of newMessages) {
+    for (let i = 0; i < newMessages.length; i++) {
+      const msg = newMessages[i];
       // Skip messages sent from our own UI
       if (msg.source && suppressedSources.has(msg.source)) continue;
       // Skip internal coordination noise (idle_notification, shutdown_*, etc.)
@@ -214,12 +216,20 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
       const fromLabel = msg.from || 'Unknown';
       const extracted = extractNotificationContent(msg.text);
       const summary = msg.summary || extracted.summary;
+      const msgId = msg.timestamp ?? String(prevCount + i);
 
-      showTeamNativeNotification({
-        title: teamDisplayName,
-        subtitle: `${fromLabel}: ${summary}`,
-        body: extracted.body,
-      });
+      void notificationManager
+        .addTeamNotification({
+          teamEventType: isLeadInbox ? 'lead_inbox' : 'user_inbox',
+          teamName,
+          teamDisplayName,
+          from: fromLabel,
+          summary,
+          body: extracted.body,
+          dedupeKey: `inbox:${teamName}:${memberName}:${msgId}`,
+          suppressToast,
+        })
+        .catch(() => undefined);
     }
   } catch (error) {
     logger.warn(`Failed to check inbox messages for ${key}:`, error);
@@ -232,8 +242,7 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
  */
 async function notifyNewSentMessages(teamName: string): Promise<void> {
   const config = configManager.getConfig();
-  if (!config.notifications.enabled) return;
-  if (!config.notifications.notifyOnUserInbox) return;
+  const suppressToast = !config.notifications.enabled || !config.notifications.notifyOnUserInbox;
 
   try {
     const messages = await sentMessagesStore.readMessages(teamName);
@@ -256,7 +265,8 @@ async function notifyNewSentMessages(teamName: string): Promise<void> {
 
     const teamDisplayName = await resolveTeamDisplayName(teamName);
 
-    for (const msg of newMessages) {
+    for (let i = 0; i < newMessages.length; i++) {
+      const msg = newMessages[i];
       // Skip messages sent from our own UI
       if (msg.source && suppressedSources.has(msg.source)) continue;
       // Skip internal coordination noise
@@ -266,11 +276,18 @@ async function notifyNewSentMessages(teamName: string): Promise<void> {
       const extracted = extractNotificationContent(msg.text);
       const summary = msg.summary || extracted.summary;
 
-      showTeamNativeNotification({
-        title: teamDisplayName,
-        subtitle: `${fromLabel}: ${summary}`,
-        body: extracted.body,
-      });
+      void notificationManager
+        .addTeamNotification({
+          teamEventType: 'user_inbox',
+          teamName,
+          teamDisplayName,
+          from: fromLabel,
+          summary,
+          body: extracted.body,
+          dedupeKey: `sent:${teamName}:${msg.timestamp ?? String(prevCount + i)}`,
+          suppressToast,
+        })
+        .catch(() => undefined);
     }
   } catch (error) {
     logger.warn(`Failed to check sent messages for ${teamName}:`, error);
