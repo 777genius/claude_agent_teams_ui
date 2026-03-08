@@ -905,6 +905,9 @@ export class HttpAPIClient implements ElectronAPI {
     onToolApprovalEvent: (): (() => void) => {
       return () => {};
     },
+    updateToolApprovalSettings: async (): Promise<void> => {
+      console.warn('[HttpAPIClient] updateToolApprovalSettings is not available in browser mode');
+    },
   };
 
   // Review API stubs

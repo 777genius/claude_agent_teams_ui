@@ -17,7 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@renderer/components/ui/tooltip';
-import { AlertTriangle, Puzzle, RefreshCw, Server } from 'lucide-react';
+import { AlertTriangle, Info, Puzzle, RefreshCw, Server } from 'lucide-react';
 
 import { McpServersPanel } from './mcp/McpServersPanel';
 import { PluginsPanel } from './plugins/PluginsPanel';
@@ -30,6 +30,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
   const mcpBrowseLoading = useStore((s) => s.mcpBrowseLoading);
   const cliStatus = useStore((s) => s.cliStatus);
   const cliInstalled = cliStatus?.installed ?? true; // assume installed until checked
+  const hasOngoingSessions = useStore((s) => s.sessions.some((sess) => sess.isOngoing));
 
   const tabState = useExtensionsTabState();
 
@@ -92,6 +93,13 @@ export const ExtensionStoreView = (): React.JSX.Element => {
           <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-400">
             <AlertTriangle className="size-4 shrink-0" />
             Claude CLI is required to install or uninstall extensions. Install it from Settings.
+          </div>
+        )}
+        {/* Active sessions warning */}
+        {hasOngoingSessions && (
+          <div className="mb-4 flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/5 px-4 py-3 text-sm text-blue-400">
+            <Info className="size-4 shrink-0" />
+            Running sessions won&apos;t pick up extension changes until restarted.
           </div>
         )}
         <Tabs
