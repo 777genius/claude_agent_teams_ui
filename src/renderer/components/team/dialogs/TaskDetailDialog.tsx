@@ -56,7 +56,7 @@ import {
   X,
 } from 'lucide-react';
 
-import { StatusHistoryTimeline } from './StatusHistoryTimeline';
+import { WorkflowTimeline } from './StatusHistoryTimeline';
 import { TaskAttachments } from './TaskAttachments';
 import { TaskCommentInput } from './TaskCommentInput';
 import { TaskCommentsSection } from './TaskCommentsSection';
@@ -894,18 +894,18 @@ export const TaskDetailDialog = ({
           </div>
         ) : null}
 
-        {/* Status History */}
-        {currentTask.statusHistory && currentTask.statusHistory.length > 0 ? (
+        {/* Workflow History */}
+        {currentTask.historyEvents && currentTask.historyEvents.length > 0 ? (
           <CollapsibleTeamSection
-            title="Status History"
+            title="Workflow History"
             icon={<History size={14} />}
-            badge={currentTask.statusHistory.length}
+            badge={currentTask.historyEvents.length}
             contentClassName="pl-2.5"
             headerClassName="-mx-6 w-[calc(100%+3rem)]"
             headerContentClassName="pl-6"
             defaultOpen={false}
           >
-            <StatusHistoryTimeline history={currentTask.statusHistory} />
+            <WorkflowTimeline events={currentTask.historyEvents} />
           </CollapsibleTeamSection>
         ) : null}
 

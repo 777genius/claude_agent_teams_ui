@@ -120,7 +120,7 @@ interface ParsedTask {
   reviewState?: unknown;
   metadata?: { _internal?: unknown };
   workIntervals?: unknown;
-  statusHistory?: unknown;
+  historyEvents?: unknown;
   attachments?: unknown;
 }
 
@@ -129,11 +129,12 @@ interface RawWorkInterval {
   completedAt?: unknown;
 }
 
-interface RawStatusTransition {
-  from?: unknown;
-  to?: unknown;
+interface RawHistoryEvent {
+  id?: unknown;
+  type?: unknown;
   timestamp?: unknown;
   actor?: unknown;
+  [key: string]: unknown;
 }
 
 interface RawComment {
@@ -477,26 +478,35 @@ function normalizeWorkIntervals(
     }));
 }
 
-function normalizeStatusHistory(
-  parsed: ParsedTask
-): { from: string | null; to: string; timestamp: string; actor?: string }[] | undefined {
-  if (!Array.isArray(parsed.statusHistory)) return undefined;
-  return (parsed.statusHistory as unknown[])
+function normalizeHistoryEvents(parsed: ParsedTask): RawHistoryEvent[] | undefined {
+  if (!Array.isArray(parsed.historyEvents)) return undefined;
+  return (parsed.historyEvents as unknown[])
     .filter(
-      (i): i is RawStatusTransition =>
+      (i): i is RawHistoryEvent =>
         Boolean(i) &&
         typeof i === 'object' &&
-        ((i as RawStatusTransition).from === null ||
-          typeof (i as RawStatusTransition).from === 'string') &&
-        typeof (i as RawStatusTransition).to === 'string' &&
-        typeof (i as RawStatusTransition).timestamp === 'string'
+        typeof (i as RawHistoryEvent).id === 'string' &&
+        typeof (i as RawHistoryEvent).timestamp === 'string' &&
+        typeof (i as RawHistoryEvent).type === 'string'
     )
-    .map((i) => ({
-      from: i.from as string | null,
-      to: i.to as string,
-      timestamp: i.timestamp as string,
-      ...(typeof i.actor === 'string' ? { actor: i.actor } : {}),
-    }));
+    .map((i) => ({ ...i }));
+}
+
+/** Derive review state from historyEvents (inline reducer for worker isolation). */
+function deriveReviewStateFromEvents(events: RawHistoryEvent[] | undefined): string {
+  if (!Array.isArray(events) || events.length === 0) return 'none';
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    const t = e.type;
+    if (t === 'review_requested' || t === 'review_changes_requested' || t === 'review_approved') {
+      const to = typeof e.to === 'string' ? e.to : 'none';
+      return to === 'review' || to === 'needsFix' || to === 'approved' ? to : 'none';
+    }
+    if (t === 'status_changed' && e.to === 'in_progress') {
+      return 'none';
+    }
+  }
+  return 'none';
 }
 
 function normalizeComments(parsed: ParsedTask): unknown[] | undefined {
@@ -601,13 +611,8 @@ async function readTasksDirForTeam(
         parsed.needsClarification === 'lead' || parsed.needsClarification === 'user'
           ? (parsed.needsClarification as string)
           : undefined;
-      const reviewState =
-        parsed.reviewState === 'review' ||
-        parsed.reviewState === 'needsFix' ||
-        parsed.reviewState === 'approved' ||
-        parsed.reviewState === 'none'
-          ? parsed.reviewState
-          : 'none';
+      const historyEvents = normalizeHistoryEvents(parsed);
+      const reviewState = deriveReviewStateFromEvents(historyEvents);
 
       tasks.push({
         id: typeof parsed.id === 'string' || typeof parsed.id === 'number' ? String(parsed.id) : '',
@@ -632,7 +637,7 @@ async function readTasksDirForTeam(
             ? (parsed.status as string)
             : 'pending',
         workIntervals: normalizeWorkIntervals(parsed),
-        statusHistory: normalizeStatusHistory(parsed),
+        historyEvents: normalizeHistoryEvents(parsed),
         blocks: Array.isArray(parsed.blocks) ? (parsed.blocks as unknown[]) : undefined,
         blockedBy: Array.isArray(parsed.blockedBy) ? (parsed.blockedBy as unknown[]) : undefined,
         related: Array.isArray(parsed.related)

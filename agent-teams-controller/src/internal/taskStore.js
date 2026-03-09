@@ -145,8 +145,10 @@ function readTask(paths, taskRef, options = {}) {
   return normalizeTask(rawTask, taskPath);
 }
 
-function createStatusTransition(history, from, to, actor, timestamp) {
-  return [...(Array.isArray(history) ? history : []), { from, to, timestamp, ...(actor ? { actor } : {}) }];
+function appendHistoryEvent(events, event) {
+  const list = Array.isArray(events) ? [...events] : [];
+  list.push({ id: crypto.randomUUID(), timestamp: nowIso(), ...event });
+  return list;
 }
 
 function normalizeStatus(status) {
@@ -285,7 +287,12 @@ function createTask(paths, input = {}) {
         : Array.isArray(input.workIntervals)
           ? input.workIntervals
           : undefined,
-    statusHistory: createStatusTransition(input.statusHistory, null, status, createdBy, createdAt),
+    historyEvents: appendHistoryEvent(undefined, {
+      type: 'task_created',
+      status,
+      ...(createdBy ? { actor: createdBy } : {}),
+      timestamp: createdAt,
+    }),
     blocks: Array.isArray(input.blocks) ? [...input.blocks] : [],
     blockedBy: blockedByIds,
     related: relatedIds.length > 0 ? relatedIds : undefined,
@@ -364,7 +371,13 @@ function setTaskStatus(paths, taskRef, nextStatus, actor) {
     }
 
     task.workIntervals = workIntervals.length > 0 ? workIntervals : undefined;
-    task.statusHistory = createStatusTransition(task.statusHistory, task.status, status, actor, timestamp);
+    task.historyEvents = appendHistoryEvent(task.historyEvents, {
+      type: 'status_changed',
+      from: task.status,
+      to: status,
+      ...(actor ? { actor } : {}),
+      timestamp,
+    });
     task.status = status;
 
     if (status === 'deleted') {
@@ -601,6 +614,18 @@ function compareTasksByFreshness(a, b) {
 }
 
 function getEffectiveReviewState(kanbanEntry, task) {
+  // Derive from historyEvents if available
+  const events = Array.isArray(task.historyEvents) ? task.historyEvents : [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === 'review_requested' || e.type === 'review_changes_requested' || e.type === 'review_approved') {
+      return e.to;
+    }
+    if (e.type === 'status_changed' && e.to === 'in_progress') {
+      return 'none';
+    }
+  }
+  // Fallback to persisted reviewState or kanban
   if (normalizeTaskReviewState(task.reviewState) !== 'none') {
     return normalizeTaskReviewState(task.reviewState);
   }
@@ -724,6 +749,7 @@ module.exports = {
   addCommentAttachmentMeta,
   addTaskAttachmentMeta,
   addTaskComment,
+  appendHistoryEvent,
   buildTaskReference,
   createTask,
   deriveDisplayId,

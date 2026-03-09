@@ -209,6 +209,7 @@ async function taskBriefing(context, memberName) {
 module.exports = {
   addTaskAttachmentMeta,
   addTaskComment,
+  appendHistoryEvent: taskStore.appendHistoryEvent,
   attachTaskFile,
   attachCommentFile,
   completeTask,
@@ -227,5 +228,7 @@ module.exports = {
   startTask,
   taskBriefing,
   unlinkTask,
+  updateTask: (context, taskRef, updater) =>
+    taskStore.updateTask(context.paths, taskRef, updater),
   updateTaskFields,
 };

@@ -32,6 +32,20 @@ function resolveLeadSessionId(context, flags) {
   }
 }
 
+function getCurrentReviewState(task) {
+  const events = Array.isArray(task.historyEvents) ? task.historyEvents : [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === 'review_requested' || e.type === 'review_changes_requested' || e.type === 'review_approved') {
+      return e.to;
+    }
+    if (e.type === 'status_changed' && e.to === 'in_progress') {
+      return 'none';
+    }
+  }
+  return 'none';
+}
+
 function requestReview(context, taskId, flags = {}) {
   const task = tasks.getTask(context, taskId);
   if (task.status !== 'completed') {
@@ -42,9 +56,24 @@ function requestReview(context, taskId, flags = {}) {
     typeof flags.from === 'string' && flags.from.trim() ? flags.from.trim() : 'team-lead';
   const reviewer = getReviewer(context, flags);
   const leadSessionId = resolveLeadSessionId(context, flags);
+  const prevReviewState = getCurrentReviewState(task);
 
   try {
     kanban.setKanbanColumn(context, task.id, 'review');
+
+    // Append review_requested event
+    tasks.updateTask(context, task.id, (t) => {
+      t.historyEvents = tasks.appendHistoryEvent(t.historyEvents, {
+        type: 'review_requested',
+        from: prevReviewState,
+        to: 'review',
+        ...(reviewer ? { reviewer } : {}),
+        actor: from,
+      });
+      t.reviewState = 'review';
+      return t;
+    });
+
     if (!reviewer) {
       return tasks.getTask(context, task.id);
     }
@@ -81,8 +110,23 @@ function approveReview(context, taskId, flags = {}) {
     typeof flags.from === 'string' && flags.from.trim() ? flags.from.trim() : 'team-lead';
   const note = typeof flags.note === 'string' && flags.note.trim() ? flags.note.trim() : 'Approved';
   const leadSessionId = resolveLeadSessionId(context, flags);
+  const prevReviewState = getCurrentReviewState(task);
 
   kanban.setKanbanColumn(context, task.id, 'approved');
+
+  // Append review_approved event
+  tasks.updateTask(context, task.id, (t) => {
+    t.historyEvents = tasks.appendHistoryEvent(t.historyEvents, {
+      type: 'review_approved',
+      from: prevReviewState,
+      to: 'approved',
+      ...(note ? { note } : {}),
+      actor: from,
+    });
+    t.reviewState = 'approved';
+    return t;
+  });
+
   tasks.addTaskComment(context, task.id, {
     text: note,
     from,
@@ -119,6 +163,20 @@ function requestChanges(context, taskId, flags = {}) {
       ? flags.comment.trim()
       : 'Reviewer requested changes.';
   const leadSessionId = resolveLeadSessionId(context, flags);
+  const prevReviewState = getCurrentReviewState(task);
+
+  // Append review_changes_requested event before status change
+  tasks.updateTask(context, task.id, (t) => {
+    t.historyEvents = tasks.appendHistoryEvent(t.historyEvents, {
+      type: 'review_changes_requested',
+      from: prevReviewState,
+      to: 'needsFix',
+      ...(comment ? { note: comment } : {}),
+      actor: from,
+    });
+    t.reviewState = 'needsFix';
+    return t;
+  });
 
   kanban.clearKanban(context, task.id, { nextReviewState: 'needsFix' });
   tasks.setTaskStatus(context, task.id, 'pending', from);

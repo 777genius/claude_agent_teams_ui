@@ -813,7 +813,7 @@ export class TeamDataService {
 
   /**
    * Called when a task file changes on disk (e.g. teammate CLI wrote it).
-   * If the latest statusHistory entry shows a non-user actor started the task,
+   * If the latest historyEvents entry shows a non-user actor started the task,
    * sends an inbox notification to the team lead.
    */
   async notifyLeadOnTeammateTaskStart(teamName: string, taskId: string): Promise<void> {
@@ -822,11 +822,11 @@ export class TeamDataService {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
-      const history = task.statusHistory;
-      if (!Array.isArray(history) || history.length === 0) return;
+      const events = task.historyEvents;
+      if (!Array.isArray(events) || events.length === 0) return;
 
-      const last = history[history.length - 1];
-      if (last.to !== 'in_progress') return;
+      const last = events[events.length - 1];
+      if (last.type !== 'status_changed' || last.to !== 'in_progress') return;
       if (!last.actor || last.actor === 'user') return;
 
       // Dedup: only notify once per unique transition (keyed by team+task+timestamp).

@@ -411,6 +411,7 @@ export class TeamMemberLogsFinder {
       }
     }
 
+    const discoveredSessionIds = await this.listSessionDirs(projectDir);
     let sessionIds: string[];
     if (knownSessionIds.size > 0) {
       const verified: string[] = [];
@@ -423,9 +424,11 @@ export class TeamMemberLogsFinder {
           // dir doesn't exist
         }
       }
-      sessionIds = verified.length > 0 ? verified : await this.listSessionDirs(projectDir);
+      // Prefer config-backed sessions first, but also include any live session dirs that have
+      // appeared on disk and are not yet reflected in config/sessionHistory.
+      sessionIds = Array.from(new Set([...verified, ...discoveredSessionIds]));
     } else {
-      sessionIds = await this.listSessionDirs(projectDir);
+      sessionIds = discoveredSessionIds;
     }
 
     const knownMembers = new Set<string>(

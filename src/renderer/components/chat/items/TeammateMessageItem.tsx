@@ -13,6 +13,7 @@ import { detectOperationalNoise } from '@renderer/utils/agentMessageFormatting';
 import { formatTokensCompact } from '@renderer/utils/formatters';
 import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { extractMarkdownPlainText } from '@shared/utils/markdownTextSearch';
+import { format } from 'date-fns';
 import { ChevronRight, CornerDownLeft, MessageSquare, RefreshCw } from 'lucide-react';
 
 import { MarkdownViewer } from '../viewers/MarkdownViewer';
@@ -218,6 +219,14 @@ export const TeammateMessageItem: React.FC<TeammateMessageItemProps> = ({
             ~{formatTokensCompact(teammateMessage.tokenCount)} tokens
           </span>
         )}
+
+        {/* Timestamp — rightmost info element */}
+        <span
+          className="shrink-0 font-mono text-[11px] tabular-nums"
+          style={{ color: CARD_ICON_MUTED }}
+        >
+          {format(teammateMessage.timestamp, 'HH:mm:ss')}
+        </span>
       </div>
 
       {/* Expanded content */}

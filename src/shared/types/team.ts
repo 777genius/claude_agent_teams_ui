@@ -65,17 +65,55 @@ export interface TaskWorkInterval {
   completedAt?: string;
 }
 
-/** Records a single status transition for audit/timeline display. */
-export interface StatusTransition {
-  /** Previous status (null for initial creation). */
-  from: TeamTaskStatus | null;
-  /** New status after the transition. */
-  to: TeamTaskStatus;
-  /** ISO timestamp when the transition occurred. */
+// ---------------------------------------------------------------------------
+// Task History Events — unified workflow event log
+// ---------------------------------------------------------------------------
+
+interface TaskHistoryEventBase {
+  id: string;
   timestamp: string;
-  /** Who triggered the change: member name, 'user', or undefined if unknown. */
   actor?: string;
 }
+
+export interface TaskCreatedEvent extends TaskHistoryEventBase {
+  type: 'task_created';
+  status: TeamTaskStatus;
+}
+
+export interface TaskStatusChangedEvent extends TaskHistoryEventBase {
+  type: 'status_changed';
+  from: TeamTaskStatus;
+  to: TeamTaskStatus;
+}
+
+export interface TaskReviewRequestedEvent extends TaskHistoryEventBase {
+  type: 'review_requested';
+  from: TeamReviewState;
+  to: 'review';
+  reviewer?: string;
+  note?: string;
+}
+
+export interface TaskReviewChangesRequestedEvent extends TaskHistoryEventBase {
+  type: 'review_changes_requested';
+  from: TeamReviewState;
+  to: 'needsFix';
+  note?: string;
+}
+
+export interface TaskReviewApprovedEvent extends TaskHistoryEventBase {
+  type: 'review_approved';
+  from: TeamReviewState;
+  to: 'approved';
+  note?: string;
+}
+
+export type TaskHistoryEvent =
+  | TaskCreatedEvent
+  | TaskStatusChangedEvent
+  | TaskReviewRequestedEvent
+  | TaskReviewChangesRequestedEvent
+  | TaskReviewApprovedEvent;
 
 export type TaskCommentType = 'regular' | 'review_request' | 'review_approved';
 
@@ -107,11 +145,10 @@ export interface TeamTask {
    */
   workIntervals?: TaskWorkInterval[];
   /**
-   * Chronological record of every status change.
-   * Append-only — each transition records from, to, timestamp, actor.
-   * Optional for backwards compatibility with pre-existing tasks.
+   * Unified workflow event log.
+   * Append-only — records task creation, status changes, and review transitions.
    */
-  statusHistory?: StatusTransition[];
+  historyEvents?: TaskHistoryEvent[];
   blocks?: string[];
   blockedBy?: string[];
   /**
@@ -130,7 +167,7 @@ export interface TeamTask {
   deletedAt?: string;
   /** Attachments associated with this task. Metadata only — actual files stored on disk. */
   attachments?: TaskAttachmentMeta[];
-  /** Separate review lifecycle axis. Persisted on modern tasks, derived for legacy rows when needed. */
+  /** Derived review state — computed from historyEvents, not persisted as authority. */
   reviewState?: TeamReviewState;
 }
 

@@ -2,7 +2,7 @@ import { yieldToEventLoop } from '@main/utils/asyncYield';
 import { readFileUtf8WithTimeout } from '@main/utils/fsRead';
 import { getTasksBasePath } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
-import { normalizeReviewState } from '@shared/utils/reviewState';
+import { getReviewStateFromTask } from '@shared/utils/reviewState';
 import { deriveTaskDisplayId } from '@shared/utils/taskIdentity';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -10,9 +10,9 @@ import * as path from 'path';
 import { getTeamFsWorkerClient } from './TeamFsWorkerClient';
 
 import type {
-  StatusTransition,
   TaskAttachmentMeta,
   TaskComment,
+  TaskHistoryEvent,
   TaskWorkInterval,
   TeamTask,
   TeamTaskStatus,
@@ -115,25 +115,17 @@ export class TeamTaskReader {
         // `satisfies Record<keyof TeamTask, unknown>` ensures compile-time
         // safety: if a field is added to TeamTask but not mapped here,
         // TypeScript will error. This prevents silently dropping new fields.
-        const statusHistory: StatusTransition[] | undefined = Array.isArray(parsed.statusHistory)
-          ? (parsed.statusHistory as unknown[])
+        const historyEvents: TaskHistoryEvent[] | undefined = Array.isArray(parsed.historyEvents)
+          ? (parsed.historyEvents as unknown[])
               .filter(
-                (e): e is { from: string | null; to: string; timestamp: string; actor?: string } =>
+                (e): e is Record<string, unknown> =>
                   Boolean(e) &&
                   typeof e === 'object' &&
-                  ((e as Record<string, unknown>).from === null ||
-                    typeof (e as Record<string, unknown>).from === 'string') &&
-                  typeof (e as Record<string, unknown>).to === 'string' &&
+                  typeof (e as Record<string, unknown>).id === 'string' &&
                   typeof (e as Record<string, unknown>).timestamp === 'string' &&
-                  ((e as Record<string, unknown>).actor === undefined ||
-                    typeof (e as Record<string, unknown>).actor === 'string')
+                  typeof (e as Record<string, unknown>).type === 'string'
               )
-              .map((e) => ({
-                from: e.from as TeamTaskStatus | null,
-                to: e.to as TeamTaskStatus,
-                timestamp: e.timestamp,
-                ...(e.actor ? { actor: e.actor } : {}),
-              }))
+              .map((e) => e as unknown as TaskHistoryEvent)
           : undefined;
         const workIntervals: TaskWorkInterval[] | undefined = Array.isArray(parsed.workIntervals)
           ? (parsed.workIntervals as unknown[])
@@ -172,7 +164,7 @@ export class TeamTaskReader {
             ? (parsed.status as TeamTask['status'])
             : 'pending',
           workIntervals,
-          statusHistory,
+          historyEvents,
           blocks: Array.isArray(parsed.blocks)
             ? (parsed.blocks as unknown[]).filter((id): id is string => typeof id === 'string')
             : undefined,
@@ -262,7 +254,10 @@ export class TeamTaskReader {
                   addedAt: a.addedAt,
                 }))
             : undefined,
-          reviewState: normalizeReviewState(parsed.reviewState),
+          reviewState: getReviewStateFromTask({
+            historyEvents,
+            reviewState: parsed.reviewState as TeamTask['reviewState'],
+          }),
         } satisfies Record<keyof TeamTask, unknown>;
         if (task.status === 'deleted') {
           continue;
@@ -359,7 +354,9 @@ export class TeamTaskReader {
           status: 'deleted',
           deletedAt: typeof parsed.deletedAt === 'string' ? parsed.deletedAt : undefined,
           createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : undefined,
-          reviewState: normalizeReviewState(parsed.reviewState),
+          reviewState: getReviewStateFromTask({
+            reviewState: parsed.reviewState as TeamTask['reviewState'],
+          }),
         };
 
         tasks.push(task);

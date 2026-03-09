@@ -244,12 +244,13 @@ export class ChangeExtractorService {
 
       const derivedIntervals = (() => {
         if (Array.isArray(intervals) && intervals.length > 0) return intervals;
-        const rawHistory = parsed.statusHistory;
+        const rawHistory = parsed.historyEvents;
         if (!Array.isArray(rawHistory)) return undefined;
 
         const transitions = rawHistory
           .map((h) => (h && typeof h === 'object' ? (h as Record<string, unknown>) : null))
           .filter((h): h is Record<string, unknown> => h !== null)
+          .filter((h) => h.type === 'status_changed')
           .map((h) => ({
             to: typeof h.to === 'string' ? h.to : null,
             timestamp: typeof h.timestamp === 'string' ? h.timestamp : null,

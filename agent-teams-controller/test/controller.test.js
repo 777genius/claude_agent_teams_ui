@@ -290,7 +290,7 @@ describe('agent-teams-controller API', () => {
     const task = controller.tasks.createTask({ subject: 'Lifecycle task' });
 
     expect(task.status).toBe('pending');
-    expect(task.statusHistory).toHaveLength(1);
+    expect(task.historyEvents).toHaveLength(1);
     expect(task.workIntervals).toBeUndefined();
 
     const started = controller.tasks.startTask(task.id, 'bob');
@@ -301,12 +301,12 @@ describe('agent-teams-controller API', () => {
     const restored = controller.tasks.restoreTask(task.id, 'bob');
 
     expect(started.status).toBe('in_progress');
-    expect(startedAgain.statusHistory).toHaveLength(2);
+    expect(startedAgain.historyEvents).toHaveLength(2);
     expect(startedAgain.workIntervals).toHaveLength(1);
     expect(startedAgain.workIntervals[0].startedAt).toBeTruthy();
 
     expect(completed.status).toBe('completed');
-    expect(completedAgain.statusHistory).toHaveLength(3);
+    expect(completedAgain.historyEvents).toHaveLength(3);
     expect(completedAgain.workIntervals).toHaveLength(1);
     expect(completedAgain.workIntervals[0].completedAt).toBeTruthy();
 
@@ -314,9 +314,23 @@ describe('agent-teams-controller API', () => {
     expect(deleted.deletedAt).toBeTruthy();
     expect(restored.status).toBe('pending');
     expect(restored.deletedAt).toBeUndefined();
-    expect(restored.statusHistory).toHaveLength(5);
-    expect(restored.statusHistory.map((entry) => entry.to)).toEqual([
-      'pending',
+    expect(restored.historyEvents).toHaveLength(5);
+
+    // Verify the event sequence: task_created, then 4 status_changed events
+    const types = restored.historyEvents.map((e) => e.type);
+    expect(types).toEqual([
+      'task_created',
+      'status_changed',
+      'status_changed',
+      'status_changed',
+      'status_changed',
+    ]);
+
+    // Verify the status flow: pending -> in_progress -> completed -> deleted -> pending
+    const firstEvent = restored.historyEvents[0];
+    expect(firstEvent.status).toBe('pending');
+    const statusChanges = restored.historyEvents.slice(1).map((e) => e.to);
+    expect(statusChanges).toEqual([
       'in_progress',
       'completed',
       'deleted',

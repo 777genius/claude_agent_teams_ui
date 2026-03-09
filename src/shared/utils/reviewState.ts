@@ -1,7 +1,10 @@
-import type { TeamReviewState } from '@shared/types';
+import { getDerivedReviewState } from '@shared/utils/taskHistory';
+
+import type { TaskHistoryEvent, TeamReviewState } from '@shared/types';
 
 interface ReviewStateLike {
   reviewState?: TeamReviewState | null;
+  historyEvents?: unknown[];
   kanbanColumn?: 'review' | 'approved' | null;
   status?: string | null;
 }
@@ -11,6 +14,11 @@ export function normalizeReviewState(value: unknown): TeamReviewState {
 }
 
 export function getReviewStateFromTask(task: ReviewStateLike): TeamReviewState {
+  // Prefer derivation from historyEvents when available
+  if (Array.isArray(task.historyEvents) && task.historyEvents.length > 0) {
+    return getDerivedReviewState({ historyEvents: task.historyEvents as TaskHistoryEvent[] });
+  }
+
   const explicit = normalizeReviewState(task.reviewState);
   if (explicit !== 'none') {
     return explicit;
