@@ -8,6 +8,17 @@ import type {
   TeamTaskWithKanban,
 } from '@shared/types';
 
+const TEAM_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
+
+function looksLikeQualifiedExternalRecipient(name: string): boolean {
+  const trimmed = name.trim();
+  const dot = trimmed.indexOf('.');
+  if (dot <= 0 || dot === trimmed.length - 1) return false;
+  const teamName = trimmed.slice(0, dot).trim();
+  const memberName = trimmed.slice(dot + 1).trim();
+  return TEAM_NAME_PATTERN.test(teamName) && memberName.length > 0;
+}
+
 export class TeamMemberResolver {
   resolveMembers(
     config: TeamConfig,
@@ -17,11 +28,14 @@ export class TeamMemberResolver {
     messages: InboxMessage[]
   ): ResolvedTeamMember[] {
     const names = new Set<string>();
+    const explicitNames = new Set<string>();
 
     if (Array.isArray(config.members)) {
       for (const member of config.members) {
         if (typeof member?.name === 'string' && member.name.trim() !== '') {
-          names.add(member.name.trim());
+          const trimmed = member.name.trim();
+          names.add(trimmed);
+          explicitNames.add(trimmed);
         }
       }
     }
@@ -29,14 +43,20 @@ export class TeamMemberResolver {
     if (Array.isArray(metaMembers)) {
       for (const member of metaMembers) {
         if (typeof member?.name === 'string' && member.name.trim() !== '') {
-          names.add(member.name.trim());
+          const trimmed = member.name.trim();
+          names.add(trimmed);
+          explicitNames.add(trimmed);
         }
       }
     }
 
     for (const inboxName of inboxNames) {
       if (typeof inboxName === 'string' && inboxName.trim() !== '') {
-        names.add(inboxName.trim());
+        const trimmed = inboxName.trim();
+        if (!explicitNames.has(trimmed) && looksLikeQualifiedExternalRecipient(trimmed)) {
+          continue;
+        }
+        names.add(trimmed);
       }
     }
 

@@ -71,6 +71,42 @@ describe('TeamMemberResolver', () => {
     expect(names).toContain('alice');
   });
 
+  it('ignores qualified external inbox names unless explicitly configured', () => {
+    const resolver = new TeamMemberResolver();
+    const config: TeamConfig = {
+      name: 'Team',
+      members: [{ name: 'team-lead', agentType: 'team-lead', role: 'lead' }],
+    };
+    const metaMembers: TeamConfig['members'] = [{ name: 'alice', agentType: 'general-purpose' }];
+    const inboxNames = ['alice', 'team-best.user', 'dream-team.team-lead'];
+    const tasks: TeamTask[] = [];
+    const messages: InboxMessage[] = [];
+
+    const members = resolver.resolveMembers(config, metaMembers, inboxNames, tasks, messages);
+    const names = members.map((m) => m.name);
+
+    expect(names).toContain('alice');
+    expect(names).toContain('team-lead');
+    expect(names).not.toContain('team-best.user');
+    expect(names).not.toContain('dream-team.team-lead');
+  });
+
+  it('keeps dotted names when they are explicitly configured members', () => {
+    const resolver = new TeamMemberResolver();
+    const config: TeamConfig = {
+      name: 'Team',
+      members: [
+        { name: 'team-lead', agentType: 'team-lead', role: 'lead' },
+        { name: 'ops.bot', agentType: 'general-purpose' },
+      ],
+    };
+
+    const members = resolver.resolveMembers(config, [], ['ops.bot'], [], []);
+    const names = members.map((m) => m.name);
+
+    expect(names).toContain('ops.bot');
+  });
+
   it('sets currentTaskId for in_progress task', () => {
     const resolver = new TeamMemberResolver();
     const config: TeamConfig = {

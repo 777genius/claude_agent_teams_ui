@@ -1223,9 +1223,11 @@ export class TeamProvisioningService {
 
   private parseCrossTeamRecipient(
     currentTeam: string,
-    recipient: string
+    recipient: string,
+    localRecipientNames: Set<string>
   ): { teamName: string; memberName: string } | null {
     const trimmed = recipient.trim();
+    if (localRecipientNames.has(trimmed)) return null;
     const dot = trimmed.indexOf('.');
     if (dot <= 0 || dot === trimmed.length - 1) return null;
     const teamName = trimmed.slice(0, dot).trim();
@@ -3072,8 +3074,19 @@ export class TeamProvisioningService {
       if (cleanContent.trim().length === 0) continue;
       const strippedCrossTeamContent = stripCrossTeamPrefix(cleanContent).trim();
       if (strippedCrossTeamContent.length === 0) continue;
+      const localRecipientNames = new Set(
+        (run.request.members ?? [])
+          .map((member) => (typeof member.name === 'string' ? member.name.trim() : ''))
+          .filter((name) => name.length > 0)
+      );
+      localRecipientNames.add('user');
+      localRecipientNames.add('team-lead');
 
-      const crossTeamRecipient = this.parseCrossTeamRecipient(run.teamName, recipient);
+      const crossTeamRecipient = this.parseCrossTeamRecipient(
+        run.teamName,
+        recipient,
+        localRecipientNames
+      );
       if (crossTeamRecipient && this.crossTeamSender) {
         const explicitReplyMeta = parseCrossTeamReplyPrefix(cleanContent);
         const inferredReplyMeta = this.resolveCrossTeamReplyMetadata(

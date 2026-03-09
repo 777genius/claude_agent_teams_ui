@@ -12,17 +12,10 @@ import { useStore } from '@renderer/store';
 import { serializeChipsWithText } from '@renderer/types/inlineChip';
 import { formatAgentRole } from '@renderer/utils/formatAgentRole';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { getTeamColorSet } from '@renderer/constants/teamColors';
+import { nameColorSet } from '@renderer/utils/projectColor';
 import { MAX_TEXT_LENGTH } from '@shared/constants';
-import {
-  AlertCircle,
-  ArrowRightLeft,
-  Check,
-  ChevronDown,
-  ImagePlus,
-  Mic,
-  Search,
-  Send,
-} from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, ImagePlus, Mic, Search, Send } from 'lucide-react';
 
 import type { MentionSuggestion } from '@renderer/types/mention';
 import type { AttachmentPayload, ResolvedTeamMember, SendMessageResult } from '@shared/types';
@@ -85,7 +78,6 @@ export const MessageComposer = ({
   const isCrossTeam = selectedTeam !== null;
   const selectedTarget = crossTeamTargets.find((t) => t.teamName === selectedTeam);
   const targetDisplayName = selectedTarget?.displayName ?? selectedTeam;
-  const selectedTargetColor = selectedTarget?.color;
   const crossTeamHintText = isCrossTeam
     ? 'Tip: Cross-team messages go to the target team lead. If you want the reply to come back to your team lead instead of you, say that explicitly in the message.'
     : undefined;
@@ -103,7 +95,12 @@ export const MessageComposer = ({
   }, [members, recipient]);
 
   const projectPath = useStore((s) => s.selectedTeamData?.config.projectPath ?? null);
-  const currentTeamColor = useStore((s) => s.selectedTeamData?.config.color ?? undefined);
+  const currentTeamColor = useStore((s) => {
+    const configColor = s.selectedTeamData?.config.color;
+    if (configColor) return getTeamColorSet(configColor).border;
+    const displayName = s.selectedTeamData?.config.name ?? teamName;
+    return nameColorSet(displayName).border;
+  });
   const isProvisioning = useStore((s) =>
     Object.values(s.provisioningRuns).some(
       (run) =>
@@ -369,20 +366,23 @@ export const MessageComposer = ({
                 >
                   {isCrossTeam ? (
                     <>
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: selectedTarget
+                            ? selectedTarget.color
+                              ? getTeamColorSet(selectedTarget.color).border
+                              : nameColorSet(selectedTarget.displayName).border
+                            : undefined,
+                        }}
+                      />
                       {selectedTarget?.leadName ? (
                         <MemberBadge
                           name={selectedTarget.leadName}
                           color={selectedTarget.leadColor}
                           size="sm"
                         />
-                      ) : selectedTargetColor ? (
-                        <span
-                          className="inline-block size-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: selectedTargetColor }}
-                        />
-                      ) : (
-                        <ArrowRightLeft size={11} className="shrink-0" />
-                      )}
+                      ) : null}
                       <span className="max-w-[100px] truncate">{targetDisplayName}</span>
                     </>
                   ) : (
@@ -448,16 +448,17 @@ export const MessageComposer = ({
                           setTeamSelectorOpen(false);
                         }}
                       >
+                        <span
+                          className="inline-block size-2 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: target.color
+                              ? getTeamColorSet(target.color).border
+                              : nameColorSet(target.displayName).border,
+                          }}
+                        />
                         {target.leadName ? (
                           <MemberBadge name={target.leadName} color={target.leadColor} size="sm" />
-                        ) : target.color ? (
-                          <span
-                            className="inline-block size-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: target.color }}
-                          />
-                        ) : (
-                          <ArrowRightLeft size={11} className="shrink-0 text-purple-400" />
-                        )}
+                        ) : null}
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[var(--color-text)]">
                             {target.displayName}

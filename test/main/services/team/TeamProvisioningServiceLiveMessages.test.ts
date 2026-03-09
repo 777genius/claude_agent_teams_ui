@@ -471,4 +471,36 @@ describe('TeamProvisioningService pre-ready live messages', () => {
     expect(hoisted.sendInboxMessage).not.toHaveBeenCalled();
     expect(hoisted.appendSentMessage).not.toHaveBeenCalled();
   });
+
+  it('does not upgrade dotted local teammate names into cross-team sends', async () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const crossTeamSender = vi.fn(async () => ({ deliveredToInbox: true, messageId: 'cross-1' }));
+    service.setCrossTeamSender(crossTeamSender);
+    const run = attachRun(service, 'my-team', { provisioningComplete: true });
+    run.request.members.push({ name: 'ops.bot', role: 'Specialist' });
+
+    callHandleStreamJsonMessage(service, run, {
+      type: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'SendMessage',
+          input: {
+            type: 'message',
+            recipient: 'ops.bot',
+            content: 'Please verify the rollout.',
+            summary: 'Verify rollout',
+          },
+        },
+      ],
+    });
+
+    expect(crossTeamSender).not.toHaveBeenCalled();
+    expect(hoisted.sendInboxMessage).toHaveBeenCalledTimes(1);
+    expect(hoisted.sendInboxMessage).toHaveBeenCalledWith(
+      'my-team',
+      expect.objectContaining({ member: 'ops.bot' })
+    );
+  });
 });
