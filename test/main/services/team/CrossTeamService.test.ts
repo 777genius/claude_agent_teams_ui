@@ -5,7 +5,7 @@ import { CrossTeamService } from '@main/services/team/CrossTeamService';
 import {
   CROSS_TEAM_SENT_SOURCE,
   CROSS_TEAM_SOURCE,
-  formatCrossTeamText,
+  parseCrossTeamPrefix,
 } from '@shared/constants/crossTeam';
 
 import type { TeamConfigReader } from '@main/services/team/TeamConfigReader';
@@ -55,6 +55,7 @@ describe('CrossTeamService', () => {
   let provisioning: {
     isTeamAlive: ReturnType<typeof vi.fn>;
     relayLeadInboxMessages: ReturnType<typeof vi.fn>;
+    resolveCrossTeamReplyMetadata: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
@@ -71,6 +72,7 @@ describe('CrossTeamService', () => {
     provisioning = {
       isTeamAlive: vi.fn().mockReturnValue(false),
       relayLeadInboxMessages: vi.fn().mockResolvedValue(0),
+      resolveCrossTeamReplyMetadata: vi.fn().mockReturnValue(null),
     };
 
     service = new CrossTeamService(
@@ -99,7 +101,11 @@ describe('CrossTeamService', () => {
       expect(req.member).toBe('team-lead');
       expect(req.source).toBe(CROSS_TEAM_SOURCE);
       expect(req.from).toBe('team-a.lead');
-      expect(req.text).toBe(formatCrossTeamText('team-a.lead', 0, 'Hello from team-a'));
+      expect(req.text).toContain('Hello from team-a');
+      const prefix = parseCrossTeamPrefix(req.text);
+      expect(prefix?.from).toBe('team-a.lead');
+      expect(prefix?.chainDepth).toBe(0);
+      expect(prefix?.conversationId).toBeTruthy();
     });
 
     it('writes sender copy to fromTeam inbox as user_sent', async () => {
@@ -116,6 +122,45 @@ describe('CrossTeamService', () => {
       expect(senderReq.source).toBe(CROSS_TEAM_SENT_SOURCE);
       expect(senderReq.to).toBe('team-b.team-lead');
       expect(senderReq.text).toBe('Hello from team-a');
+      expect(senderReq.conversationId).toBeTruthy();
+    });
+
+    it('reuses replyToConversationId as the conversationId for replies', async () => {
+      await service.send(
+        makeRequest({
+          replyToConversationId: 'conv-123',
+          text: 'Here is the answer',
+        })
+      );
+
+      const [, req] = inboxWriter.sendMessage.mock.calls[0];
+      expect(req.conversationId).toBe('conv-123');
+      expect(req.replyToConversationId).toBe('conv-123');
+    });
+
+    it('auto-infers reply conversation metadata from provisioning hint when omitted', async () => {
+      provisioning.resolveCrossTeamReplyMetadata.mockReturnValue({
+        conversationId: 'conv-auto',
+        replyToConversationId: 'conv-auto',
+      });
+
+      await service.send(makeRequest({ fromTeam: 'team-a', toTeam: 'team-b' }));
+
+      const [, req] = inboxWriter.sendMessage.mock.calls[0];
+      expect(req.conversationId).toBe('conv-auto');
+      expect(req.replyToConversationId).toBe('conv-auto');
+      expect(provisioning.resolveCrossTeamReplyMetadata).toHaveBeenCalledWith('team-a', 'team-b');
+    });
+
+    it('does not ask provisioning for reply metadata when request already carries conversation ids', async () => {
+      await service.send(
+        makeRequest({
+          conversationId: 'conv-explicit',
+          replyToConversationId: 'conv-explicit',
+        })
+      );
+
+      expect(provisioning.resolveCrossTeamReplyMetadata).not.toHaveBeenCalled();
     });
 
     it('calls relayLeadInboxMessages when team is alive', async () => {

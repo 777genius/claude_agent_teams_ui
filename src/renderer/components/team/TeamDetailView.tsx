@@ -23,6 +23,7 @@ import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
 import { createChipFromSelection } from '@renderer/utils/chipUtils';
 import { formatPercentOfTotal, sumContextInjectionTokens } from '@renderer/utils/contextMath';
+import { computePendingCrossTeamReplies } from '@renderer/utils/crossTeamPendingReplies';
 import { formatProjectPath } from '@renderer/utils/pathDisplay';
 import { buildTaskCountsByOwner, normalizePath } from '@renderer/utils/pathNormalize';
 import { nameColorSet } from '@renderer/utils/projectColor';
@@ -640,6 +641,32 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
   const taskMap = useMemo(() => new Map((data?.tasks ?? []).map((t) => [t.id, t])), [data?.tasks]);
 
   const memberTaskCounts = useMemo(() => buildTaskCountsByOwner(data?.tasks ?? []), [data?.tasks]);
+  const pendingCrossTeamReplies = useMemo(
+    () => computePendingCrossTeamReplies(data?.messages ?? []),
+    [data?.messages]
+  );
+
+  /** Whether the Status block has any visible items (pending replies or active tasks). */
+  const hasStatusItems = useMemo(() => {
+    const members = data?.members ?? [];
+    const tasks = data?.tasks ?? [];
+
+    // Check pending replies (mirrors PendingRepliesBlock logic)
+    const hasPendingReplies = Object.keys(pendingRepliesByMember).some((name) =>
+      members.some((m) => m.name === name)
+    );
+    if (hasPendingReplies) return true;
+    if (pendingCrossTeamReplies.length > 0) return true;
+
+    // Check active tasks (mirrors ActiveTasksBlock logic)
+    const tMap = new Map(tasks.map((t) => [t.id, t]));
+    return members.some((m) => {
+      if (!m.currentTaskId) return false;
+      const task = tMap.get(m.currentTaskId);
+      if (task && (task.reviewState === 'approved' || task.status === 'completed')) return false;
+      return true;
+    });
+  }, [data?.members, data?.tasks, pendingRepliesByMember, pendingCrossTeamReplies.length]);
 
   useEffect(() => {
     if (!data || Object.keys(pendingRepliesByMember).length === 0) return;
@@ -1559,35 +1586,42 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
                 });
               }}
             />
-            <div className="mb-[35px]">
-              <button
-                type="button"
-                className="mb-1.5 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
-                onClick={() => setStatusBlockCollapsed((prev) => !prev)}
-                aria-label={statusBlockCollapsed ? 'Expand status' : 'Collapse status'}
-              >
-                <ChevronRight
-                  size={12}
-                  className={`shrink-0 transition-transform duration-150 ${statusBlockCollapsed ? '' : 'rotate-90'}`}
-                />
-                Status
-              </button>
-              {!statusBlockCollapsed && (
-                <>
-                  <PendingRepliesBlock
-                    members={data.members}
-                    pendingRepliesByMember={pendingRepliesByMember}
-                    onMemberClick={setSelectedMember}
-                  />
-                  <ActiveTasksBlock
-                    members={data.members}
-                    tasks={data.tasks}
-                    onMemberClick={setSelectedMember}
-                    onTaskClick={setSelectedTask}
-                  />
-                </>
-              )}
-            </div>
+            {/* Status block: button floats right (absolute, no layout impact);
+                expanded content renders full-width in normal flow. */}
+            {hasStatusItems && (
+              <>
+                <div className="relative h-0">
+                  <button
+                    type="button"
+                    className="absolute -top-[19px] right-0 z-10 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+                    onClick={() => setStatusBlockCollapsed((prev) => !prev)}
+                    aria-label={statusBlockCollapsed ? 'Expand status' : 'Collapse status'}
+                  >
+                    <ChevronRight
+                      size={12}
+                      className={`shrink-0 transition-transform duration-150 ${statusBlockCollapsed ? '' : 'rotate-90'}`}
+                    />
+                    Status
+                  </button>
+                </div>
+                {!statusBlockCollapsed && (
+                  <div className="mt-5">
+                    <PendingRepliesBlock
+                      members={data.members}
+                      pendingRepliesByMember={pendingRepliesByMember}
+                      pendingCrossTeamReplies={pendingCrossTeamReplies}
+                      onMemberClick={setSelectedMember}
+                    />
+                    <ActiveTasksBlock
+                      members={data.members}
+                      tasks={data.tasks}
+                      onMemberClick={setSelectedMember}
+                      onTaskClick={setSelectedTask}
+                    />
+                  </div>
+                )}
+              </>
+            )}
             <ActivityTimeline
               messages={filteredMessages}
               teamName={teamName}

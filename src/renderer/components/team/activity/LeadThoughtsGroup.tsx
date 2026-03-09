@@ -17,6 +17,7 @@ import { agentAvatarUrl } from '@renderer/utils/memberHelpers';
 import { linkifyMentionsInMarkdown } from '@renderer/utils/mentionLinkify';
 import { toMessageKey } from '@renderer/utils/teamMessageKey';
 import { formatToolSummary, parseToolSummary } from '@shared/utils/toolSummary';
+import { extractMarkdownPlainText } from '@shared/utils/markdownTextSearch';
 import { ChevronDown, ChevronRight, ChevronUp, Reply } from 'lucide-react';
 
 import { linkifyTaskIdsInMarkdown } from './ActivityItem';
@@ -485,6 +486,19 @@ export const LeadThoughtsGroupRow = ({
     return calls.length > 0 ? calls : undefined;
   }, [thoughts]);
 
+  // Extract text preview for header: use newest thought's text, fallback through group
+  const headerTextPreview = useMemo(() => {
+    // Try newest first (most relevant), then scan for any text
+    for (const t of thoughts) {
+      if (t.text && t.text.trim()) {
+        const plain = extractMarkdownPlainText(t.text);
+        const firstLine = plain.split('\n').find((l) => l.trim().length > 0) ?? '';
+        return firstLine.trim();
+      }
+    }
+    return null;
+  }, [thoughts]);
+
   // Live = process alive AND (lead is in active turn OR context recently updated OR fresh thought)
   const computeIsLive = useCallback(
     () =>
@@ -716,7 +730,26 @@ export const LeadThoughtsGroupRow = ({
               ? formatTime(oldest.timestamp)
               : `${formatTime(oldest.timestamp)}–${formatTime(newest.timestamp)}`}
           </span>
-          {totalToolSummary && (
+          {!isBodyVisible && headerTextPreview ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="min-w-0 flex-1 cursor-default truncate text-[10px]"
+                  style={{ color: CARD_TEXT_LIGHT }}
+                >
+                  {headerTextPreview}
+                </span>
+              </TooltipTrigger>
+              {totalToolSummary ? (
+                <TooltipContent side="bottom" className="max-w-[420px] font-mono text-[11px]">
+                  <ToolSummaryTooltipContent
+                    toolCalls={allToolCalls}
+                    toolSummary={totalToolSummary}
+                  />
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
+          ) : totalToolSummary ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="cursor-default text-[10px]" style={{ color: CARD_ICON_MUTED }}>
@@ -730,22 +763,8 @@ export const LeadThoughtsGroupRow = ({
                 />
               </TooltipContent>
             </Tooltip>
-          )}
+          ) : null}
         </div>
-
-        {/* Last thought preview when body is collapsed */}
-        {!isBodyVisible && newest.text && (
-          <div
-            className="truncate border-t px-3 py-1 text-[11px]"
-            style={{
-              borderColor: 'var(--color-border-subtle)',
-              color: CARD_TEXT_LIGHT,
-              opacity: 0.7,
-            }}
-          >
-            {newest.text.slice(0, 200)}
-          </div>
-        )}
 
         {/* Scrollable body — live thoughts follow bottom unless user scrolls up */}
         {isBodyVisible ? (

@@ -103,6 +103,9 @@ export class TeamInboxReader {
         messageId: row.messageId,
         source: typeof row.source === 'string' ? (row.source as InboxMessage['source']) : undefined,
         leadSessionId: typeof row.leadSessionId === 'string' ? row.leadSessionId : undefined,
+        conversationId: typeof row.conversationId === 'string' ? row.conversationId : undefined,
+        replyToConversationId:
+          typeof row.replyToConversationId === 'string' ? row.replyToConversationId : undefined,
         attachments: Array.isArray(row.attachments) ? row.attachments : undefined,
         toolSummary: typeof row.toolSummary === 'string' ? row.toolSummary : undefined,
         toolCalls: Array.isArray(row.toolCalls)

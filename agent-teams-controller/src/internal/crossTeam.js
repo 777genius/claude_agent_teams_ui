@@ -137,6 +137,12 @@ function sendCrossTeamMessage(context, flags) {
   const fromTeam = context.teamName;
   const toTeam = typeof flags.toTeam === 'string' ? flags.toTeam.trim() : '';
   const fromMember = typeof flags.fromMember === 'string' ? flags.fromMember.trim() : 'team-lead';
+  const replyToConversationId =
+    typeof flags.replyToConversationId === 'string' ? flags.replyToConversationId.trim() : '';
+  const conversationId =
+    typeof flags.conversationId === 'string' && flags.conversationId.trim()
+      ? flags.conversationId.trim()
+      : replyToConversationId || '';
   const text = typeof flags.text === 'string' ? flags.text : '';
   const summary = typeof flags.summary === 'string' ? flags.summary.trim() : undefined;
   const chainDepth = typeof flags.chainDepth === 'number' ? flags.chainDepth : 0;
@@ -167,7 +173,12 @@ function sendCrossTeamMessage(context, flags) {
 
   // Format
   const from = `${fromTeam}.${fromMember}`;
-  const formattedText = formatCrossTeamText(from, chainDepth, text);
+  const resolvedConversationId =
+    conversationId || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  const formattedText = formatCrossTeamText(from, chainDepth, text, {
+    conversationId: resolvedConversationId,
+    replyToConversationId: replyToConversationId || undefined,
+  });
   const messageId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   const dedupeKey = buildCrossTeamDedupeKey(fromTeam, fromMember, toTeam, text, summary);
 
@@ -200,6 +211,8 @@ function sendCrossTeamMessage(context, flags) {
         summary: summary || `Cross-team message from ${fromTeam}`,
         messageId,
         source: CROSS_TEAM_SOURCE,
+        conversationId: resolvedConversationId,
+        replyToConversationId: replyToConversationId || undefined,
       });
       writeJson(inboxPath, list);
     });
@@ -216,6 +229,8 @@ function sendCrossTeamMessage(context, flags) {
       fromTeam,
       fromMember,
       toTeam,
+      conversationId: resolvedConversationId,
+      replyToConversationId: replyToConversationId || undefined,
       text,
       summary,
       chainDepth,

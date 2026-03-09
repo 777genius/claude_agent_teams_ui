@@ -76,6 +76,12 @@ function buildMessage(flags, defaults) {
     ...(typeof flags.leadSessionId === 'string' && flags.leadSessionId.trim()
       ? { leadSessionId: flags.leadSessionId.trim() }
       : {}),
+    ...(typeof flags.conversationId === 'string' && flags.conversationId.trim()
+      ? { conversationId: flags.conversationId.trim() }
+      : {}),
+    ...(typeof flags.replyToConversationId === 'string' && flags.replyToConversationId.trim()
+      ? { replyToConversationId: flags.replyToConversationId.trim() }
+      : {}),
     ...(typeof flags.color === 'string' && flags.color.trim() ? { color: flags.color.trim() } : {}),
     ...(typeof flags.toolSummary === 'string' && flags.toolSummary.trim()
       ? { toolSummary: flags.toolSummary.trim() }

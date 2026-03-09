@@ -60,7 +60,9 @@ describe('crossTeam module', () => {
       expect(inbox).toHaveLength(1);
       expect(inbox[0].source).toBe(CROSS_TEAM_SOURCE);
       expect(inbox[0].from).toBe('team-a.lead');
-      expect(inbox[0].text).toContain(`[${CROSS_TEAM_PREFIX_TAG} team-a.lead | depth:0]`);
+      expect(inbox[0].text).toContain(`[${CROSS_TEAM_PREFIX_TAG} team-a.lead | depth:0`);
+      expect(inbox[0].conversationId).toBeTruthy();
+      expect(inbox[0].text).toContain(`conversation:${inbox[0].conversationId}`);
     });
 
     it('records outbox entry', () => {
@@ -84,6 +86,34 @@ describe('crossTeam module', () => {
       const outbox = controller.crossTeam.getCrossTeamOutbox();
       expect(outbox).toHaveLength(1);
       expect(outbox[0].toTeam).toBe('team-b');
+      expect(outbox[0].conversationId).toBeTruthy();
+    });
+
+    it('preserves reply conversation metadata for explicit replies', () => {
+      const claudeDir = makeClaudeDir({
+        'team-a': {
+          name: 'team-a',
+          members: [{ name: 'team-lead', agentType: 'team-lead' }],
+        },
+        'team-b': {
+          name: 'team-b',
+          members: [{ name: 'team-lead', agentType: 'team-lead' }],
+        },
+      });
+
+      const controller = createController({ teamName: 'team-a', claudeDir });
+      controller.crossTeam.sendCrossTeamMessage({
+        toTeam: 'team-b',
+        text: 'Answering the open question',
+        replyToConversationId: 'conv-123',
+      });
+
+      const inboxPath = path.join(claudeDir, 'teams', 'team-b', 'inboxes', 'team-lead.json');
+      const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf8'));
+      expect(inbox[0].conversationId).toBe('conv-123');
+      expect(inbox[0].replyToConversationId).toBe('conv-123');
+      expect(inbox[0].text).toContain('conversation:conv-123');
+      expect(inbox[0].text).toContain('replyTo:conv-123');
     });
 
     it('deduplicates the same recent cross-team request', () => {

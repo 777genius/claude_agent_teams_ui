@@ -32,6 +32,10 @@ export class TeamInboxWriter {
       attachments: attachmentMeta?.length ? attachmentMeta : undefined,
       ...(request.source && { source: request.source }),
       ...(request.leadSessionId && { leadSessionId: request.leadSessionId }),
+      ...(request.conversationId && { conversationId: request.conversationId }),
+      ...(request.replyToConversationId && {
+        replyToConversationId: request.replyToConversationId,
+      }),
     };
 
     await withFileLock(inboxPath, async () => {

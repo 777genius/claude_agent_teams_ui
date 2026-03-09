@@ -19,7 +19,11 @@ import {
   AGENT_BLOCK_OPEN,
   stripAgentBlocks,
 } from '@shared/constants/agentBlocks';
-import { CROSS_TEAM_PREFIX_TAG } from '@shared/constants/crossTeam';
+import {
+  CROSS_TEAM_PREFIX_TAG,
+  CROSS_TEAM_SENT_SOURCE,
+  parseCrossTeamPrefix,
+} from '@shared/constants/crossTeam';
 import { getMemberColorByName } from '@shared/constants/memberColors';
 import { DEFAULT_TOOL_APPROVAL_SETTINGS } from '@shared/types/team';
 import { resolveLanguageName } from '@shared/utils/agentLanguage';
@@ -176,6 +180,10 @@ interface ProvisioningRun {
     rejectOnce: (error: string) => void;
     timeoutHandle: NodeJS.Timeout;
   } | null;
+  activeCrossTeamReplyHints: Array<{
+    toTeam: string;
+    conversationId: string;
+  }>;
   /** Monotonic counter for individual lead assistant messages. */
   leadMsgSeq: number;
   /** Accumulated tool_use details between text messages. */
@@ -575,6 +583,8 @@ Communication protocol (CRITICAL — you are running headless, no one sees your 
 - Keep cross-team requests high-signal: one focused request per topic, with clear next action and desired outcome.
 - Before sending a follow-up on the same topic, check "cross_team_get_outbox" so you do not resend the same request unnecessarily.
 - If you receive a message that is clearly from another team (for example prefixed with "[${CROSS_TEAM_PREFIX_TAG} ...]"), treat it as an actionable cross-team request and respond to the originating team with "cross_team_send" when a reply, decision, or status update is needed.
+- Cross-team requests may include a stable conversationId in their metadata. When you reply to that thread, preserve the same conversationId and pass replyToConversationId with that same value so the system can correlate the reply reliably.
+- If the relay prompt shows explicit cross-team reply metadata/instructions for a message, follow that metadata exactly when calling "cross_team_send".
 - When a cross-team request arrives, do NOT appear silent: first emit a brief plain-text status update visible in your own team's Messages/Activity (for example: "Accepted cross-team request from @other-team. Investigating and delegating now."), then do the research, task creation, or delegation work.
 - For cross-team work, your canonical progress trail should be team-visible first. Use plain text updates, task comments, and task state changes so your own team can see what is happening.
 - Do not wait silently on another team: if cross-team coordination is blocking progress, send the request promptly, then continue any useful local work that does not depend on that answer.
@@ -1847,6 +1857,7 @@ export class TeamProvisioningService {
         isLaunch: false,
         fsPhase: 'waiting_config',
         leadRelayCapture: null,
+        activeCrossTeamReplyHints: [],
         leadMsgSeq: 0,
         pendingToolCalls: [],
         lastLeadTextEmitMs: 0,
@@ -2169,6 +2180,7 @@ export class TeamProvisioningService {
         isLaunch: true,
         fsPhase: 'waiting_members',
         leadRelayCapture: null,
+        activeCrossTeamReplyHints: [],
         leadMsgSeq: 0,
         pendingToolCalls: [],
         lastLeadTextEmitMs: 0,
@@ -2556,10 +2568,26 @@ export class TeamProvisioningService {
         `Messages:`,
         ...batch.flatMap((m, idx) => {
           const summaryLine = m.summary?.trim() ? `Summary: ${m.summary.trim()}` : null;
+          const crossTeamMeta =
+            m.source === 'cross_team'
+              ? {
+                  origin: parseCrossTeamPrefix(m.text),
+                  sourceTeam: m.from.includes('.') ? m.from.split('.', 1)[0] : null,
+                }
+              : null;
+          const conversationId = m.conversationId ?? crossTeamMeta?.origin?.conversationId;
+          const replyInstructions =
+            crossTeamMeta?.sourceTeam && conversationId
+              ? [
+                  `   Cross-team conversationId: ${conversationId}`,
+                  `   If replying with cross_team_send to ${crossTeamMeta.sourceTeam}, set conversationId="${conversationId}" and replyToConversationId="${conversationId}".`,
+                ]
+              : [];
           return [
             `${idx + 1}) From: ${m.from || 'unknown'}`,
             `   Timestamp: ${m.timestamp}`,
             ...(summaryLine ? [`   ${summaryLine}`] : []),
+            ...replyInstructions,
             `   Text:`,
             ...m.text.split('\n').map((line) => `   ${line}`),
             ``,
@@ -2657,22 +2685,33 @@ export class TeamProvisioningService {
       if (unread.length === 0) return 0;
 
       // Ignore (and auto-mark read) internal coordination noise like idle/shutdown messages.
-      // These frequently appear when teammates are idle/available and should not prompt
-      // the lead to respond with "No action needed."
-      const noiseUnread = unread.filter((m) => isInboxNoiseMessage(m.text));
-      if (noiseUnread.length > 0) {
+      // Also ignore local sender-copy rows for cross-team traffic: those exist only so the UI
+      // can show outbound activity and must not be re-injected into the live lead as new work.
+      const ignoredUnread = unread.filter(
+        (m) => isInboxNoiseMessage(m.text) || m.source === CROSS_TEAM_SENT_SOURCE
+      );
+      if (ignoredUnread.length > 0) {
         try {
-          await this.markInboxMessagesRead(teamName, leadName, noiseUnread);
+          await this.markInboxMessagesRead(teamName, leadName, ignoredUnread);
         } catch {
           // best-effort
         }
       }
 
-      const actionableUnread = unread.filter((m) => !isInboxNoiseMessage(m.text));
+      const actionableUnread = unread.filter(
+        (m) => !isInboxNoiseMessage(m.text) && m.source !== CROSS_TEAM_SENT_SOURCE
+      );
       if (actionableUnread.length === 0) return 0;
 
       const MAX_RELAY = 10;
       const batch = actionableUnread.slice(0, MAX_RELAY);
+      run.activeCrossTeamReplyHints = batch.flatMap((m) => {
+        if (m.source !== 'cross_team') return [];
+        const sourceTeam = m.from.includes('.') ? m.from.split('.', 1)[0] : '';
+        const conversationId = m.conversationId ?? parseCrossTeamPrefix(m.text)?.conversationId;
+        if (!sourceTeam || !conversationId) return [];
+        return [{ toTeam: sourceTeam, conversationId }];
+      });
 
       const message = [
         `You have new inbox messages addressed to you (team lead "${leadName}").`,
@@ -3048,6 +3087,24 @@ export class TeamProvisioningService {
     this.liveLeadProcessMessages.set(teamName, list);
   }
 
+  resolveCrossTeamReplyMetadata(
+    teamName: string,
+    toTeam: string
+  ): { conversationId: string; replyToConversationId: string } | null {
+    const runId = this.activeByTeam.get(teamName);
+    if (!runId) return null;
+    const run = this.runs.get(runId);
+    if (!run || run.activeCrossTeamReplyHints.length === 0) return null;
+
+    const matches = run.activeCrossTeamReplyHints.filter((hint) => hint.toTeam === toTeam);
+    if (matches.length !== 1) return null;
+
+    return {
+      conversationId: matches[0].conversationId,
+      replyToConversationId: matches[0].conversationId,
+    };
+  }
+
   /**
    * Create an InboxMessage from assistant text and push it into the live cache.
    * Used for both pre-ready (provisioning) and post-ready assistant text.
@@ -3370,6 +3427,7 @@ export class TeamProvisioningService {
           capture.resolveOnce(combined);
         }
         // Clear silent relay flag after any successful turn.
+        run.activeCrossTeamReplyHints = [];
         run.silentUserDmForward = null;
         if (run.silentUserDmForwardClearHandle) {
           clearTimeout(run.silentUserDmForwardClearHandle);
@@ -3398,6 +3456,7 @@ export class TeamProvisioningService {
           run.leadRelayCapture.rejectOnce(errorMsg);
         }
         // Clear silent relay flag after any errored turn.
+        run.activeCrossTeamReplyHints = [];
         run.silentUserDmForward = null;
         if (run.silentUserDmForwardClearHandle) {
           clearTimeout(run.silentUserDmForwardClearHandle);
@@ -4129,6 +4188,7 @@ export class TeamProvisioningService {
     this.activeByTeam.delete(run.teamName);
     this.leadInboxRelayInFlight.delete(run.teamName);
     this.relayedLeadInboxMessageIds.delete(run.teamName);
+    run.activeCrossTeamReplyHints = [];
     for (const key of Array.from(this.memberInboxRelayInFlight.keys())) {
       if (key.startsWith(`${run.teamName}:`)) {
         this.memberInboxRelayInFlight.delete(key);

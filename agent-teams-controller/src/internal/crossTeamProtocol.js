@@ -5,12 +5,19 @@ const CROSS_TEAM_PREFIX_TAG = 'Cross-team from';
 const CROSS_TEAM_SOURCE = 'cross_team';
 const CROSS_TEAM_SENT_SOURCE = 'cross_team_sent';
 
-function formatCrossTeamPrefix(from, chainDepth) {
-  return `[${CROSS_TEAM_PREFIX_TAG} ${from} | depth:${chainDepth}]`;
+function formatCrossTeamPrefix(from, chainDepth, meta) {
+  const parts = [`${CROSS_TEAM_PREFIX_TAG} ${from}`, `depth:${chainDepth}`];
+  if (meta && meta.conversationId) {
+    parts.push(`conversation:${meta.conversationId}`);
+  }
+  if (meta && meta.replyToConversationId) {
+    parts.push(`replyTo:${meta.replyToConversationId}`);
+  }
+  return `[${parts.join(' | ')}]`;
 }
 
-function formatCrossTeamText(from, chainDepth, text) {
-  return `${formatCrossTeamPrefix(from, chainDepth)}\n${text}`;
+function formatCrossTeamText(from, chainDepth, text, meta) {
+  return `${formatCrossTeamPrefix(from, chainDepth, meta)}\n${text}`;
 }
 
 module.exports = {

@@ -282,6 +282,8 @@ describe('TeamProvisioningService post-compact lifecycle', () => {
     expect(text).toContain('blocked by another team');
     expect(text).toContain('one focused request per topic');
     expect(text).toContain('If you receive a message that is clearly from another team');
+    expect(text).toContain('preserve the same conversationId');
+    expect(text).toContain('replyToConversationId');
     expect(text).toContain('Do not wait silently on another team');
     expect(text).toContain('Golden format for cross-team requests');
     expect(text).toContain('Golden format for cross-team replies');

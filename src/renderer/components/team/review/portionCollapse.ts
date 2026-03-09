@@ -219,6 +219,8 @@ const portionCollapseTheme = EditorView.theme({
     minHeight: '28px',
     cursor: 'default',
     userSelect: 'none',
+    position: 'sticky',
+    left: '0',
   },
 
   '.cm-portion-collapse-text': {

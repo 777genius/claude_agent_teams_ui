@@ -256,6 +256,10 @@ export interface InboxMessage {
   attachments?: AttachmentMeta[];
   /** Lead session ID that produced this message (for session boundary detection). */
   leadSessionId?: string;
+  /** Stable cross-team thread ID shared across request/reply turns. */
+  conversationId?: string;
+  /** Explicit parent conversation/message reference for replies. */
+  replyToConversationId?: string;
   /** Tool usage summary from assistant message, e.g. "3 tools (2 Read, Bash)" */
   toolSummary?: string;
   /** Structured tool call details for tooltip display. */
@@ -273,6 +277,8 @@ export interface SendMessageRequest {
   source?: InboxMessage['source'];
   /** Lead session ID for session boundary detection. */
   leadSessionId?: string;
+  conversationId?: string;
+  replyToConversationId?: string;
 }
 
 export interface SendMessageResult {
@@ -609,6 +615,8 @@ export interface CrossTeamMessage {
   fromTeam: string;
   fromMember: string;
   toTeam: string;
+  conversationId?: string;
+  replyToConversationId?: string;
   text: string;
   summary?: string;
   chainDepth: number;
@@ -619,6 +627,8 @@ export interface CrossTeamSendRequest {
   fromTeam: string;
   fromMember: string;
   toTeam: string;
+  conversationId?: string;
+  replyToConversationId?: string;
   text: string;
   summary?: string;
   chainDepth?: number;

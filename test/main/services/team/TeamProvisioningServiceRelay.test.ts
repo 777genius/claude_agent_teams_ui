@@ -316,6 +316,58 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(hoisted.appendSentMessage).not.toHaveBeenCalled();
   });
 
+  it('resolves cross-team reply metadata only for a single matching team hint', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    attachAliveRun(service, teamName);
+
+    const run = (service as unknown as { runs: Map<string, unknown> }).runs.get('run-1') as {
+      activeCrossTeamReplyHints: Array<{ toTeam: string; conversationId: string }>;
+    };
+    run.activeCrossTeamReplyHints = [{ toTeam: 'other-team', conversationId: 'conv-1' }];
+
+    expect(service.resolveCrossTeamReplyMetadata(teamName, 'other-team')).toEqual({
+      conversationId: 'conv-1',
+      replyToConversationId: 'conv-1',
+    });
+
+    run.activeCrossTeamReplyHints = [
+      { toTeam: 'other-team', conversationId: 'conv-1' },
+      { toTeam: 'other-team', conversationId: 'conv-2' },
+    ];
+    expect(service.resolveCrossTeamReplyMetadata(teamName, 'other-team')).toBeNull();
+  });
+
+  it('does not relay cross-team sender copies back into the live lead', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'user',
+        to: 'other-team.team-lead',
+        text: 'How is the progress on that task?',
+        timestamp: '2026-02-23T10:00:00.000Z',
+        read: false,
+        source: 'cross_team_sent',
+        messageId: 'm-cross-team-sent-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayLeadInboxMessages(teamName);
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const updatedInbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/team-lead.json`) ?? '[]'
+    ) as Array<{ messageId?: string }>;
+    expect(updatedInbox).toHaveLength(1);
+    expect(updatedInbox[0]?.messageId).toBe('m-cross-team-sent-1');
+  });
+
   it('relays unread teammate inbox messages through the live team process', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';

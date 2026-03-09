@@ -43,6 +43,19 @@ export class CrossTeamService {
   async send(request: CrossTeamSendRequest): Promise<CrossTeamSendResult> {
     const { fromTeam, fromMember, toTeam, text, summary } = request;
     const chainDepth = request.chainDepth ?? 0;
+    const inferredReplyMeta =
+      !request.conversationId && !request.replyToConversationId
+        ? (this.provisioning?.resolveCrossTeamReplyMetadata(fromTeam, toTeam) ?? null)
+        : null;
+    const replyToConversationId =
+      request.replyToConversationId?.trim() ||
+      inferredReplyMeta?.replyToConversationId ||
+      undefined;
+    const conversationId =
+      request.conversationId?.trim() ||
+      inferredReplyMeta?.conversationId ||
+      replyToConversationId ||
+      randomUUID();
 
     // 1. Validate
     if (!TEAM_NAME_PATTERN.test(fromTeam)) {
@@ -71,13 +84,18 @@ export class CrossTeamService {
 
     // 3. Format
     const from = `${fromTeam}.${fromMember}`;
-    const formattedText = formatCrossTeamText(from, chainDepth, text);
+    const formattedText = formatCrossTeamText(from, chainDepth, text, {
+      conversationId,
+      replyToConversationId,
+    });
     const messageId = randomUUID();
     const outboxMessage: CrossTeamMessage = {
       messageId,
       fromTeam,
       fromMember,
       toTeam,
+      conversationId,
+      replyToConversationId,
       text,
       summary,
       chainDepth,
@@ -96,6 +114,8 @@ export class CrossTeamService {
         from,
         summary: summary ?? `Cross-team message from ${fromTeam}`,
         source: CROSS_TEAM_SOURCE,
+        conversationId,
+        replyToConversationId,
       });
     });
 
@@ -113,6 +133,8 @@ export class CrossTeamService {
         to: `${toTeam}.${leadName}`,
         summary: summary ?? `Cross-team message to ${toTeam}`,
         source: CROSS_TEAM_SENT_SOURCE,
+        conversationId,
+        replyToConversationId,
       })
       .catch((e: unknown) => {
         logger.warn(
