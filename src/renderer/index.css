@@ -81,6 +81,23 @@
   --diff-removed-bg: rgba(239, 68, 68, 0.15);
   --diff-removed-text: #f87171;
   --diff-removed-border: #ef4444;
+  /* CodeMirror diff backgrounds */
+  --diff-cm-changed-bg: #1a3a1a;
+  --diff-cm-deleted-bg: #241517;
+  /* CodeMirror merge buttons */
+  --diff-merge-undo-hover-bg: rgba(255, 255, 255, 0.1);
+  --diff-merge-keep-color: #3fb950;
+  --diff-merge-keep-bg: rgba(46, 160, 67, 0.25);
+  --diff-merge-keep-border: rgba(46, 160, 67, 0.4);
+  --diff-merge-keep-hover-bg: rgba(46, 160, 67, 0.4);
+  --diff-merge-keep-kbd: rgba(63, 185, 80, 0.7);
+  /* CodeMirror merge nav button hover */
+  --diff-merge-nav-hover-bg: rgba(255, 255, 255, 0.08);
+  /* Portion collapse expand buttons */
+  --diff-expand-hover-bg: rgba(255, 255, 255, 0.06);
+  --diff-expand-active-bg: rgba(255, 255, 255, 0.1);
+  --diff-expand-all-hover-bg: rgba(255, 255, 255, 0.04);
+  --diff-expand-all-active-bg: rgba(255, 255, 255, 0.08);
 
   /* Markdown prose */
   --prose-heading: #f8fafc;
@@ -308,12 +325,29 @@
   --inline-code-text: #3a3935;
 
   /* Diff viewer - Light mode */
-  --diff-added-bg: rgba(34, 197, 94, 0.1);
-  --diff-added-text: #166534;
-  --diff-added-border: #22c55e;
-  --diff-removed-bg: rgba(239, 68, 68, 0.1);
-  --diff-removed-text: #991b1b;
-  --diff-removed-border: #ef4444;
+  --diff-added-bg: rgba(34, 197, 94, 0.18);
+  --diff-added-text: #14532d;
+  --diff-added-border: #16a34a;
+  --diff-removed-bg: rgba(239, 68, 68, 0.18);
+  --diff-removed-text: #7f1d1d;
+  --diff-removed-border: #dc2626;
+  /* CodeMirror diff backgrounds - Light mode */
+  --diff-cm-changed-bg: rgba(34, 197, 94, 0.14);
+  --diff-cm-deleted-bg: rgba(239, 68, 68, 0.14);
+  /* CodeMirror merge buttons - Light mode */
+  --diff-merge-undo-hover-bg: rgba(0, 0, 0, 0.08);
+  --diff-merge-keep-color: #15803d;
+  --diff-merge-keep-bg: rgba(34, 197, 94, 0.15);
+  --diff-merge-keep-border: rgba(34, 197, 94, 0.4);
+  --diff-merge-keep-hover-bg: rgba(34, 197, 94, 0.25);
+  --diff-merge-keep-kbd: rgba(21, 128, 61, 0.6);
+  /* CodeMirror merge nav button hover - Light mode */
+  --diff-merge-nav-hover-bg: rgba(0, 0, 0, 0.06);
+  /* Portion collapse expand buttons - Light mode */
+  --diff-expand-hover-bg: rgba(0, 0, 0, 0.05);
+  --diff-expand-active-bg: rgba(0, 0, 0, 0.08);
+  --diff-expand-all-hover-bg: rgba(0, 0, 0, 0.03);
+  --diff-expand-all-active-bg: rgba(0, 0, 0, 0.06);
 
   /* Markdown prose - Warm tones */
   --prose-heading: #1c1b19;

@@ -5,7 +5,7 @@ import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { useUnreadCommentCount } from '@renderer/hooks/useUnreadCommentCount';
 import { useStore } from '@renderer/store';
-import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { REVIEW_STATE_DISPLAY, buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { nameColorSet } from '@renderer/utils/projectColor';
 import { projectColor } from '@renderer/utils/projectColor';
 import { projectLabelFromPath } from '@renderer/utils/taskGrouping';
@@ -205,6 +205,13 @@ export const SidebarTaskItem = ({
             </TooltipContent>
           </Tooltip>
         )}
+        {task.reviewState === 'needsFix' && !isRenaming ? (
+          <span
+            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
+          >
+            {REVIEW_STATE_DISPLAY.needsFix.label}
+          </span>
+        ) : null}
         {unreadCount > 0 && !isRenaming && (
           <span
             className="size-1.5 shrink-0 rounded-full bg-blue-400"

@@ -118,7 +118,7 @@ describe('agent-teams-controller API', () => {
     expect(rows[1].id).toBe(registered.id);
   });
 
-  it('keeps assigned tasks pending by default, supports explicit immediate start, notifies owners, and keeps briefing compact', async () => {
+  it('keeps assigned tasks pending by default, supports explicit immediate start, notifies owners, and groups briefing by review-aware sections', async () => {
     const claudeDir = makeClaudeDir();
     const controller = createController({ teamName: 'my-team', claudeDir });
 
@@ -141,6 +141,30 @@ describe('agent-teams-controller API', () => {
     });
     controller.tasks.completeTask(completedTask.id, 'bob');
     controller.tasks.addTaskComment(activeTask.id, { from: 'bob', text: 'Resumed work with latest context.' });
+    const needsFixTask = controller.tasks.createTask({
+      subject: 'Fix after review',
+      owner: 'bob',
+      status: 'pending',
+      reviewState: 'needsFix',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      notifyOwner: false,
+    });
+    const reviewTask = controller.tasks.createTask({
+      subject: 'Waiting for review',
+      owner: 'bob',
+      status: 'completed',
+      reviewState: 'review',
+      createdAt: '2026-01-03T00:00:00.000Z',
+      notifyOwner: false,
+    });
+    const approvedTask = controller.tasks.createTask({
+      subject: 'Approved work',
+      owner: 'bob',
+      status: 'completed',
+      reviewState: 'approved',
+      createdAt: '2026-01-04T00:00:00.000Z',
+      notifyOwner: false,
+    });
 
     const reassignedTask = controller.tasks.createTask({ subject: 'Reassigned later' });
     controller.tasks.setTaskOwner(reassignedTask.id, 'bob');
@@ -162,14 +186,20 @@ describe('agent-teams-controller API', () => {
     expect(briefing).toContain(`#${activeTask.displayId}`);
     expect(briefing).toContain('Description: Resume immediately');
     expect(briefing).toContain('Resumed work with latest context.');
+    expect(briefing).toContain('Needs fixes after review:');
+    expect(briefing).toContain(`#${needsFixTask.displayId}`);
     expect(briefing).toContain('Pending:');
     expect(briefing).toContain(`#${pendingTask.displayId}`);
     expect(briefing).not.toContain('Description: Do this later');
+    expect(briefing).toContain('Review:');
+    expect(briefing).toContain(`#${reviewTask.displayId}`);
     expect(briefing).toContain('Completed:');
     expect(briefing).toContain(`#${completedTask.displayId}`);
     expect(briefing).not.toContain(
       'Completed task description should stay out of compact rows'
     );
+    expect(briefing).toContain('Approved (last 10):');
+    expect(briefing).toContain(`#${approvedTask.displayId}`);
   });
 
   it('reconciles stale kanban rows and linked inbox comments idempotently', () => {
@@ -338,7 +368,7 @@ describe('agent-teams-controller API', () => {
     expect(rows[0].attachments[0].filename).toBe('note.txt');
   });
 
-  it('moves review back to in_progress and notifies owner on requestChanges', () => {
+  it('moves review back to pending+needsFix and notifies owner on requestChanges', () => {
     const claudeDir = makeClaudeDir();
     const controller = createController({ teamName: 'my-team', claudeDir });
     const task = controller.tasks.createTask({ subject: 'Needs revision', owner: 'bob' });
@@ -350,15 +380,39 @@ describe('agent-teams-controller API', () => {
       comment: 'Please address review feedback.',
     });
 
-    expect(updated.status).toBe('in_progress');
-    expect(updated.reviewState).toBe('none');
+    expect(updated.status).toBe('pending');
+    expect(updated.reviewState).toBe('needsFix');
     expect(updated.comments.at(-1).type).toBe('review_request');
 
     const inboxPath = path.join(claudeDir, 'teams', 'my-team', 'inboxes', 'bob.json');
     const rows = JSON.parse(fs.readFileSync(inboxPath, 'utf8'));
     expect(rows.at(-1).source).toBe('system_notification');
     expect(rows.at(-1).summary).toContain('Fix request');
+    expect(rows.at(-1).text).toContain('moved back to pending');
+    expect(rows.at(-1).text).toContain('request review again');
     expect(rows.at(-1).leadSessionId).toBe('lead-session-1');
+  });
+
+  it('limits approved briefing section to the latest 10 tasks by freshness', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+
+    const approvedTasks = Array.from({ length: 12 }, (_, index) =>
+      controller.tasks.createTask({
+        subject: `Approved ${index + 1}`,
+        owner: 'bob',
+        status: 'completed',
+        reviewState: 'approved',
+        createdAt: `2026-01-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+      })
+    );
+
+    const briefing = await controller.tasks.taskBriefing('bob');
+    expect(briefing).toContain('Approved (last 10):');
+    expect(briefing).toContain(`#${approvedTasks[11].displayId}`);
+    expect(briefing).toContain(`#${approvedTasks[2].displayId}`);
+    expect(briefing).not.toContain(`#${approvedTasks[1].displayId}`);
+    expect(briefing).not.toContain(`#${approvedTasks[0].displayId}`);
   });
 
   it('marks stale processes stopped during listing and supports unregister', () => {

@@ -26,6 +26,7 @@ import { isImageMimeType } from '@renderer/utils/attachmentUtils';
 import {
   buildMemberColorMap,
   KANBAN_COLUMN_DISPLAY,
+  REVIEW_STATE_DISPLAY,
   TASK_STATUS_LABELS,
   TASK_STATUS_STYLES,
 } from '@renderer/utils/memberHelpers';
@@ -339,6 +340,13 @@ export const TaskDetailDialog = ({
             >
               {statusLabel}
             </span>
+            {currentTask.reviewState === 'needsFix' ? (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
+              >
+                {REVIEW_STATE_DISPLAY.needsFix.label}
+              </span>
+            ) : null}
             {headerExtra ? <div className="ml-auto mr-4">{headerExtra}</div> : null}
           </div>
           {editingSubject ? (

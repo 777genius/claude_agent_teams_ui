@@ -95,9 +95,9 @@ function approveReview(context, taskId, flags = {}) {
       from,
       text:
         note && note !== 'Approved'
-          ? `Task ${task.displayId || task.id} approved.\n\n${note}`
-          : `Task ${task.displayId || task.id} approved.`,
-      summary: `Approved ${task.displayId || task.id}`,
+          ? `Task #${task.displayId || task.id} approved.\n\n${note}`
+          : `Task #${task.displayId || task.id} approved.`,
+      summary: `Approved #${task.displayId || task.id}`,
       source: 'system_notification',
       ...(leadSessionId ? { leadSessionId } : {}),
     });
@@ -120,8 +120,8 @@ function requestChanges(context, taskId, flags = {}) {
       : 'Reviewer requested changes.';
   const leadSessionId = resolveLeadSessionId(context, flags);
 
-  kanban.clearKanban(context, task.id);
-  tasks.setTaskStatus(context, task.id, 'in_progress', from);
+  kanban.clearKanban(context, task.id, { nextReviewState: 'needsFix' });
+  tasks.setTaskStatus(context, task.id, 'pending', from);
   tasks.addTaskComment(context, task.id, {
     text: comment,
     from,
@@ -131,9 +131,9 @@ function requestChanges(context, taskId, flags = {}) {
     to: task.owner,
     from,
     text:
-      `Task ${task.displayId || task.id} needs fixes.\n\n${comment}\n\n` +
-      'Please fix and mark it as completed when ready.',
-    summary: `Fix request for ${task.displayId || task.id}`,
+      `Task #${task.displayId || task.id} needs fixes.\n\n${comment}\n\n` +
+      'The task has been moved back to pending. When you are ready to resume, review the task context, start it explicitly, implement the fixes, mark it completed, and request review again.',
+    summary: `Fix request for #${task.displayId || task.id}`,
     source: 'system_notification',
     ...(leadSessionId ? { leadSessionId } : {}),
   });

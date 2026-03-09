@@ -1,4 +1,8 @@
-import { KANBAN_COLUMN_DISPLAY, TASK_STATUS_LABELS } from '@renderer/utils/memberHelpers';
+import {
+  KANBAN_COLUMN_DISPLAY,
+  REVIEW_STATE_DISPLAY,
+  TASK_STATUS_LABELS,
+} from '@renderer/utils/memberHelpers';
 import { getTaskKanbanColumn } from '@shared/utils/reviewState';
 import { deriveTaskDisplayId, formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 
@@ -23,9 +27,20 @@ export const TaskRow = ({ task }: TaskRowProps): React.JSX.Element => {
         {task.owner ?? 'Unassigned'}
       </td>
       <td className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
-        {kanbanColumn && kanbanColumn in KANBAN_COLUMN_DISPLAY
-          ? KANBAN_COLUMN_DISPLAY[kanbanColumn].label
-          : (TASK_STATUS_LABELS[task.status] ?? task.status)}
+        <div className="flex flex-wrap items-center gap-1">
+          <span>
+            {kanbanColumn && kanbanColumn in KANBAN_COLUMN_DISPLAY
+              ? KANBAN_COLUMN_DISPLAY[kanbanColumn].label
+              : (TASK_STATUS_LABELS[task.status] ?? task.status)}
+          </span>
+          {task.reviewState === 'needsFix' ? (
+            <span
+              className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
+            >
+              {REVIEW_STATE_DISPLAY.needsFix.label}
+            </span>
+          ) : null}
+        </div>
       </td>
       <td className="px-3 py-2 text-xs">
         {blockedByIds.length > 0 ? (

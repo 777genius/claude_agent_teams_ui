@@ -603,6 +603,7 @@ async function readTasksDirForTeam(
           : undefined;
       const reviewState =
         parsed.reviewState === 'review' ||
+        parsed.reviewState === 'needsFix' ||
         parsed.reviewState === 'approved' ||
         parsed.reviewState === 'none'
           ? parsed.reviewState

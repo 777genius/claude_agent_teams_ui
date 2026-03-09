@@ -88,13 +88,15 @@ function setKanbanColumn(paths, teamName, taskId, column) {
   return state;
 }
 
-function clearKanban(paths, teamName, taskId) {
+function clearKanban(paths, teamName, taskId, options = {}) {
   const state = readKanbanState(paths, teamName);
   delete state.tasks[String(taskId)];
   writeKanbanState(paths, teamName, state);
+  const nextReviewState =
+    typeof options.nextReviewState === 'string' ? options.nextReviewState : 'none';
   taskStore.updateTask(paths, String(taskId), (task) => ({
     ...task,
-    reviewState: 'none',
+    reviewState: nextReviewState,
   }));
   return state;
 }

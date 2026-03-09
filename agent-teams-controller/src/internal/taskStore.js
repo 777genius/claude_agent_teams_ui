@@ -3,7 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed', 'deleted']);
-const REVIEW_STATES = new Set(['none', 'review', 'approved']);
+const REVIEW_STATES = new Set(['none', 'review', 'needsFix', 'approved']);
 const UUID_TASK_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -578,15 +578,17 @@ function buildTaskReference(task) {
   return `#${task.displayId || deriveDisplayId(task.id)} (taskId: ${task.id})`;
 }
 
-function compareTasksForBriefing(a, b) {
-  const order = {
-    in_progress: 0,
-    pending: 1,
-    completed: 2,
-    deleted: 3,
-  };
-  const byStatus = (order[a.status] ?? 99) - (order[b.status] ?? 99);
-  if (byStatus !== 0) return byStatus;
+function getTaskFreshness(task) {
+  const updated = Date.parse(String(task.updatedAt || ''));
+  if (Number.isFinite(updated) && updated > 0) return updated;
+  const created = Date.parse(String(task.createdAt || ''));
+  if (Number.isFinite(created) && created > 0) return created;
+  return 0;
+}
+
+function compareTasksByFreshness(a, b) {
+  const freshnessDiff = getTaskFreshness(b) - getTaskFreshness(a);
+  if (freshnessDiff !== 0) return freshnessDiff;
   const byDisplay = String(a.displayId || a.id).localeCompare(String(b.displayId || b.id), undefined, {
     numeric: true,
     sensitivity: 'base',
@@ -625,7 +627,7 @@ function formatTaskBriefing(paths, teamName, memberName) {
   });
   const activeTasks = listTasks(paths)
     .filter((task) => task.owner === memberName && task.status !== 'deleted')
-    .sort(compareTasksForBriefing);
+    .sort(compareTasksByFreshness);
 
   if (activeTasks.length === 0) {
     return `No assigned tasks for ${memberName}.`;
@@ -633,8 +635,26 @@ function formatTaskBriefing(paths, teamName, memberName) {
 
   const groups = {
     in_progress: activeTasks.filter((task) => task.status === 'in_progress'),
-    pending: activeTasks.filter((task) => task.status === 'pending'),
-    completed: activeTasks.filter((task) => task.status === 'completed'),
+    needs_fix: activeTasks.filter((task) => {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      return task.status !== 'in_progress' && getEffectiveReviewState(kanbanEntry, task) === 'needsFix';
+    }),
+    pending: activeTasks.filter((task) => {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      return task.status === 'pending' && getEffectiveReviewState(kanbanEntry, task) === 'none';
+    }),
+    review: activeTasks.filter((task) => {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      return getEffectiveReviewState(kanbanEntry, task) === 'review';
+    }),
+    completed: activeTasks.filter((task) => {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      return task.status === 'completed' && getEffectiveReviewState(kanbanEntry, task) === 'none';
+    }),
+    approved: activeTasks.filter((task) => {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      return getEffectiveReviewState(kanbanEntry, task) === 'approved';
+    }),
   };
 
   const lines = [`Task briefing for ${memberName}:`];
@@ -657,6 +677,14 @@ function formatTaskBriefing(paths, teamName, memberName) {
     }
   }
 
+  if (groups.needs_fix.length > 0) {
+    lines.push('', 'Needs fixes after review:');
+    for (const task of groups.needs_fix) {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      lines.push(formatBriefTaskLine(task, getEffectiveReviewState(kanbanEntry, task)));
+    }
+  }
+
   if (groups.pending.length > 0) {
     lines.push('', 'Pending:');
     for (const task of groups.pending) {
@@ -665,9 +693,25 @@ function formatTaskBriefing(paths, teamName, memberName) {
     }
   }
 
+  if (groups.review.length > 0) {
+    lines.push('', 'Review:');
+    for (const task of groups.review) {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      lines.push(formatBriefTaskLine(task, getEffectiveReviewState(kanbanEntry, task)));
+    }
+  }
+
   if (groups.completed.length > 0) {
     lines.push('', 'Completed:');
     for (const task of groups.completed) {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      lines.push(formatBriefTaskLine(task, getEffectiveReviewState(kanbanEntry, task)));
+    }
+  }
+
+  if (groups.approved.length > 0) {
+    lines.push('', 'Approved (last 10):');
+    for (const task of groups.approved.slice(0, 10)) {
       const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
       lines.push(formatBriefTaskLine(task, getEffectiveReviewState(kanbanEntry, task)));
     }

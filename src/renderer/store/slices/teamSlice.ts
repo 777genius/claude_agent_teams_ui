@@ -161,9 +161,10 @@ function detectStatusChangeNotifications(
     const taskKanbanColumn = getTaskKanbanColumn(task);
     const oldTaskKanbanColumn = getTaskKanbanColumn(oldTask);
     const becameApproved = taskKanbanColumn === 'approved' && oldTaskKanbanColumn !== 'approved';
+    const becameNeedsFix = task.reviewState === 'needsFix' && oldTask.reviewState !== 'needsFix';
 
     const statusChanged = oldTask.status !== task.status;
-    if (!statusChanged && !becameApproved) continue;
+    if (!statusChanged && !becameApproved && !becameNeedsFix) continue;
 
     if (onlySolo) {
       const team = teamByName[task.teamName];
@@ -171,7 +172,7 @@ function detectStatusChangeNotifications(
     }
 
     // Resolve the effective status for notification matching
-    const effectiveStatus = becameApproved ? 'approved' : task.status;
+    const effectiveStatus = becameApproved ? 'approved' : becameNeedsFix ? 'needsFix' : task.status;
     if (!statuses.includes(effectiveStatus)) continue;
 
     const key = `${task.teamName}:${task.id}:${effectiveStatus}`;
@@ -182,7 +183,7 @@ function detectStatusChangeNotifications(
     fireStatusChangeNotification(
       task,
       fromLabel,
-      becameApproved ? 'approved' : undefined,
+      becameApproved ? 'approved' : becameNeedsFix ? 'needsFix' : undefined,
       !statusChangeEnabled
     );
   }
@@ -199,6 +200,7 @@ function fireStatusChangeNotification(
     in_progress: 'In Progress',
     completed: 'Completed',
     deleted: 'Deleted',
+    needsFix: 'Needs Fixes',
     approved: 'Approved',
   };
   const from = statusLabels[fromStatus] ?? fromStatus;
@@ -552,6 +554,9 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
             notifiedClarificationTaskKeys.add(`${task.teamName}:${task.id}`);
           }
           notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:${task.status}`);
+          if (task.reviewState === 'needsFix') {
+            notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:needsFix`);
+          }
           if (getTaskKanbanColumn(task) === 'approved') {
             notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:approved`);
           }

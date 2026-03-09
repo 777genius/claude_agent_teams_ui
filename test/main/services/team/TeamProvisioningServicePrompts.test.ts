@@ -217,8 +217,10 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     expect(prompt).toContain(`  ${AGENT_BLOCK_CLOSE}`);
     expect(prompt).toContain('NEVER use agent-only blocks in messages to "user".');
     expect(prompt).toContain('use task_briefing as your compact queue view');
-    expect(prompt).toContain('then call task_get for the specific task you are about to resume or start');
+    expect(prompt).toContain('Use task_get when you need the full task context before starting a pending/needsFix task');
     expect(prompt).toContain('Use task_briefing as a compact queue view of your assigned tasks.');
+    expect(prompt).toContain('you MAY call task_get');
+    expect(prompt).toContain('Before starting a needsFix or pending task, call task_get');
 
     await svc.cancelProvisioning(runId);
   });
@@ -277,8 +279,9 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     expect(prompt).toContain(`  ${AGENT_BLOCK_CLOSE}`);
     expect(prompt).toContain('NEVER use agent-only blocks in messages to "user".');
     expect(prompt).toContain('Your FIRST action: call MCP tool task_briefing');
-    expect(prompt).toContain('call task_get for each in_progress task first');
-    expect(prompt).toContain('call task_get for the specific pending task you choose');
+    expect(prompt).toContain('resume/finish those first');
+    expect(prompt).toContain('Call task_get only if you need more context than task_briefing already gave you');
+    expect(prompt).toContain('Before you start any needsFix or pending task, call task_get');
 
     await svc.cancelProvisioning(runId);
   });

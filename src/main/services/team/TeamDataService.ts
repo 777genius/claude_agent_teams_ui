@@ -84,7 +84,7 @@ export class TeamDataService {
     private readonly taskReader: TeamTaskReader = new TeamTaskReader(),
     private readonly inboxReader: TeamInboxReader = new TeamInboxReader(),
     _inboxWriter: TeamInboxWriter = new TeamInboxWriter(),
-    private readonly taskWriter: TeamTaskWriter = new TeamTaskWriter(),
+    _taskWriter: TeamTaskWriter = new TeamTaskWriter(),
     private readonly memberResolver: TeamMemberResolver = new TeamMemberResolver(),
     private readonly kanbanManager: TeamKanbanManager = new TeamKanbanManager(),
     _legacyToolsInstaller: unknown = null,
@@ -107,7 +107,7 @@ export class TeamDataService {
 
   private resolveTaskReviewState(
     task: Pick<TeamTask, 'reviewState'>
-  ): 'none' | 'review' | 'approved' {
+  ): 'none' | 'review' | 'needsFix' | 'approved' {
     return normalizeReviewState(task.reviewState);
   }
 
@@ -1127,9 +1127,9 @@ export class TeamDataService {
   }
 
   async requestReview(teamName: string, taskId: string): Promise<void> {
-    const { leadName, leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
+    const { leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
     this.getController(teamName).review.requestReview(taskId, {
-      from: leadName,
+      from: 'user',
       ...(leadSessionId ? { leadSessionId } : {}),
     });
   }
@@ -1360,15 +1360,15 @@ export class TeamDataService {
 
     if (patch.op === 'set_column') {
       if (patch.column === 'review') {
-        const { leadName, leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
+        const { leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
         controller.review.requestReview(taskId, {
-          from: leadName,
+          from: 'user',
           ...(leadSessionId ? { leadSessionId } : {}),
         });
       } else {
-        const { leadName, leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
+        const { leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
         controller.review.approveReview(taskId, {
-          from: leadName,
+          from: 'user',
           note: 'Approved from kanban',
           'notify-owner': true,
           ...(leadSessionId ? { leadSessionId } : {}),
@@ -1377,9 +1377,9 @@ export class TeamDataService {
       return;
     }
 
-    const { leadName, leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
+    const { leadSessionId } = await this.resolveLeadRuntimeContext(teamName);
     controller.review.requestChanges(taskId, {
-      from: leadName,
+      from: 'user',
       comment: patch.comment?.trim() || 'Reviewer requested changes.',
       ...(leadSessionId ? { leadSessionId } : {}),
     });

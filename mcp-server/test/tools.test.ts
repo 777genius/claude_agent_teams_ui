@@ -419,11 +419,31 @@ describe('agent-teams-mcp tools', () => {
       })
     );
 
-    expect(changesRequested.status).toBe('in_progress');
-    expect(changesRequested.reviewState).toBe('none');
+    expect(changesRequested.status).toBe('pending');
+    expect(changesRequested.reviewState).toBe('needsFix');
     const ownerInboxPath = path.join(claudeDir, 'teams', teamName, 'inboxes', 'bob.json');
     const ownerInbox = JSON.parse(fs.readFileSync(ownerInboxPath, 'utf8'));
     expect(ownerInbox.at(-1).leadSessionId).toBe('session-review-2');
+    expect(ownerInbox.at(-1).text).toContain('moved back to pending');
+
+    const taskByHashRef = parseJsonToolResult(
+      await getTool('task_get').execute({
+        claudeDir,
+        teamName,
+        taskId: `#${createdTask.displayId}`,
+      })
+    );
+    expect(taskByHashRef.reviewState).toBe('needsFix');
+
+    const listedTasks = parseJsonToolResult(
+      await getTool('task_list').execute({
+        claudeDir,
+        teamName,
+      })
+    );
+    expect(listedTasks.find((task: { id: string }) => task.id === createdTask.id)?.reviewState).toBe(
+      'needsFix'
+    );
 
     const kanbanCleared = parseJsonToolResult(
       await getTool('kanban_clear').execute({

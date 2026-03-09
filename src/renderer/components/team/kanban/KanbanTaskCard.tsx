@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { useUnreadCommentCount } from '@renderer/hooks/useUnreadCommentCount';
 import { useStore } from '@renderer/store';
-import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { REVIEW_STATE_DISPLAY, buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { deriveTaskDisplayId, formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
   ArrowLeftFromLine,
@@ -286,6 +286,13 @@ export const KanbanTaskCard = ({
           >
             <HelpCircle size={10} />
             {task.needsClarification === 'user' ? 'Awaiting user' : 'Awaiting lead'}
+          </span>
+        ) : null}
+        {task.reviewState === 'needsFix' ? (
+          <span
+            className={`mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
+          >
+            {REVIEW_STATE_DISPLAY.needsFix.label}
           </span>
         ) : null}
         {compact && <TruncatedTitle text={task.subject} className="mt-1" />}

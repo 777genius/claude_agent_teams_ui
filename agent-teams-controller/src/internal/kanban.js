@@ -11,9 +11,9 @@ function setKanbanColumn(context, taskId, column) {
   return getKanbanState(context);
 }
 
-function clearKanban(context, taskId) {
+function clearKanban(context, taskId, options) {
   const canonicalTaskId = tasks.resolveTaskId(context, taskId);
-  kanbanStore.clearKanban(context.paths, context.teamName, canonicalTaskId);
+  kanbanStore.clearKanban(context.paths, context.teamName, canonicalTaskId, options);
   return getKanbanState(context);
 }
 

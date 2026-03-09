@@ -7,7 +7,7 @@ interface ReviewStateLike {
 }
 
 export function normalizeReviewState(value: unknown): TeamReviewState {
-  return value === 'review' || value === 'approved' ? value : 'none';
+  return value === 'review' || value === 'needsFix' || value === 'approved' ? value : 'none';
 }
 
 export function getReviewStateFromTask(task: ReviewStateLike): TeamReviewState {
@@ -41,3 +41,6 @@ export function isReviewTask(task: ReviewStateLike): boolean {
   return getReviewStateFromTask(task) === 'review';
 }
 
+export function isNeedsFixTask(task: ReviewStateLike): boolean {
+  return getReviewStateFromTask(task) === 'needsFix';
+}

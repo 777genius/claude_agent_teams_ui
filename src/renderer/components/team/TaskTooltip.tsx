@@ -4,7 +4,7 @@ import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { useStore } from '@renderer/store';
-import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { REVIEW_STATE_DISPLAY, buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { getTaskKanbanColumn } from '@shared/utils/reviewState';
 import { formatTaskDisplayLabel, taskMatchesRef } from '@shared/utils/taskIdentity';
 
@@ -100,6 +100,13 @@ export const TaskTooltip = ({
           >
             {label}
           </span>
+          {task.reviewState === 'needsFix' ? (
+            <span
+              className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
+            >
+              {REVIEW_STATE_DISPLAY.needsFix.label}
+            </span>
+          ) : null}
 
           {/* Owner */}
           {task.owner ? (

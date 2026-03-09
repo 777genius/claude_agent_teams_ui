@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { Badge } from '@renderer/components/ui/badge';
 import {
   KANBAN_COLUMN_DISPLAY,
+  REVIEW_STATE_DISPLAY,
   TASK_STATUS_LABELS,
   TASK_STATUS_STYLES,
 } from '@renderer/utils/memberHelpers';
@@ -70,6 +71,13 @@ export const MemberTasksTab = ({ tasks, onTaskClick }: MemberTasksTabProps): Rea
               >
                 {label}
               </span>
+              {task.reviewState === 'needsFix' ? (
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
+                >
+                  {REVIEW_STATE_DISPLAY.needsFix.label}
+                </span>
+              ) : null}
             </button>
           );
         })}

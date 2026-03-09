@@ -246,11 +246,11 @@ const portionCollapseTheme = EditorView.theme({
     transition: 'all 0.15s ease',
     '&:hover': {
       color: 'var(--color-text)',
-      backgroundColor: 'rgba(255, 255, 255, 0.06)',
+      backgroundColor: 'var(--diff-expand-hover-bg)',
       borderColor: 'var(--color-border-emphasis)',
     },
     '&:active': {
-      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+      backgroundColor: 'var(--diff-expand-active-bg)',
     },
   },
 
@@ -267,11 +267,11 @@ const portionCollapseTheme = EditorView.theme({
     transition: 'all 0.15s ease',
     '&:hover': {
       color: 'var(--color-text-secondary)',
-      backgroundColor: 'rgba(255, 255, 255, 0.04)',
+      backgroundColor: 'var(--diff-expand-all-hover-bg)',
       borderColor: 'var(--color-border)',
     },
     '&:active': {
-      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+      backgroundColor: 'var(--diff-expand-all-active-bg)',
     },
   },
 });

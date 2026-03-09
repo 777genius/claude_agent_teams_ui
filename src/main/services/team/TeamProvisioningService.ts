@@ -352,7 +352,7 @@ function buildMemberSpawnPrompt(
 ${getAgentLanguageInstruction()}
 Introduce yourself briefly (name and role) and confirm you are ready.
 Then wait for task assignments.
-When you later receive work or reconnect after a restart, use task_briefing as your compact queue view, then call task_get for the specific task you are about to resume or start.
+When you later receive work or reconnect after a restart, use task_briefing as your compact queue view. Use task_get when you need the full task context before starting a pending/needsFix task or when the in_progress briefing details are not enough.
 ${buildTeammateAgentBlockReminder()}
 Include the following agent-only instructions verbatim in the prompt:
 
@@ -408,9 +408,11 @@ function buildTaskStatusProtocol(teamName: string): string {
     When you complete a task that blocks others, mention this in your completion message so blocked teammates can proceed.
 13. TASK QUEUE DISCIPLINE:
     - Use task_briefing as a compact queue view of your assigned tasks.
-    - task_briefing may include full description/comments only for in_progress tasks; pending/completed entries may be minimal on purpose.
-    - Before resuming any in_progress task, call task_get for that task to refresh full context.
-    - When you become free, call task_briefing again, inspect pending tasks, then call task_get for the specific pending task you are about to start before task_start.
+    - task_briefing may include full description/comments only for in_progress tasks; needsFix/pending/review/completed entries may be minimal on purpose.
+    - Finish existing in_progress tasks first.
+    - If you need more context for an in_progress task, you MAY call task_get, but it is not mandatory when task_briefing already gives enough detail.
+    - Before starting a needsFix or pending task, call task_get for that specific task first, then run task_start only when you truly begin.
+    - If you complete fixes for a needsFix task, mark it completed and then send it back through review_request when ready for another review pass.
 Failure to follow this protocol means the task board will show incorrect status.`);
 }
 
@@ -810,14 +812,15 @@ function buildLaunchPrompt(
 
      ${languageInstruction}
      The team has been reconnected after a restart.
-     ${hasTasks ? `You may have in_progress or pending tasks from the previous session.` : 'You have no assigned tasks currently.'}
+     ${hasTasks ? `You may have assigned tasks in states like in_progress, needsFix, pending, review, completed, or approved from the previous session.` : 'You have no assigned tasks currently.'}
      ${buildTeammateAgentBlockReminder()}
 
      Your FIRST action: call MCP tool task_briefing with:
      { teamName: "${request.teamName}", memberName: "${m.name}" }
      Then:
-     - If task_briefing shows any in_progress task, call task_get for each in_progress task first and resume/finish those before touching pending tasks.
-     - Only after there are no active in_progress tasks, inspect pending tasks from task_briefing, call task_get for the specific pending task you choose, and only then run task_start when you truly begin.
+     - If task_briefing shows any in_progress task, resume/finish those first. Call task_get only if you need more context than task_briefing already gave you.
+     - After that, prioritize tasks marked Needs fixes after review, then normal pending tasks.
+     - Before you start any needsFix or pending task, call task_get for that specific task, and only then run task_start when you truly begin.
      - If you have no tasks, wait for new assignments.`;
       })
       .join('\n\n');

@@ -56,7 +56,7 @@ export interface TeamSummary {
 }
 
 export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted';
-export type TeamReviewState = 'none' | 'review' | 'approved';
+export type TeamReviewState = 'none' | 'review' | 'needsFix' | 'approved';
 
 export interface TaskWorkInterval {
   /** ISO timestamp when task entered in_progress */

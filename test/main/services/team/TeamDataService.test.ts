@@ -457,7 +457,7 @@ describe('TeamDataService', () => {
     await service.requestReview('my-team', 'task-1');
 
     expect(requestReviewMock).toHaveBeenCalledWith('task-1', {
-      from: 'lead',
+      from: 'user',
       leadSessionId: 'lead-1',
     });
   });
@@ -500,17 +500,17 @@ describe('TeamDataService', () => {
     await service.updateKanban('my-team', 'task-1', { op: 'request_changes', comment: 'Needs fixes' });
 
     expect(requestReviewMock).toHaveBeenCalledWith('task-1', {
-      from: 'lead',
+      from: 'user',
       leadSessionId: 'lead-2',
     });
     expect(approveReviewMock).toHaveBeenCalledWith('task-1', {
-      from: 'lead',
+      from: 'user',
       note: 'Approved from kanban',
       'notify-owner': true,
       leadSessionId: 'lead-2',
     });
     expect(requestChangesMock).toHaveBeenCalledWith('task-1', {
-      from: 'lead',
+      from: 'user',
       comment: 'Needs fixes',
       leadSessionId: 'lead-2',
     });
