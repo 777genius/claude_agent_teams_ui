@@ -73,9 +73,25 @@ vi.mock('../../../../src/main/services/team/atomicWrite', () => ({
   atomicWriteAsync: hoisted.atomicWrite,
 }));
 
+vi.mock('../../../../src/main/services/team/fileLock', () => ({
+  withFileLock: async (_filePath: string, fn: () => Promise<unknown>) => await fn(),
+}));
+
+vi.mock('../../../../src/main/services/team/inboxLock', () => ({
+  withInboxLock: async (_filePath: string, fn: () => Promise<unknown>) => await fn(),
+}));
+
 vi.mock('../../../../src/main/utils/pathDecoder', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/main/utils/pathDecoder')>();
   return { ...actual, getTeamsBasePath: () => '/mock/teams' };
+});
+
+vi.mock('../../../../src/main/utils/fsRead', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/main/utils/fsRead')>();
+  return {
+    ...actual,
+    readFileUtf8WithTimeout: hoisted.readFile,
+  };
 });
 
 vi.mock('agent-teams-controller', () => ({
@@ -100,6 +116,10 @@ function seedConfig(teamName: string): void {
       members: [{ name: 'team-lead', agentType: 'team-lead' }],
     })
   );
+}
+
+function seedLeadInbox(teamName: string, messages: unknown[]): void {
+  hoisted.files.set(`/mock/teams/${teamName}/inboxes/team-lead.json`, JSON.stringify(messages));
 }
 
 interface RunLike {
@@ -566,6 +586,45 @@ describe('TeamProvisioningService pre-ready live messages', () => {
     expect(live[0].source).toBe('cross_team_sent');
     expect(live[0].to).toBe('cross-team:team-best');
     expect(hoisted.sendInboxMessage).not.toHaveBeenCalled();
+  });
+
+  it('marks native cross-team teammate-message deliveries as read and restores reply hints', async () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    seedLeadInbox('my-team', [
+      {
+        from: 'other-team.team-lead',
+        to: 'team-lead',
+        text: '<cross-team from="other-team.team-lead" depth="0" conversationId="conv-native-1" replyToConversationId="conv-native-1" />\nНативная доставка.',
+        timestamp: '2026-02-23T10:01:00.000Z',
+        read: false,
+        source: 'cross_team',
+        messageId: 'm-native-cross-team-1',
+        conversationId: 'conv-native-1',
+        replyToConversationId: 'conv-native-1',
+      },
+    ]);
+    const run = attachRun(service, 'my-team', { provisioningComplete: true });
+
+    callHandleStreamJsonMessage(service, run, {
+      type: 'user',
+      message: {
+        role: 'user',
+        content:
+          '<teammate-message teammate_id="other-team.team-lead" color="purple" summary="Cross-team reply"><cross-team from="other-team.team-lead" depth="0" conversationId="conv-native-1" replyToConversationId="conv-native-1" />\nНативная доставка.</teammate-message>',
+      },
+    });
+
+    await vi.waitFor(() => {
+      const updatedInbox = JSON.parse(
+        hoisted.files.get('/mock/teams/my-team/inboxes/team-lead.json') ?? '[]'
+      ) as Array<{ read?: boolean }>;
+      expect(updatedInbox[0]?.read).toBe(true);
+    });
+
+    expect(run.activeCrossTeamReplyHints).toEqual([
+      { toTeam: 'other-team', conversationId: 'conv-native-1' },
+    ]);
   });
 
   it('rescues mistaken cross_team_send recipients into actual cross-team replies', async () => {
