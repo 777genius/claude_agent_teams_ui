@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { AttachmentPreviewList } from '@renderer/components/team/attachments/AttachmentPreviewList';
 import { DropZoneOverlay } from '@renderer/components/team/attachments/DropZoneOverlay';
+import { ActionModeSelector } from '@renderer/components/team/messages/ActionModeSelector';
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ import { AlertCircle, ImagePlus, Send, X } from 'lucide-react';
 
 import { MemberBadge } from '../MemberBadge';
 
+import type { ActionMode } from '@renderer/components/team/messages/ActionModeSelector';
 import type { InlineChip } from '@renderer/types/inlineChip';
 import type { MentionSuggestion } from '@renderer/types/mention';
 import type { AttachmentPayload, ResolvedTeamMember, SendMessageResult } from '@shared/types';
@@ -55,7 +57,8 @@ interface SendMessageDialogProps {
     member: string,
     text: string,
     summary?: string,
-    attachments?: AttachmentPayload[]
+    attachments?: AttachmentPayload[],
+    actionMode?: ActionMode
   ) => void;
   onClose: () => void;
 }
@@ -90,6 +93,7 @@ export const SendMessageDialog = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageRestrictionError, setImageRestrictionError] = useState<string | null>(null);
   const imageRestrictionTimerRef = useRef(0);
+  const [actionMode, setActionMode] = useState<ActionMode>('do');
 
   const {
     attachments,
@@ -106,6 +110,14 @@ export const SendMessageDialog = ({
   const isLeadRecipient = selectedMember?.role === 'lead' || selectedMember?.name === 'team-lead';
   const supportsAttachments = isLeadRecipient && !!isTeamAlive;
   const canAttach = supportsAttachments && canAddMore;
+
+  useEffect(() => {
+    if (isLeadRecipient) {
+      setActionMode('delegate');
+    } else {
+      setActionMode((prev) => (prev === 'delegate' ? 'do' : prev));
+    }
+  }, [isLeadRecipient]);
 
   const [pendingAutoClose, setPendingAutoClose] = useState(false);
   // Reset form on open transition (avoid setState in render)
@@ -195,7 +207,13 @@ export const SendMessageDialog = ({
 
   const handleSubmit = (): void => {
     if (!canSend) return;
-    onSend(member.trim(), finalText, trimmedText, attachments.length > 0 ? attachments : undefined);
+    onSend(
+      member.trim(),
+      finalText,
+      trimmedText,
+      attachments.length > 0 ? attachments : undefined,
+      actionMode
+    );
     textDraft.clearDraft();
     chipDraft.clearChipDraft();
     clearAttachments();
@@ -428,6 +446,13 @@ export const SendMessageDialog = ({
                 maxRows={12}
                 maxLength={MAX_TEXT_LENGTH}
                 disabled={sending}
+                cornerActionLeft={
+                  <ActionModeSelector
+                    value={actionMode}
+                    onChange={setActionMode}
+                    showDelegate={isLeadRecipient}
+                  />
+                }
                 cornerAction={
                   <button
                     type="button"

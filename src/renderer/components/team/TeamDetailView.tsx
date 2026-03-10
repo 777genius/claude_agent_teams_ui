@@ -1877,12 +1877,18 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
             sending={sendingMessage}
             sendError={sendMessageError}
             lastResult={lastSendMessageResult}
-            onSend={(member, text, summary, attachments) => {
+            onSend={(member, text, summary, attachments, actionMode) => {
               void (async () => {
                 const sentAtMs = Date.now();
                 setPendingRepliesByMember((prev) => ({ ...prev, [member]: sentAtMs }));
                 try {
-                  await sendTeamMessage(teamName, { member, text, summary, attachments });
+                  await sendTeamMessage(teamName, {
+                    member,
+                    text,
+                    summary,
+                    attachments,
+                    actionMode,
+                  });
                 } catch {
                   setPendingRepliesByMember((prev) => {
                     if (prev[member] !== sentAtMs) return prev;
