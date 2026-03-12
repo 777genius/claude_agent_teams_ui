@@ -831,6 +831,7 @@ ${buildMemberSpawnPrompt(m, displayName, request.teamName, taskProtocol, process
 
 You are running in a non-interactive CLI session. Do not ask questions. Do everything in a single turn.
 CRITICAL: Execute ALL steps directly yourself. Do NOT use the Agent tool to delegate provisioning to a sub-agent. The ONLY valid use of the Agent tool is spawning individual teammates in step 2.
+CRITICAL: During this initial team provisioning turn, do NOT call mcp__agent-teams__team_launch or mcp__agent-teams__team_stop. This turn is only for creating/provisioning the team state and spawning teammates.
 You are “${leadName}”, the team lead.
 
 Goal: Create and provision a NEW Claude Code agent team${request.members.length === 0 ? ' (solo — lead only)' : ' with live teammates'}.
@@ -960,6 +961,7 @@ ${memberSpawnInstructions}
 
 You are running in a non-interactive CLI session. Do not ask questions. Do everything in a single turn.
 CRITICAL: Execute ALL steps directly yourself. Do NOT use the Agent tool to delegate work to a sub-agent. The ONLY valid use of the Agent tool is spawning individual teammates in step 2.
+CRITICAL: During this initial team launch/reconnect turn, do NOT call mcp__agent-teams__team_launch or mcp__agent-teams__team_stop. This turn is only for reconnecting the existing team state and spawning teammates.
 You are "${leadName}", the team lead.
 
 Goal: Reconnect with existing team "${request.teamName}" and resume pending work.
@@ -2572,7 +2574,7 @@ export class TeamProvisioningService {
         '--mcp-config',
         mcpConfigPath,
         '--disallowedTools',
-        'TeamDelete,TodoWrite,mcp__agent-teams__team_launch,mcp__agent-teams__team_stop',
+        'TeamDelete,TodoWrite',
         // Explicit --permission-mode overrides user's defaultMode in ~/.claude/settings.json
         // (e.g. "acceptEdits") which otherwise takes precedence over CLI flags
         ...(request.skipPermissions !== false
@@ -2958,7 +2960,7 @@ export class TeamProvisioningService {
         '--mcp-config',
         mcpConfigPath,
         '--disallowedTools',
-        'TeamDelete,TodoWrite,mcp__agent-teams__team_launch,mcp__agent-teams__team_stop',
+        'TeamDelete,TodoWrite',
         // Explicit --permission-mode overrides user's defaultMode in ~/.claude/settings.json
         // (e.g. "acceptEdits") which otherwise takes precedence over CLI flags
         ...(request.skipPermissions !== false
