@@ -108,31 +108,36 @@ export class TeamMemberLogsFinder {
       }
     }
 
-    for (const sessionId of sessionIds) {
-      const subagentsDir = path.join(projectDir, sessionId, 'subagents');
+    // ── Collect and parallel-scan subagent files ──
+    const candidates = await this.collectSubagentCandidates(projectDir, sessionIds);
+    const settled: (MemberSubagentLogSummary | null)[] = new Array(candidates.length).fill(null);
+    let nextIdx = 0;
 
-      let files: string[];
-      try {
-        files = await fs.readdir(subagentsDir);
-      } catch {
-        continue;
+    const scanWorker = async (): Promise<void> => {
+      while (nextIdx < candidates.length) {
+        const idx = nextIdx++;
+        const c = candidates[idx];
+        try {
+          const summary = await this.parseSubagentSummary(
+            c.filePath,
+            projectId,
+            c.sessionId,
+            c.fileName,
+            memberName,
+            knownMembers
+          );
+          if (summary) settled[idx] = summary;
+        } catch (err) {
+          logger.warn(`Failed to parse subagent summary: ${c.filePath}`, err);
+        }
       }
+    };
 
-      for (const file of files) {
-        if (!file.startsWith('agent-') || !file.endsWith('.jsonl')) continue;
-        if (file.startsWith('agent-acompact')) continue;
-
-        const filePath = path.join(subagentsDir, file);
-        const summary = await this.parseSubagentSummary(
-          filePath,
-          projectId,
-          sessionId,
-          file,
-          memberName,
-          knownMembers
-        );
-        if (summary) results.push(summary);
-      }
+    await Promise.all(
+      Array.from({ length: Math.min(SCAN_CONCURRENCY, candidates.length) }, () => scanWorker())
+    );
+    for (const s of settled) {
+      if (s) results.push(s);
     }
 
     return results.sort(
@@ -193,21 +198,7 @@ export class TeamMemberLogsFinder {
     const tLead = performance.now();
 
     // ── Collect all subagent file candidates ──
-    const candidates: { filePath: string; sessionId: string; fileName: string }[] = [];
-    for (const sessionId of sessionIds) {
-      const subagentsDir = path.join(projectDir, sessionId, 'subagents');
-      let dirFiles: string[];
-      try {
-        dirFiles = await fs.readdir(subagentsDir);
-      } catch {
-        continue;
-      }
-      for (const f of dirFiles) {
-        if (!f.startsWith('agent-') || !f.endsWith('.jsonl') || f.startsWith('agent-acompact'))
-          continue;
-        candidates.push({ filePath: path.join(subagentsDir, f), sessionId, fileName: f });
-      }
-    }
+    const candidates = await this.collectSubagentCandidates(projectDir, sessionIds);
 
     // ── Parallel scan with concurrency limit ──
     const settled: (MemberLogSummary | null)[] = new Array(candidates.length).fill(null);
@@ -234,8 +225,8 @@ export class TeamMemberLogsFinder {
             attribution
           );
           if (summary) settled[idx] = summary;
-        } catch {
-          // One file error must not break others
+        } catch (err) {
+          logger.warn(`Failed to scan subagent file: ${c.filePath}`, err);
         }
       }
     };
@@ -405,21 +396,7 @@ export class TeamMemberLogsFinder {
     const tLead = performance.now();
 
     // ── Collect all subagent file candidates ──
-    const candidates: { filePath: string; sessionId: string; fileName: string }[] = [];
-    for (const sessionId of sessionIds) {
-      const subagentsDir = path.join(projectDir, sessionId, 'subagents');
-      let dirFiles: string[];
-      try {
-        dirFiles = await fs.readdir(subagentsDir);
-      } catch {
-        continue;
-      }
-      for (const f of dirFiles) {
-        if (!f.startsWith('agent-') || !f.endsWith('.jsonl') || f.startsWith('agent-acompact'))
-          continue;
-        candidates.push({ filePath: path.join(subagentsDir, f), sessionId, fileName: f });
-      }
-    }
+    const candidates = await this.collectSubagentCandidates(projectDir, sessionIds);
 
     // ── Parallel scan with concurrency limit ──
     let nextIdx = 0;
@@ -440,8 +417,8 @@ export class TeamMemberLogsFinder {
             attribution.detectedMember,
             await this.getSortTime(c.filePath, attribution.firstTimestamp)
           );
-        } catch {
-          // One file error must not break others
+        } catch (err) {
+          logger.warn(`Failed to scan subagent file: ${c.filePath}`, err);
         }
       }
     };
@@ -760,6 +737,32 @@ export class TeamMemberLogsFinder {
       config.members?.find((m) => m?.agentType === 'team-lead')?.name?.trim() || 'team-lead';
     const isLeadMember = leadMemberName.toLowerCase() === memberName.trim().toLowerCase();
     return { ...discovery, isLeadMember };
+  }
+
+  /**
+   * Collect all subagent JSONL file candidates across session directories.
+   * Filters out non-agent files and compact files (agent-acompact*).
+   */
+  private async collectSubagentCandidates(
+    projectDir: string,
+    sessionIds: string[]
+  ): Promise<{ filePath: string; sessionId: string; fileName: string }[]> {
+    const candidates: { filePath: string; sessionId: string; fileName: string }[] = [];
+    for (const sessionId of sessionIds) {
+      const subagentsDir = path.join(projectDir, sessionId, 'subagents');
+      let dirFiles: string[];
+      try {
+        dirFiles = await fs.readdir(subagentsDir);
+      } catch {
+        continue;
+      }
+      for (const f of dirFiles) {
+        if (!f.startsWith('agent-') || !f.endsWith('.jsonl') || f.startsWith('agent-acompact'))
+          continue;
+        candidates.push({ filePath: path.join(subagentsDir, f), sessionId, fileName: f });
+      }
+    }
+    return candidates;
   }
 
   private deriveSinceMs(options?: {

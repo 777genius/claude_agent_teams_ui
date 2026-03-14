@@ -1018,4 +1018,67 @@ describe('TeamMemberLogsFinder', () => {
     expect(deduped).toHaveLength(1);
     expect(deduped[0].memberName.toLowerCase()).toBe('dev');
   });
+
+  it('findMemberLogs returns results sorted by startTime descending', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-sort-'));
+    setClaudeBasePathOverride(tmpDir);
+
+    const teamName = 'sort-team';
+    const projectPath = '/Users/test/sort-proj';
+    const projectId = '-Users-test-sort-proj';
+    const sessionId = 'ss1';
+
+    await fs.mkdir(path.join(tmpDir, 'teams', teamName), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, 'teams', teamName, 'config.json'),
+      JSON.stringify({
+        name: teamName,
+        projectPath,
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'dev', agentType: 'general-purpose' },
+        ],
+      }),
+      'utf8'
+    );
+
+    const projectRoot = path.join(tmpDir, 'projects', projectId);
+    await fs.mkdir(path.join(projectRoot, sessionId, 'subagents'), { recursive: true });
+
+    // 3 agent files with different startTimes: 00:03, 00:01, 00:02
+    for (const [id, ts] of [
+      ['agent-s1.jsonl', '2026-01-01T00:00:03.000Z'],
+      ['agent-s2.jsonl', '2026-01-01T00:00:01.000Z'],
+      ['agent-s3.jsonl', '2026-01-01T00:00:02.000Z'],
+    ] as const) {
+      await fs.writeFile(
+        path.join(projectRoot, sessionId, 'subagents', id),
+        [
+          JSON.stringify({
+            timestamp: ts,
+            type: 'user',
+            message: {
+              role: 'user',
+              content: `You are dev, a developer on team "${teamName}" (${teamName}).`,
+            },
+          }),
+          JSON.stringify({
+            timestamp: ts,
+            type: 'assistant',
+            message: { role: 'assistant', content: [{ type: 'text', text: 'OK' }] },
+          }),
+        ].join('\n') + '\n',
+        'utf8'
+      );
+    }
+
+    const finder = new TeamMemberLogsFinder();
+    const logs = await finder.findMemberLogs(teamName, 'dev');
+
+    expect(logs).toHaveLength(3);
+    // Must be descending: 00:03, 00:02, 00:01
+    const times = logs.map((l) => new Date(l.startTime).getTime());
+    expect(times[0]).toBeGreaterThan(times[1]);
+    expect(times[1]).toBeGreaterThan(times[2]);
+  });
 });
