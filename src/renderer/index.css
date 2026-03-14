@@ -72,6 +72,10 @@
   /* Inline code */
   --inline-code-bg: rgba(148, 163, 184, 0.08);
   --inline-code-text: #e2e8f0;
+  /* URL badge (textarea overlay) */
+  --url-badge-bg: rgba(37, 99, 235, 0.12);
+  --url-badge-border: rgba(96, 165, 250, 0.22);
+  --url-badge-text: #bfdbfe;
   /* Diff viewer */
   --diff-added-bg: rgba(34, 197, 94, 0.15);
   --diff-added-text: #4ade80;
@@ -440,6 +444,10 @@
   /* Inline code - Warm neutral */
   --inline-code-bg: rgba(0, 0, 0, 0.05);
   --inline-code-text: #3a3935;
+  /* URL badge (textarea overlay) - Light mode */
+  --url-badge-bg: rgba(37, 99, 235, 0.1);
+  --url-badge-border: rgba(37, 99, 235, 0.25);
+  --url-badge-text: #1d4ed8;
   /* Diff viewer - Light mode */
   --diff-added-bg: rgba(34, 197, 94, 0.18);
   --diff-added-text: #14532d;

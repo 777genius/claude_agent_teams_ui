@@ -566,6 +566,26 @@ export const TaskDetailDialog = ({
                 <span className="text-xs italic text-[var(--color-text-muted)]">Unassigned</span>
               )}
             </div>
+            {currentTask.reviewer ||
+            (currentTask.reviewState && currentTask.reviewState !== 'none') ? (
+              <div className="flex items-center gap-1.5">
+                <Eye size={12} className="text-[var(--color-text-muted)]" />
+                {currentTask.reviewer ? (
+                  <MemberBadge
+                    name={currentTask.reviewer}
+                    color={colorMap.get(currentTask.reviewer)}
+                    size="sm"
+                  />
+                ) : null}
+                {currentTask.reviewState && currentTask.reviewState !== 'none' ? (
+                  <span
+                    className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY[currentTask.reviewState].bg} ${REVIEW_STATE_DISPLAY[currentTask.reviewState].text}`}
+                  >
+                    {REVIEW_STATE_DISPLAY[currentTask.reviewState].label}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {currentTask.createdBy ? (
               <div className="flex items-center gap-1.5 text-[var(--color-text-muted)]">
                 <PenLine size={12} />
@@ -688,451 +708,462 @@ export const TaskDetailDialog = ({
             </div>
           ) : null}
 
-          {/* Description */}
-          <CollapsibleTeamSection
-            title="Description"
-            icon={<AlignLeft size={14} />}
-            contentClassName="pl-2.5"
-            headerClassName="-mx-6 w-[calc(100%+3rem)]"
-            headerContentClassName="pl-6"
-            defaultOpen
-          >
-            {editingDescription ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
-                      !descriptionPreview
-                        ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)]'
-                        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-                    }`}
-                    onClick={() => setDescriptionPreview(false)}
-                  >
-                    <Pencil size={12} />
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
-                      descriptionPreview
-                        ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)]'
-                        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-                    }`}
-                    onClick={() => setDescriptionPreview(true)}
-                  >
-                    <Eye size={12} />
-                    Preview
-                  </button>
-                </div>
-                {descriptionPreview ? (
-                  <div className="max-h-[200px] overflow-y-auto rounded border border-[var(--color-border)] p-2">
-                    {descriptionDraft.trim() ? (
-                      <MarkdownViewer content={descriptionDraft} maxHeight="max-h-[180px]" />
-                    ) : (
-                      <p className="text-xs text-[var(--color-text-muted)]">Nothing to preview</p>
-                    )}
-                  </div>
-                ) : (
-                  <Textarea
-                    autoFocus
-                    value={descriptionDraft}
-                    onChange={(e) => setDescriptionDraft(e.target.value)}
-                    disabled={savingDescription}
-                    rows={6}
-                    className="text-xs"
-                    placeholder="Task description (supports markdown)"
-                  />
-                )}
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    className="h-7 text-xs"
-                    disabled={savingDescription}
-                    onClick={() => void saveDescription()}
-                  >
-                    {savingDescription ? (
-                      <Loader2 size={12} className="mr-1 animate-spin" />
-                    ) : (
-                      <Check size={12} className="mr-1" />
-                    )}
-                    Save
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    disabled={savingDescription}
-                    onClick={() => setEditingDescription(false)}
-                  >
-                    <X size={12} className="mr-1" />
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : currentTask.description ? (
-              <div className="group relative">
-                <ExpandableContent collapsedHeight={200}>
-                  <MarkdownViewer content={currentTask.description} maxHeight="max-h-none" bare />
-                </ExpandableContent>
-                <Tooltip>
-                  <TooltipTrigger asChild>
+          {/* Sections container with uniform spacing */}
+          <div className="space-y-1">
+            {/* Description */}
+            <CollapsibleTeamSection
+              title="Description"
+              icon={<AlignLeft size={14} />}
+              contentClassName="pl-2.5"
+              headerClassName="-mx-6 w-[calc(100%+3rem)]"
+              headerContentClassName="pl-6"
+              defaultOpen
+            >
+              {editingDescription ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="absolute right-0 top-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)] group-hover:opacity-100"
-                      onClick={startEditDescription}
+                      className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
+                        !descriptionPreview
+                          ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)]'
+                          : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+                      }`}
+                      onClick={() => setDescriptionPreview(false)}
                     >
                       <Pencil size={12} />
+                      Edit
                     </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Edit description</TooltipContent>
-                </Tooltip>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
-                onClick={startEditDescription}
-              >
-                Click to add description...
-              </button>
-            )}
-          </CollapsibleTeamSection>
-
-          {/* Attachments */}
-          <CollapsibleTeamSection
-            title="Attachments"
-            icon={<ImageIcon size={14} />}
-            badge={
-              (currentTask.attachments?.length ?? 0) + commentImageAttachments.length > 0
-                ? (currentTask.attachments?.length ?? 0) + commentImageAttachments.length
-                : undefined
-            }
-            contentClassName="pl-2.5"
-            headerClassName="-mx-6 w-[calc(100%+3rem)]"
-            headerContentClassName="pl-6"
-            defaultOpen={
-              (currentTask.attachments?.length ?? 0) > 0 || commentImageAttachments.length > 0
-            }
-          >
-            <TaskAttachments
-              teamName={teamName}
-              taskId={currentTask.id}
-              attachments={currentTask.attachments ?? []}
-            />
-            {commentImageAttachments.length > 0 ? (
-              <CommentImagesGrid
-                items={commentImageAttachments}
-                teamName={teamName}
-                taskId={currentTask.id}
-              />
-            ) : null}
-          </CollapsibleTeamSection>
-
-          {/* Changes */}
-          {variant === 'team' && canShowTaskChanges && onViewChanges ? (
-            <CollapsibleTeamSection
-              key={`task-changes:${currentTask.id}`}
-              title="Changes"
-              icon={<FileDiff size={14} />}
-              badge={taskChangesFiles ? taskChangesFiles.length : undefined}
-              headerExtra={
-                changesSectionOpen ? (
+                    <button
+                      type="button"
+                      className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${
+                        descriptionPreview
+                          ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)]'
+                          : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+                      }`}
+                      onClick={() => setDescriptionPreview(true)}
+                    >
+                      <Eye size={12} />
+                      Preview
+                    </button>
+                  </div>
+                  {descriptionPreview ? (
+                    <div className="max-h-[200px] overflow-y-auto rounded border border-[var(--color-border)] p-2">
+                      {descriptionDraft.trim() ? (
+                        <MarkdownViewer content={descriptionDraft} maxHeight="max-h-[180px]" />
+                      ) : (
+                        <p className="text-xs text-[var(--color-text-muted)]">Nothing to preview</p>
+                      )}
+                    </div>
+                  ) : (
+                    <Textarea
+                      autoFocus
+                      value={descriptionDraft}
+                      onChange={(e) => setDescriptionDraft(e.target.value)}
+                      disabled={savingDescription}
+                      rows={6}
+                      className="text-xs"
+                      placeholder="Task description (supports markdown)"
+                    />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={savingDescription}
+                      onClick={() => void saveDescription()}
+                    >
+                      {savingDescription ? (
+                        <Loader2 size={12} className="mr-1 animate-spin" />
+                      ) : (
+                        <Check size={12} className="mr-1" />
+                      )}
+                      Save
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={savingDescription}
+                      onClick={() => setEditingDescription(false)}
+                    >
+                      <X size={12} className="mr-1" />
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : currentTask.description ? (
+                <div className="group relative">
+                  <ExpandableContent collapsedHeight={200}>
+                    <MarkdownViewer content={currentTask.description} maxHeight="max-h-none" bare />
+                  </ExpandableContent>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className="pointer-events-auto rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-section-hover)] hover:text-[var(--color-text)] disabled:opacity-50"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRefreshChanges();
-                        }}
-                        disabled={taskChangesLoading}
-                        aria-label="Refresh changes"
+                        className="absolute right-0 top-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)] group-hover:opacity-100"
+                        onClick={startEditDescription}
                       >
-                        <RefreshCw
-                          size={12}
-                          className={taskChangesLoading ? 'animate-spin' : undefined}
-                        />
+                        <Pencil size={12} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">Refresh</TooltipContent>
+                    <TooltipContent side="top">Edit description</TooltipContent>
                   </Tooltip>
-                ) : null
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+                  onClick={startEditDescription}
+                >
+                  Click to add description...
+                </button>
+              )}
+            </CollapsibleTeamSection>
+
+            {/* Attachments */}
+            <CollapsibleTeamSection
+              title="Attachments"
+              icon={<ImageIcon size={14} />}
+              badge={
+                (currentTask.attachments?.length ?? 0) + commentImageAttachments.length > 0
+                  ? (currentTask.attachments?.length ?? 0) + commentImageAttachments.length
+                  : undefined
               }
               contentClassName="pl-2.5"
               headerClassName="-mx-6 w-[calc(100%+3rem)]"
               headerContentClassName="pl-6"
-              defaultOpen={false}
-              onOpenChange={handleChangesSectionOpenChange}
+              defaultOpen={
+                (currentTask.attachments?.length ?? 0) > 0 || commentImageAttachments.length > 0
+              }
             >
-              {taskChangesLoading ? (
-                <div className="flex items-center gap-2 py-2 text-xs text-[var(--color-text-muted)]">
-                  <Loader2 size={14} className="animate-spin" />
-                  Loading changes...
-                </div>
-              ) : taskChangesError ? (
-                <p className="text-xs text-red-400">{taskChangesError}</p>
-              ) : taskChangesFiles && taskChangesFiles.length > 0 ? (
-                <div className="max-h-[200px] space-y-0.5 overflow-y-auto">
-                  {taskChangesFiles.map((file) => (
-                    <div
-                      key={file.filePath}
-                      className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--color-surface-raised)]"
-                    >
-                      <FileIcon
-                        fileName={file.relativePath.split('/').pop() ?? file.relativePath}
-                        className="size-3.5"
-                      />
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 truncate text-left font-mono text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text)]"
-                        onClick={() => {
-                          handleClose();
-                          onViewChanges(currentTask.id, file.filePath);
-                        }}
+              <TaskAttachments
+                teamName={teamName}
+                taskId={currentTask.id}
+                attachments={currentTask.attachments ?? []}
+              />
+              {commentImageAttachments.length > 0 ? (
+                <CommentImagesGrid
+                  items={commentImageAttachments}
+                  teamName={teamName}
+                  taskId={currentTask.id}
+                />
+              ) : null}
+            </CollapsibleTeamSection>
+
+            {/* Changes */}
+            {variant === 'team' && canShowTaskChanges && onViewChanges ? (
+              <CollapsibleTeamSection
+                key={`task-changes:${currentTask.id}`}
+                title="Changes"
+                icon={<FileDiff size={14} />}
+                badge={taskChangesFiles ? taskChangesFiles.length : undefined}
+                headerExtra={
+                  changesSectionOpen ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="pointer-events-auto rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-section-hover)] hover:text-[var(--color-text)] disabled:opacity-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRefreshChanges();
+                          }}
+                          disabled={taskChangesLoading}
+                          aria-label="Refresh changes"
+                        >
+                          <RefreshCw
+                            size={12}
+                            className={taskChangesLoading ? 'animate-spin' : undefined}
+                          />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Refresh</TooltipContent>
+                    </Tooltip>
+                  ) : null
+                }
+                contentClassName="pl-2.5"
+                headerClassName="-mx-6 w-[calc(100%+3rem)]"
+                headerContentClassName="pl-6"
+                defaultOpen={false}
+                onOpenChange={handleChangesSectionOpenChange}
+              >
+                {taskChangesLoading ? (
+                  <div className="flex items-center gap-2 py-2 text-xs text-[var(--color-text-muted)]">
+                    <Loader2 size={14} className="animate-spin" />
+                    Loading changes...
+                  </div>
+                ) : taskChangesError ? (
+                  <p className="text-xs text-red-400">{taskChangesError}</p>
+                ) : taskChangesFiles && taskChangesFiles.length > 0 ? (
+                  <div className="max-h-[200px] space-y-0.5 overflow-y-auto">
+                    {taskChangesFiles.map((file) => (
+                      <div
+                        key={file.filePath}
+                        className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--color-surface-raised)]"
                       >
-                        {file.relativePath}
-                      </button>
-                      <span className="flex shrink-0 items-center gap-1.5">
-                        {file.linesAdded > 0 ? (
-                          <span className="text-emerald-400">+{file.linesAdded}</span>
-                        ) : null}
-                        {file.linesRemoved > 0 ? (
-                          <span className="text-red-400">-{file.linesRemoved}</span>
-                        ) : null}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
-                              onClick={() => {
-                                handleClose();
-                                onViewChanges(currentTask.id, file.filePath);
-                              }}
-                            >
-                              <GitCompareArrows size={13} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Review diff</TooltipContent>
-                        </Tooltip>
-                        {onOpenInEditor ? (
+                        <FileIcon
+                          fileName={file.relativePath.split('/').pop() ?? file.relativePath}
+                          className="size-3.5"
+                        />
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left font-mono text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text)]"
+                          onClick={() => {
+                            handleClose();
+                            onViewChanges(currentTask.id, file.filePath);
+                          }}
+                        >
+                          {file.relativePath}
+                        </button>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          {file.linesAdded > 0 ? (
+                            <span className="text-emerald-400">+{file.linesAdded}</span>
+                          ) : null}
+                          {file.linesRemoved > 0 ? (
+                            <span className="text-red-400">-{file.linesRemoved}</span>
+                          ) : null}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
                                 className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
-                                onClick={() => onOpenInEditor(file.filePath)}
+                                onClick={() => {
+                                  handleClose();
+                                  onViewChanges(currentTask.id, file.filePath);
+                                }}
                               >
-                                <SquarePen size={13} />
+                                <GitCompareArrows size={13} />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="top">Open in editor</TooltipContent>
+                            <TooltipContent side="top">Review diff</TooltipContent>
                           </Tooltip>
-                        ) : null}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : changesSectionOpen ? (
-                <p className="text-xs text-[var(--color-text-muted)]">No file changes detected</p>
-              ) : null}
-            </CollapsibleTeamSection>
-          ) : null}
+                          {onOpenInEditor ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
+                                  onClick={() => onOpenInEditor(file.filePath)}
+                                >
+                                  <SquarePen size={13} />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Open in editor</TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : changesSectionOpen ? (
+                  <p className="text-xs text-[var(--color-text-muted)]">No file changes detected</p>
+                ) : null}
+              </CollapsibleTeamSection>
+            ) : null}
 
-          {/* Execution Logs — sessions that reference this task */}
-          {variant === 'team' ? (
+            {/* Execution Logs — sessions that reference this task */}
+            {variant === 'team' ? (
+              <CollapsibleTeamSection
+                key={`task-logs:${currentTask.id}`}
+                title="Execution Logs"
+                icon={<ScrollText size={14} />}
+                headerExtra={
+                  logsRefreshing || executionPreviewOnline ? (
+                    <span className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+                      {executionPreviewOnline ? (
+                        <span
+                          className="pointer-events-none relative inline-flex size-2 shrink-0"
+                          title="Online"
+                        >
+                          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+                          <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+                        </span>
+                      ) : null}
+                      {logsRefreshing ? (
+                        <span className="flex items-center gap-1">
+                          <Loader2 size={10} className="animate-spin" />
+                          Updating...
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null
+                }
+                contentClassName="pl-2.5"
+                headerClassName="-mx-6 w-[calc(100%+3rem)]"
+                headerContentClassName="pl-6"
+                defaultOpen={false}
+              >
+                <div className="min-w-0">
+                  <MemberLogsTab
+                    teamName={teamName}
+                    taskId={currentTask.id}
+                    taskOwner={currentTask.owner}
+                    taskStatus={currentTask.status}
+                    taskWorkIntervals={currentTask.workIntervals}
+                    taskSince={taskSince}
+                    onRefreshingChange={setLogsRefreshing}
+                    // Only show a "latest messages" preview when this task is owned by a subagent.
+                    // For lead-owned tasks, the lead session is a mixed stream (lead + multiple agents),
+                    // so filtering to "just the member messages" is unreliable and easy to mislead.
+                    showSubagentPreview={Boolean(currentTask.owner) && !isLeadOwnedTask}
+                    // Temporary debug option: for lead-owned tasks, show quick preview from lead session.
+                    showLeadPreview={allowLeadExecutionPreview && isLeadOwnedTask}
+                    onPreviewOnlineChange={setExecutionPreviewOnline}
+                  />
+                </div>
+              </CollapsibleTeamSection>
+            ) : null}
+
+            {blockedByIds.length > 0 ||
+            blocksIds.length > 0 ||
+            relatedIds.length > 0 ||
+            relatedByIds.length > 0 ||
+            kanbanTaskState ? (
+              <div className="space-y-1">
+                {/* Dependencies */}
+                {blockedByIds.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-0.5 text-xs text-yellow-300">
+                      <ArrowLeftFromLine size={12} />
+                      Blocked by
+                    </span>
+                    {blockedByIds.map((id) => {
+                      const depTask = taskMap.get(id);
+                      const isCompleted = depTask?.status === 'completed';
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                            isCompleted
+                              ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+                              : 'bg-yellow-500/15 text-yellow-300 hover:bg-yellow-500/25'
+                          } cursor-pointer`}
+                          title={
+                            depTask
+                              ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
+                              : `#${deriveTaskDisplayId(id)}`
+                          }
+                          onClick={() => handleDependencyClick(id)}
+                        >
+                          {depTask
+                            ? formatTaskDisplayLabel(depTask)
+                            : `#${deriveTaskDisplayId(id)}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {blocksIds.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-0.5 text-xs text-blue-400">
+                      <ArrowRightFromLine size={12} />
+                      Blocks
+                    </span>
+                    {blocksIds.map((id) => {
+                      const depTask = taskMap.get(id);
+                      const isCompleted = depTask?.status === 'completed';
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                            isCompleted
+                              ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+                              : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+                          } cursor-pointer`}
+                          title={
+                            depTask
+                              ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
+                              : `#${deriveTaskDisplayId(id)}`
+                          }
+                          onClick={() => handleDependencyClick(id)}
+                        >
+                          {depTask
+                            ? formatTaskDisplayLabel(depTask)
+                            : `#${deriveTaskDisplayId(id)}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {/* Review info */}
+                {kanbanTaskState ? (
+                  <div className="flex items-center gap-2">
+                    {kanbanTaskState.reviewer ? (
+                      <span className="text-xs text-[var(--color-text-secondary)]">
+                        Reviewer: {kanbanTaskState.reviewer}
+                      </span>
+                    ) : null}
+                    {kanbanTaskState.errorDescription ? (
+                      <span className="text-xs text-red-400">
+                        {kanbanTaskState.errorDescription}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Workflow History */}
+            {currentTask.historyEvents && currentTask.historyEvents.length > 0 ? (
+              <CollapsibleTeamSection
+                title="Workflow History"
+                icon={<History size={14} />}
+                badge={currentTask.historyEvents.length}
+                contentClassName="pl-2.5"
+                headerClassName="-mx-6 w-[calc(100%+3rem)]"
+                headerContentClassName="pl-6"
+                defaultOpen={false}
+              >
+                <WorkflowTimeline events={currentTask.historyEvents} memberColorMap={colorMap} />
+              </CollapsibleTeamSection>
+            ) : null}
+
+            {/* Comments */}
             <CollapsibleTeamSection
-              key={`task-logs:${currentTask.id}`}
-              title="Execution Logs"
-              icon={<ScrollText size={14} />}
-              headerExtra={
-                logsRefreshing || executionPreviewOnline ? (
-                  <span className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
-                    {executionPreviewOnline ? (
-                      <span
-                        className="pointer-events-none relative inline-flex size-2 shrink-0"
-                        title="Online"
-                      >
-                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-                        <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-                      </span>
-                    ) : null}
-                    {logsRefreshing ? (
-                      <span className="flex items-center gap-1">
-                        <Loader2 size={10} className="animate-spin" />
-                        Updating...
-                      </span>
-                    ) : null}
-                  </span>
-                ) : null
+              title="Comments"
+              icon={<MessageSquare size={14} />}
+              badge={
+                (currentTask.comments?.length ?? 0) > 0
+                  ? (currentTask.comments?.length ?? 0)
+                  : undefined
               }
-              contentClassName="pl-2.5"
+              contentClassName="overflow-x-visible pl-0"
               headerClassName="-mx-6 w-[calc(100%+3rem)]"
               headerContentClassName="pl-6"
-              defaultOpen={false}
+              defaultOpen
             >
-              <div className="min-w-0">
-                <MemberLogsTab
+              <div className="pl-2.5">
+                <TaskCommentInput
                   teamName={teamName}
                   taskId={currentTask.id}
-                  taskOwner={currentTask.owner}
-                  taskStatus={currentTask.status}
-                  taskWorkIntervals={currentTask.workIntervals}
-                  taskSince={taskSince}
-                  onRefreshingChange={setLogsRefreshing}
-                  // Only show a "latest messages" preview when this task is owned by a subagent.
-                  // For lead-owned tasks, the lead session is a mixed stream (lead + multiple agents),
-                  // so filtering to "just the member messages" is unreliable and easy to mislead.
-                  showSubagentPreview={Boolean(currentTask.owner) && !isLeadOwnedTask}
-                  // Temporary debug option: for lead-owned tasks, show quick preview from lead session.
-                  showLeadPreview={allowLeadExecutionPreview && isLeadOwnedTask}
-                  onPreviewOnlineChange={setExecutionPreviewOnline}
+                  members={members}
+                  replyTo={effectiveReplyTo}
+                  onClearReply={clearReply}
                 />
               </div>
-            </CollapsibleTeamSection>
-          ) : null}
-
-          {blockedByIds.length > 0 ||
-          blocksIds.length > 0 ||
-          relatedIds.length > 0 ||
-          relatedByIds.length > 0 ||
-          kanbanTaskState ? (
-            <div className="space-y-2">
-              {/* Dependencies */}
-              {blockedByIds.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center gap-0.5 text-xs text-yellow-300">
-                    <ArrowLeftFromLine size={12} />
-                    Blocked by
-                  </span>
-                  {blockedByIds.map((id) => {
-                    const depTask = taskMap.get(id);
-                    const isCompleted = depTask?.status === 'completed';
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                          isCompleted
-                            ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
-                            : 'bg-yellow-500/15 text-yellow-300 hover:bg-yellow-500/25'
-                        } cursor-pointer`}
-                        title={
-                          depTask
-                            ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
-                            : `#${deriveTaskDisplayId(id)}`
-                        }
-                        onClick={() => handleDependencyClick(id)}
-                      >
-                        {depTask ? formatTaskDisplayLabel(depTask) : `#${deriveTaskDisplayId(id)}`}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-
-              {blocksIds.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center gap-0.5 text-xs text-blue-400">
-                    <ArrowRightFromLine size={12} />
-                    Blocks
-                  </span>
-                  {blocksIds.map((id) => {
-                    const depTask = taskMap.get(id);
-                    const isCompleted = depTask?.status === 'completed';
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                          isCompleted
-                            ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
-                            : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
-                        } cursor-pointer`}
-                        title={
-                          depTask
-                            ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
-                            : `#${deriveTaskDisplayId(id)}`
-                        }
-                        onClick={() => handleDependencyClick(id)}
-                      >
-                        {depTask ? formatTaskDisplayLabel(depTask) : `#${deriveTaskDisplayId(id)}`}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-
-              {/* Review info */}
-              {kanbanTaskState ? (
-                <div className="flex items-center gap-2">
-                  {kanbanTaskState.reviewer ? (
-                    <span className="text-xs text-[var(--color-text-secondary)]">
-                      Reviewer: {kanbanTaskState.reviewer}
-                    </span>
-                  ) : null}
-                  {kanbanTaskState.errorDescription ? (
-                    <span className="text-xs text-red-400">{kanbanTaskState.errorDescription}</span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {/* Workflow History */}
-          {currentTask.historyEvents && currentTask.historyEvents.length > 0 ? (
-            <CollapsibleTeamSection
-              title="Workflow History"
-              icon={<History size={14} />}
-              badge={currentTask.historyEvents.length}
-              contentClassName="pl-2.5"
-              headerClassName="-mx-6 w-[calc(100%+3rem)]"
-              headerContentClassName="pl-6"
-              defaultOpen={false}
-            >
-              <WorkflowTimeline events={currentTask.historyEvents} memberColorMap={colorMap} />
-            </CollapsibleTeamSection>
-          ) : null}
-
-          {/* Comments */}
-          <CollapsibleTeamSection
-            title="Comments"
-            icon={<MessageSquare size={14} />}
-            badge={
-              (currentTask.comments?.length ?? 0) > 0
-                ? (currentTask.comments?.length ?? 0)
-                : undefined
-            }
-            contentClassName="overflow-x-visible pl-0"
-            headerClassName="-mx-6 w-[calc(100%+3rem)]"
-            headerContentClassName="pl-6"
-            defaultOpen
-          >
-            <div className="pl-2.5">
-              <TaskCommentInput
+              <TaskCommentsSection
                 teamName={teamName}
                 taskId={currentTask.id}
+                comments={currentTask.comments ?? []}
                 members={members}
-                replyTo={effectiveReplyTo}
-                onClearReply={clearReply}
+                hideHeader
+                hideInput
+                onReply={handleReply}
+                onTaskIdClick={
+                  onScrollToTask ? (taskId) => handleDependencyClick(taskId) : undefined
+                }
+                containerClassName="-mx-6"
+                unreadCommentIds={unreadSnapshotRef.current}
               />
-            </div>
-            <TaskCommentsSection
-              teamName={teamName}
-              taskId={currentTask.id}
-              comments={currentTask.comments ?? []}
-              members={members}
-              hideHeader
-              hideInput
-              onReply={handleReply}
-              onTaskIdClick={onScrollToTask ? (taskId) => handleDependencyClick(taskId) : undefined}
-              containerClassName="-mx-6"
-              unreadCommentIds={unreadSnapshotRef.current}
-            />
-          </CollapsibleTeamSection>
+            </CollapsibleTeamSection>
+          </div>
         </LightboxLockProvider>
       </DialogContent>
     </Dialog>

@@ -214,7 +214,12 @@ export const MentionSuggestionList = ({
           />
         ) : null}
         {s.subtitle && !isTask ? (
-          <span className="truncate text-[var(--color-text-muted)]">{s.subtitle}</span>
+          <span
+            className="truncate text-[var(--color-text-muted)]"
+            style={isFileOrFolder ? { direction: 'rtl', textAlign: 'left' } : undefined}
+          >
+            {isFileOrFolder ? '\u200E' + s.subtitle : s.subtitle}
+          </span>
         ) : null}
       </li>
     );

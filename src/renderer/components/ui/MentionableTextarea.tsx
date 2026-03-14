@@ -287,9 +287,9 @@ function parseSegments(
 // Default fallback color for mentions without a team color
 const DEFAULT_MENTION_BG = 'rgba(59, 130, 246, 0.15)';
 const DEFAULT_MENTION_TEXT = '#60a5fa';
-const URL_BADGE_BG = 'rgba(37, 99, 235, 0.12)';
-const URL_BADGE_BORDER = 'rgba(96, 165, 250, 0.22)';
-const URL_BADGE_TEXT = '#bfdbfe';
+const URL_BADGE_BG = 'var(--url-badge-bg)';
+const URL_BADGE_BORDER = 'var(--url-badge-border)';
+const URL_BADGE_TEXT = 'var(--url-badge-text)';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -324,6 +324,8 @@ interface MentionableTextareaProps extends Omit<
   taskSuggestions?: MentionSuggestion[];
   /** Called when Enter (without Shift) is pressed. */
   onModEnter?: () => void;
+  /** Called when Shift+Tab is pressed. */
+  onShiftTab?: () => void;
   /** Ref that receives the dismiss callback to close mention dropdown from outside */
   dismissMentionsRef?: React.MutableRefObject<(() => void) | null>;
 }
@@ -346,6 +348,7 @@ export const MentionableTextarea = React.forwardRef<HTMLTextAreaElement, Mention
       teamSuggestions = [],
       taskSuggestions = [],
       onModEnter,
+      onShiftTab,
       dismissMentionsRef,
       style,
       className,
@@ -823,6 +826,12 @@ export const MentionableTextarea = React.forwardRef<HTMLTextAreaElement, Mention
           });
           if (e.defaultPrevented) return;
         }
+        // Shift+Tab → cycle action mode
+        if (e.key === 'Tab' && e.shiftKey && onShiftTab) {
+          e.preventDefault();
+          onShiftTab();
+          return;
+        }
         // Enter (without Shift) → submit; Shift+Enter → newline
         if (e.key === 'Enter' && !e.shiftKey && onModEnter) {
           e.preventDefault();
@@ -834,6 +843,7 @@ export const MentionableTextarea = React.forwardRef<HTMLTextAreaElement, Mention
       },
       [
         onModEnter,
+        onShiftTab,
         handleChipKeyDown,
         mentionHandleKeyDown,
         isOpen,
@@ -1030,14 +1040,14 @@ export const MentionableTextarea = React.forwardRef<HTMLTextAreaElement, Mention
                   return (
                     <span
                       key={idx}
-                      className="inline-flex max-w-full items-center rounded-full px-1.5 py-0 align-baseline text-[0.92em] font-medium"
                       style={{
                         backgroundColor: URL_BADGE_BG,
                         color: URL_BADGE_TEXT,
+                        borderRadius: '4px',
                         boxShadow: `inset 0 0 0 1px ${URL_BADGE_BORDER}`,
                       }}
                     >
-                      <span className="truncate">{seg.value}</span>
+                      {seg.value}
                     </span>
                   );
                 }

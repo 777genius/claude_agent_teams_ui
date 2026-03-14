@@ -50,7 +50,7 @@ export const KanbanColumn = ({
           </Badge>
         </div>
       </header>
-      <div className={cn('flex max-h-[480px] flex-col overflow-auto p-2', bodyClassName)}>
+      <div className={cn('flex max-h-[480px] flex-col gap-1.5 overflow-auto p-2', bodyClassName)}>
         {children}
       </div>
     </section>

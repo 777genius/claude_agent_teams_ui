@@ -82,7 +82,7 @@ function requestReview(context, taskId, flags = {}) {
       to: reviewer,
       from,
       text:
-        `Please review task #${task.displayId || task.id}.\n\n` +
+        `**Please review** task #${task.displayId || task.id}\n\n` +
         wrapAgentBlock(
           `When approved, use MCP tool review_approve:\n` +
             `{ teamName: "${context.teamName}", taskId: "${task.id}", notifyOwner: true }\n\n` +
@@ -140,8 +140,8 @@ function approveReview(context, taskId, flags = {}) {
       from,
       text:
         note && note !== 'Approved'
-          ? `Task #${task.displayId || task.id} approved.\n\n${note}`
-          : `Task #${task.displayId || task.id} approved.`,
+          ? `@${from} **approved** task #${task.displayId || task.id}\n\n${note}`
+          : `@${from} **approved** task #${task.displayId || task.id}`,
       summary: `Approved #${task.displayId || task.id}`,
       source: 'system_notification',
       ...(leadSessionId ? { leadSessionId } : {}),
@@ -192,7 +192,7 @@ function requestChanges(context, taskId, flags = {}) {
     to: task.owner,
     from,
     text:
-      `Task #${task.displayId || task.id} needs fixes.\n\n${comment}\n\n` +
+      `@${from} **requested changes** for task #${task.displayId || task.id}\n\n${comment}\n\n` +
       'The task has been moved back to pending. When you are ready to resume, review the task context, start it explicitly, implement the fixes, mark it completed, and request review again.',
     ...(Array.isArray(flags.taskRefs) ? { taskRefs: flags.taskRefs } : {}),
     summary: `Fix request for #${task.displayId || task.id}`,

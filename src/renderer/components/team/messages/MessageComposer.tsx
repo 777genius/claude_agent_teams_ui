@@ -245,6 +245,12 @@ export const MessageComposer = ({
   // Track whether we initiated a send — clear draft only on confirmed success
   const pendingSendRef = useRef(false);
 
+  const handleCycleActionMode = useCallback(() => {
+    const modes: ActionMode[] = canDelegate ? ['do', 'ask', 'delegate'] : ['do', 'ask'];
+    const idx = modes.indexOf(actionMode);
+    setActionMode(modes[(idx + 1) % modes.length]);
+  }, [actionMode, canDelegate, setActionMode]);
+
   const handleSend = useCallback(() => {
     if (!canSend) return;
     dismissMentionsRef.current?.();
@@ -835,6 +841,7 @@ export const MessageComposer = ({
         projectPath={projectPath}
         onFileChipInsert={draft.addChip}
         onModEnter={handleSend}
+        onShiftTab={handleCycleActionMode}
         dismissMentionsRef={dismissMentionsRef}
         minRows={2}
         maxRows={6}
