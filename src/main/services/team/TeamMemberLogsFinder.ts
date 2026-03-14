@@ -25,6 +25,28 @@ const ATTRIBUTION_SCAN_LINES = 50;
 const TASK_SINCE_GRACE_MS = 2 * 60 * 1000;
 const FILE_MENTIONS_CACHE_MAX = 200;
 
+/** Signal sources for subagent member attribution, ordered by reliability. */
+type AttributionSignalSource = 'process_team' | 'routing_sender' | 'teammate_id' | 'text_mention';
+
+interface DetectionSignal {
+  member: string;
+  source: AttributionSignalSource;
+}
+
+/**
+ * Precedence order for attribution signals (most reliable first).
+ * - process_team: from system init message — written by CLI, definitive
+ * - routing_sender: from toolUseResult.routing — identifies the actual agent
+ * - teammate_id: from <teammate-message> XML — identifies the message SENDER, not the agent
+ * - text_mention: regex match of member name in text — lowest reliability
+ */
+const SIGNAL_PRECEDENCE: readonly AttributionSignalSource[] = [
+  'process_team',
+  'routing_sender',
+  'teammate_id',
+  'text_mention',
+];
+
 interface StreamedMetadata {
   firstTimestamp: string | null;
   lastTimestamp: string | null;
@@ -936,6 +958,9 @@ export class TeamMemberLogsFinder {
    * Phase 1: Scan first ATTRIBUTION_SCAN_LINES lines for member detection signals
    * and extract a human-readable description from the first user message.
    * Returns null if the file is a warmup session or empty.
+   *
+   * Collects ALL detection signals, then selects the best one by precedence
+   * (process_team > routing_sender > teammate_id > text_mention).
    */
   private async attributeSubagent(
     filePath: string,
@@ -969,16 +994,13 @@ export class TeamMemberLogsFinder {
     if (lines.length === 0) return null;
 
     let description = '';
-    let detectedMember: string | null = null;
-    let detectionPriority = 0;
+    const signals: DetectionSignal[] = [];
     let firstTimestamp: string | null = null;
 
     for (const line of lines) {
       if (!firstTimestamp) {
         firstTimestamp = this.extractTimestampFromLine(line);
       }
-      // Early exit: both objectives met (member detected at max priority + description found)
-      if (detectionPriority >= 3 && description) break;
 
       try {
         const msg = JSON.parse(line) as Record<string, unknown>;
@@ -991,7 +1013,7 @@ export class TeamMemberLogsFinder {
           return null;
         }
 
-        // Extract description from first user message + teammate_id attribution
+        // Extract description from first user message + collect teammate_id signal
         if (role === 'user' && textContent) {
           if (textContent.trimStart().startsWith('<teammate-message')) {
             const parsed = parseAllTeammateMessages(textContent);
@@ -1001,12 +1023,11 @@ export class TeamMemberLogsFinder {
             }
 
             // teammate_id identifies the MESSAGE SENDER (e.g. "team-lead"), not the agent
-            // owning this file. Use priority 2 so routing.sender (priority 3) can override.
-            if (detectionPriority < 2 && parsed[0]?.teammateId) {
+            // owning this file. Collected as a signal — higher-precedence sources override.
+            if (parsed[0]?.teammateId) {
               const tmId = parsed[0].teammateId.trim().toLowerCase();
               if (tmId.length > 0 && knownMembers.has(tmId)) {
-                detectedMember = parsed[0].teammateId.trim();
-                detectionPriority = 2;
+                signals.push({ member: parsed[0].teammateId.trim(), source: 'teammate_id' });
               }
             }
           } else if (!description) {
@@ -1014,41 +1035,33 @@ export class TeamMemberLogsFinder {
           }
         }
 
-        // --- Multi-signal member detection ---
-        // Higher priority signals override lower priority ones (skip if already at max)
-        if (detectionPriority < 3) {
-          const detection = this.detectMemberFromMessage(msg, knownMembers);
-          if (detection && detection.priority > detectionPriority) {
-            detectedMember = detection.name;
-            detectionPriority = detection.priority;
-          }
+        // Collect text_mention signal (lowest reliability — exact one member name in text)
+        const textMention = this.detectMemberFromMessage(msg, knownMembers);
+        if (textMention) {
+          signals.push({ member: textMention.name, source: 'text_mention' });
         }
 
-        // Check toolUseResult routing (highest priority — directly identifies the agent)
-        if (detectionPriority < 3 && msg.toolUseResult && typeof msg.toolUseResult === 'object') {
+        // Collect routing_sender signal (high reliability — identifies the actual agent)
+        if (msg.toolUseResult && typeof msg.toolUseResult === 'object') {
           const routing = (msg.toolUseResult as Record<string, unknown>).routing as
             | Record<string, unknown>
             | undefined;
           if (routing && typeof routing.sender === 'string') {
             const sender = routing.sender.toLowerCase();
             if (knownMembers.has(sender)) {
-              detectedMember = routing.sender;
-              detectionPriority = 3;
+              signals.push({ member: routing.sender, source: 'routing_sender' });
             }
           }
         }
 
-        // Check process.team.memberName from system messages (highest priority)
-        if (detectionPriority < 3) {
-          const init = msg.init as Record<string, unknown> | undefined;
-          const process = (msg.process ?? init?.process) as Record<string, unknown> | undefined;
-          const team = process?.team as Record<string, unknown> | undefined;
-          if (team && typeof team.memberName === 'string') {
-            const memberNameLower = team.memberName.trim().toLowerCase();
-            if (memberNameLower.length > 0 && knownMembers.has(memberNameLower)) {
-              detectedMember = team.memberName.trim();
-              detectionPriority = 3;
-            }
+        // Collect process_team signal (highest reliability — from system init message)
+        const init = msg.init as Record<string, unknown> | undefined;
+        const process = (msg.process ?? init?.process) as Record<string, unknown> | undefined;
+        const team = process?.team as Record<string, unknown> | undefined;
+        if (team && typeof team.memberName === 'string') {
+          const memberNameLower = team.memberName.trim().toLowerCase();
+          if (memberNameLower.length > 0 && knownMembers.has(memberNameLower)) {
+            signals.push({ member: team.memberName.trim(), source: 'process_team' });
           }
         }
       } catch {
@@ -1056,9 +1069,25 @@ export class TeamMemberLogsFinder {
       }
     }
 
-    if (!detectedMember) return null;
+    if (signals.length === 0) return null;
 
-    return { detectedMember, description, firstTimestamp };
+    const best = TeamMemberLogsFinder.selectBestSignal(signals);
+    if (!best) return null;
+
+    return { detectedMember: best.member, description, firstTimestamp };
+  }
+
+  /**
+   * Select the best detection signal by precedence.
+   * Signals are collected in file order, so find() returns the earliest occurrence
+   * of the highest-precedence source.
+   */
+  private static selectBestSignal(signals: DetectionSignal[]): DetectionSignal | null {
+    for (const source of SIGNAL_PRECEDENCE) {
+      const match = signals.find((s) => s.source === source);
+      if (match) return match;
+    }
+    return null;
   }
 
   /**
