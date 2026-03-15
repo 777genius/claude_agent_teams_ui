@@ -147,6 +147,7 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
     "simple-git": "^3.32.3",
     "ssh-config": "^5.0.4",
     "ssh2": "^1.17.0",

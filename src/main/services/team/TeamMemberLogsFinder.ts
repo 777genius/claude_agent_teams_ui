@@ -412,9 +412,9 @@ export class TeamMemberLogsFinder {
     const tDiscovery = performance.now();
 
     if (!discovery) {
-      console.log(
-        `[perf] findLogFileRefsForTask(${taskId}) discovery=null ${(tDiscovery - t0).toFixed(0)}ms`
-      );
+      // console.log(
+      //   `[perf] findLogFileRefsForTask(${taskId}) discovery=null ${(tDiscovery - t0).toFixed(0)}ms`
+      // );
       return [];
     }
 
@@ -581,15 +581,15 @@ export class TeamMemberLogsFinder {
     const sortedRefs = [...refs].sort((a, b) => b.sortTime - a.sortTime);
     const tTotal = performance.now();
 
-    console.log(
-      `[perf] findLogFileRefsForTask(${taskId}@${teamName}) ` +
-        `total=${(tTotal - t0).toFixed(0)}ms | ` +
-        `discovery=${(tDiscovery - t0).toFixed(0)}ms | ` +
-        `lead=${(tLead - tDiscovery).toFixed(0)}ms | ` +
-        `scan=${(tScan - tLead).toFixed(0)}ms (${totalFiles} files, ${mentionHits} hits) | ` +
-        `owner=${(tOwner - tScan).toFixed(0)}ms | ` +
-        `sessions=${sessionIds.length} | results=${sortedRefs.length}`
-    );
+    // console.log(
+    //   `[perf] findLogFileRefsForTask(${taskId}@${teamName}) ` +
+    //     `total=${(tTotal - t0).toFixed(0)}ms | ` +
+    //     `discovery=${(tDiscovery - t0).toFixed(0)}ms | ` +
+    //     `lead=${(tLead - tDiscovery).toFixed(0)}ms | ` +
+    //     `scan=${(tScan - tLead).toFixed(0)}ms (${totalFiles} files, ${mentionHits} hits) | ` +
+    //     `owner=${(tOwner - tScan).toFixed(0)}ms | ` +
+    //     `sessions=${sessionIds.length} | results=${sortedRefs.length}`
+    // );
 
     return sortedRefs.map(({ filePath, memberName }) => ({ filePath, memberName }));
   }

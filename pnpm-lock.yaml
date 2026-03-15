@@ -254,6 +254,9 @@ importers:
       remark-parse:
         specifier: ^11.0.0
         version: 11.0.0
+      remark-stringify:
+        specifier: ^11.0.0
+        version: 11.0.0
       simple-git:
         specifier: ^3.32.3
         version: 3.32.3

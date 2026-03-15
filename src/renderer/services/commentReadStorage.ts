@@ -162,9 +162,14 @@ export function markAsRead(teamName: string, taskId: string, latestTimestamp: nu
 
 /**
  * Count unread comments for a task.
- * A comment is unread if:
- * 1. Its ID is NOT in the readIds set, AND
- * 2. Its timestamp is AFTER the lastUpdated migration marker (for legacy data)
+ * A comment is unread if its ID is NOT in the readIds set.
+ *
+ * Legacy migration: when readIds is empty (data migrated from v1 timestamp
+ * format), comments created at or before the legacy cutoff are treated as read.
+ * Once any per-ID tracking starts (readIds non-empty), the cutoff is ignored
+ * — only explicit IDs determine read state. This prevents `lastUpdated`
+ * (which is refreshed by markCommentsRead on every save for stale-cleanup
+ * purposes) from accidentally marking ALL comments as read.
  */
 export function getUnreadCount(
   readState: ReadState,
@@ -178,15 +183,20 @@ export function getUnreadCount(
   if (!entry) return comments.length;
 
   const readSet = new Set(entry.readIds);
-  const legacyCutoff = entry.lastUpdated;
+  // Only use the timestamp cutoff for pure-legacy entries (no per-ID tracking yet).
+  // Once readIds is non-empty, per-ID tracking is authoritative and the timestamp
+  // must NOT be used — it gets refreshed to Date.now() on every save.
+  const legacyCutoff = readSet.size === 0 ? entry.lastUpdated : 0;
 
   let count = 0;
   for (const c of comments) {
     // If comment has an ID and it's in the read set → read
     if (c.id && readSet.has(c.id)) continue;
-    // If comment was created before/at the legacy cutoff → read (migrated data)
-    const ts = new Date(c.createdAt).getTime();
-    if (legacyCutoff > 0 && ts <= legacyCutoff) continue;
+    // Legacy-only: comment created before/at the migration cutoff → read
+    if (legacyCutoff > 0) {
+      const ts = new Date(c.createdAt).getTime();
+      if (ts <= legacyCutoff) continue;
+    }
     // Otherwise → unread
     count++;
   }
@@ -204,10 +214,18 @@ export function getReadCommentIds(teamName: string, taskId: string): Set<string>
 
 /**
  * Get the legacy migration cutoff timestamp for a team/task pair (0 if none).
+ * Returns non-zero only for pure-legacy entries where readIds is empty.
+ * Once per-ID tracking has started (readIds non-empty), the cutoff is 0
+ * because lastUpdated gets refreshed to Date.now() on every save and
+ * would incorrectly mark all comments as read.
  */
 export function getLegacyCutoff(teamName: string, taskId: string): number {
   const key = `${teamName}/${taskId}`;
-  return cache[key]?.lastUpdated ?? 0;
+  const entry = cache[key];
+  if (!entry) return 0;
+  // Only honour the timestamp when no per-ID tracking exists (pure legacy data).
+  if (entry.readIds.length > 0) return 0;
+  return entry.lastUpdated;
 }
 
 /** @deprecated Use getReadCommentIds() + getLegacyCutoff() instead. */
