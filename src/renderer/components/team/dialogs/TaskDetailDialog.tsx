@@ -504,6 +504,13 @@ export const TaskDetailDialog = ({
               >
                 {statusLabel}
               </span>
+              {currentTask.reviewState === 'approved' && currentTask.reviewer ? (
+                <MemberBadge
+                  name={currentTask.reviewer}
+                  color={colorMap.get(currentTask.reviewer)}
+                  size="sm"
+                />
+              ) : null}
               {currentTask.reviewState === 'needsFix' ? (
                 <span
                   className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
@@ -655,20 +662,24 @@ export const TaskDetailDialog = ({
                   <span className="text-xs text-[var(--color-text-muted)]">Links</span>
                   {relatedIds.map((id) => {
                     const depTask = taskMap.get(id);
+                    const label = depTask
+                      ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
+                      : `#${deriveTaskDisplayId(id)}`;
                     return (
-                      <button
-                        key={`related:${currentTask.id}:${id}`}
-                        type="button"
-                        className="inline-flex items-center rounded bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-300 transition-colors hover:bg-purple-500/25"
-                        title={
-                          depTask
-                            ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
-                            : `#${deriveTaskDisplayId(id)}`
-                        }
-                        onClick={() => handleDependencyClick(id)}
-                      >
-                        {depTask ? formatTaskDisplayLabel(depTask) : `#${deriveTaskDisplayId(id)}`}
-                      </button>
+                      <Tooltip key={`related:${currentTask.id}:${id}`}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-300 transition-colors hover:bg-purple-500/25"
+                            onClick={() => handleDependencyClick(id)}
+                          >
+                            {depTask
+                              ? formatTaskDisplayLabel(depTask)
+                              : `#${deriveTaskDisplayId(id)}`}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">{label}</TooltipContent>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -679,20 +690,24 @@ export const TaskDetailDialog = ({
                   <span className="text-xs text-[var(--color-text-muted)]">Linked from</span>
                   {relatedByIds.map((id) => {
                     const depTask = taskMap.get(id);
+                    const label = depTask
+                      ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
+                      : `#${deriveTaskDisplayId(id)}`;
                     return (
-                      <button
-                        key={`related-by:${currentTask.id}:${id}`}
-                        type="button"
-                        className="inline-flex items-center rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-300 transition-colors hover:bg-fuchsia-500/25"
-                        title={
-                          depTask
-                            ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
-                            : `#${deriveTaskDisplayId(id)}`
-                        }
-                        onClick={() => handleDependencyClick(id)}
-                      >
-                        {depTask ? formatTaskDisplayLabel(depTask) : `#${deriveTaskDisplayId(id)}`}
-                      </button>
+                      <Tooltip key={`related-by:${currentTask.id}:${id}`}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-300 transition-colors hover:bg-fuchsia-500/25"
+                            onClick={() => handleDependencyClick(id)}
+                          >
+                            {depTask
+                              ? formatTaskDisplayLabel(depTask)
+                              : `#${deriveTaskDisplayId(id)}`}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">{label}</TooltipContent>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -991,26 +1006,28 @@ export const TaskDetailDialog = ({
                     {blockedByIds.map((id) => {
                       const depTask = taskMap.get(id);
                       const isCompleted = depTask?.status === 'completed';
+                      const label = depTask
+                        ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
+                        : `#${deriveTaskDisplayId(id)}`;
                       return (
-                        <button
-                          key={id}
-                          type="button"
-                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                            isCompleted
-                              ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
-                              : 'bg-yellow-500/15 text-yellow-300 hover:bg-yellow-500/25'
-                          } cursor-pointer`}
-                          title={
-                            depTask
-                              ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
-                              : `#${deriveTaskDisplayId(id)}`
-                          }
-                          onClick={() => handleDependencyClick(id)}
-                        >
-                          {depTask
-                            ? formatTaskDisplayLabel(depTask)
-                            : `#${deriveTaskDisplayId(id)}`}
-                        </button>
+                        <Tooltip key={id}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                                isCompleted
+                                  ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+                                  : 'bg-yellow-500/15 text-yellow-300 hover:bg-yellow-500/25'
+                              } cursor-pointer`}
+                              onClick={() => handleDependencyClick(id)}
+                            >
+                              {depTask
+                                ? formatTaskDisplayLabel(depTask)
+                                : `#${deriveTaskDisplayId(id)}`}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">{label}</TooltipContent>
+                        </Tooltip>
                       );
                     })}
                   </div>
@@ -1025,26 +1042,28 @@ export const TaskDetailDialog = ({
                     {blocksIds.map((id) => {
                       const depTask = taskMap.get(id);
                       const isCompleted = depTask?.status === 'completed';
+                      const label = depTask
+                        ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
+                        : `#${deriveTaskDisplayId(id)}`;
                       return (
-                        <button
-                          key={id}
-                          type="button"
-                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                            isCompleted
-                              ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
-                              : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
-                          } cursor-pointer`}
-                          title={
-                            depTask
-                              ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
-                              : `#${deriveTaskDisplayId(id)}`
-                          }
-                          onClick={() => handleDependencyClick(id)}
-                        >
-                          {depTask
-                            ? formatTaskDisplayLabel(depTask)
-                            : `#${deriveTaskDisplayId(id)}`}
-                        </button>
+                        <Tooltip key={id}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                                isCompleted
+                                  ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+                                  : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+                              } cursor-pointer`}
+                              onClick={() => handleDependencyClick(id)}
+                            >
+                              {depTask
+                                ? formatTaskDisplayLabel(depTask)
+                                : `#${deriveTaskDisplayId(id)}`}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">{label}</TooltipContent>
+                        </Tooltip>
                       );
                     })}
                   </div>

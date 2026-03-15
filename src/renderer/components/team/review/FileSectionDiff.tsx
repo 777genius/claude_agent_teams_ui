@@ -87,9 +87,6 @@ export const FileSectionDiff = ({
 
     return (
       <div className="overflow-auto">
-        <div className="bg-surface-raised/40 border-b border-border px-4 py-2 text-xs text-text-muted">
-          Loading full diff...
-        </div>
         <ReviewDiffContent file={file} />
         <div ref={sentinelRef} className="h-1 shrink-0" />
       </div>

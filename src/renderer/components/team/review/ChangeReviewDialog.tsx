@@ -201,6 +201,28 @@ export const ChangeReviewDialog = ({
     () => sortItemsAsTree(activeChangeSet?.files ?? [], (f) => f.relativePath),
     [activeChangeSet]
   );
+  const loadingFiles = useMemo(
+    () => sortedFiles.filter((file) => fileContentsLoading[file.filePath]),
+    [sortedFiles, fileContentsLoading]
+  );
+  const globalDiffLoadingState = useMemo(() => {
+    if (loadingFiles.length === 0) return null;
+
+    const preferredFile =
+      (activeFilePath
+        ? loadingFiles.find((file) => file.filePath === activeFilePath)
+        : undefined) ?? loadingFiles[0];
+    const snippetCount = loadingFiles.reduce(
+      (sum, file) => sum + file.snippets.filter((snippet) => !snippet.isError).length,
+      0
+    );
+
+    return {
+      loadingFilesCount: loadingFiles.length,
+      snippetCount,
+      activeFileName: preferredFile?.relativePath ?? preferredFile?.filePath,
+    };
+  }, [activeFilePath, loadingFiles]);
 
   // File paths for viewed tracking
   const allFilePaths = useMemo(() => sortedFiles.map((f) => f.filePath), [sortedFiles]);
@@ -1217,6 +1239,7 @@ export const ChangeReviewDialog = ({
                 files={sortedFiles}
                 fileContents={fileContents}
                 fileContentsLoading={fileContentsLoading}
+                globalDiffLoadingState={globalDiffLoadingState}
                 viewedSet={viewedSet}
                 editedContents={editedContents}
                 hunkDecisions={hunkDecisions}

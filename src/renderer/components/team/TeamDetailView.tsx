@@ -55,6 +55,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 
 import { AddMemberDialog } from './dialogs/AddMemberDialog';
+import type { AddMemberEntry } from './dialogs/AddMemberDialog';
 import { CreateTaskDialog } from './dialogs/CreateTaskDialog';
 import { EditTeamDialog } from './dialogs/EditTeamDialog';
 import { LaunchTeamDialog } from './dialogs/LaunchTeamDialog';
@@ -1403,6 +1404,7 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
             badge={filteredTasks.length}
             defaultOpen
             forceOpen={kanbanSearch.trim().length > 0}
+            contentClassName="overflow-x-visible"
             action={
               <Button
                 variant="ghost"
@@ -1768,15 +1770,20 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
             open={addMemberDialogOpen}
             teamName={teamName}
             existingNames={data.members.map((m) => m.name)}
-            existingMembers={data.members}
             projectPath={data.config.projectPath}
             adding={addingMemberLoading}
             onClose={() => setAddMemberDialogOpen(false)}
-            onAdd={(name, role, workflow) => {
+            onAdd={(entries: AddMemberEntry[]) => {
               setAddingMemberLoading(true);
               void (async () => {
                 try {
-                  await addMember(teamName, { name, role, workflow });
+                  for (const entry of entries) {
+                    await addMember(teamName, {
+                      name: entry.name,
+                      role: entry.role,
+                      workflow: entry.workflow,
+                    });
+                  }
                   setAddMemberDialogOpen(false);
                 } catch {
                   // error shown via store

@@ -12,6 +12,7 @@ import {
 } from './CodeMirrorDiffUtils';
 import { FileSectionDiff } from './FileSectionDiff';
 import { FileSectionHeader } from './FileSectionHeader';
+import { FullDiffLoadingBanner } from './FullDiffLoadingBanner';
 
 import type { EditorView } from '@codemirror/view';
 import type { FileChangeWithContent, HunkDecision } from '@shared/types';
@@ -22,6 +23,11 @@ interface ContinuousScrollViewProps {
   files: FileChangeSummary[];
   fileContents: Record<string, FileChangeWithContent>;
   fileContentsLoading: Record<string, boolean>;
+  globalDiffLoadingState?: {
+    loadingFilesCount: number;
+    snippetCount: number;
+    activeFileName?: string;
+  } | null;
   viewedSet: Set<string>;
   editedContents: Record<string, string>;
   hunkDecisions: Record<string, HunkDecision>;
@@ -67,6 +73,7 @@ export const ContinuousScrollView = ({
   files,
   fileContents,
   fileContentsLoading,
+  globalDiffLoadingState,
   viewedSet,
   editedContents,
   hunkDecisions,
@@ -227,6 +234,13 @@ export const ContinuousScrollView = ({
 
   return (
     <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+      {globalDiffLoadingState ? (
+        <FullDiffLoadingBanner
+          loadingFilesCount={globalDiffLoadingState.loadingFilesCount}
+          snippetCount={globalDiffLoadingState.snippetCount}
+          activeFileName={globalDiffLoadingState.activeFileName}
+        />
+      ) : null}
       {files.map((file) => {
         const filePath = file.filePath;
         const content = fileContents[filePath] ?? null;

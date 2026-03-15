@@ -2,7 +2,6 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { MentionableTextarea } from '@renderer/components/ui/MentionableTextarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
-import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { useChipDraftPersistence } from '@renderer/hooks/useChipDraftPersistence';
 import { useDraftPersistence } from '@renderer/hooks/useDraftPersistence';
 import { useTaskSuggestions } from '@renderer/hooks/useTaskSuggestions';
@@ -19,7 +18,9 @@ import {
 import { MAX_TEXT_LENGTH } from '@shared/constants';
 import { ImagePlus, Mic, Send, Trash2, X } from 'lucide-react';
 
+import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { ImageLightbox } from '@renderer/components/team/attachments/ImageLightbox';
+import { MemberBadge } from '@renderer/components/team/MemberBadge';
 
 import type { MentionSuggestion } from '@renderer/types/mention';
 import type { CommentAttachmentPayload, ResolvedTeamMember } from '@shared/types';
@@ -27,6 +28,7 @@ import type { CommentAttachmentPayload, ResolvedTeamMember } from '@shared/types
 const MAX_ATTACHMENTS = 5;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const ACCEPTED_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const LONG_QUOTE_THRESHOLD = 200;
 
 interface TaskCommentInputProps {
   teamName: string;
@@ -64,6 +66,7 @@ export const TaskCommentInput = ({
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [quoteExpanded, setQuoteExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mentionSuggestions = useMemo<MentionSuggestion[]>(
@@ -195,31 +198,17 @@ export const TaskCommentInput = ({
   return (
     <div>
       {replyTo ? (
-        <div className="mb-2 flex items-start gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-2">
-          <div className="min-w-0 flex-1">
-            <div className="mb-0.5 text-[10px] font-medium text-[var(--color-text-muted)]">
-              Replying to{' '}
-              <span
-                className="font-semibold"
-                style={{
-                  color: (() => {
-                    const rc = colorMap.get(replyTo.author);
-                    return rc ? getTeamColorSet(rc).text : 'var(--color-text-secondary)';
-                  })(),
-                }}
-              >
-                @{replyTo.author}
-              </span>
-            </div>
-            <div className="line-clamp-3 text-[11px] text-[var(--color-text-muted)]">
-              {replyTo.text}
-            </div>
-          </div>
+        <div className="relative overflow-hidden rounded-t-md border border-b-0 border-blue-400/30 bg-blue-100/80 py-2 pl-3 pr-2 dark:border-blue-500/20 dark:bg-blue-950/20">
+          {/* Decorative quotation mark */}
+          <span className="pointer-events-none absolute -right-1 top-1/2 -translate-y-1/2 select-none font-serif text-[64px] leading-none text-blue-500/[0.08] dark:text-blue-400/[0.08]">
+            &ldquo;
+          </span>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-text-secondary)]"
+                className="absolute right-1.5 top-1.5 z-10 rounded p-0.5 text-blue-400/60 hover:text-blue-600 dark:text-blue-300/40 dark:hover:text-blue-200"
                 onClick={onClearReply}
               >
                 <X size={12} />
@@ -227,6 +216,29 @@ export const TaskCommentInput = ({
             </TooltipTrigger>
             <TooltipContent side="left">Cancel reply</TooltipContent>
           </Tooltip>
+
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="text-[10px] text-blue-600/70 dark:text-blue-300/60">Replying to</span>
+            <MemberBadge name={replyTo.author} color={colorMap.get(replyTo.author)} size="sm" />
+          </div>
+          <div
+            className={`pr-5 opacity-60 dark:opacity-50 ${quoteExpanded ? '' : 'max-h-[3.75rem] overflow-hidden'}`}
+          >
+            <MarkdownViewer
+              content={replyTo.text}
+              bare
+              maxHeight={quoteExpanded ? 'max-h-48' : 'max-h-[3.75rem]'}
+            />
+          </div>
+          {replyTo.text.length > LONG_QUOTE_THRESHOLD ? (
+            <button
+              type="button"
+              className="mt-0.5 text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400/60 dark:hover:text-blue-300"
+              onClick={() => setQuoteExpanded((v) => !v)}
+            >
+              {quoteExpanded ? 'less' : 'more'}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -286,6 +298,7 @@ export const TaskCommentInput = ({
         />
         <MentionableTextarea
           id={`task-comment-${taskId}`}
+          className={replyTo ? 'rounded-t-none' : undefined}
           placeholder="Add a comment... (Enter to send)"
           value={draft.value}
           onValueChange={draft.setValue}

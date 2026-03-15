@@ -134,12 +134,31 @@ export class TeamDataService {
     kanbanTaskState?: KanbanState['tasks'][string]
   ): TeamTaskWithKanban {
     const reviewState = this.resolveTaskReviewState(task);
+    const reviewer = kanbanTaskState?.reviewer ?? this.resolveReviewerFromHistory(task) ?? null;
     return {
       ...task,
       reviewState,
       kanbanColumn: getKanbanColumnFromReviewState(reviewState),
-      reviewer: kanbanTaskState?.reviewer ?? null,
+      reviewer,
     };
+  }
+
+  /**
+   * Extract reviewer name from task history events as a fallback
+   * when kanban state doesn't have it (e.g. review done via MCP agent-teams).
+   */
+  private resolveReviewerFromHistory(task: TeamTask): string | null {
+    if (!task.historyEvents?.length) return null;
+    for (let i = task.historyEvents.length - 1; i >= 0; i--) {
+      const event = task.historyEvents[i];
+      if (event.type === 'review_approved' && event.actor) {
+        return event.actor;
+      }
+      if (event.type === 'review_requested' && event.reviewer) {
+        return event.reviewer;
+      }
+    }
+    return null;
   }
 
   async listTeams(): Promise<TeamSummary[]> {
