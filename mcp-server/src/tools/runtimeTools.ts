@@ -7,7 +7,7 @@ import { jsonTextContent } from '../utils/format';
 const toolContextSchema = {
   teamName: z.string().min(1),
   claudeDir: z.string().min(1).optional(),
-  controlUrl: z.string().url().optional(),
+  controlUrl: z.string().optional(),
   waitTimeoutMs: z.number().int().min(1000).max(600000).optional(),
 };
 

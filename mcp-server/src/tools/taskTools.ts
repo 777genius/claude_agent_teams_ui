@@ -5,7 +5,7 @@ import { agentBlocks, getController } from '../controller';
 import { jsonTextContent, taskWriteResult, slimTask, slimTaskForList } from '../utils/format';
 
 /** stripAgentBlocks from canonical agentBlocks module — single source of truth for the tag format. */
-const { stripAgentBlocks } = agentBlocks;
+const stripAgentBlocksFn = (text: string): string => agentBlocks.stripAgentBlocks(text);
 
 const toolContextSchema = {
   teamName: z.string().min(1),
@@ -161,7 +161,7 @@ export function registerTaskTools(server: Pick<FastMCP, 'addTool'>) {
 
       // 4. Build sanitized source snapshot
       const rawText = typeof message.text === 'string' ? message.text : '';
-      const sanitizedText = stripAgentBlocks(rawText);
+      const sanitizedText = stripAgentBlocksFn(rawText);
 
       const sourceMessage: Record<string, unknown> = {
         text: sanitizedText,
@@ -172,7 +172,7 @@ export function registerTaskTools(server: Pick<FastMCP, 'addTool'>) {
 
       // Preserve attachment metadata by reference only — no blob copying
       if (Array.isArray(message.attachments) && message.attachments.length > 0) {
-        sourceMessage.attachments = (message.attachments as Array<Record<string, unknown>>)
+        sourceMessage.attachments = (message.attachments as Record<string, unknown>[])
           .filter(
             (a) =>
               a &&
