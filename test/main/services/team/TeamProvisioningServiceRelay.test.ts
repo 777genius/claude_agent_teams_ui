@@ -121,6 +121,10 @@ vi.mock('agent-teams-controller', () => ({
         hoisted.sendInboxMessage(teamName, message),
     },
   }),
+  protocols: {
+    buildProcessProtocolText: (teamName: string) =>
+      `BACKGROUND PROCESS REGISTRATION (mock for ${teamName})`,
+  },
 }));
 
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';

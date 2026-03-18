@@ -38,6 +38,9 @@ module.exports = {
   createController,
   createControllerContext,
   agentBlocks,
+  protocols: {
+    buildProcessProtocolText: tasks.buildProcessProtocolText,
+  },
   tasks,
   kanban,
   review,

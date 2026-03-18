@@ -86,7 +86,14 @@ declare module 'agent-teams-controller' {
     crossTeam: ControllerCrossTeamApi;
   }
 
+  /** Context-free protocol text builders, shared across lead and member prompts. */
+  export interface ProtocolsApi {
+    buildProcessProtocolText(teamName: string): string;
+  }
+
   export function createController(options: ControllerContextOptions): AgentTeamsController;
 
   export const agentBlocks: AgentBlocksApi;
+
+  export const protocols: ProtocolsApi;
 }

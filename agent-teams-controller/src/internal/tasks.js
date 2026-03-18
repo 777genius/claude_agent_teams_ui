@@ -443,8 +443,13 @@ function buildMemberTaskProtocol(teamName) {
 Failure to follow this protocol means the task board will show incorrect status.`);
 }
 
-function buildMemberProcessProtocol(teamName) {
-    return wrapAgentBlock(`BACKGROUND PROCESS REGISTRATION — when you start a background process (dev server, watcher, database, etc.):
+/**
+ * Raw process-registration protocol text (no agent-block wrapping).
+ * Shared between member briefing and lead provisioning prompt (DRY).
+ * Context-free — does NOT follow the (context, ...) convention.
+ */
+function buildProcessProtocolText(teamName) {
+    return `BACKGROUND PROCESS REGISTRATION — when you start a background process (dev server, watcher, database, etc.):
 1. Launch with & to get PID:
    pnpm dev &
 2. Register immediately with MCP tool process_register (--port and --url are optional, use when the process listens on a port):
@@ -453,7 +458,11 @@ function buildMemberProcessProtocol(teamName) {
    { teamName: "${teamName}" }
 4. When stopping a process, use MCP tool process_stop:
    { teamName: "${teamName}", pid: <PID> }
-If verification in step 3 fails or the process is missing from the list, re-register it.`);
+If verification in step 3 fails or the process is missing from the list, re-register it.`;
+}
+
+function buildMemberProcessProtocol(teamName) {
+    return wrapAgentBlock(buildProcessProtocolText(teamName));
 }
 
 function buildMemberFormattingProtocol() {
@@ -593,6 +602,7 @@ module.exports = {
     setTaskStatus,
     softDeleteTask,
     startTask,
+    buildProcessProtocolText,
     memberBriefing,
     taskBriefing,
     unlinkTask,

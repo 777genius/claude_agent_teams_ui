@@ -97,7 +97,7 @@ import type {
 } from '@shared/types';
 
 const logger = createLogger('Service:TeamProvisioning');
-const { createController } = agentTeamsControllerModule;
+const { createController, protocols } = agentTeamsControllerModule;
 const TEAM_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const RUN_TIMEOUT_MS = 300_000;
 const VERIFY_TIMEOUT_MS = 15_000;
@@ -568,6 +568,9 @@ function buildTeamCtlOpsInstructions(teamName: string, leadName: string): string
       `- Approve review: review_approve { teamName: "${teamName}", taskId: "<id>", note?: "<note>", notifyOwner: true }`,
       `- Request changes: review_request_changes { teamName: "${teamName}", taskId: "<id>", comment: "<what to fix>" }`,
       `CRITICAL: Writing "approved" or "LGTM" as a task comment does NOT move the task on the kanban board. You MUST call the review_approve MCP tool. Without the tool call the task stays stuck in the REVIEW column.`,
+      ``,
+      `Process operations — use MCP tools directly:`,
+      protocols.buildProcessProtocolText(teamName),
       ``,
       `Attachment storage modes (IMPORTANT):`,
       `- Default is copy (safe, robust).`,
