@@ -477,7 +477,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
 
   if (messages.length === 0) {
     return (
-      <div className="rounded-md border border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)]">
+      <div className="rounded-md border border-[var(--color-border)] p-3 pl-5 text-xs text-[var(--color-text-muted)]">
         <p>No messages</p>
         <p className="mt-1 text-[11px]">Send a message to a member to see activity.</p>
       </div>

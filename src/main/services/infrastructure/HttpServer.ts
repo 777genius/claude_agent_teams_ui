@@ -47,9 +47,12 @@ export class HttpServer {
   private app: FastifyInstance | null = null;
   private port: number = 3456;
   private running: boolean = false;
+  private startingPromise: Promise<number> | null = null;
 
   /**
    * Start the HTTP server.
+   * Deduplicates concurrent calls — if start() is already in progress,
+   * subsequent calls await the same promise.
    * @param services - Service instances to pass to route handlers
    * @param sshModeSwitchCallback - Callback for SSH mode switching
    * @param preferredPort - Port to try first (default 3456)
@@ -60,6 +63,24 @@ export class HttpServer {
     sshModeSwitchCallback: (mode: 'local' | 'ssh') => Promise<void>,
     preferredPort: number = 3456,
     host: string = '127.0.0.1'
+  ): Promise<number> {
+    if (this.startingPromise) {
+      return this.startingPromise;
+    }
+
+    this.startingPromise = this.doStart(services, sshModeSwitchCallback, preferredPort, host);
+    try {
+      return await this.startingPromise;
+    } finally {
+      this.startingPromise = null;
+    }
+  }
+
+  private async doStart(
+    services: HttpServices,
+    sshModeSwitchCallback: (mode: 'local' | 'ssh') => Promise<void>,
+    preferredPort: number,
+    host: string
   ): Promise<number> {
     this.app = Fastify({ logger: false });
 
