@@ -5407,9 +5407,11 @@ export class TeamProvisioningService {
 
     notification.on('click', () => {
       cleanup();
-      if (win && !win.isDestroyed()) {
-        win.show();
-        win.focus();
+      // Use current mainWindowRef (not captured `win`) in case window was recreated
+      const currentWin = this.mainWindowRef;
+      if (currentWin && !currentWin.isDestroyed()) {
+        currentWin.show();
+        currentWin.focus();
       }
     });
 
@@ -5582,6 +5584,7 @@ export class TeamProvisioningService {
         if (result.autoAllow) {
           this.clearApprovalTimeout(requestId);
           this.autoAllowControlRequest(run, requestId);
+          this.dismissApprovalNotification(requestId);
           toRemove.push(requestId);
           this.emitToolApprovalEvent({
             autoResolved: true,
