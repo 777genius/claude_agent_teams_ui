@@ -1127,12 +1127,17 @@ export const CreateTeamDialog = ({
             {canCreate && launchTeam && (prepareState === 'idle' || prepareState === 'loading') ? (
               <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
                 <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                <span>
-                  {prepareMessage ??
-                    (prepareState === 'idle'
-                      ? 'Warming up CLI environment...'
-                      : 'Preparing environment...')}
-                </span>
+                <div>
+                  <span>
+                    {prepareMessage ??
+                      (prepareState === 'idle'
+                        ? 'Warming up CLI environment...'
+                        : 'Preparing environment...')}
+                  </span>
+                  <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)] opacity-70">
+                    Pre-flight check to catch errors before launch
+                  </p>
+                </div>
               </div>
             ) : null}
 

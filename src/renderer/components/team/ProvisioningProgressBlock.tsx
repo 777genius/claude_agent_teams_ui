@@ -29,6 +29,8 @@ export interface ProvisioningProgressBlockProps {
   defaultLiveOutputOpen?: boolean;
   /** Display step index (0-3 for active steps, 4 for ready/all done, -1 for terminal) */
   currentStepIndex: number;
+  /** If set, this step index shows a red error indicator */
+  errorStepIndex?: number;
   /** Show spinner next to title */
   loading?: boolean;
   /** Cancel button label and handler */
@@ -119,6 +121,7 @@ export const ProvisioningProgressBlock = ({
   tone = 'default',
   defaultLiveOutputOpen = true,
   currentStepIndex,
+  errorStepIndex,
   loading = false,
   onCancel,
   startedAt,
@@ -222,7 +225,11 @@ export const ProvisioningProgressBlock = ({
         </p>
       ) : null}
       <div className="mt-2 px-2">
-        <StepProgressBar steps={PROVISIONING_STEPS} currentIndex={currentStepIndex} />
+        <StepProgressBar
+          steps={PROVISIONING_STEPS}
+          currentIndex={currentStepIndex}
+          errorIndex={errorStepIndex}
+        />
       </div>
       <div className="mt-2">
         <button

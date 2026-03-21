@@ -4281,7 +4281,7 @@ export class TeamProvisioningService {
    */
   private captureTeamSpawnEvents(run: ProvisioningRun, content: Record<string, unknown>[]): void {
     for (const part of content) {
-      if (part.type !== 'tool_use' || part.name !== 'Task') continue;
+      if (part.type !== 'tool_use' || part.name !== 'Agent') continue;
       const input = part.input;
       if (!input || typeof input !== 'object') continue;
       const inp = input as Record<string, unknown>;

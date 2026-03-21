@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
+
 import { cn } from '@renderer/lib/utils';
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 
 export interface StepProgressBarStep {
   key: string;
@@ -10,28 +12,50 @@ export interface StepProgressBarProps {
   steps: StepProgressBarStep[];
   /** 0-based index of the current step, -1 if not started */
   currentIndex: number;
+  /** If set, this step shows a red error indicator instead of active/pending */
+  errorIndex?: number;
   className?: string;
 }
 
 /**
  * Circular step progress indicator with animated connecting lines.
  *
- * - Completed steps: green circle with checkmark
+ * - Completed steps: green circle with checkmark + jelly bounce on completion
  * - Current step: green outlined circle with pulsing ring + number
+ * - Error step: red circle with X icon
  * - Pending steps: gray circle with number
- * - Lines between steps animate with a green fill for completed transitions
  */
 export const StepProgressBar = ({
   steps,
   currentIndex,
+  errorIndex,
   className,
 }: StepProgressBarProps): React.JSX.Element => {
+  // Track which step just completed for jelly + flash animation
+  const prevIndexRef = useRef(currentIndex);
+  const [justCompletedIndex, setJustCompletedIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    const prev = prevIndexRef.current;
+    prevIndexRef.current = currentIndex;
+
+    // Animate the highest step that just became "done"
+    if (currentIndex > prev && prev >= 0 && errorIndex === undefined) {
+      const lastDoneIndex = Math.min(currentIndex - 1, steps.length - 1);
+      setJustCompletedIndex(lastDoneIndex);
+      const timer = setTimeout(() => setJustCompletedIndex(null), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentIndex, errorIndex, steps.length]);
+
   return (
     <div className={cn('flex items-start justify-center', className)}>
       {steps.map((step, index) => {
-        const isDone = currentIndex >= 0 && index < currentIndex;
-        const isCurrent = currentIndex >= 0 && index === currentIndex;
+        const isError = errorIndex !== undefined && index === errorIndex;
+        const isDone = !isError && currentIndex >= 0 && index < currentIndex;
+        const isCurrent = !isError && currentIndex >= 0 && index === currentIndex;
         const isLast = index === steps.length - 1;
+        const isJustCompleted = justCompletedIndex === index;
 
         // The connecting line between this step and the next
         const lineState: 'done' | 'active' | 'pending' =
@@ -45,50 +69,66 @@ export const StepProgressBar = ({
           >
             {/* Step circle + label column */}
             <div className="flex flex-col items-center" style={{ width: 56 }}>
-              {/* Circle */}
-              <div
-                className={cn(
-                  'relative flex items-center justify-center rounded-full transition-all duration-300',
-                  // Sizing
-                  'size-7',
-                  // Done state
-                  isDone && 'bg-[var(--stepper-done)] shadow-[0_0_8px_var(--stepper-done-glow)]',
-                  // Current state
-                  isCurrent && 'border-2 border-[var(--stepper-current)] bg-transparent',
-                  // Pending state
-                  !isDone &&
-                    !isCurrent &&
-                    'border border-[var(--stepper-pending-border)] bg-[var(--stepper-pending)]'
+              {/* Circle wrapper — holds flash overlay */}
+              <div className="relative flex items-center justify-center">
+                {/* Green flash burst on completion */}
+                {isJustCompleted && isDone && (
+                  <div
+                    className="absolute size-7 rounded-full bg-[var(--stepper-done)]"
+                    style={{ animation: 'stepper-flash 0.4s ease-out forwards' }}
+                  />
                 )}
-                style={
-                  isCurrent
-                    ? { animation: 'stepper-pulse-ring 2s ease-in-out infinite' }
-                    : undefined
-                }
-              >
-                {isDone ? (
-                  <Check className="size-3.5 text-white" strokeWidth={3} />
-                ) : (
-                  <span
-                    className={cn(
-                      'text-[11px] font-semibold leading-none',
-                      isCurrent
-                        ? 'text-[var(--stepper-current)]'
-                        : 'text-[var(--stepper-pending-text)]'
-                    )}
-                  >
-                    {index + 1}
-                  </span>
-                )}
+
+                {/* Circle */}
+                <div
+                  className={cn(
+                    'relative flex items-center justify-center rounded-full transition-all duration-300',
+                    'size-7',
+                    isError &&
+                      'bg-[var(--stepper-error)] shadow-[0_0_8px_var(--stepper-error-glow)]',
+                    isDone && 'bg-[var(--stepper-done)] shadow-[0_0_8px_var(--stepper-done-glow)]',
+                    isCurrent && 'border-2 border-[var(--stepper-current)] bg-transparent',
+                    !isDone &&
+                      !isCurrent &&
+                      !isError &&
+                      'border border-[var(--stepper-pending-border)] bg-[var(--stepper-pending)]'
+                  )}
+                  style={
+                    isJustCompleted && isDone
+                      ? { animation: 'stepper-jelly 0.45s ease-out' }
+                      : isCurrent
+                        ? { animation: 'stepper-pulse-ring 2s ease-in-out infinite' }
+                        : undefined
+                  }
+                >
+                  {isError ? (
+                    <X className="size-3.5 text-white" strokeWidth={3} />
+                  ) : isDone ? (
+                    <Check className="size-3.5 text-white" strokeWidth={3} />
+                  ) : (
+                    <span
+                      className={cn(
+                        'text-[11px] font-semibold leading-none',
+                        isCurrent
+                          ? 'text-[var(--stepper-current)]'
+                          : 'text-[var(--stepper-pending-text)]'
+                      )}
+                    >
+                      {index + 1}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Label */}
               <span
                 className={cn(
                   'mt-1.5 text-center text-[10px] leading-tight transition-colors duration-300',
-                  isDone || isCurrent
-                    ? 'font-medium text-[var(--stepper-label-active)]'
-                    : 'text-[var(--stepper-label)]'
+                  isError
+                    ? 'font-medium text-[var(--stepper-label-error)]'
+                    : isDone || isCurrent
+                      ? 'font-medium text-[var(--stepper-label-active)]'
+                      : 'text-[var(--stepper-label)]'
                 )}
               >
                 {step.label}
@@ -105,10 +145,8 @@ export const StepProgressBar = ({
                 <div className="absolute inset-0 rounded-full bg-[var(--stepper-line)]" />
 
                 {lineState === 'done' ? (
-                  /* Fully filled green line */
                   <div className="absolute inset-0 rounded-full bg-[var(--stepper-line-done)]" />
                 ) : lineState === 'active' ? (
-                  /* Cyclic sweep — green highlight sliding left-to-right in a loop */
                   <div
                     className="absolute top-0 h-full rounded-full bg-[var(--stepper-line-done)]"
                     style={{

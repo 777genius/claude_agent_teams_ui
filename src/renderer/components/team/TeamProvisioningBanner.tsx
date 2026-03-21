@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { useStore } from '@renderer/store';
@@ -24,6 +24,7 @@ export const TeamProvisioningBanner = ({
     }))
   );
   const [dismissed, setDismissed] = useState(false);
+  const lastActiveStepRef = useRef(-1);
   const bannerInstanceKey = useMemo(() => {
     if (!progress) return null;
     return `${teamName}:${progress.runId}:${progress.startedAt}`;
@@ -64,6 +65,11 @@ export const TeamProvisioningBanner = ({
 
   const progressStepIndex = getDisplayStepIndex(progress.state);
 
+  // Remember last active step so we can show it as the error location when failed
+  if (progressStepIndex >= 0 && !isFailed) {
+    lastActiveStepRef.current = progressStepIndex;
+  }
+
   if (isFailed) {
     return (
       <div className="mb-3">
@@ -83,7 +89,8 @@ export const TeamProvisioningBanner = ({
           title="Launch failed"
           message={progress.error ?? null}
           tone="error"
-          currentStepIndex={progressStepIndex >= 0 ? progressStepIndex : -1}
+          currentStepIndex={lastActiveStepRef.current}
+          errorStepIndex={lastActiveStepRef.current >= 0 ? lastActiveStepRef.current : 0}
           startedAt={progress.startedAt}
           pid={progress.pid}
           cliLogsTail={progress.cliLogsTail}

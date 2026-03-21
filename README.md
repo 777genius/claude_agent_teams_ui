@@ -26,17 +26,6 @@ https://github.com/user-attachments/assets/9cae73cd-7f42-46e5-a8fb-ad6d41737ff8
 
 <br />
 
-## Table of contents
-
-- [Installation](#installation)
-- [What is this](#what-is-this)
-- [Comparison](#comparison)
-- [Quick start](#quick-start)
-- [FAQ](#faq)
-- [Roadmap](#roadmap)
-- [Development](#development)
-- [Contributing](#contributing)
-
 ## Installation
 
 No prerequisites — Claude Code can be installed and configured directly from the app.
@@ -76,6 +65,16 @@ No prerequisites — Claude Code can be installed and configured directly from t
 </td>
 </tr>
 </table>
+
+## Table of contents
+
+- [What is this](#what-is-this)
+- [Comparison](#comparison)
+- [Quick start](#quick-start)
+- [FAQ](#faq)
+- [Roadmap](#roadmap)
+- [Development](#development)
+- [Contributing](#contributing)
 
 ## What is this
 
@@ -150,8 +149,9 @@ How we compare to other multi-agent orchestration tools:
 | **Task dependencies (blocked by)** | ✅ Guaranteed ordering | ❌ | ⚠️ Within plan only | ❌ | ❌ |
 | **Linked tasks** | ✅ Cross-references in messages | ⚠️ Subtasks only | ❌ | ❌ | ❌ |
 | **Task attachments** | ✅ Auto-attach, agents read & attach files | ❌ | ✅ Images + files | ❌ | ❌ |
-| **Multi-agent backend** | 🗓️ In development | ✅ 6+ agents | ✅ 11 providers | ✅ Own models | — |
+| **Multi-agent backend** | 🗓️ [In development](https://github.com/Alishahryar1/free-claude-code) | ✅ 6+ agents | ✅ 11 providers | ✅ Own models | — |
 | **Git worktree isolation** | ✅ Optional | ⚠️ Mandatory | ⚠️ Mandatory | ✅ | ✅ |
+| **Built-in code editor** | ✅ With Git support | ❌ | ❌ | ✅ Full IDE | ❌ |
 | **Price** | **Free** | Free / $30 user/mo | Free | $0–$200/mo | Claude subscription |
 
 ---
