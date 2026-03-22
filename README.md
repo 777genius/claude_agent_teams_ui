@@ -5,7 +5,7 @@
   <img src="resources/icons/png/1024x1024.png" alt="Claude Agent Teams UI" width="100" />&nbsp;
   <a href="docs/screenshots/3.jpg"><img src="docs/screenshots/3.jpg" width="95" alt="Agent Comments" /></a>&nbsp;
   <a href="docs/screenshots/4.png"><img src="docs/screenshots/4.png" width="95" alt="Create Team" /></a>&nbsp;
-  <a href="docs/screenshots/6.png"><img src="docs/screenshots/6.png" width="95" alt="Settings" /></a>
+  <a href="docs/screenshots/6.png"><img src="docs/screenshots/6.png" width="80" alt="Settings" /></a>
 </p>
 
 <h1 align="center">Claude Agent Teams UI</h1>
