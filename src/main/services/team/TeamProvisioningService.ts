@@ -461,6 +461,7 @@ Your FIRST action: call MCP tool member_briefing with:
 { teamName: "${teamName}", memberName: "${member.name}" }
 Do NOT start work, claim tasks, or improvise workflow/task/process rules before member_briefing succeeds.
 If member_briefing fails, send a short message to your team lead "${leadName}" explaining that bootstrap failed, then wait.
+IMPORTANT: When sending messages to the team lead, always use the exact name "${leadName}" in the \`to\` field of SendMessage. Never abbreviate or shorten it (e.g. do NOT use "lead" instead of "team-lead").
 After member_briefing succeeds:
 - Introduce yourself briefly (name and role) and confirm you are ready.
 - Then wait for task assignments.
@@ -505,6 +506,7 @@ function buildReconnectMemberSpawnPrompt(
      { teamName: "${teamName}", memberName: "${member.name}" }
      Do NOT start work, claim tasks, or improvise workflow/task/process rules before member_briefing succeeds.
      If member_briefing fails, send a short message to your team lead "${leadName}" explaining that bootstrap failed, then wait.
+     IMPORTANT: When sending messages to the team lead, always use the exact name "${leadName}" in the \`to\` field of SendMessage. Never abbreviate or shorten it (e.g. do NOT use "lead" instead of "team-lead").
      ${buildTeammateAgentBlockReminder()}
 ${actionModeProtocol}
 

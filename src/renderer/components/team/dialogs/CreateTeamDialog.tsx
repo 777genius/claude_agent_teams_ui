@@ -112,9 +112,9 @@ const DEFAULT_MEMBERS: { name: string; roleSelection: string; workflow?: string 
   },
   {
     name: 'tom',
-    roleSelection: 'reviewer',
+    roleSelection: 'researcher',
     workflow:
-      'Review every completed task in the project. Read the code changes, check for correctness, style, and potential issues. Approve the task or request changes with clear feedback.',
+      'Research topics, gather information, and analyze relevant sources. Investigate questions, explore options, and provide detailed findings with clear summaries for the team.',
   },
   { name: 'bob', roleSelection: 'developer' },
   { name: 'jack', roleSelection: 'developer' },

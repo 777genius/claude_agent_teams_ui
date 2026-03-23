@@ -170,7 +170,7 @@ export const MemberDraftRow = ({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 shrink-0 gap-1"
+            className="relative h-8 shrink-0 gap-1"
             onClick={() => setWorkflowExpanded((prev) => !prev)}
           >
             {workflowExpanded ? (
@@ -179,6 +179,9 @@ export const MemberDraftRow = ({
               <ChevronRight className="size-3.5" />
             )}
             Workflow
+            {!workflowExpanded && workflowDraft.value.trim() ? (
+              <span className="absolute -right-1 -top-1 size-2 rounded-full bg-blue-500" />
+            ) : null}
           </Button>
         ) : null}
         <Button
