@@ -25,12 +25,20 @@
 <p align="center">
   <sub>100% free, open source. No API keys. No configuration. Runs entirely locally. Not just coding agents.</sub>
 </p>
-
-
+<table>
+<tr>
+<td width="50%">
 
 https://github.com/user-attachments/assets/9cae73cd-7f42-46e5-a8fb-ad6d41737ff8
 
+</td>
+<td width="50%">
 
+https://github.com/user-attachments/assets/35e27989-726d-4059-8662-bae610e46b42
+
+</td>
+</tr>
+</table>
 
 <br />
 

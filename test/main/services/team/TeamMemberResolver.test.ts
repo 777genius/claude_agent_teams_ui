@@ -246,6 +246,38 @@ describe('TeamMemberResolver', () => {
     expect(bob?.currentTaskId).toBeNull();
   });
 
+  it('merges inbox-derived "lead" alias into canonical "team-lead"', () => {
+    const resolver = new TeamMemberResolver();
+    const config: TeamConfig = {
+      name: 'Team',
+      members: [
+        { name: 'team-lead', agentType: 'team-lead', role: 'lead' },
+        { name: 'alice', agentType: 'general-purpose' },
+      ],
+    };
+    // Teammates sometimes send messages to "lead" instead of "team-lead",
+    // creating a separate inbox file that the resolver picks up.
+    const inboxNames = ['team-lead', 'lead', 'alice'];
+    const members = resolver.resolveMembers(config, [], inboxNames, [], []);
+    const names = members.map((m) => m.name);
+
+    expect(names).toContain('team-lead');
+    expect(names).not.toContain('lead');
+    expect(names).toContain('alice');
+  });
+
+  it('keeps "lead" as a member when "team-lead" is not present', () => {
+    const resolver = new TeamMemberResolver();
+    const config: TeamConfig = {
+      name: 'Team',
+      members: [{ name: 'lead', agentType: 'team-lead', role: 'lead' }],
+    };
+    const members = resolver.resolveMembers(config, [], ['lead'], [], []);
+    const names = members.map((m) => m.name);
+
+    expect(names).toContain('lead');
+  });
+
   it('clears currentTaskId when task status is completed', () => {
     const resolver = new TeamMemberResolver();
     const config: TeamConfig = {

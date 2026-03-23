@@ -1,5 +1,6 @@
 packages:
   - agent-teams-controller
   - mcp-server
+  - landing
 ignoredBuiltDependencies:
   - esbuild
