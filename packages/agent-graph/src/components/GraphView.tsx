@@ -21,6 +21,7 @@ import { GraphOverlay } from './GraphOverlay';
 import { useGraphSimulation } from '../hooks/useGraphSimulation';
 import { useGraphCamera } from '../hooks/useGraphCamera';
 import { useGraphInteraction } from '../hooks/useGraphInteraction';
+import { findNodeAt } from '../canvas/hit-detection';
 import { ANIM_SPEED } from '../constants/canvas-constants';
 
 export interface GraphViewProps {
@@ -156,44 +157,72 @@ export function GraphView({
     }
   }, [data.nodes.length, camera, simulation.stateRef]);
 
-  // ─── Mouse handlers ─────────────────────────────────────────────────────
+  // ─── Mouse handlers (Figma-style: drag empty space = pan, drag node = move) ─
+  const isPanningRef = useRef(false);
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
-      camera.handlePanStart(e.clientX, e.clientY);
-      return;
-    }
+    if (e.button !== 0) return; // only left click
+
     const canvas = canvasHandle.current?.getCanvas();
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const world = camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+
+    // Check if we hit a node
     interaction.handleMouseDown(world.x, world.y, simulation.stateRef.current.nodes);
+
+    if (interaction.dragNodeId.current) {
+      // Hit a node → will drag it
+      isPanningRef.current = false;
+    } else {
+      // Hit empty space → pan
+      isPanningRef.current = true;
+      camera.handlePanStart(e.clientX, e.clientY);
+    }
   }, [camera, interaction, simulation.stateRef]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (e.buttons === 4 || (e.buttons === 1 && e.shiftKey)) {
-      camera.handlePanMove(e.clientX, e.clientY);
+    // Dragging with left button held
+    if (e.buttons & 1) {
+      if (isPanningRef.current) {
+        camera.handlePanMove(e.clientX, e.clientY);
+        return;
+      }
+      const canvas = canvasHandle.current?.getCanvas();
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const world = camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      interaction.handleMouseMove(world.x, world.y, simulation.stateRef.current.nodes);
       return;
     }
+
+    // No button held — hover detection + cursor update
     const canvas = canvasHandle.current?.getCanvas();
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const world = camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-    interaction.handleMouseMove(world.x, world.y, simulation.stateRef.current.nodes);
+    interaction.hoveredNodeId.current = findNodeAt(world.x, world.y, simulation.stateRef.current.nodes);
+    canvas.style.cursor = interaction.hoveredNodeId.current ? 'pointer' : 'grab';
   }, [camera, interaction, simulation.stateRef]);
 
   const handleMouseUp = useCallback(() => {
-    camera.handlePanEnd();
+    if (isPanningRef.current) {
+      camera.handlePanEnd();
+      isPanningRef.current = false;
+      return;
+    }
+
     const clickedId = interaction.handleMouseUp();
     if (clickedId) {
       setSelectedNodeId(clickedId);
-      forceUpdate((n) => n + 1); // re-render for popover
+      forceUpdate((n) => n + 1);
       const node = simulation.stateRef.current.nodes.find((n) => n.id === clickedId);
       if (node) events?.onNodeClick?.(node.domainRef);
     } else if (!interaction.isDragging.current) {
       setSelectedNodeId(null);
       events?.onBackgroundClick?.();
     }
-  }, [camera, interaction, simulation.stateRef, events]);
+  }, [interaction, simulation.stateRef, events, camera]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     const canvas = canvasHandle.current?.getCanvas();
