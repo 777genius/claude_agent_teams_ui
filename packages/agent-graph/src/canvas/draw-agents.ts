@@ -1,0 +1,280 @@
+/**
+ * Agent (member/lead) node drawing with holographic effects.
+ * Adapted from agent-flow's draw-agents.ts (Apache 2.0).
+ * Uses our GraphNode port type instead of agent-flow's Agent type.
+ */
+
+import type { GraphNode } from '../ports/types';
+import { COLORS, getStateColor, alphaHex } from '../constants/colors';
+import { NODE, AGENT_DRAW, CONTEXT_RING, ANIM, MIN_VISIBLE_OPACITY } from '../constants/canvas-constants';
+import { drawHexagon } from './draw-misc';
+import { getAgentGlowSprite } from './render-cache';
+
+/**
+ * Draw all member/lead nodes on the canvas.
+ */
+export function drawAgents(
+  ctx: CanvasRenderingContext2D,
+  nodes: GraphNode[],
+  time: number,
+  selectedId: string | null,
+  hoveredId: string | null,
+): void {
+  for (const node of nodes) {
+    if (node.kind !== 'member' && node.kind !== 'lead') continue;
+    const opacity = getNodeOpacity(node);
+    if (opacity < MIN_VISIBLE_OPACITY) continue;
+
+    const x = node.x ?? 0;
+    const y = node.y ?? 0;
+    const r = node.kind === 'lead' ? NODE.radiusLead : NODE.radiusMember;
+    const color = node.color ?? getStateColor(node.state);
+    const isSelected = node.id === selectedId;
+    const isHovered = node.id === hoveredId;
+
+    ctx.save();
+    ctx.globalAlpha = opacity;
+
+    // Depth shadow
+    drawDepthShadow(ctx, x, y, r);
+
+    // Outer glow
+    drawGlow(ctx, x, y, r, color);
+
+    // Hexagonal body with interior fill
+    drawHexBody(ctx, x, y, r, color, node.state, time, isSelected, isHovered);
+
+    // Breathing animation
+    drawBreathing(ctx, x, y, r, node.state, time);
+
+    // Name label
+    drawLabel(ctx, x, y, r, node.label, color);
+
+    // Role subtitle
+    if (node.role) {
+      drawSublabel(ctx, x, y, r, node.role);
+    }
+
+    // Context ring for lead
+    if (node.kind === 'lead' && node.contextUsage != null) {
+      drawContextRing(ctx, x, y, r, node.contextUsage, time);
+    }
+
+    // Selection ring
+    if (isSelected) {
+      drawSelectionRing(ctx, x, y, r, color);
+    }
+
+    ctx.restore();
+  }
+}
+
+// ─── Private Helpers ────────────────────────────────────────────────────────
+
+function getNodeOpacity(node: GraphNode): number {
+  if (node.state === 'terminated' || node.state === 'complete') return 0.3;
+  if (node.spawnStatus === 'spawning') return 0.6;
+  if (node.spawnStatus === 'waiting') return 0.4;
+  if (node.spawnStatus === 'offline') return 0;
+  return 1;
+}
+
+function drawDepthShadow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = AGENT_DRAW.shadowBlur;
+  ctx.shadowOffsetX = AGENT_DRAW.shadowOffsetX;
+  ctx.shadowOffsetY = AGENT_DRAW.shadowOffsetY;
+  drawHexagon(ctx, x, y, r);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.01)';
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawGlow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void {
+  const outerR = r + AGENT_DRAW.glowPadding;
+  const sprite = getAgentGlowSprite(color, r * 0.5, outerR);
+  ctx.drawImage(sprite, x - outerR, y - outerR);
+}
+
+function drawHexBody(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  state: string,
+  time: number,
+  isSelected: boolean,
+  isHovered: boolean,
+): void {
+  // Interior fill
+  drawHexagon(ctx, x, y, r);
+  ctx.fillStyle = isSelected
+    ? 'rgba(100, 200, 255, 0.15)'
+    : COLORS.nodeInterior;
+  ctx.fill();
+
+  // Scanline effect
+  const scanSpeed = state === 'active' || state === 'thinking'
+    ? ANIM.scanline.active
+    : ANIM.scanline.normal;
+  const scanY = ((time * scanSpeed) % (r * 2)) - r;
+  ctx.save();
+  drawHexagon(ctx, x, y, r);
+  ctx.clip();
+  const grad = ctx.createLinearGradient(
+    x,
+    y + scanY - AGENT_DRAW.scanlineHalfH,
+    x,
+    y + scanY + AGENT_DRAW.scanlineHalfH,
+  );
+  grad.addColorStop(0, `${color}00`);
+  grad.addColorStop(0.5, `${color}20`);
+  grad.addColorStop(1, `${color}00`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(x - r, y + scanY - AGENT_DRAW.scanlineHalfH, r * 2, AGENT_DRAW.scanlineHalfH * 2);
+  ctx.restore();
+
+  // Border
+  drawHexagon(ctx, x, y, r);
+  ctx.strokeStyle = color + (isHovered ? 'CC' : '80');
+  ctx.lineWidth = isSelected ? 2 : 1;
+  ctx.stroke();
+}
+
+function drawBreathing(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  state: string,
+  time: number,
+): void {
+  const isActive = state === 'active' || state === 'thinking' || state === 'tool_calling';
+  const speed = isActive ? ANIM.breathe.activeSpeed : ANIM.breathe.idleSpeed;
+  const amp = isActive ? ANIM.breathe.activeAmp : ANIM.breathe.idleAmp;
+  const breathe = 1 + amp * Math.sin(time * speed);
+
+  if (isActive) {
+    // Orbiting particles for active agents
+    const orbitR = r + AGENT_DRAW.orbitParticleOffset;
+    const count = 4;
+    for (let i = 0; i < count; i++) {
+      const angle = time * ANIM.orbitSpeed + (Math.PI * 2 * i) / count;
+      const px = x + orbitR * breathe * Math.cos(angle);
+      const py = y + orbitR * breathe * Math.sin(angle);
+      ctx.fillStyle = COLORS.holoBright + '80';
+      ctx.beginPath();
+      ctx.arc(px, py, AGENT_DRAW.orbitParticleSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // Subtle pulsing glow ring for idle agents
+    const pulseAlpha = 0.04 + 0.04 * Math.sin(time * speed);
+    ctx.beginPath();
+    ctx.arc(x, y, r + 2, 0, Math.PI * 2);
+    ctx.strokeStyle = COLORS.holoBase + alphaHex(pulseAlpha);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+function drawLabel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  label: string,
+  color: string,
+): void {
+  ctx.font = `bold 10px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = color;
+  ctx.fillText(label, x, y + r + AGENT_DRAW.labelYOffset);
+}
+
+function drawSublabel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  sublabel: string,
+): void {
+  ctx.font = '7px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = COLORS.textDim;
+  ctx.fillText(sublabel, x, y + r + AGENT_DRAW.labelYOffset + 13);
+}
+
+/**
+ * Draw context usage ring around lead node.
+ */
+export function drawContextRing(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  usage: number,
+  time: number,
+): void {
+  const ringR = r + CONTEXT_RING.ringOffset;
+  const startAngle = -Math.PI / 2;
+  const endAngle = startAngle + Math.PI * 2 * Math.min(1, usage);
+
+  // Background ring
+  ctx.beginPath();
+  ctx.arc(x, y, ringR, 0, Math.PI * 2);
+  ctx.strokeStyle = COLORS.holoBright + '15';
+  ctx.lineWidth = CONTEXT_RING.ringWidth;
+  ctx.stroke();
+
+  // Usage arc
+  let ringColor: string = COLORS.complete;
+  if (usage > CONTEXT_RING.criticalThreshold) {
+    ringColor = COLORS.error;
+  } else if (usage > CONTEXT_RING.warningThreshold) {
+    ringColor = COLORS.waiting;
+  }
+
+  // Pulsing glow for high usage
+  if (usage > CONTEXT_RING.warningThreshold) {
+    const pulse = 0.5 + 0.5 * Math.sin(time * 3);
+    ctx.beginPath();
+    ctx.arc(x, y, ringR, startAngle, endAngle);
+    ctx.strokeStyle = ringColor + alphaHex(0.3 * pulse);
+    ctx.lineWidth = CONTEXT_RING.ringWidth + CONTEXT_RING.glowPadding;
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.arc(x, y, ringR, startAngle, endAngle);
+  ctx.strokeStyle = ringColor;
+  ctx.lineWidth = CONTEXT_RING.ringWidth;
+  ctx.stroke();
+
+  // Percentage label
+  if (usage > CONTEXT_RING.percentLabelThreshold) {
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = ringColor;
+    ctx.fillText(`${Math.round(usage * 100)}%`, x, y - r - CONTEXT_RING.percentYOffset);
+  }
+}
+
+function drawSelectionRing(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+): void {
+  drawHexagon(ctx, x, y, r + 4);
+  ctx.strokeStyle = color + 'AA';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}

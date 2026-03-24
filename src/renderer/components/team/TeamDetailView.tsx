@@ -50,6 +50,7 @@ import {
   Trash2,
   UserPlus,
   Users,
+  Network,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -70,6 +71,9 @@ import type { AddMemberEntry } from './dialogs/AddMemberDialog';
 
 const ProjectEditorOverlay = lazy(() =>
   import('./editor/ProjectEditorOverlay').then((m) => ({ default: m.ProjectEditorOverlay }))
+);
+const TeamGraphOverlay = lazy(() =>
+  import('./graph/TeamGraphOverlay').then((m) => ({ default: m.TeamGraphOverlay }))
 );
 import { MemberList } from './members/MemberList';
 import { MessagesPanel } from './messages/MessagesPanel';
@@ -192,20 +196,33 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const provisioningBannerRef = useRef<HTMLDivElement>(null);
   const wasProvisioningRef = useRef(false);
 
-  // Set inert on background content when editor overlay is open (a11y focus trap)
+  // Set inert on background content when editor/graph overlay is open (a11y focus trap)
   useEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    if (editorOpen) {
+    if (editorOpen || graphOpen) {
       el.setAttribute('inert', '');
     } else {
       el.removeAttribute('inert');
     }
-  }, [editorOpen]);
+  }, [editorOpen, graphOpen]);
+
+  // Listen for Cmd+Shift+G keyboard shortcut
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.teamName === teamName) {
+        setGraphOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('toggle-team-graph', handler);
+    return () => window.removeEventListener('toggle-team-graph', handler);
+  }, [teamName]);
 
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -1328,6 +1345,17 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
                     </Tooltip>
                   </span>
                 )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setGraphOpen(true)}
+                      className="flex items-center gap-0.5 rounded border border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
+                    >
+                      <Network size={10} className="shrink-0" /> Graph
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Agent graph visualization (Cmd+Shift+G)</TooltipContent>
+                </Tooltip>
                 {leadBranch && (
                   <span
                     className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)]"
@@ -2039,6 +2067,21 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
             projectPath={data.config.projectPath}
             onClose={() => setEditorOpen(false)}
             onEditorAction={handleEditorAction}
+          />
+        </Suspense>
+      )}
+
+      {graphOpen && (
+        <Suspense fallback={null}>
+          <TeamGraphOverlay
+            teamName={teamName}
+            onClose={() => setGraphOpen(false)}
+            onPinAsTab={() => {
+              setGraphOpen(false);
+              useStore
+                .getState()
+                .openTab({ type: 'graph', label: `${data.config.name} Graph`, teamName });
+            }}
           />
         </Suspense>
       )}

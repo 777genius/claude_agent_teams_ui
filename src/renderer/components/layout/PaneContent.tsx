@@ -12,6 +12,7 @@ import { SessionReportTab } from '../report/SessionReportTab';
 import { SchedulesView } from '../schedules/SchedulesView';
 import { SettingsView } from '../settings/SettingsView';
 import { TeamDetailView } from '../team/TeamDetailView';
+import { TeamGraphTab } from '../team/graph/TeamGraphTab';
 import { TeamListView } from '../team/TeamListView';
 
 import { SessionTabContent } from './SessionTabContent';
@@ -65,6 +66,11 @@ export const PaneContent = ({ pane }: PaneContentProps): React.JSX.Element => {
               </TabUIProvider>
             )}
             {tab.type === 'schedules' && <SchedulesView />}
+            {tab.type === 'graph' && (
+              <TabUIProvider tabId={tab.id}>
+                <TeamGraphTab teamName={tab.teamName ?? ''} />
+              </TabUIProvider>
+            )}
           </div>
         );
       })}
