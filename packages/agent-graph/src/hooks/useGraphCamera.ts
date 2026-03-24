@@ -51,8 +51,19 @@ export function useGraphCamera(): UseGraphCameraResult {
 
   const handleWheel = useCallback((e: WheelEvent) => {
     const t = transformRef.current;
-    const factor = e.deltaY < 0 ? CAMERA.zoomStepUp : CAMERA.zoomStepDown;
-    const newZoom = Math.max(CAMERA.minZoom, Math.min(CAMERA.maxZoom, t.zoom * factor));
+
+    // Trackpad pinch (ctrlKey=true) sends small deltaY values — use them directly.
+    // Mouse wheel sends larger discrete deltaY — normalize to smaller steps.
+    let zoomDelta: number;
+    if (e.ctrlKey) {
+      // Pinch-to-zoom: deltaY is typically -2..+2, dampen it
+      zoomDelta = -e.deltaY * 0.008;
+    } else {
+      // Mouse wheel: deltaY is typically ±100-150, use discrete steps
+      zoomDelta = e.deltaY < 0 ? 0.08 : -0.08;
+    }
+
+    const newZoom = Math.max(CAMERA.minZoom, Math.min(CAMERA.maxZoom, t.zoom * (1 + zoomDelta)));
 
     // Zoom toward cursor position
     const rect = (e.target as HTMLCanvasElement).getBoundingClientRect?.();
