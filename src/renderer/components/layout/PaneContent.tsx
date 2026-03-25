@@ -12,7 +12,7 @@ import { SessionReportTab } from '../report/SessionReportTab';
 import { SchedulesView } from '../schedules/SchedulesView';
 import { SettingsView } from '../settings/SettingsView';
 import { TeamDetailView } from '../team/TeamDetailView';
-import { TeamGraphTab } from '../team/graph/TeamGraphTab';
+import { TeamGraphTab } from '@renderer/features/agent-graph/TeamGraphTab';
 import { TeamListView } from '../team/TeamListView';
 
 import { SessionTabContent } from './SessionTabContent';

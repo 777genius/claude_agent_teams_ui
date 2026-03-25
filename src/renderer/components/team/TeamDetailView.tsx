@@ -73,7 +73,9 @@ const ProjectEditorOverlay = lazy(() =>
   import('./editor/ProjectEditorOverlay').then((m) => ({ default: m.ProjectEditorOverlay }))
 );
 const TeamGraphOverlay = lazy(() =>
-  import('./graph/TeamGraphOverlay').then((m) => ({ default: m.TeamGraphOverlay }))
+  import('@renderer/features/agent-graph/TeamGraphOverlay').then((m) => ({
+    default: m.TeamGraphOverlay,
+  }))
 );
 import { MemberList } from './members/MemberList';
 import { MessagesPanel } from './messages/MessagesPanel';

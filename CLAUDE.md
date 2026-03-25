@@ -56,6 +56,10 @@ Use path aliases for imports:
 - `@shared/*` → `src/shared/*`
 - `@preload/*` → `src/preload/*`
 
+## Features Architecture
+**All new features MUST be created in `src/renderer/features/<feature-name>/`.**
+See `src/renderer/features/CLAUDE.md` for the full guide on creating features with Clean Architecture, SOLID, and class-based patterns.
+
 ## Data Sources
 ~/.claude/projects/{encoded-path}/*.jsonl - Session files
 ~/.claude/todos/{sessionId}.json - Todo data
