@@ -140,10 +140,11 @@ export function useGraphSimulation(): UseGraphSimulationResult {
 
     sim.nodes(forceNodes);
     (sim.force('link') as ReturnType<typeof forceLink>)?.links(forceLinks);
-    sim.alpha(0.3);
+    sim.alpha(1);
 
-    // Tick a few times to settle initial positions
-    for (let i = 0; i < 10; i++) sim.tick();
+    // Run simulation to near-completion so nodes are settled on first render
+    for (let i = 0; i < 120; i++) sim.tick();
+    sim.alpha(0); // fully settled — no more movement until new data
   }, [initSimulation]);
 
   // Track previous node IDs and states for effect spawning
@@ -223,8 +224,8 @@ function tickFrame(
 ): void {
   state.time += dt;
 
-  // Tick d3-force
-  if (sim) {
+  // Tick d3-force (only when simulation is still active)
+  if (sim && sim.alpha() > 0.001) {
     sim.tick(1);
 
     const simNodes = sim.nodes();

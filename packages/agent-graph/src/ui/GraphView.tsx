@@ -151,23 +151,23 @@ export function GraphView({
     };
   }, [filters.paused, animate]);
 
-  // ─── Auto-fit on first data + periodically until settled ────────────────
+  // ─── Auto-fit: center graph immediately when data arrives ──────────────
   const hasAutoFit = useRef(false);
-  const autoFitCount = useRef(0);
   useEffect(() => {
     if (data.nodes.length > 0 && !hasAutoFit.current) {
       hasAutoFit.current = true;
-      // Fit multiple times as simulation settles (200ms, 600ms, 1500ms)
-      const timers = [200, 600, 1500].map((delay) =>
-        setTimeout(() => {
-          const el = containerRef.current;
-          if (el) {
-            camera.zoomToFit(simulation.stateRef.current.nodes, el.clientWidth, el.clientHeight);
-          }
-          autoFitCount.current++;
-        }, delay),
-      );
-      return () => timers.forEach(clearTimeout);
+      // Immediate fit (simulation already settled from 120 pre-ticks)
+      const el = containerRef.current;
+      if (el) {
+        camera.zoomToFit(simulation.stateRef.current.nodes, el.clientWidth, el.clientHeight);
+      }
+      // Second fit after mount stabilizes (ResizeObserver may fire late)
+      const timer = setTimeout(() => {
+        if (el) {
+          camera.zoomToFit(simulation.stateRef.current.nodes, el.clientWidth, el.clientHeight);
+        }
+      }, 300);
+      return () => clearTimeout(timer);
     }
   }, [data.nodes.length, camera, simulation.stateRef]);
 
