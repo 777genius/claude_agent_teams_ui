@@ -19,6 +19,7 @@ import {
   AGENT_BLOCK_CLOSE,
   AGENT_BLOCK_OPEN,
   stripAgentBlocks,
+  wrapAgentBlock,
 } from '@shared/constants/agentBlocks';
 import {
   CROSS_TEAM_PREFIX_TAG,
@@ -387,11 +388,8 @@ async function ensureCwdExists(cwd: string): Promise<void> {
   }
 }
 
-function wrapInAgentBlock(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return '';
-  return `${AGENT_BLOCK_OPEN}\n${trimmed}\n${AGENT_BLOCK_CLOSE}`;
-}
+/** @deprecated Use wrapAgentBlock from @shared/constants/agentBlocks instead. */
+const wrapInAgentBlock = wrapAgentBlock;
 
 function indentMultiline(text: string, indent: string): string {
   return text
@@ -555,7 +553,7 @@ export function buildAddMemberSpawnMessage(
 
   return (
     `A new teammate "${member.name}"${roleHint} has been added to the team. ` +
-    `Please spawn them immediately using the Task tool with team_name="${teamName}", name="${member.name}", subagent_type="general-purpose", and the exact prompt below:${workflowHint}\n\n` +
+    `Please spawn them immediately using the **Agent** tool with team_name="${teamName}", name="${member.name}", subagent_type="general-purpose", and the exact prompt below:${workflowHint}\n\n` +
     indentMultiline(prompt, '  ')
   );
 }
@@ -680,8 +678,8 @@ function buildPersistentLeadContext(opts: {
       `\n  - FORBIDDEN (until teammates exist): Do NOT spawn teammates via the Task tool with a team_name parameter — there are no teammates to spawn yet.` +
       `\n  - FORBIDDEN (until teammates exist): Do NOT call SendMessage to any teammate name — no teammates exist yet.` +
       `\n  - ALLOWED: You may message "user" (the human operator) via SendMessage.` +
-      `\n  - ALLOWED: You may use the Task tool for regular subagents WITHOUT team_name — these are normal Claude Code helpers, not teammates.` +
-      `\n  - If teammates are added later (e.g. via UI), you may then spawn them using the Task tool with team_name + name.` +
+      `\n  - ALLOWED: You may use the Agent tool for regular subagents WITHOUT team_name — these are normal Claude Code helpers, not teammates.` +
+      `\n  - If teammates are added later (e.g. via UI), you may then spawn them using the Agent tool with team_name + name.` +
       `\n  - TASK BOARD FIRST (MANDATORY): Do NOT do substantial work silently or off-board.` +
       `\n    - Before you start meaningful implementation, debugging, research, review, or follow-up work, make sure there is a visible team-board task for it and that task is assigned to you.` +
       `\n    - If the user asks for new work, your first move is to create/update the relevant board task(s), then start work from those tasks.` +
@@ -901,8 +899,9 @@ function buildProvisioningPrompt(request: TeamCreateRequest): string {
 
   const step2Block = isSolo
     ? '2) Skip — this is a solo team with no teammates to spawn.'
-    : `2) Spawn each member as a live teammate using the Task tool:
-   - team_name: “${request.teamName}”
+    : `2) Spawn each member as a live teammate using the **Agent** tool:
+   CRITICAL: Every Agent call MUST include team_name=”${request.teamName}”. Without team_name the agent becomes an ephemeral subagent that exits immediately instead of a persistent teammate.
+   - team_name: “${request.teamName}”  ← MANDATORY, never omit
    - name: the member's name (see per-member list below)
    - subagent_type: “general-purpose”
    - IMPORTANT: Use the exact prompt shown for each member.
@@ -1006,8 +1005,9 @@ function buildLaunchPrompt(
       })
       .join('\n\n');
 
-    step2And3Block = `2) Spawn each existing member as a live teammate using the Task tool:
-   - team_name: "${request.teamName}"
+    step2And3Block = `2) Spawn each existing member as a live teammate using the **Agent** tool:
+   CRITICAL: Every Agent call MUST include team_name="${request.teamName}". Without team_name the agent becomes an ephemeral subagent that exits immediately instead of a persistent teammate.
+   - team_name: "${request.teamName}"  ← MANDATORY, never omit
    - name: the member's name
    - subagent_type: "general-purpose"
    - IMPORTANT: Use the exact prompt shown for each member.
@@ -4395,7 +4395,20 @@ export class TeamProvisioningService {
       const inp = input as Record<string, unknown>;
       const teamName = typeof inp.team_name === 'string' ? inp.team_name.trim() : '';
       const memberName = typeof inp.name === 'string' ? inp.name.trim() : '';
-      if (!teamName || !memberName) continue;
+      if (!memberName) continue;
+      if (!teamName) {
+        logger.warn(
+          `[captureTeamSpawnEvents] Agent call for "${memberName}" is missing team_name — ` +
+            `teammate will be an ephemeral subagent, not a persistent member of "${run.teamName}"`
+        );
+        this.setMemberSpawnStatus(
+          run,
+          memberName,
+          'error',
+          `Agent spawn for "${memberName}" is missing team_name — spawned as ephemeral subagent instead of persistent teammate`
+        );
+        continue;
+      }
       // Only track spawns for this team
       if (teamName !== run.teamName) continue;
       this.setMemberSpawnStatus(run, memberName, 'spawning');
@@ -6885,9 +6898,12 @@ export class TeamProvisioningService {
       USER: user,
       LOGNAME: shellEnv.LOGNAME?.trim() || process.env.LOGNAME?.trim() || user,
       TERM: shellEnv.TERM?.trim() || process.env.TERM?.trim() || 'xterm-256color',
-      // Ensure CLI reads/writes from the same Claude root as the app.
-      // This aligns teams/tasks locations when the app overrides claudeRootPath.
-      CLAUDE_CONFIG_DIR: getClaudeBasePath(),
+      // Only set CLAUDE_CONFIG_DIR when the user configured a custom path.
+      // Setting it to the default ~/.claude changes the macOS Keychain namespace
+      // for OAuth credential lookup, causing auth failures. (See issue #27)
+      ...(getClaudeBasePath() !== getAutoDetectedClaudeBasePath()
+        ? { CLAUDE_CONFIG_DIR: getClaudeBasePath() }
+        : {}),
       CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
     };
 

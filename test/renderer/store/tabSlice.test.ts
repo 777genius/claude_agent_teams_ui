@@ -234,6 +234,78 @@ describe('tabSlice', () => {
       expect(store.getState().activeTabId).toBe(tab1Id);
     });
 
+    it('should sync selectedRepositoryId and selectedWorktreeId when switching tabs across repos', () => {
+      // Setup repositoryGroups with two repos, each with one worktree
+      store.setState({
+        repositoryGroups: [
+          {
+            id: 'repo-A',
+            identity: null,
+            name: 'Repo A',
+            worktrees: [
+              {
+                id: 'worktree-A',
+                path: '/path/a',
+                name: 'main',
+                isMainWorktree: true,
+                source: 'git',
+                sessions: [],
+                createdAt: 0,
+              },
+            ],
+            totalSessions: 0,
+          },
+          {
+            id: 'repo-B',
+            identity: null,
+            name: 'Repo B',
+            worktrees: [
+              {
+                id: 'worktree-B',
+                path: '/path/b',
+                name: 'develop',
+                isMainWorktree: true,
+                source: 'git',
+                sessions: [],
+                createdAt: 0,
+              },
+            ],
+            totalSessions: 0,
+          },
+        ] as never[],
+        selectedRepositoryId: 'repo-A',
+        selectedWorktreeId: 'worktree-A',
+      });
+
+      // Open tab from repo A
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'session-A',
+        projectId: 'worktree-A',
+        label: 'Session A',
+      });
+      const tabAId = store.getState().activeTabId;
+
+      // Open tab from repo B
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'session-B',
+        projectId: 'worktree-B',
+        label: 'Session B',
+      });
+
+      // Switch back to tab A
+      store.getState().setActiveTab(tabAId!);
+      expect(store.getState().selectedRepositoryId).toBe('repo-A');
+      expect(store.getState().selectedWorktreeId).toBe('worktree-A');
+
+      // Switch to tab B
+      const tabBId = store.getState().openTabs.find((t) => t.sessionId === 'session-B')?.id;
+      store.getState().setActiveTab(tabBId!);
+      expect(store.getState().selectedRepositoryId).toBe('repo-B');
+      expect(store.getState().selectedWorktreeId).toBe('worktree-B');
+    });
+
     it('should preserve sidebar state for non-session tabs', () => {
       // Setup initial state with projects data so setActiveTab can find the project
       store.setState({

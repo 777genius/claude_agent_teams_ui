@@ -292,7 +292,7 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
 
       for (const repo of state.repositoryGroups) {
         for (const wt of repo.worktrees) {
-          if (wt.sessions.includes(sessionId)) {
+          if (wt.id === projectId) {
             foundRepo = repo.id;
             foundWorktree = wt.id;
             break;

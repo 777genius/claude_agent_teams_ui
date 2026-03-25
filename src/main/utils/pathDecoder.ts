@@ -69,7 +69,10 @@ export function decodePath(encodedName: string): string {
   }
 
   // Ensure leading slash for POSIX-style absolute paths
-  return decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
+  const absolutePath = decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
+
+  // Translate WSL mount paths to Windows drive-letter paths on Windows
+  return translateWslMountPath(absolutePath);
 }
 
 /**
@@ -89,6 +92,23 @@ export function extractProjectName(encodedName: string, cwdHint?: string): strin
   const decoded = decodePath(encodedName);
   const segments = decoded.split('/').filter(Boolean);
   return segments[segments.length - 1] || encodedName;
+}
+
+/**
+ * Translate WSL mount paths (/mnt/X/...) to Windows drive-letter paths (X:/...)
+ * when running on Windows. No-op on other platforms.
+ */
+export function translateWslMountPath(posixPath: string): string {
+  if (process.platform !== 'win32') {
+    return posixPath;
+  }
+  const match = /^\/mnt\/([a-zA-Z])(\/.*)?$/.exec(posixPath);
+  if (match) {
+    const drive = match[1].toUpperCase();
+    const rest = match[2] ?? '';
+    return `${drive}:${rest}`;
+  }
+  return posixPath;
 }
 
 // =============================================================================

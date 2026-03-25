@@ -10,6 +10,7 @@ import {
   APP_RELAUNCH,
   CLI_INSTALLER_GET_STATUS,
   CLI_INSTALLER_INSTALL,
+  CLI_INSTALLER_INVALIDATE_STATUS,
   CLI_INSTALLER_PROGRESS,
   CONTEXT_CHANGED,
   CONTEXT_GET_ACTIVE,
@@ -151,6 +152,7 @@ import {
   TEAM_SHOW_MESSAGE_NOTIFICATION,
   TEAM_SOFT_DELETE_TASK,
   TEAM_START_TASK,
+  TEAM_START_TASK_BY_USER,
   TEAM_STOP,
   TEAM_TOOL_APPROVAL_EVENT,
   TEAM_TOOL_APPROVAL_READ_FILE,
@@ -871,6 +873,13 @@ const electronAPI: ElectronAPI = {
     startTask: async (teamName: string, taskId: string) => {
       return invokeIpcWithResult<{ notifiedOwner: boolean }>(TEAM_START_TASK, teamName, taskId);
     },
+    startTaskByUser: async (teamName: string, taskId: string) => {
+      return invokeIpcWithResult<{ notifiedOwner: boolean }>(
+        TEAM_START_TASK_BY_USER,
+        teamName,
+        taskId
+      );
+    },
     processSend: async (teamName: string, message: string) => {
       return invokeIpcWithResult<void>(TEAM_PROCESS_SEND, teamName, message);
     },
@@ -1292,6 +1301,9 @@ const electronAPI: ElectronAPI = {
     },
     install: async (): Promise<void> => {
       return invokeIpcWithResult<void>(CLI_INSTALLER_INSTALL);
+    },
+    invalidateStatus: async (): Promise<void> => {
+      return invokeIpcWithResult<void>(CLI_INSTALLER_INVALIDATE_STATUS);
     },
     onProgress: (callback: (event: unknown, data: CliInstallerProgress) => void): (() => void) => {
       ipcRenderer.on(

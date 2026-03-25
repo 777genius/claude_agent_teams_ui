@@ -298,6 +298,9 @@ export const TEAM_GET_MEMBER_STATS = 'team:getMemberStats';
 /** Start a pending task (transition to in_progress + notify agent) */
 export const TEAM_START_TASK = 'team:startTask';
 
+/** Start a pending task from UI — always notifies owner (including lead in solo teams) */
+export const TEAM_START_TASK_BY_USER = 'team:startTaskByUser';
+
 /** Get all tasks across all teams */
 export const TEAM_GET_ALL_TASKS = 'team:getAllTasks';
 
@@ -404,6 +407,9 @@ export const CLI_INSTALLER_INSTALL = 'cliInstaller:install';
 
 /** CLI installer progress events (main -> renderer) */
 export const CLI_INSTALLER_PROGRESS = 'cliInstaller:progress';
+
+/** Invalidate cached CLI status (forces fresh check on next getStatus) */
+export const CLI_INSTALLER_INVALIDATE_STATUS = 'cliInstaller:invalidateStatus';
 
 // =============================================================================
 // Terminal API Channels

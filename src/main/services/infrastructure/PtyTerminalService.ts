@@ -7,6 +7,7 @@
 
 import crypto from 'node:crypto';
 
+import { buildEnrichedEnv } from '@main/utils/cliEnv';
 import { getHomeDir } from '@main/utils/pathDecoder';
 // eslint-disable-next-line boundaries/element-types -- IPC channel constants shared between main and preload
 import { TERMINAL_DATA, TERMINAL_EXIT } from '@preload/constants/ipcChannels';
@@ -65,9 +66,7 @@ export class PtyTerminalService {
       rows: options?.rows ?? 24,
       cwd: options?.cwd ?? home,
       env: {
-        ...process.env,
-        HOME: home,
-        USERPROFILE: home,
+        ...buildEnrichedEnv(),
         ...options?.env,
       } as Record<string, string>,
     });
