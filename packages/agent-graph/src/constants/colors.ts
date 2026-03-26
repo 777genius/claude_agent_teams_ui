@@ -149,11 +149,13 @@ export function getReviewStateColor(
 
 // ─── Hex Color Alpha Utility ────────────────────────────────────────────────
 
-/** Convert 0..1 alpha to 2-digit hex suffix */
+// Pre-built LUT: index 0-255 → '00'-'ff' (avoids toString+padStart per call)
+const ALPHA_HEX_LUT: string[] = [];
+for (let i = 0; i < 256; i++) ALPHA_HEX_LUT.push(i.toString(16).padStart(2, '0'));
+
+/** Convert 0..1 alpha to 2-digit hex suffix (via LUT) */
 export function alphaHex(alpha: number): string {
-  return Math.round(Math.max(0, Math.min(1, alpha)) * 255)
-    .toString(16)
-    .padStart(2, '0');
+  return ALPHA_HEX_LUT[Math.round(Math.max(0, Math.min(1, alpha)) * 255)];
 }
 
 /** Safely combine a partial rgba base (e.g. "rgba(100, 200, 255,") with an alpha value */

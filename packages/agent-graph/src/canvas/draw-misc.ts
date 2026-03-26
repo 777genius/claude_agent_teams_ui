@@ -30,6 +30,15 @@ export function truncateText(
   return lo > 0 ? text.slice(0, lo) + '...' : '...';
 }
 
+// Pre-computed hex vertex unit offsets (avoids cos/sin per call)
+const HEX_COS: number[] = [];
+const HEX_SIN: number[] = [];
+for (let i = 0; i < 6; i++) {
+  const angle = (Math.PI / 3) * i - Math.PI / 6;
+  HEX_COS.push(Math.cos(angle));
+  HEX_SIN.push(Math.sin(angle));
+}
+
 /**
  * Draw a regular hexagon path centered at (x, y) with given radius.
  */
@@ -40,13 +49,12 @@ export function drawHexagon(
   radius: number,
 ): void {
   ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const angle = (Math.PI / 3) * i - Math.PI / 6;
-    const px = x + radius * Math.cos(angle);
-    const py = y + radius * Math.sin(angle);
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
+  ctx.moveTo(x + radius * HEX_COS[0], y + radius * HEX_SIN[0]);
+  ctx.lineTo(x + radius * HEX_COS[1], y + radius * HEX_SIN[1]);
+  ctx.lineTo(x + radius * HEX_COS[2], y + radius * HEX_SIN[2]);
+  ctx.lineTo(x + radius * HEX_COS[3], y + radius * HEX_SIN[3]);
+  ctx.lineTo(x + radius * HEX_COS[4], y + radius * HEX_SIN[4]);
+  ctx.lineTo(x + radius * HEX_COS[5], y + radius * HEX_SIN[5]);
   ctx.closePath();
 }
 

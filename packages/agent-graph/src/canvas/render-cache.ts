@@ -36,10 +36,23 @@ function ensureHex(color: string): string {
   return hex;
 }
 
-/** Build a hex color with alpha: "#rrggbbaa" */
+/** Build a hex color with alpha: "#rrggbbaa" — cached for repeated calls */
+const _hexAlphaCache = new Map<string, string>();
 function hexWithAlpha(color: string, alpha: number): string {
-  return ensureHex(color) + Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+  // Quantize alpha to 1/255 steps for cache hit rate
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
+  const key = `${color}|${a}`;
+  let result = _hexAlphaCache.get(key);
+  if (result) return result;
+  result = ensureHex(color) + ALPHA_LUT[a];
+  _hexAlphaCache.set(key, result);
+  if (_hexAlphaCache.size > 500) _hexAlphaCache.clear(); // prevent unbounded growth
+  return result;
 }
+
+// Import-time LUT for alpha hex
+const ALPHA_LUT: string[] = [];
+for (let i = 0; i < 256; i++) ALPHA_LUT.push(i.toString(16).padStart(2, '0'));
 
 // ─── Glow Sprite Cache ──────────────────────────────────────────────────────
 

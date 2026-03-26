@@ -217,8 +217,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       ctx.restore(); // world space
       ctx.restore(); // DPR scale
 
-      // 3. Bloom post-processing
-      if (bloomIntensity > 0) {
+      // 3. Bloom post-processing — skip when scene is fully idle (saves 3 blur passes)
+      const hasActivity = state.particles.length > 0 || state.effects.length > 0;
+      if (bloomIntensity > 0 && hasActivity) {
         bloomRef.current.apply(canvas, ctx);
       }
 
