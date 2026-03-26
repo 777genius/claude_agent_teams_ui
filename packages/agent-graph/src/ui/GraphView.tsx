@@ -63,6 +63,13 @@ export function GraphView({
   // ─── Hooks ──────────────────────────────────────────────────────────────
   const simulation = useGraphSimulation();
   const camera = useGraphCamera();
+
+  // Stable refs for RAF loop (avoid recreating animate on hook identity change)
+  const simulationRef = useRef(simulation);
+  simulationRef.current = simulation;
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
+
   const interaction = useGraphInteraction(
     useCallback((nodeId: string, x: number, y: number) => {
       const state = simulation.stateRef.current;
@@ -103,13 +110,13 @@ export function GraphView({
     lastTimeRef.current = now;
 
     // 1. Tick simulation
-    simulation.tick(dt);
+    simulationRef.current.tick(dt);
 
     // 2. Update camera inertia
-    camera.updateInertia();
+    cameraRef.current.updateInertia();
 
     // 3. Adaptive frame rate: skip every other frame when idle (no particles, no effects, sim settled)
-    const state = simulation.stateRef.current;
+    const state = simulationRef.current.stateRef.current;
     const isIdle = state.particles.length === 0 && state.effects.length === 0;
     if (isIdle) {
       idleFrameSkip.current++;
@@ -128,13 +135,14 @@ export function GraphView({
       particles: state.particles,
       effects: state.effects,
       time: state.time,
-      camera: camera.transformRef.current,
+      camera: cameraRef.current.transformRef.current,
       selectedNodeId: selectedNodeIdRef.current,
       hoveredNodeId: interaction.hoveredNodeId.current,
     });
 
     rafRef.current = requestAnimationFrame(animate);
-  }, [simulation, camera, interaction.hoveredNodeId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- all data read from .current refs
+  }, []);
 
   // Start/stop RAF
   useEffect(() => {

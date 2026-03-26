@@ -109,9 +109,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     return () => observer.disconnect();
   }, []);
 
-  // Persistent caches (avoid GC pressure per frame)
+  // Persistent per-frame collections (reused, never GC'd)
   const nodeMapCache = useRef(new Map<string, GraphNode>());
   const edgeMapCache = useRef(new Map<string, GraphEdge>());
+  const visibleNodesCache = useRef<GraphNode[]>([]);
+  const visibleEdgesCache = useRef<GraphEdge[]>([]);
+  const visibleNodeIdsCache = useRef(new Set<string>());
+  const activeParticleEdgesCache = useRef(new Set<string>());
 
   // Imperative draw function — called from RAF, NOT from React render
   useImperativeHandle(ref, () => ({
@@ -148,17 +152,22 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       edgeMap.clear();
       for (const e of state.edges) edgeMap.set(e.id, e);
 
-      // ─── Filter visible nodes (frustum cull) ─────────────────────────
-      const visibleNodes = state.nodes.filter((n) => {
+      // ─── Filter visible nodes (frustum cull) — reuse array ────────────
+      const visibleNodes = visibleNodesCache.current;
+      visibleNodes.length = 0;
+      for (const n of state.nodes) {
         const x = n.x ?? 0;
         const y = n.y ?? 0;
-        return x > viewLeft - pad && x < viewRight + pad &&
-               y > viewTop - pad && y < viewBottom + pad;
-      });
+        if (x > viewLeft - pad && x < viewRight + pad &&
+            y > viewTop - pad && y < viewBottom + pad) {
+          visibleNodes.push(n);
+        }
+      }
 
-      // ─── LOD: reserved for future per-node detail reduction ────────────
-
-      const activeParticleEdges = new Set(state.particles.map((p) => p.edgeId));
+      // ─── Active particle edges — reuse Set ───────────────────────────
+      const activeParticleEdges = activeParticleEdgesCache.current;
+      activeParticleEdges.clear();
+      for (const p of state.particles) activeParticleEdges.add(p.edgeId);
 
       // ─── Draw ─────────────────────────────────────────────────────────
       ctx.save();
@@ -177,11 +186,18 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       ctx.translate(cam.x, cam.y);
       ctx.scale(zoom, zoom);
 
-      // 2a. Edges (only those connecting visible nodes)
-      const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
-      const visibleEdges = state.edges.filter((e) =>
-        visibleNodeIds.has(e.source) || visibleNodeIds.has(e.target),
-      );
+      // 2a. Edges (only those connecting visible nodes) — reuse collections
+      const visibleNodeIds = visibleNodeIdsCache.current;
+      visibleNodeIds.clear();
+      for (const n of visibleNodes) visibleNodeIds.add(n.id);
+
+      const visibleEdges = visibleEdgesCache.current;
+      visibleEdges.length = 0;
+      for (const e of state.edges) {
+        if (visibleNodeIds.has(e.source) || visibleNodeIds.has(e.target)) {
+          visibleEdges.push(e);
+        }
+      }
       drawEdges(ctx, visibleEdges, nodeMap, state.time, activeParticleEdges);
 
       // 2b. Particles (cap at 50 for performance)

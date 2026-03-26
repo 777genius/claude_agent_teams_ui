@@ -11,17 +11,26 @@ import type { GraphNode } from '../ports/types';
 import { KANBAN_ZONE } from '../constants/canvas-constants';
 
 export class KanbanLayoutEngine {
+  // Reusable collections (cleared each call, never GC'd)
+  static readonly #nodeMap = new Map<string, GraphNode>();
+  static readonly #tasksByOwner = new Map<string, GraphNode[]>();
+  static readonly #unassigned: GraphNode[] = [];
+  static readonly #colTasks = new Map<string, GraphNode[]>();
+
   /**
    * Position all task nodes in kanban columns relative to their owner.
    * Call AFTER d3-force settles member positions, BEFORE drawing.
    */
   static layout(nodes: GraphNode[]): void {
-    const nodeMap = new Map<string, GraphNode>();
+    const nodeMap = this.#nodeMap;
+    nodeMap.clear();
     for (const n of nodes) nodeMap.set(n.id, n);
 
-    // Group tasks by owner
-    const tasksByOwner = new Map<string, GraphNode[]>();
-    const unassigned: GraphNode[] = [];
+    // Group tasks by owner — reuse maps
+    const tasksByOwner = this.#tasksByOwner;
+    tasksByOwner.clear();
+    const unassigned = this.#unassigned;
+    unassigned.length = 0;
 
     for (const n of nodes) {
       if (n.kind !== 'task') continue;
@@ -56,8 +65,9 @@ export class KanbanLayoutEngine {
     const baseX = ownerX - totalWidth / 2;
     const baseY = ownerY + offsetY;
 
-    // Classify each task into a column
-    const colTasks = new Map<string, GraphNode[]>();
+    // Classify each task into a column — reuse shared Map
+    const colTasks = KanbanLayoutEngine.#colTasks;
+    colTasks.clear();
     for (const col of columns) colTasks.set(col, []);
 
     for (const task of tasks) {

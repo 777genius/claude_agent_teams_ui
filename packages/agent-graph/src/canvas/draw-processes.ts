@@ -6,7 +6,7 @@
 import type { GraphNode } from '../ports/types';
 import { COLORS } from '../constants/colors';
 import { NODE } from '../constants/canvas-constants';
-import { hexWithAlpha } from './render-cache';
+import { hexWithAlpha, getGlowSprite } from './render-cache';
 
 /**
  * Draw all process nodes as small circles.
@@ -30,15 +30,10 @@ export function drawProcesses(
     ctx.save();
     ctx.globalAlpha = 0.8;
 
-    // Glow
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 2);
+    // Glow — use cached sprite instead of createRadialGradient per frame
     const procColor = node.color ?? COLORS.tool_calling;
-    grad.addColorStop(0, hexWithAlpha(procColor, 0.19));
-    grad.addColorStop(1, hexWithAlpha(procColor, 0));
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 2, 0, Math.PI * 2);
-    ctx.fill();
+    const glowSprite = getGlowSprite(procColor, r * 2, 0.19, 0);
+    ctx.drawImage(glowSprite, x - r * 2, y - r * 2);
 
     // Body
     ctx.beginPath();

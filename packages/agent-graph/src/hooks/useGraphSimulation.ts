@@ -260,18 +260,26 @@ function tickFrame(
     }
   }
 
-  // Re-layout tasks in kanban zones (follows member positions after drag)
-  KanbanLayoutEngine.layout(state.nodes);
+  // Re-layout tasks in kanban zones ONLY when members moved (alpha > 0 or drag)
+  if (!sim || sim.alpha() > 0.001 || state.particles.length > 0) {
+    KanbanLayoutEngine.layout(state.nodes);
+  }
 
-  // Update particle progress
-  for (const p of state.particles) {
+  // Update particle progress — in-place removal (no new array allocation)
+  let pw = 0;
+  for (let i = 0; i < state.particles.length; i++) {
+    const p = state.particles[i];
     p.progress += dt * ANIM_SPEED.particleSpeed * 0.5;
+    if (p.progress < 1) state.particles[pw++] = p;
   }
-  state.particles = state.particles.filter((p) => p.progress < 1);
+  state.particles.length = pw;
 
-  // Update effects
-  for (const fx of state.effects) {
+  // Update effects — in-place removal
+  let ew = 0;
+  for (let i = 0; i < state.effects.length; i++) {
+    const fx = state.effects[i];
     fx.age += dt;
+    if (fx.age < fx.duration) state.effects[ew++] = fx;
   }
-  state.effects = state.effects.filter((fx) => fx.age < fx.duration);
+  state.effects.length = ew;
 }
