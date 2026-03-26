@@ -1,9 +1,9 @@
 /**
- * Graph simulation hook using d3-force.
- * CRITICAL: Animation state in useRef, NOT useState — no React re-renders at 60fps.
+ * Graph simulation hook using d3-force for MEMBER/LEAD nodes only.
+ * Task nodes are positioned by KanbanLayoutEngine (deterministic grid).
  *
- * This hook does NOT run its own RAF loop — the parent (GraphView) calls tick() from
- * its unified RAF loop which also draws the canvas imperatively.
+ * CRITICAL: Animation state in useRef, NOT useState — no React re-renders at 60fps.
+ * This hook does NOT run its own RAF loop — the parent (GraphView) calls tick().
  */
 
 import { useRef, useEffect, useCallback } from 'react';
@@ -22,6 +22,7 @@ import { FORCE, ANIM_SPEED } from '../constants/canvas-constants';
 import { getNodeStrategy } from '../strategies';
 import { createSpawnEffect, createCompleteEffect, type VisualEffect } from '../canvas/draw-effects';
 import { getStateColor } from '../constants/colors';
+import { KanbanLayoutEngine } from '../layout/kanbanLayout';
 
 // ─── Force Node/Link types (properly typed, no loose `string`) ──────────────
 
@@ -50,30 +51,6 @@ export interface UseGraphSimulationResult {
   updateData: (nodes: GraphNode[], edges: GraphEdge[], particles: GraphParticle[]) => void;
   /** Tick one simulation frame — called from parent's RAF loop */
   tick: (dt: number) => void;
-}
-
-// ─── Custom Radial Force (tasks orbit owner) ────────────────────────────────
-
-function applyTaskOrbitForce(nodes: GraphNode[], strength: number, radius: number): void {
-  const nodeMap = new Map<string, GraphNode>();
-  for (const n of nodes) nodeMap.set(n.id, n);
-
-  for (const node of nodes) {
-    if (node.kind !== 'task' || !node.ownerId) continue;
-    const owner = nodeMap.get(node.ownerId);
-    if (!owner || owner.x == null || owner.y == null) continue;
-    if (node.x == null || node.y == null) continue;
-
-    const dx = node.x - owner.x;
-    const dy = node.y - owner.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const diff = dist - radius;
-
-    const fx = (dx / dist) * diff * strength;
-    const fy = (dy / dist) * diff * strength;
-    node.vx = (node.vx ?? 0) - fx;
-    node.vy = (node.vy ?? 0) - fy;
-  }
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
@@ -125,20 +102,24 @@ export function useGraphSimulation(): UseGraphSimulationResult {
     let sim = simRef.current;
     if (!sim) sim = initSimulation();
 
-    const forceNodes: ForceNode[] = nodes.map((n) => ({
-      id: n.id,
-      kind: n.kind,
-      x: n.x ?? (Math.random() - 0.5) * 500,
-      y: n.y ?? (Math.random() - 0.5) * 500,
-      vx: n.vx ?? 0,
-      vy: n.vy ?? 0,
-      fx: n.fx,
-      fy: n.fy,
-    }));
+    // Tasks excluded from d3-force — positioned by KanbanLayoutEngine
+    const forceNodes: ForceNode[] = nodes
+      .filter((n) => n.kind !== 'task')
+      .map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        x: n.x ?? (Math.random() - 0.5) * 500,
+        y: n.y ?? (Math.random() - 0.5) * 500,
+        vx: n.vx ?? 0,
+        vy: n.vy ?? 0,
+        fx: n.fx,
+        fy: n.fy,
+      }));
 
-    const nodeIds = new Set(nodes.map((n) => n.id));
+    // Links only between non-task nodes (parent-child: lead↔member)
+    const forceNodeIds = new Set(forceNodes.map((n) => n.id));
     const forceLinks: ForceLink[] = edges
-      .filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+      .filter((e) => forceNodeIds.has(e.source) && forceNodeIds.has(e.target))
       .map((e) => ({
         id: e.id,
         source: e.source,
@@ -166,6 +147,9 @@ export function useGraphSimulation(): UseGraphSimulationResult {
         node.vy = sn.vy;
       }
     }
+
+    // Position tasks in kanban zones relative to their owners
+    KanbanLayoutEngine.layout(nodes);
   }, [initSimulation]);
 
   // Track previous node IDs and states for effect spawning
@@ -264,8 +248,8 @@ function tickFrame(
     }
   }
 
-  // Custom task orbit force
-  applyTaskOrbitForce(state.nodes, FORCE.taskOrbitStrength, FORCE.taskOrbitRadius);
+  // Re-layout tasks in kanban zones (follows member positions after drag)
+  KanbanLayoutEngine.layout(state.nodes);
 
   // Update particle progress
   for (const p of state.particles) {

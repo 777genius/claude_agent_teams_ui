@@ -41,7 +41,7 @@ export const FORCE = {
   centerStrength: 0.03,
   collideRadius: 100,
   linkDistance: {
-    'parent-child': 250,
+    'parent-child': 500,
     ownership: 150,
     blocking: 200,
     related: 200,
@@ -50,10 +50,6 @@ export const FORCE = {
   linkStrength: 0.4,
   alphaDecay: 0.02,
   velocityDecay: 0.4,
-  /** Task orbit radius around owner node */
-  taskOrbitRadius: 150,
-  /** Task orbit force strength */
-  taskOrbitStrength: 0.05,
 } as const;
 
 // ─── Node sizes ─────────────────────────────────────────────────────────────
@@ -233,4 +229,19 @@ export const BACKGROUND = {
   hexAlpha: 0.08,
   /** Hex grid pulse speed */
   hexPulseSpeed: 0.3,
+} as const;
+
+// ─── Kanban zone layout ─────────────────────────────────────────────────────
+
+export const KANBAN_ZONE = {
+  /** Column width: pill (120) + gap (20) */
+  columnWidth: 140,
+  /** Row height: pill (36) + gap (10) */
+  rowHeight: 46,
+  /** Zone starts this far below member node center */
+  offsetY: 60,
+  /** Column order: todo → wip → review → done */
+  columns: ['todo', 'wip', 'review', 'done'] as const,
+  /** Max tasks shown per column (overflow hidden) */
+  maxVisibleRows: 6,
 } as const;
