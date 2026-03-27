@@ -1347,17 +1347,6 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
                     </Tooltip>
                   </span>
                 )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setGraphOpen(true)}
-                      className="flex items-center gap-0.5 rounded border border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
-                    >
-                      <Network size={10} className="shrink-0" /> Graph
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Agent graph visualization (Cmd+Shift+G)</TooltipContent>
-                </Tooltip>
                 {leadBranch && (
                   <span
                     className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)]"
@@ -1436,18 +1425,32 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
             badge={activeTeammateCount === 0 ? 'Solo' : activeTeammateCount}
             defaultOpen
             action={
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setAddMemberDialogOpen(true);
-                }}
-              >
-                <UserPlus size={12} />
-                Member
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGraphOpen(true);
+                  }}
+                >
+                  <Network size={12} />
+                  Graph
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAddMemberDialogOpen(true);
+                  }}
+                >
+                  <UserPlus size={12} />
+                  Member
+                </Button>
+              </div>
             }
           >
             <MemberList
