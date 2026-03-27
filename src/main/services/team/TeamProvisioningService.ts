@@ -1749,6 +1749,17 @@ export class TeamProvisioningService {
     const blocks = parseAllTeammateMessages(rawText);
     if (blocks.length === 0) return;
 
+    // Intercept teammate permission_request messages delivered natively via stdout.
+    // This runs even during provisioning (unlike relayLeadInboxMessages which waits
+    // for provisioningComplete). The lead already received the message — we can't
+    // prevent that — but we create a ToolApprovalRequest so the user sees the dialog.
+    for (const block of blocks) {
+      const perm = parsePermissionRequest(block.content);
+      if (perm) {
+        this.handleTeammatePermissionRequest(run, perm, new Date().toISOString());
+      }
+    }
+
     const crossTeamBlocks = blocks.flatMap((block) => {
       const origin = parseCrossTeamPrefix(block.content);
       const sourceTeam = origin?.from.includes('.') ? origin.from.split('.', 1)[0] : null;
