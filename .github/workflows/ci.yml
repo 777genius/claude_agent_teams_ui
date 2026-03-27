@@ -64,7 +64,7 @@ jobs:
       - name: Validate workspace truth gate
         run: |
           pnpm check:workspace
-          pnpm lint --no-cache
+          npx eslint src/ --no-cache
           pnpm lint:mcp
 
   test:
