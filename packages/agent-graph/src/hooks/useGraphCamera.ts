@@ -75,9 +75,12 @@ export function useGraphCamera(): UseGraphCameraResult {
     t.zoom = newZoom;
   }, []);
 
+  const lastPanPos = useRef({ x: 0, y: 0 });
+
   const handlePanStart = useCallback((sx: number, sy: number) => {
     const t = transformRef.current;
     panStartRef.current = { x: sx, y: sy, camX: t.x, camY: t.y };
+    lastPanPos.current = { x: sx, y: sy };
     velocityRef.current = { vx: 0, vy: 0 };
   }, []);
 
@@ -89,7 +92,11 @@ export function useGraphCamera(): UseGraphCameraResult {
     const dy = sy - start.y;
     t.x = start.camX + dx;
     t.y = start.camY + dy;
-    velocityRef.current = { vx: dx * CAMERA.velocityScale, vy: dy * CAMERA.velocityScale };
+    // Per-frame delta for inertia (not total drag distance)
+    const frameDx = sx - lastPanPos.current.x;
+    const frameDy = sy - lastPanPos.current.y;
+    lastPanPos.current = { x: sx, y: sy };
+    velocityRef.current = { vx: frameDx * CAMERA.velocityScale, vy: frameDy * CAMERA.velocityScale };
   }, []);
 
   const handlePanEnd = useCallback(() => {

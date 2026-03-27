@@ -105,8 +105,8 @@ export function useGraphSimulation(): UseGraphSimulationResult {
 
   // Sync graph data to d3-force — ONLY when node set actually changes
   const syncSimulation = useCallback((nodes: GraphNode[], edges: GraphEdge[]) => {
-    // Build hash of node IDs + kinds to detect actual changes
-    const hash = nodes.map((n) => n.id).sort().join(',');
+    // Hash includes IDs + mutable fields (status, owner, review) to detect real changes
+    const hash = nodes.map((n) => `${n.id}:${n.state}:${n.ownerId ?? ''}:${n.taskStatus ?? ''}:${n.reviewState ?? ''}`).sort().join(',');
     if (hash === lastNodeIdsHash.current) return; // same nodes — skip re-simulation
     lastNodeIdsHash.current = hash;
 

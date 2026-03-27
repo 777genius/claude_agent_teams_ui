@@ -139,7 +139,7 @@ function drawTaskPill(
   ctx.fill();
 
   // Display ID
-  const displayId = node.displayId ?? node.id.slice(0, 6);
+  const displayId = node.displayId ?? node.label;
   ctx.font = `bold ${TASK_PILL.idFontSize}px monospace`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';

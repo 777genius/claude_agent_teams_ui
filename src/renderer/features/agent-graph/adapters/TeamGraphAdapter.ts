@@ -58,6 +58,12 @@ export class TeamGraphAdapter {
       return this.#cachedResult;
     }
 
+    // Reset particle tracking when team changes
+    if (teamName !== this.#lastTeamName) {
+      this.#seenMessageIds.clear();
+      this.#initialMessagesSeen = false;
+    }
+
     this.#lastTeamName = teamName;
     this.#lastDataHash = hash;
     this.#seenRelated.clear();
@@ -181,9 +187,13 @@ export class TeamGraphAdapter {
         });
       }
 
+      const seenBlockEdges = new Set<string>();
       for (const blockedById of task.blockedBy ?? []) {
+        const edgeId = `edge:block:task:${teamName}:${blockedById}:${taskId}`;
+        if (seenBlockEdges.has(edgeId)) continue;
+        seenBlockEdges.add(edgeId);
         edges.push({
-          id: `edge:block:task:${teamName}:${blockedById}:${taskId}`,
+          id: edgeId,
           source: `task:${teamName}:${blockedById}`,
           target: taskId,
           type: 'blocking',
@@ -192,14 +202,14 @@ export class TeamGraphAdapter {
 
       for (const blocksId of task.blocks ?? []) {
         const edgeId = `edge:block:${taskId}:task:${teamName}:${blocksId}`;
-        if (!edges.some((e) => e.id === edgeId)) {
-          edges.push({
-            id: edgeId,
-            source: taskId,
-            target: `task:${teamName}:${blocksId}`,
-            type: 'blocking',
-          });
-        }
+        if (seenBlockEdges.has(edgeId)) continue;
+        seenBlockEdges.add(edgeId);
+        edges.push({
+          id: edgeId,
+          source: taskId,
+          target: `task:${teamName}:${blocksId}`,
+          type: 'blocking',
+        });
       }
 
       for (const relatedId of task.related ?? []) {
