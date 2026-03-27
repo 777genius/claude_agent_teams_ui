@@ -2,11 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'src/**'
       - 'agent-teams-controller/**'
       - 'mcp-server/**'
+      - 'packages/**'
       - 'test/**'
       - '.github/workflows/**'
       - 'pnpm-workspace.yaml'
@@ -18,11 +19,11 @@ on:
       - 'tailwind.config.*'
       - 'eslint.config.*'
   pull_request:
-    branches: [main]
     paths:
       - 'src/**'
       - 'agent-teams-controller/**'
       - 'mcp-server/**'
+      - 'packages/**'
       - 'test/**'
       - '.github/workflows/**'
       - 'pnpm-workspace.yaml'
