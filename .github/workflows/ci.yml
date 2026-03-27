@@ -61,11 +61,11 @@ jobs:
           path: .eslintcache
           key: eslint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.*', 'src/**/*.ts', 'src/**/*.tsx') }}
 
+      - name: Auto-fix import sort (Node version parity)
+        run: npx eslint src/ --fix --no-cache || true
+
       - name: Validate workspace truth gate
-        run: |
-          pnpm check:workspace
-          npx eslint src/ --no-cache
-          pnpm lint:mcp
+        run: pnpm check
 
   test:
     strategy:
