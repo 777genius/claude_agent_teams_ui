@@ -62,7 +62,10 @@ jobs:
           key: eslint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.*', 'src/**/*.ts', 'src/**/*.tsx') }}
 
       - name: Validate workspace truth gate
-        run: pnpm check
+        run: |
+          pnpm check:workspace
+          pnpm lint --no-cache
+          pnpm lint:mcp
 
   test:
     strategy:
