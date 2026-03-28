@@ -31,6 +31,7 @@ export interface GraphViewProps {
   className?: string;
   onRequestClose?: () => void;
   onRequestPinAsTab?: () => void;
+  onRequestFullscreen?: () => void;
 }
 
 export function GraphView({
@@ -40,6 +41,7 @@ export function GraphView({
   className,
   onRequestClose,
   onRequestPinAsTab,
+  onRequestFullscreen,
 }: GraphViewProps): React.JSX.Element {
   // ─── React state (user-facing only) ─────────────────────────────────────
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -327,6 +329,7 @@ export function GraphView({
         }}
         onRequestClose={onRequestClose}
         onRequestPinAsTab={onRequestPinAsTab}
+        onRequestFullscreen={onRequestFullscreen}
         teamName={data.teamName}
         teamColor={data.teamColor}
         isAlive={data.isAlive}

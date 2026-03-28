@@ -6,6 +6,7 @@
 import { useCallback } from 'react';
 import {
   Columns3,
+  Expand,
   Eye,
   EyeOff,
   Maximize2,
@@ -33,6 +34,7 @@ export interface GraphControlsProps {
   onZoomToFit: () => void;
   onRequestClose?: () => void;
   onRequestPinAsTab?: () => void;
+  onRequestFullscreen?: () => void;
   teamName: string;
   teamColor?: string;
   isAlive?: boolean;
@@ -46,6 +48,7 @@ export function GraphControls({
   onZoomToFit,
   onRequestClose,
   onRequestPinAsTab,
+  onRequestFullscreen,
   teamName,
   teamColor,
   isAlive,
@@ -130,6 +133,16 @@ export function GraphControls({
               onClick={onRequestPinAsTab}
               icon={<Pin size={13} />}
               label="Pin"
+            />
+          </>
+        )}
+        {onRequestFullscreen && (
+          <>
+            <Separator />
+            <ToolbarButton
+              onClick={onRequestFullscreen}
+              icon={<Expand size={13} />}
+              label="Fullscreen"
             />
           </>
         )}

@@ -214,17 +214,45 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
     }
   }, [editorOpen, graphOpen]);
 
-  // Listen for Cmd+Shift+G keyboard shortcut
+  // Listen for Cmd+Shift+G keyboard shortcut — opens graph tab
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail?.teamName === teamName) {
-        setGraphOpen((prev) => !prev);
+        useStore.getState().openTab({
+          type: 'graph',
+          label: `${teamName} Graph`,
+          teamName,
+        });
       }
     };
     window.addEventListener('toggle-team-graph', handler);
     return () => window.removeEventListener('toggle-team-graph', handler);
   }, [teamName]);
+
+  // Listen for graph tab actions (open task, send message)
+  useEffect(() => {
+    const onOpenTask = (e: Event) => {
+      const { teamName: tn, taskId } = (e as CustomEvent).detail ?? {};
+      if (tn !== teamName || !data) return;
+      const task = data.tasks.find((t: { id: string }) => t.id === taskId);
+      if (task) setSelectedTask(task);
+    };
+    const onSendMsg = (e: Event) => {
+      const { teamName: tn, memberName } = (e as CustomEvent).detail ?? {};
+      if (tn !== teamName) return;
+      setSendDialogRecipient(memberName);
+      setSendDialogDefaultText(undefined);
+      setSendDialogDefaultChip(undefined);
+      setSendDialogOpen(true);
+    };
+    window.addEventListener('graph:open-task', onOpenTask);
+    window.addEventListener('graph:send-message', onSendMsg);
+    return () => {
+      window.removeEventListener('graph:open-task', onOpenTask);
+      window.removeEventListener('graph:send-message', onSendMsg);
+    };
+  });
 
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -1432,7 +1460,11 @@ export const TeamDetailView = ({ teamName }: TeamDetailViewProps): React.JSX.Ele
                   className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setGraphOpen(true);
+                    useStore.getState().openTab({
+                      type: 'graph',
+                      label: `${data.config.name} Graph`,
+                      teamName,
+                    });
                   }}
                 >
                   <Network size={12} />
