@@ -3,10 +3,11 @@ import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
 import * as readline from 'readline';
 
-import { countLineChanges } from './UnifiedLineCounter';
 import { normalizeTaskChangePresenceFilePath } from './taskChangePresenceUtils';
+import { countLineChanges } from './UnifiedLineCounter';
 
 import type { TaskBoundaryParser } from './TaskBoundaryParser';
+import type { ResolvedTaskChangeComputeInput } from './taskChangeWorkerTypes';
 import type { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
 import type {
   AgentChangeSet,
@@ -17,7 +18,6 @@ import type {
   TaskChangeScope,
   TaskChangeSetV2,
 } from '@shared/types';
-import type { ResolvedTaskChangeComputeInput } from './taskChangeWorkerTypes';
 
 const logger = createLogger('Service:TaskChangeComputer');
 

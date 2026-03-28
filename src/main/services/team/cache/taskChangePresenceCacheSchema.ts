@@ -1,8 +1,8 @@
 import {
-  TASK_CHANGE_PRESENCE_CACHE_SCHEMA_VERSION,
   type PersistedTaskChangePresence,
   type PersistedTaskChangePresenceEntry,
   type PersistedTaskChangePresenceIndex,
+  TASK_CHANGE_PRESENCE_CACHE_SCHEMA_VERSION,
 } from './taskChangePresenceCacheTypes';
 
 function isIsoString(value: unknown): value is string {

@@ -10,8 +10,8 @@ import {
 } from './taskChangePresenceCacheSchema';
 import { TASK_CHANGE_PRESENCE_CACHE_SCHEMA_VERSION } from './taskChangePresenceCacheTypes';
 
-import type { TaskChangePresenceRepository } from './TaskChangePresenceRepository';
 import type { PersistedTaskChangePresenceIndex } from './taskChangePresenceCacheTypes';
+import type { TaskChangePresenceRepository } from './TaskChangePresenceRepository';
 
 const logger = createLogger('Service:JsonTaskChangePresenceRepository');
 

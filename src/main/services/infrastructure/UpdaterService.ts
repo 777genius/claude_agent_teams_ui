@@ -17,9 +17,10 @@ import electronUpdater from 'electron-updater';
 
 const { autoUpdater } = electronUpdater;
 
+import { net } from 'electron';
+
 import type { UpdaterStatus } from '@shared/types';
 import type { BrowserWindow } from 'electron';
-import { net } from 'electron';
 
 const logger = createLogger('UpdaterService');
 

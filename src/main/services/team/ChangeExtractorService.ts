@@ -9,25 +9,26 @@ import { createHash } from 'crypto';
 import { readFile, stat } from 'fs/promises';
 import * as path from 'path';
 
-import { TaskChangeComputer } from './TaskChangeComputer';
-import { TaskChangeWorkerClient, getTaskChangeWorkerClient } from './TaskChangeWorkerClient';
 import { JsonTaskChangeSummaryCacheRepository } from './cache/JsonTaskChangeSummaryCacheRepository';
-import { TeamConfigReader } from './TeamConfigReader';
+import { TaskChangeComputer } from './TaskChangeComputer';
 import {
   buildTaskChangePresenceDescriptor,
   computeTaskChangePresenceProjectFingerprint,
   normalizeTaskChangePresenceFilePath,
 } from './taskChangePresenceUtils';
+import { getTaskChangeWorkerClient } from './TaskChangeWorkerClient';
 import {
   type ResolvedTaskChangeComputeInput,
   type TaskChangeEffectiveOptions,
   type TaskChangeTaskMeta,
 } from './taskChangeWorkerTypes';
+import { TeamConfigReader } from './TeamConfigReader';
 
-import type { TaskBoundaryParser } from './TaskBoundaryParser';
 import type { TaskChangePresenceRepository } from './cache/TaskChangePresenceRepository';
-import type { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
+import type { TaskBoundaryParser } from './TaskBoundaryParser';
+import type { TaskChangeWorkerClient } from './TaskChangeWorkerClient';
 import type { TeamLogSourceTracker } from './TeamLogSourceTracker';
+import type { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
 import type { AgentChangeSet, ChangeStats, TaskChangeSetV2 } from '@shared/types';
 
 const logger = createLogger('Service:ChangeExtractorService');

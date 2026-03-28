@@ -18,7 +18,7 @@ function postMessage(message: TaskChangeWorkerResponse): void {
 }
 
 parentPort?.on('message', async (message: TaskChangeWorkerRequest) => {
-  if (!message || message.op !== 'computeTaskChanges') {
+  if (message?.op !== 'computeTaskChanges') {
     postMessage({
       id: message?.id ?? 'unknown',
       ok: false,

@@ -90,8 +90,8 @@ import type {
   FileChangeSummary,
   KanbanTaskState,
   ResolvedTeamMember,
-  TaskChangeSetV2,
   TaskAttachmentMeta,
+  TaskChangeSetV2,
   TeamTaskWithKanban,
 } from '@shared/types';
 

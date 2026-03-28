@@ -216,7 +216,7 @@ export class TeamLogSourceTracker {
 
     const scheduleRecompute = (): void => {
       const current = this.stateByTeam.get(teamName);
-      if (!current || !current.desiredTracking) {
+      if (!current?.desiredTracking) {
         return;
       }
       if (current.refreshTimer) {

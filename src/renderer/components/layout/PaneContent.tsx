@@ -4,6 +4,7 @@
  */
 
 import { TabUIProvider } from '@renderer/contexts/TabUIContext';
+import { TeamGraphTab } from '@renderer/features/agent-graph/ui/TeamGraphTab';
 
 import { DashboardView } from '../dashboard/DashboardView';
 import { ExtensionStoreView } from '../extensions/ExtensionStoreView';
@@ -65,6 +66,11 @@ export const PaneContent = ({ pane }: PaneContentProps): React.JSX.Element => {
               </TabUIProvider>
             )}
             {tab.type === 'schedules' && <SchedulesView />}
+            {tab.type === 'graph' && (
+              <TabUIProvider tabId={tab.id}>
+                <TeamGraphTab teamName={tab.teamName ?? ''} />
+              </TabUIProvider>
+            )}
           </div>
         );
       })}

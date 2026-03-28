@@ -9,13 +9,12 @@ import crypto from 'node:crypto';
 
 import { buildEnrichedEnv } from '@main/utils/cliEnv';
 import { getHomeDir } from '@main/utils/pathDecoder';
+import { safeSendToRenderer } from '@main/utils/safeWebContentsSend';
 // eslint-disable-next-line boundaries/element-types -- IPC channel constants shared between main and preload
 import { TERMINAL_DATA, TERMINAL_EXIT } from '@preload/constants/ipcChannels';
 import { createLogger } from '@shared/utils/logger';
 
 import type { PtySpawnOptions } from '@shared/types/terminal';
-import { safeSendToRenderer } from '@main/utils/safeWebContentsSend';
-
 import type { BrowserWindow } from 'electron';
 
 const logger = createLogger('PtyTerminalService');

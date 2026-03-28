@@ -180,8 +180,7 @@ export function initializeNotificationListeners(): () => void {
     const selectedTeamData = state.selectedTeamData;
     if (
       !selectedTeamName ||
-      !selectedTeamData ||
-      selectedTeamData.teamName !== selectedTeamName ||
+      selectedTeamData?.teamName !== selectedTeamName ||
       !isTeamVisibleInAnyPane(selectedTeamName)
     ) {
       return;
@@ -210,15 +209,14 @@ export function initializeNotificationListeners(): () => void {
       const current = useStore.getState();
       if (
         current.selectedTeamName !== selectedTeamName ||
-        !current.selectedTeamData ||
-        current.selectedTeamData.teamName !== selectedTeamName ||
+        current.selectedTeamData?.teamName !== selectedTeamName ||
         !isTeamVisibleInAnyPane(selectedTeamName)
       ) {
         return;
       }
 
       const currentTask = current.selectedTeamData.tasks.find((task) => task.id === nextTask.id);
-      if (!currentTask || currentTask.status !== 'in_progress') {
+      if (currentTask?.status !== 'in_progress') {
         return;
       }
 
@@ -342,8 +340,7 @@ export function initializeNotificationListeners(): () => void {
     const { selectedTeamName, selectedTeamData } = useStore.getState();
     if (
       !selectedTeamName ||
-      !selectedTeamData ||
-      selectedTeamData.teamName !== selectedTeamName ||
+      selectedTeamData?.teamName !== selectedTeamName ||
       !isTeamVisibleInAnyPane(selectedTeamName)
     ) {
       return new Set<string>();

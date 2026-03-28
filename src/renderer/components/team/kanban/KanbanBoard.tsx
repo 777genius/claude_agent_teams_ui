@@ -317,8 +317,7 @@ export const KanbanBoard = ({
     );
     const previous = stableTaskMapRef.current;
     if (
-      previous &&
-      previous.signatures.length === signatures.length &&
+      previous?.signatures.length === signatures.length &&
       previous.signatures.every((signature, index) => signature === signatures[index])
     ) {
       return previous.map;
