@@ -90,10 +90,12 @@ export function drawAgents(
     const labelText = node.role ? `${node.label} · ${node.role}` : node.label;
     drawLabel(ctx, x, y, r, labelText, color);
 
-    // Context ring for lead
-    if (node.kind === 'lead' && node.contextUsage != null) {
-      drawContextRing(ctx, x, y, r, node.contextUsage, time);
-    }
+    // TODO: Context ring disabled — LeadContextUsage.percent is unreliable
+    // (jumps due to cache_read variance, contextWindow mismatch with actual model).
+    // Re-enable when we have stable context window data from modelUsage.
+    // if (node.kind === 'lead' && node.contextUsage != null) {
+    //   drawContextRing(ctx, x, y, r, node.contextUsage, time);
+    // }
 
     // Selection ring
     if (isSelected) {
