@@ -30,6 +30,7 @@ import * as path from 'path';
 import { gitIdentityResolver } from '../parsing/GitIdentityResolver';
 
 import { atomicWriteAsync } from './atomicWrite';
+import { extractLeadSessionMessagesFromJsonl } from './leadSessionMessageExtractor';
 import { buildTaskChangePresenceDescriptor } from './taskChangePresenceUtils';
 import { TeamConfigReader } from './TeamConfigReader';
 import { TeamInboxReader } from './TeamInboxReader';
@@ -42,7 +43,6 @@ import { TeamSentMessagesStore } from './TeamSentMessagesStore';
 import { TeamTaskCommentNotificationJournal } from './TeamTaskCommentNotificationJournal';
 import { TeamTaskReader } from './TeamTaskReader';
 import { TeamTaskWriter } from './TeamTaskWriter';
-import { extractLeadSessionMessagesFromJsonl } from './leadSessionMessageExtractor';
 
 import type { PersistedTaskChangePresenceIndex } from './cache/taskChangePresenceCacheTypes';
 import type { TaskChangePresenceRepository } from './cache/TaskChangePresenceRepository';
@@ -1806,6 +1806,7 @@ export class TeamDataService {
             text: notification.text,
             summary: notification.summary,
             source: TASK_COMMENT_NOTIFICATION_SOURCE,
+            messageKind: 'task_comment_notification',
             leadSessionId: notification.leadSessionId,
             taskRefs: [notification.taskRef],
             messageId: notification.messageId,

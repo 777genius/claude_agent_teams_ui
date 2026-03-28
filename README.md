@@ -307,6 +307,7 @@ pnpm dist            # macOS + Windows + Linux
 - [ ] `createTasksBatch` — IPC/service API to create many team tasks in one call (playbooks, markdown checklist import, scripts); complements single `createTask`
 - [ ] Command palette — extend Cmd/Ctrl+K beyond project/session search to runnable actions (quick commands, navigation shortcuts, team/task operations) in a keyboard-first flow
 - [ ] Custom kanban columns
+- [ ] Run terminal commands
 
 ---
 

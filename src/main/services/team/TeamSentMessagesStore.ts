@@ -99,7 +99,9 @@ export class TeamSentMessagesStore {
               }))
           : undefined,
         messageKind:
-          row.messageKind === 'slash_command' || row.messageKind === 'slash_command_result'
+          row.messageKind === 'slash_command' ||
+          row.messageKind === 'slash_command_result' ||
+          row.messageKind === 'task_comment_notification'
             ? row.messageKind
             : row.messageKind === 'default'
               ? 'default'
@@ -111,7 +113,7 @@ export class TeamSentMessagesStore {
           typeof row.slashCommand.command === 'string'
             ? {
                 name: row.slashCommand.name,
-                command: row.slashCommand.command as `/${string}`,
+                command: row.slashCommand.command,
                 args: typeof row.slashCommand.args === 'string' ? row.slashCommand.args : undefined,
                 knownDescription:
                   typeof row.slashCommand.knownDescription === 'string'

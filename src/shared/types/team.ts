@@ -166,7 +166,11 @@ export interface SourceMessageSnapshot {
   }[];
 }
 
-export type InboxMessageKind = 'default' | 'slash_command' | 'slash_command_result';
+export type InboxMessageKind =
+  | 'default'
+  | 'slash_command'
+  | 'slash_command_result'
+  | 'task_comment_notification';
 
 export interface SlashCommandMeta {
   name: string;

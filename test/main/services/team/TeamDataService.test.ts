@@ -789,6 +789,7 @@ describe('TeamDataService', () => {
           from: 'alice',
           summary: 'Comment on #abcd1234',
           source: 'system_notification',
+          messageKind: 'task_comment_notification',
           leadSessionId: 'lead-1',
           taskRefs: [{ taskId: 'task-1', displayId: 'abcd1234', teamName: 'my-team' }],
           messageId: 'task-comment-forward:my-team:task-1:comment-1',
@@ -1446,6 +1447,7 @@ describe('TeamDataService', () => {
         expect.objectContaining({
           from: 'bob',
           summary: 'Comment on #abcd1234',
+          messageKind: 'task_comment_notification',
           messageId: 'task-comment-forward:my-team:task-1:comment-2',
         })
       );
