@@ -1848,6 +1848,11 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
         },
       },
     }));
+    // When launching WITHOUT auto-approve, reset the global autoAllowAll flag
+    // so the user sees the ToolApprovalSheet for this team's tool requests.
+    if (request.skipPermissions === false && get().toolApprovalSettings.autoAllowAll) {
+      await get().updateToolApprovalSettings({ autoAllowAll: false });
+    }
     try {
       if (typeof api.teams.createTeam !== 'function') {
         throw new Error(
@@ -2020,6 +2025,10 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
         [request.teamName]: pendingRunId,
       },
     }));
+    // When launching WITHOUT auto-approve, reset the global autoAllowAll flag
+    if (request.skipPermissions === false && get().toolApprovalSettings.autoAllowAll) {
+      await get().updateToolApprovalSettings({ autoAllowAll: false });
+    }
     try {
       const response = await unwrapIpc('team:launch', () => api.teams.launchTeam(request));
 
