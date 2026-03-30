@@ -55,7 +55,7 @@ export const TeamGraphOverlay = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex overflow-hidden pt-8" style={{ background: '#050510' }}>
+    <div className="fixed inset-0 z-50 flex overflow-hidden" style={{ background: '#050510' }}>
       <TeamSidebarHost teamName={teamName} surface="graph-overlay" isActive isFocused />
       <GraphView
         data={graphData}
