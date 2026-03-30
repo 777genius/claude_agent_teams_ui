@@ -6370,10 +6370,30 @@ export class TeamProvisioningService {
     for (const suggestion of suggestions) {
       if (suggestion.type !== 'addRules' || !Array.isArray(suggestion.rules)) continue;
 
-      const toolNames = suggestion.rules
+      let toolNames = suggestion.rules
         .map((r) => r.toolName)
         .filter((name): name is string => typeof name === 'string' && name.length > 0);
       if (toolNames.length === 0) continue;
+
+      // When approving ANY mcp__agent-teams__ tool, proactively add ALL agent-teams tools.
+      // FACT: Teammates need multiple MCP tools (member_briefing, task_get, task_start, etc.)
+      // FACT: Each tool generates a separate permission_request, but by the time we process it
+      // the teammate is already stuck waiting. Pre-adding all tools prevents future blocks.
+      if (toolNames.some((name) => name.startsWith('mcp__agent-teams__'))) {
+        const agentTeamsTools = [
+          'mcp__agent-teams__member_briefing',
+          'mcp__agent-teams__task_briefing',
+          'mcp__agent-teams__task_create',
+          'mcp__agent-teams__task_get',
+          'mcp__agent-teams__task_list',
+          'mcp__agent-teams__task_start',
+          'mcp__agent-teams__task_complete',
+          'mcp__agent-teams__task_set_status',
+          'mcp__agent-teams__task_add_comment',
+        ];
+        const merged = new Set([...toolNames, ...agentTeamsTools]);
+        toolNames = Array.from(merged);
+      }
 
       const behavior = suggestion.behavior ?? 'allow';
       // FACT: observed destinations are "localSettings" (project-level .claude/settings.local.json)

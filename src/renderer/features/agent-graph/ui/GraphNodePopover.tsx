@@ -223,22 +223,27 @@ function MemberPopoverContent({
             Recent tools
           </div>
           <div className="space-y-1">
-            {node.recentTools.slice(0, 3).map((tool) => (
-              <div
-                key={`${tool.name}:${tool.finishedAt}:${tool.startedAt}`}
-                className="rounded border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-[10px]"
-              >
+            {node.recentTools.slice(0, 3).map((tool) => {
+              const shortName = formatToolName(tool.name);
+              const shortPreview = formatToolPreview(tool.preview);
+              return (
                 <div
-                  className="font-mono"
-                  style={{ color: tool.state === 'error' ? '#ef4444' : '#22c55e' }}
+                  key={`${tool.name}:${tool.finishedAt}:${tool.startedAt}`}
+                  className="flex items-center gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2 py-1 text-[10px]"
                 >
-                  {tool.preview ? `${tool.name}: ${tool.preview}` : tool.name}
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ background: tool.state === 'error' ? '#ef4444' : '#22c55e' }}
+                  />
+                  <span className="font-mono font-medium text-[var(--color-text)]">
+                    {shortName}
+                  </span>
+                  {shortPreview && (
+                    <span className="truncate text-[var(--color-text-muted)]">{shortPreview}</span>
+                  )}
                 </div>
-                {tool.resultPreview && (
-                  <div className="mt-0.5 text-[var(--color-text-muted)]">{tool.resultPreview}</div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
