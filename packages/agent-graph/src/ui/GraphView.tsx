@@ -248,8 +248,9 @@ export function GraphView({
     // Check if we hit a node
     interaction.handleMouseDown(world.x, world.y, simulation.stateRef.current.nodes);
 
-    if (interaction.dragNodeId.current) {
-      // Hit a node → will drag it
+    // Hit a node (draggable or clickable) → don't pan
+    const hitNode = findNodeAt(world.x, world.y, simulation.stateRef.current.nodes);
+    if (hitNode) {
       markUserInteracted();
       isPanningRef.current = false;
     } else {

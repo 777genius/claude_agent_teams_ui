@@ -42,10 +42,8 @@ export function drawTasks(
 
 // ─── Private ────────────────────────────────────────────────────────────────
 
-function getTaskOpacity(node: GraphNode): number {
-  if (node.taskStatus === 'deleted') return 0;
-  if (node.reviewState === 'approved') return 0.65;
-  if (node.taskStatus === 'completed') return 0.45;
+function getTaskOpacity(_node: GraphNode): number {
+  if (_node.taskStatus === 'deleted') return 0;
   return 1;
 }
 
@@ -142,27 +140,16 @@ function drawTaskPill(
     ctx.stroke();
   }
 
-  // Status dot
-  ctx.fillStyle = statusColor;
-  ctx.beginPath();
-  ctx.arc(
-    -halfW + TASK_PILL.statusDotX,
-    0,
-    TASK_PILL.statusDotRadius,
-    0,
-    Math.PI * 2,
-  );
-  ctx.fill();
-
   // Subject (main title — large)
   if (node.sublabel) {
     ctx.font = `bold ${TASK_PILL.idFontSize}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = isFinished ? COLORS.textDim : COLORS.textPrimary;
-    const maxW = w - TASK_PILL.textOffsetX - 8;
+    ctx.fillStyle = COLORS.textPrimary;
+    const textX = -halfW + 10;
+    const maxW = w - 18;
     const subject = truncateText(ctx, node.sublabel, maxW, ctx.font);
-    ctx.fillText(subject, -halfW + TASK_PILL.textOffsetX, -4);
+    ctx.fillText(subject, textX, -4);
   }
 
   // Display ID (secondary — small)
@@ -170,8 +157,8 @@ function drawTaskPill(
   ctx.font = `${TASK_PILL.subjectFontSize}px monospace`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = isFinished ? COLORS.textMuted : COLORS.textDim;
-  ctx.fillText(displayId, -halfW + TASK_PILL.textOffsetX, 8);
+  ctx.fillStyle = COLORS.textDim;
+  ctx.fillText(displayId, -halfW + 10, 8);
 
   // Approved badge: checkmark at right side
   if (node.reviewState === 'approved') {
@@ -182,14 +169,47 @@ function drawTaskPill(
     ctx.fillText('\u2713', halfW - 8, 0); // ✓
   }
 
-  // Completed: subtle strikethrough line
-  if (node.taskStatus === 'completed' && node.reviewState !== 'approved') {
+  // Comment count badge — on the bottom-right border edge, 1.5x bigger
+  if (node.totalCommentCount && node.totalCommentCount > 0) {
+    const badgeX = halfW - 6;
+    const badgeY = halfH;
+
+    // Speech bubble background
+    const bw = 20;
+    const bh = 15;
+    ctx.fillStyle = hexWithAlpha('#aaeeff', 0.85);
     ctx.beginPath();
-    ctx.moveTo(-halfW + TASK_PILL.textOffsetX, 0);
-    ctx.lineTo(halfW - 10, 0);
-    ctx.strokeStyle = COLORS.textMuted;
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
+    ctx.roundRect(badgeX - bw / 2, badgeY - bh / 2, bw, bh, 3);
+    ctx.fill();
+    // Tail pointing up-left
+    ctx.beginPath();
+    ctx.moveTo(badgeX - 5, badgeY + bh / 2);
+    ctx.lineTo(badgeX - 9, badgeY + bh / 2 + 5);
+    ctx.lineTo(badgeX - 1, badgeY + bh / 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Total count inside bubble
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#0a0f1e';
+    ctx.fillText(String(node.totalCommentCount), badgeX, badgeY + 0.5);
+
+    // Unread count badge (blue circle, top-right of bubble)
+    if (node.unreadCommentCount && node.unreadCommentCount > 0) {
+      const dotX = badgeX + bw / 2 + 1;
+      const dotY = badgeY - bh / 2 - 1;
+      ctx.fillStyle = '#3b82f6';
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = 'bold 8px monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(node.unreadCommentCount), dotX, dotY + 0.5);
+    }
   }
 
   ctx.restore();
@@ -203,21 +223,34 @@ export function drawColumnHeaders(
   zones: KanbanZoneInfo[],
 ): void {
   for (const zone of zones) {
+    // Section header for unassigned tasks — larger, centered above all columns
+    if (zone.ownerId === '__unassigned__') {
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = hexWithAlpha(COLORS.taskPending, 0.5);
+      const labelY = (zone.headers[0]?.y ?? zone.ownerY + 60) - 16;
+      ctx.fillText('Unassigned', zone.ownerX, labelY);
+
+      // Overflow badge
+      for (const header of zone.headers) {
+        if (header.overflowCount > 0) {
+          ctx.font = '7px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = hexWithAlpha(header.color, 0.45);
+          ctx.fillText(`+${header.overflowCount} more`, header.x, header.overflowY + 4);
+        }
+      }
+      continue;
+    }
+
     for (const header of zone.headers) {
       ctx.font = 'bold 8px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = hexWithAlpha(header.color, 0.6);
       ctx.fillText(header.label, header.x, header.y - 2);
-
-      // Subtle underline
-      const labelWidth = ctx.measureText(header.label).width;
-      ctx.beginPath();
-      ctx.moveTo(header.x - labelWidth / 2, header.y);
-      ctx.lineTo(header.x + labelWidth / 2, header.y);
-      ctx.strokeStyle = hexWithAlpha(header.color, 0.2);
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
 
       // Overflow badge: "+N more"
       if (header.overflowCount > 0) {

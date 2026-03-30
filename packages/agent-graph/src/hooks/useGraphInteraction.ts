@@ -33,7 +33,11 @@ export function useGraphInteraction(
     clickedNodeId.current = hit;
 
     if (hit) {
-      dragNodeId.current = hit;
+      // Only allow drag on member/lead nodes, not tasks or processes
+      const hitNode = nodes.find((n) => n.id === hit);
+      if (hitNode && (hitNode.kind === 'member' || hitNode.kind === 'lead')) {
+        dragNodeId.current = hit;
+      }
     }
   }, []);
 

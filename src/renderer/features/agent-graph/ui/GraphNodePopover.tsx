@@ -7,9 +7,11 @@
 import { Badge } from '@renderer/components/ui/badge';
 import { Button } from '@renderer/components/ui/button';
 import { agentAvatarUrl } from '@renderer/utils/memberHelpers';
-import { Ban, ExternalLink, Loader2, MessageSquare, Plus, User } from 'lucide-react';
+import { ExternalLink, Loader2, MessageSquare, Plus, User } from 'lucide-react';
 
 import type { GraphNode } from '@claude-teams/agent-graph';
+
+import { GraphTaskCard } from './GraphTaskCard';
 
 // ─── Tool name/preview formatters ───────────────────────────────────────────
 
@@ -44,20 +46,38 @@ function formatToolPreview(preview: string | undefined): string | undefined {
 
 interface GraphNodePopoverProps {
   node: GraphNode;
+  teamName: string;
   onClose: () => void;
   onSendMessage?: (memberName: string) => void;
   onOpenTaskDetail?: (taskId: string) => void;
   onOpenMemberProfile?: (memberName: string) => void;
   onCreateTask?: (owner: string) => void;
+  onStartTask?: (taskId: string) => void;
+  onCompleteTask?: (taskId: string) => void;
+  onApproveTask?: (taskId: string) => void;
+  onRequestReview?: (taskId: string) => void;
+  onRequestChanges?: (taskId: string) => void;
+  onCancelTask?: (taskId: string) => void;
+  onMoveBackToDone?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => void;
 }
 
 export const GraphNodePopover = ({
   node,
+  teamName,
   onClose,
   onSendMessage,
   onOpenTaskDetail,
   onOpenMemberProfile,
   onCreateTask,
+  onStartTask,
+  onCompleteTask,
+  onApproveTask,
+  onRequestReview,
+  onRequestChanges,
+  onCancelTask,
+  onMoveBackToDone,
+  onDeleteTask,
 }: GraphNodePopoverProps): React.JSX.Element => {
   if (node.kind === 'member' || node.kind === 'lead') {
     return (
@@ -73,7 +93,22 @@ export const GraphNodePopover = ({
   }
 
   if (node.kind === 'task') {
-    return <TaskPopoverContent node={node} onClose={onClose} onOpenDetail={onOpenTaskDetail} />;
+    return (
+      <GraphTaskCard
+        node={node}
+        teamName={teamName}
+        onClose={onClose}
+        onOpenDetail={onOpenTaskDetail}
+        onStartTask={onStartTask}
+        onCompleteTask={onCompleteTask}
+        onApproveTask={onApproveTask}
+        onRequestReview={onRequestReview}
+        onRequestChanges={onRequestChanges}
+        onCancelTask={onCancelTask}
+        onMoveBackToDone={onMoveBackToDone}
+        onDeleteTask={onDeleteTask}
+      />
+    );
   }
 
   // Process
@@ -328,102 +363,6 @@ const MemberPopoverContent = ({
           }}
         >
           <Plus size={12} /> Task
-        </Button>
-      </div>
-    </div>
-  );
-};
-
-// ─── Task Popover ───────────────────────────────────────────────────────────
-
-const TaskPopoverContent = ({
-  node,
-  onClose,
-  onOpenDetail,
-}: {
-  node: GraphNode;
-  onClose: () => void;
-  onOpenDetail?: (taskId: string) => void;
-}): React.JSX.Element => {
-  const taskId = node.domainRef.kind === 'task' ? node.domainRef.taskId : '';
-
-  const statusColor =
-    node.taskStatus === 'in_progress'
-      ? 'text-blue-400 border-blue-500/30'
-      : node.taskStatus === 'completed'
-        ? 'text-emerald-400 border-emerald-500/30'
-        : 'text-zinc-400 border-zinc-500/30';
-
-  const reviewColor =
-    node.reviewState === 'review'
-      ? 'text-amber-400 border-amber-500/30'
-      : node.reviewState === 'needsFix'
-        ? 'text-red-400 border-red-500/30'
-        : node.reviewState === 'approved'
-          ? 'text-emerald-400 border-emerald-500/30'
-          : '';
-
-  return (
-    <div className="min-w-[200px] max-w-[280px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-3 shadow-xl">
-      <div className="font-mono text-sm font-bold text-[var(--color-text)]">
-        {node.displayId ?? node.label}
-      </div>
-      {node.sublabel && (
-        <div className="mt-0.5 truncate text-xs text-[var(--color-text-muted)]">
-          {node.sublabel}
-        </div>
-      )}
-
-      <div className="mt-2 flex flex-wrap gap-1">
-        <Badge variant="outline" className={`px-1.5 py-0 text-[10px] ${statusColor}`}>
-          {node.taskStatus ?? 'pending'}
-        </Badge>
-        {node.reviewState && node.reviewState !== 'none' && (
-          <Badge variant="outline" className={`px-1.5 py-0 text-[10px] ${reviewColor}`}>
-            {node.reviewState}
-          </Badge>
-        )}
-        {node.isBlocked && (
-          <Badge
-            variant="outline"
-            className="border-red-500/30 px-1.5 py-0 text-[10px] text-red-400"
-          >
-            <Ban size={10} className="mr-0.5" /> blocked
-          </Badge>
-        )}
-        {node.needsClarification && (
-          <Badge
-            variant="outline"
-            className="border-red-500/30 px-1.5 py-0 text-[10px] text-red-400"
-          >
-            needs clarification
-          </Badge>
-        )}
-      </div>
-
-      {/* Task dependencies */}
-      {node.blockedByDisplayIds && node.blockedByDisplayIds.length > 0 && (
-        <div className="mt-2 text-[10px] text-[var(--color-text-muted)]">
-          <span className="text-red-400">Blocked by:</span> {node.blockedByDisplayIds.join(', ')}
-        </div>
-      )}
-      {node.blocksDisplayIds && node.blocksDisplayIds.length > 0 && (
-        <div className="mt-1 text-[10px] text-[var(--color-text-muted)]">
-          <span className="text-amber-400">Blocks:</span> {node.blocksDisplayIds.join(', ')}
-        </div>
-      )}
-
-      <div className="mt-3">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 px-2 text-xs"
-          onClick={() => {
-            onOpenDetail?.(taskId);
-            onClose();
-          }}
-        >
-          <ExternalLink size={12} /> Open task
         </Button>
       </div>
     </div>

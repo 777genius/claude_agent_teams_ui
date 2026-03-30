@@ -393,6 +393,62 @@ describe('teamSlice actions', () => {
       expect(invalidateTaskChangePresence).toHaveBeenCalledTimes(1);
       expect(warmTaskChangeSummaries).not.toHaveBeenCalled();
     });
+
+    it('preserves known task changePresence across refresh when task change signature is unchanged', async () => {
+      const store = createSliceStore();
+      store.setState({
+        selectedTeamName: 'my-team',
+        selectedTeamData: {
+          teamName: 'my-team',
+          config: { name: 'My Team' },
+          tasks: [
+            {
+              id: 'task-1',
+              subject: 'Known changes',
+              status: 'in_progress',
+              owner: 'alice',
+              createdAt: '2026-03-01T10:00:00.000Z',
+              updatedAt: '2026-03-01T10:00:00.000Z',
+              workIntervals: [{ startedAt: '2026-03-01T10:05:00.000Z' }],
+              historyEvents: [],
+              comments: [],
+              attachments: [],
+              changePresence: 'has_changes',
+            },
+          ],
+          members: [],
+          messages: [],
+          kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        },
+      });
+
+      hoisted.getData.mockResolvedValue({
+        teamName: 'my-team',
+        config: { name: 'My Team' },
+        tasks: [
+          {
+            id: 'task-1',
+            subject: 'Known changes',
+            status: 'in_progress',
+            owner: 'alice',
+            createdAt: '2026-03-01T10:00:00.000Z',
+            updatedAt: '2026-03-01T10:00:00.000Z',
+            workIntervals: [{ startedAt: '2026-03-01T10:05:00.000Z' }],
+            historyEvents: [],
+            comments: [],
+            attachments: [],
+            changePresence: 'unknown',
+          },
+        ],
+        members: [],
+        messages: [{ from: 'team-lead', text: 'Ping', timestamp: '2026-03-01T10:10:00.000Z' }],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+      });
+
+      await store.getState().refreshTeamData('my-team');
+
+      expect(store.getState().selectedTeamData?.tasks[0]?.changePresence).toBe('has_changes');
+    });
   });
 
   describe('provisioning run scoping', () => {

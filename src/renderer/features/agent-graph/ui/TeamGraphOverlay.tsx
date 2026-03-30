@@ -3,7 +3,7 @@
  * Follows the exact ProjectEditorOverlay pattern (lazy-loaded, fixed z-50).
  */
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { GraphView } from '@claude-teams/agent-graph';
 import { TeamSidebarHost } from '@renderer/components/team/sidebar/TeamSidebarHost';
@@ -32,6 +32,26 @@ export const TeamGraphOverlay = ({
   onOpenMemberProfile,
 }: TeamGraphOverlayProps): React.JSX.Element => {
   const graphData = useTeamGraphAdapter(teamName);
+
+  // Task action dispatchers (same pattern as TeamGraphTab)
+  const dispatchTaskAction = useCallback(
+    (action: string) => (taskId: string) =>
+      window.dispatchEvent(new CustomEvent(`graph:${action}`, { detail: { teamName, taskId } })),
+    [teamName]
+  );
+  const taskActions = useMemo(
+    () => ({
+      onStartTask: dispatchTaskAction('start-task'),
+      onCompleteTask: dispatchTaskAction('complete-task'),
+      onApproveTask: dispatchTaskAction('approve-task'),
+      onRequestReview: dispatchTaskAction('request-review'),
+      onRequestChanges: dispatchTaskAction('request-changes'),
+      onCancelTask: dispatchTaskAction('cancel-task'),
+      onMoveBackToDone: dispatchTaskAction('move-back-to-done'),
+      onDeleteTask: dispatchTaskAction('delete-task'),
+    }),
+    [dispatchTaskAction]
+  );
 
   const events: GraphEventPort = {
     onNodeDoubleClick: useCallback(
@@ -67,6 +87,7 @@ export const TeamGraphOverlay = ({
         renderOverlay={({ node, onClose: closePopover }) => (
           <GraphNodePopover
             node={node}
+            teamName={teamName}
             onClose={closePopover}
             onSendMessage={(name) => {
               onSendMessage?.(name);
@@ -80,6 +101,7 @@ export const TeamGraphOverlay = ({
               onOpenMemberProfile?.(name);
               closePopover();
             }}
+            {...taskActions}
           />
         )}
       />

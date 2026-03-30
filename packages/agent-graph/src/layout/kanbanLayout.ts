@@ -88,7 +88,7 @@ export class KanbanLayoutEngine {
       if (zoneInfo) this.zones.push(zoneInfo);
     }
 
-    KanbanLayoutEngine.#layoutUnassigned(unassigned);
+    KanbanLayoutEngine.#layoutUnassigned(unassigned, nodes);
   }
 
   // ─── Private ──────────────────────────────────────────────────────────────
@@ -178,11 +178,55 @@ export class KanbanLayoutEngine {
     }
   }
 
-  static #layoutUnassigned(tasks: GraphNode[]): void {
+  static #layoutUnassigned(tasks: GraphNode[], allNodes: GraphNode[]): void {
+    if (tasks.length === 0) return;
+
     const { columnWidth, rowHeight } = KANBAN_ZONE;
+
+    // Find the lowest Y of ALL positioned nodes (members + their owned tasks)
+    let sumX = 0;
+    let maxY = -Infinity;
+    let memberCount = 0;
+    for (const n of allNodes) {
+      if (n.x == null || n.y == null) continue;
+      // Skip unassigned tasks themselves (they have no ownerId)
+      if (n.kind === 'task' && !n.ownerId) continue;
+      if (n.y > maxY) maxY = n.y;
+      if (n.kind !== 'task') {
+        sumX += n.x;
+        memberCount++;
+      }
+    }
+
+    const centerX = memberCount > 0 ? sumX / memberCount : 0;
+    // Place unassigned tasks well below the lowest element
+    const baseY = (maxY > -Infinity ? maxY : 0) + 150;
+    const cols = Math.min(tasks.length, 4);
+    const totalWidth = cols * columnWidth;
+    const baseX = centerX - totalWidth / 2;
+
+    // Add zone header for unassigned section
+    if (tasks.length > 0) {
+      this.zones.push({
+        ownerId: '__unassigned__',
+        ownerX: centerX,
+        ownerY: baseY - 70,
+        headers: [{
+          label: 'Unassigned',
+          x: centerX,
+          y: baseY - 10,
+          color: COLORS.taskPending,
+          overflowCount: Math.max(0, tasks.length - cols * KANBAN_ZONE.maxVisibleRows),
+          overflowY: baseY + KANBAN_ZONE.maxVisibleRows * rowHeight,
+        }],
+      });
+    }
+
     for (const [idx, task] of tasks.entries()) {
-      const targetX = -400 + (idx % 3) * columnWidth;
-      const targetY = 400 + Math.floor(idx / 3) * rowHeight;
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const targetX = baseX + col * columnWidth;
+      const targetY = baseY + row * rowHeight;
       task.x = task.x != null ? task.x + (targetX - task.x) * 0.15 : targetX;
       task.y = task.y != null ? task.y + (targetY - task.y) * 0.15 : targetY;
       task.fx = task.x;

@@ -96,6 +96,10 @@ export interface GraphNode {
   blockedByDisplayIds?: string[];
   /** Display IDs of tasks this one blocks */
   blocksDisplayIds?: string[];
+  /** Total comment count on this task */
+  totalCommentCount?: number;
+  /** Unread comment count on this task */
+  unreadCommentCount?: number;
 
   // ─── Process-specific ──────────────────────────────────────────────────
   /** Clickable URL for process */

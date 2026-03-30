@@ -7,6 +7,7 @@
  * Class-based with ES #private fields, caching, and DI-ready constructor.
  */
 
+import { getUnreadCount } from '@renderer/services/commentReadStorage';
 import { agentAvatarUrl } from '@renderer/utils/memberHelpers';
 import { getInboxJsonType, isInboxNoiseMessage } from '@shared/utils/inboxNoise';
 import { isLeadMember } from '@shared/utils/leadDetection';
@@ -60,7 +61,8 @@ export class TeamGraphAdapter {
     pendingApprovalAgents?: Set<string>,
     activeTools?: Record<string, Record<string, ActiveToolCall>>,
     finishedVisible?: Record<string, Record<string, ActiveToolCall>>,
-    toolHistory?: Record<string, ActiveToolCall[]>
+    toolHistory?: Record<string, ActiveToolCall[]>,
+    commentReadState?: Record<string, unknown>
   ): GraphDataPort {
     if (teamData?.teamName !== teamName) {
       return TeamGraphAdapter.#emptyResult(teamName);
@@ -144,7 +146,7 @@ export class TeamGraphAdapter {
           .sort()
           .join('|')
       : '';
-    const hash = `${teamData.teamName}:${teamData.config.name ?? ''}:${teamData.config.color ?? ''}:${teamData.members.length}:${teamData.tasks.length}:${teamData.messages.length}:${teamData.processes.length}:${teamData.isAlive}:${leadContext?.percent}:${totalComments}:${memberKey}:${taskKey}:${processKey}:${messageKey}:${commentKey}:${approvalKey}:${activeToolKey}:${finishedVisibleKey}:${historyKey}`;
+    const hash = `${teamData.teamName}:${teamData.config.name ?? ''}:${teamData.config.color ?? ''}:${teamData.members.length}:${teamData.tasks.length}:${teamData.messages.length}:${teamData.processes.length}:${teamData.isAlive}:${leadContext?.percent}:${totalComments}:${memberKey}:${taskKey}:${processKey}:${messageKey}:${commentKey}:${approvalKey}:${activeToolKey}:${finishedVisibleKey}:${historyKey}:${commentReadState ? Object.keys(commentReadState).length : 0}`;
     if (hash === this.#lastDataHash && teamName === this.#lastTeamName) {
       return this.#cachedResult;
     }
@@ -191,7 +193,7 @@ export class TeamGraphAdapter {
       finishedVisible,
       toolHistory
     );
-    this.#buildTaskNodes(nodes, edges, teamData, teamName);
+    this.#buildTaskNodes(nodes, edges, teamData, teamName, commentReadState);
     this.#buildProcessNodes(nodes, edges, teamData, teamName);
     this.#buildMessageParticles(particles, teamData.messages, teamName, leadId, leadName, edges);
     this.#buildCommentParticles(particles, teamData, teamName, leadId, leadName, edges);
@@ -369,7 +371,13 @@ export class TeamGraphAdapter {
     }
   }
 
-  #buildTaskNodes(nodes: GraphNode[], edges: GraphEdge[], data: TeamData, teamName: string): void {
+  #buildTaskNodes(
+    nodes: GraphNode[],
+    edges: GraphEdge[],
+    data: TeamData,
+    teamName: string,
+    commentReadState?: Record<string, unknown>
+  ): void {
     // Build lookup tables for fast resolution
     const completedTaskIds = new Set<string>();
     const taskDisplayIds = new Map<string, string>();
@@ -396,6 +404,17 @@ export class TeamGraphAdapter {
         ? task.blocks.map((id) => taskDisplayIds.get(id) ?? `#${id.slice(0, 6)}`)
         : undefined;
 
+      // Comment counts
+      const totalCommentCount = task.comments?.length ?? 0;
+      const unreadCommentCount = commentReadState
+        ? getUnreadCount(
+            commentReadState as Parameters<typeof getUnreadCount>[0],
+            teamName,
+            task.id,
+            task.comments ?? []
+          )
+        : 0;
+
       nodes.push({
         id: taskId,
         kind: 'task',
@@ -410,6 +429,8 @@ export class TeamGraphAdapter {
         isBlocked,
         blockedByDisplayIds,
         blocksDisplayIds,
+        totalCommentCount: totalCommentCount > 0 ? totalCommentCount : undefined,
+        unreadCommentCount: unreadCommentCount > 0 ? unreadCommentCount : undefined,
         domainRef: { kind: 'task', teamName, taskId: task.id },
       });
 

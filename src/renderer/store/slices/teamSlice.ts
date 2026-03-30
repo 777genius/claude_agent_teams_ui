@@ -484,6 +484,56 @@ function collectTaskChangeInvalidationState(
   };
 }
 
+function preserveKnownTaskChangePresence(
+  teamName: string,
+  prevTasks: TeamData['tasks'] | null | undefined,
+  nextTasks: TeamData['tasks']
+): TeamData['tasks'] {
+  if (!Array.isArray(prevTasks) || prevTasks.length === 0 || nextTasks.length === 0) {
+    return nextTasks;
+  }
+
+  const prevTaskById = new Map(prevTasks.map((task) => [task.id, task]));
+  let changed = false;
+
+  const mergedTasks = nextTasks.map((task) => {
+    if (task.changePresence && task.changePresence !== 'unknown') {
+      return task;
+    }
+
+    const previousTask = prevTaskById.get(task.id);
+    if (
+      !previousTask ||
+      !previousTask.changePresence ||
+      previousTask.changePresence === 'unknown'
+    ) {
+      return task;
+    }
+
+    const previousKey = buildTaskChangePresenceKey(
+      teamName,
+      previousTask.id,
+      buildTaskChangeRequestOptions(previousTask)
+    );
+    const nextKey = buildTaskChangePresenceKey(
+      teamName,
+      task.id,
+      buildTaskChangeRequestOptions(task)
+    );
+    if (previousKey !== nextKey) {
+      return task;
+    }
+
+    changed = true;
+    return {
+      ...task,
+      changePresence: previousTask.changePresence,
+    };
+  });
+
+  return changed ? mergedTasks : nextTasks;
+}
+
 function mapSendMessageError(error: unknown): string {
   const message =
     error instanceof IpcError ? error.message : error instanceof Error ? error.message : '';
@@ -1333,7 +1383,12 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
 
       set({
         selectedTeamName: teamName,
-        selectedTeamData: data,
+        selectedTeamData: previousData
+          ? {
+              ...data,
+              tasks: preserveKnownTaskChangePresence(teamName, previousData.tasks, data.tasks),
+            }
+          : data,
         selectedTeamLoading: false,
         selectedTeamError: null,
       });
@@ -1454,7 +1509,12 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
         return;
       }
       set({
-        selectedTeamData: data,
+        selectedTeamData: previousData
+          ? {
+              ...data,
+              tasks: preserveKnownTaskChangePresence(teamName, previousData.tasks, data.tasks),
+            }
+          : data,
         selectedTeamError: null,
       });
       const invalidationState = previousData

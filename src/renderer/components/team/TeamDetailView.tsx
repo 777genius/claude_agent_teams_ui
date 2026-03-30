@@ -268,11 +268,107 @@ export const TeamDetailView = ({
     window.addEventListener('graph:send-message', onSendMsg);
     window.addEventListener('graph:open-profile', onOpenProfile);
     window.addEventListener('graph:create-task', onCreateTask);
+
+    // Task action events from graph
+    const taskAction = (handler: (taskId: string) => void) => (e: Event) => {
+      const { teamName: tn, taskId } = (e as CustomEvent).detail ?? {};
+      if (tn !== teamName || !taskId) return;
+      handler(taskId);
+    };
+    const onStartTask = taskAction((taskId) => {
+      void (async () => {
+        try {
+          const result = await startTaskByUser(teamName, taskId);
+          if (data?.isAlive) {
+            const task = data.tasks.find((t: { id: string }) => t.id === taskId);
+            try {
+              if (result.notifiedOwner && task?.owner) {
+                await api.teams.processSend(
+                  teamName,
+                  `Task ${formatTaskDisplayLabel(task)} "${task.subject}" has started. Please begin working on it.`
+                );
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+        } catch {
+          /* error via store */
+        }
+      })();
+    });
+    const onCompleteTask = taskAction((taskId) => {
+      void (async () => {
+        try {
+          await updateTaskStatus(teamName, taskId, 'completed');
+        } catch {
+          /* */
+        }
+      })();
+    });
+    const onApproveTask = taskAction((taskId) => {
+      void (async () => {
+        try {
+          await updateKanban(teamName, taskId, { op: 'set_column', column: 'approved' });
+        } catch {
+          /* */
+        }
+      })();
+    });
+    const onRequestReviewTask = taskAction((taskId) => {
+      void (async () => {
+        try {
+          await requestReview(teamName, taskId);
+        } catch {
+          /* */
+        }
+      })();
+    });
+    const onRequestChangesTask = taskAction((taskId) => {
+      setRequestChangesTaskId(taskId);
+    });
+    const onCancelTask = taskAction((taskId) => {
+      void (async () => {
+        try {
+          await updateTaskStatus(teamName, taskId, 'pending');
+        } catch {
+          /* */
+        }
+      })();
+    });
+    const onMoveBackToDoneTask = taskAction((taskId) => {
+      void (async () => {
+        try {
+          await updateKanban(teamName, taskId, { op: 'remove' });
+          await updateTaskStatus(teamName, taskId, 'completed');
+        } catch {
+          /* */
+        }
+      })();
+    });
+    const onDeleteTaskGraph = taskAction((taskId) => handleDeleteTask(taskId));
+
+    window.addEventListener('graph:start-task', onStartTask);
+    window.addEventListener('graph:complete-task', onCompleteTask);
+    window.addEventListener('graph:approve-task', onApproveTask);
+    window.addEventListener('graph:request-review', onRequestReviewTask);
+    window.addEventListener('graph:request-changes', onRequestChangesTask);
+    window.addEventListener('graph:cancel-task', onCancelTask);
+    window.addEventListener('graph:move-back-to-done', onMoveBackToDoneTask);
+    window.addEventListener('graph:delete-task', onDeleteTaskGraph);
     return () => {
       window.removeEventListener('graph:open-task', onOpenTask);
       window.removeEventListener('graph:send-message', onSendMsg);
       window.removeEventListener('graph:open-profile', onOpenProfile);
       window.removeEventListener('graph:create-task', onCreateTask);
+      window.removeEventListener('graph:start-task', onStartTask);
+      window.removeEventListener('graph:complete-task', onCompleteTask);
+      window.removeEventListener('graph:approve-task', onApproveTask);
+      window.removeEventListener('graph:request-review', onRequestReviewTask);
+      window.removeEventListener('graph:request-changes', onRequestChangesTask);
+      window.removeEventListener('graph:cancel-task', onCancelTask);
+      window.removeEventListener('graph:move-back-to-done', onMoveBackToDoneTask);
+      window.removeEventListener('graph:delete-task', onDeleteTaskGraph);
     };
   });
 

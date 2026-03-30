@@ -3,8 +3,9 @@
  * Thin wrapper — instantiates the class adapter and calls adapt() with store data.
  */
 
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useSyncExternalStore } from 'react';
 
+import { getSnapshot, subscribe } from '@renderer/services/commentReadStorage';
 import { useStore } from '@renderer/store';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -43,6 +44,8 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
     return agents;
   }, [pendingApprovals]);
 
+  const commentReadState = useSyncExternalStore(subscribe, getSnapshot);
+
   return useMemo(
     () =>
       adapterRef.current.adapt(
@@ -53,7 +56,8 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
         pendingApprovalAgents,
         activeTools,
         finishedVisible,
-        toolHistory
+        toolHistory,
+        commentReadState
       ),
     [
       teamData,
@@ -64,6 +68,7 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
       activeTools,
       finishedVisible,
       toolHistory,
+      commentReadState,
     ]
   );
 }

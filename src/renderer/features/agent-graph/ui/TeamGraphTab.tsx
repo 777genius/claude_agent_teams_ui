@@ -3,7 +3,7 @@
  * Provides Fullscreen button that opens the overlay.
  */
 
-import { lazy, Suspense, useCallback, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 
 import { GraphView } from '@claude-teams/agent-graph';
 import { TeamSidebarHost } from '@renderer/components/team/sidebar/TeamSidebarHost';
@@ -58,6 +58,36 @@ export const TeamGraphTab = ({
     [teamName]
   );
 
+  // Task action dispatchers
+  const dispatchTaskAction = useCallback(
+    (action: string) => (taskId: string) =>
+      window.dispatchEvent(new CustomEvent(`graph:${action}`, { detail: { teamName, taskId } })),
+    [teamName]
+  );
+  const dispatchStartTask = useMemo(() => dispatchTaskAction('start-task'), [dispatchTaskAction]);
+  const dispatchCompleteTask = useMemo(
+    () => dispatchTaskAction('complete-task'),
+    [dispatchTaskAction]
+  );
+  const dispatchApproveTask = useMemo(
+    () => dispatchTaskAction('approve-task'),
+    [dispatchTaskAction]
+  );
+  const dispatchRequestReview = useMemo(
+    () => dispatchTaskAction('request-review'),
+    [dispatchTaskAction]
+  );
+  const dispatchRequestChanges = useMemo(
+    () => dispatchTaskAction('request-changes'),
+    [dispatchTaskAction]
+  );
+  const dispatchCancelTask = useMemo(() => dispatchTaskAction('cancel-task'), [dispatchTaskAction]);
+  const dispatchMoveBackToDone = useMemo(
+    () => dispatchTaskAction('move-back-to-done'),
+    [dispatchTaskAction]
+  );
+  const dispatchDeleteTask = useMemo(() => dispatchTaskAction('delete-task'), [dispatchTaskAction]);
+
   const events: GraphEventPort = {
     onNodeDoubleClick: useCallback(
       (ref: GraphDomainRef) => {
@@ -89,11 +119,20 @@ export const TeamGraphTab = ({
           renderOverlay={({ node, onClose }) => (
             <GraphNodePopover
               node={node}
+              teamName={teamName}
               onClose={onClose}
               onSendMessage={dispatchSendMessage}
               onOpenTaskDetail={dispatchOpenTask}
               onOpenMemberProfile={dispatchOpenProfile}
               onCreateTask={dispatchCreateTask}
+              onStartTask={dispatchStartTask}
+              onCompleteTask={dispatchCompleteTask}
+              onApproveTask={dispatchApproveTask}
+              onRequestReview={dispatchRequestReview}
+              onRequestChanges={dispatchRequestChanges}
+              onCancelTask={dispatchCancelTask}
+              onMoveBackToDone={dispatchMoveBackToDone}
+              onDeleteTask={dispatchDeleteTask}
             />
           )}
         />
