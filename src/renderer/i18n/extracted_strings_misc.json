@@ -1,0 +1,337 @@
+{
+  "_meta": {
+    "description": "Translatable strings extracted from hooks, contexts, constants, utils, and features directories",
+    "extractedBy": "elena",
+    "date": "2026-03-30"
+  },
+
+  "constants.teamRoles": {
+    "_source": "src/renderer/constants/teamRoles.ts",
+    "role_architect": "architect",
+    "role_reviewer": "reviewer",
+    "role_developer": "developer",
+    "role_qa": "qa",
+    "role_researcher": "researcher",
+    "role_docs": "docs",
+    "role_auditor": "auditor",
+    "role_optimizer": "optimizer"
+  },
+
+  "utils.memberHelpers.taskStatusLabels": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "pending": "Pending",
+    "in_progress": "In Progress",
+    "completed": "Completed",
+    "deleted": "Deleted"
+  },
+
+  "utils.memberHelpers.presenceLabels": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "terminated": "terminated",
+    "processing": "processing",
+    "processing_with_pct": "processing ({pct}%)",
+    "ready": "ready",
+    "connecting": "connecting",
+    "offline": "offline",
+    "idle": "idle",
+    "working": "working"
+  },
+
+  "utils.memberHelpers.spawnPresenceLabels": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "offline": "offline",
+    "waiting": "waiting",
+    "spawning": "spawning",
+    "online": "online",
+    "spawn_failed": "spawn failed"
+  },
+
+  "utils.memberHelpers.kanbanColumnDisplay": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "in_review": "In Review",
+    "approved": "Approved",
+    "needs_fixes": "Needs Fixes"
+  },
+
+  "utils.agentMessageFormatting.typeLabels": {
+    "_source": "src/renderer/utils/agentMessageFormatting.ts",
+    "idle_notification": "Idle",
+    "shutdown_approved": "Shutdown confirmed",
+    "teammate_terminated": "Terminated",
+    "shutdown_request": "Shutdown requested",
+    "shutdown_response": "Shutdown response",
+    "message": "Message",
+    "broadcast": "Broadcast",
+    "permission_request": "Permission request",
+    "permission_response": "Permission response",
+    "structured_message": "Structured message"
+  },
+
+  "utils.reportAssessments.takeawayTitles": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "high_cost_per_commit": "High cost per commit",
+    "elevated_cost_per_commit": "Elevated cost per commit",
+    "low_cache_efficiency": "Low cache efficiency",
+    "tool_reliability_issues": "Tool reliability issues",
+    "degraded_tool_health": "Degraded tool health",
+    "significant_thrashing": "Significant thrashing detected",
+    "mild_thrashing": "Mild thrashing detected",
+    "high_idle_time": "High idle time",
+    "prompt_quality_issues": "Prompt quality issues",
+    "context_window_pressure": "Context window pressure",
+    "redundant_file_reads": "Redundant file reads",
+    "tests_regressing": "Tests regressing",
+    "session_looks_healthy": "Session looks healthy"
+  },
+
+  "utils.reportAssessments.takeawayDetails": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "cost_consider_smaller_sessions": "${cost} total — consider smaller, focused sessions",
+    "cost_above_typical": "Cost per commit is above typical range",
+    "cache_hit_rate": "{pct}% cache hit rate — prompt structure may reduce caching",
+    "tools_failing": "Multiple tool calls are failing — check error section for details",
+    "tools_elevated_failure": "Some tools have elevated failure rates",
+    "thrashing_unclear_direction": "Repeated commands and file rework suggest unclear direction",
+    "thrashing_some_repeated": "Some repeated commands or file rework occurred",
+    "idle_wall_clock": "{pct}% of wall-clock time was idle",
+    "friction_rate_detail": "{pct}% friction rate — try more detailed initial prompts",
+    "compaction_occurred": "{count} compaction(s) occurred — session may lose early context",
+    "reads_per_unique": "{count}x reads per unique file",
+    "test_failures_increased": "Test failures increased over the session",
+    "no_significant_issues": "No significant issues detected across all metrics"
+  },
+
+  "utils.reportAssessments.sectionTitles": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "cost_analysis": "Cost Analysis",
+    "token_usage": "Token Usage",
+    "tool_usage": "Tool Usage",
+    "friction_signals": "Friction Signals",
+    "timeline_activity": "Timeline & Activity",
+    "quality_signals": "Quality Signals",
+    "overview": "Overview"
+  },
+
+  "utils.reportAssessments.explanations.thrashing": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "none": "No repeated commands or reworked files",
+    "mild": "1–2 thrashing signals detected",
+    "severe": "3+ thrashing signals detected"
+  },
+
+  "utils.reportAssessments.explanations.promptQuality": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "well_specified": "Clear first message with low friction rate",
+    "moderate_friction": "Some corrections needed mid-session",
+    "underspecified": "Short initial prompt led to many corrections",
+    "verbose_but_unclear": "Long initial prompt but still high friction"
+  },
+
+  "utils.reportAssessments.explanations.testTrajectory": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "improving": "Test failures decreased over the session",
+    "stable": "Test results stayed roughly the same",
+    "regressing": "Test failures increased over the session",
+    "insufficient_data": "Not enough test runs to determine trend"
+  },
+
+  "utils.reportAssessments.modelMismatch": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "mechanical_recommendation": "Consider using Haiku for mechanical tasks to reduce cost.",
+    "read_only_recommendation": "Consider using Haiku or Sonnet for read-only exploration tasks."
+  },
+
+  "utils.displaySummary": {
+    "_source": "src/renderer/utils/displaySummary.ts",
+    "thinking": "thinking",
+    "tool_call": "tool call",
+    "tool_calls": "tool calls",
+    "message": "message",
+    "messages": "messages",
+    "teammate": "teammate",
+    "teammates": "teammates",
+    "subagent": "subagent",
+    "subagents": "subagents",
+    "slash": "slash",
+    "slashes": "slashes",
+    "teammate_message": "teammate message",
+    "teammate_messages": "teammate messages",
+    "compaction": "compaction",
+    "compactions": "compactions",
+    "no_items": "No items"
+  },
+
+  "utils.formatters": {
+    "_source": "src/renderer/utils/formatters.ts",
+    "just_now": "just now",
+    "minutes_ago": "{n}m ago",
+    "hours_ago": "{n}h ago"
+  },
+
+  "utils.scheduleFormatters": {
+    "_source": "src/renderer/utils/scheduleFormatters.ts",
+    "na": "N/A",
+    "overdue": "overdue",
+    "in_hours_minutes": "in {h}h {m}m",
+    "in_minutes": "in {m}m",
+    "soon": "soon"
+  },
+
+  "utils.dateGrouping": {
+    "_source": "src/renderer/utils/dateGrouping.ts",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "previous_7_days": "Previous 7 Days",
+    "older": "Older"
+  },
+
+  "utils.taskGrouping": {
+    "_source": "src/renderer/utils/taskGrouping.ts",
+    "without_project": "Without project"
+  },
+
+  "utils.bugReportUtils": {
+    "_source": "src/renderer/utils/bugReportUtils.ts",
+    "bug_application_crash": "[BUG] Application crash",
+    "not_available": "Not available",
+    "unknown": "Unknown",
+    "describe_the_bug": "Describe the bug",
+    "app_crashed_error_screen": "The app crashed and showed the global error screen.",
+    "what_happened": "What happened",
+    "steps_to_reproduce": "Steps to reproduce",
+    "step_1": "Open the app and navigate to the screen where the crash happened.",
+    "step_2": "Repeat the action that triggered the error.",
+    "step_3": "Observe the global error screen.",
+    "expected_behavior": "Expected behavior",
+    "expected_behavior_detail": "The app should continue working instead of crashing.",
+    "screenshots": "Screenshots",
+    "screenshots_detail": "Attach a screenshot if you have one.",
+    "environment": "Environment",
+    "diagnostics": "Diagnostics",
+    "js_stack_trace": "JavaScript stack trace",
+    "react_component_stack": "React component stack",
+    "electron_renderer": "Electron renderer",
+    "web_browser": "Web browser"
+  },
+
+  "utils.sessionExporter": {
+    "_source": "src/renderer/utils/sessionExporter.ts",
+    "session_export": "SESSION EXPORT",
+    "metrics": "METRICS",
+    "conversation": "CONVERSATION",
+    "duration": "Duration",
+    "total_tokens": "Total Tokens",
+    "input_tokens": "Input Tokens",
+    "output_tokens": "Output Tokens",
+    "cache_read": "Cache Read",
+    "cache_created": "Cache Created",
+    "messages_label": "Messages",
+    "cost": "Cost",
+    "session_export_title": "Session Export",
+    "property": "Property",
+    "value": "Value",
+    "session": "Session",
+    "project": "Project",
+    "branch": "Branch",
+    "date": "Date",
+    "metric": "Metric",
+    "user_turn": "User (Turn {n})",
+    "assistant_turn": "Assistant (Turn {n})",
+    "system_turn": "System (Turn {n})",
+    "thinking_label": "Thinking:",
+    "context_compacted": "Context compacted",
+    "image_placeholder": "[Image]",
+    "no_result": "[No result]",
+    "error_result": "[ERROR] Result: ",
+    "result_label": "Result:",
+    "tool_label": "Tool:"
+  },
+
+  "utils.toolRendering.toolSummaryHelpers": {
+    "_source": "src/renderer/utils/toolRendering/toolSummaryHelpers.ts",
+    "create_team": "Create team",
+    "create_task": "Create task",
+    "update_task": "Update task",
+    "list_tasks": "List tasks",
+    "get_task": "Get task",
+    "shutdown": "Shutdown {name}",
+    "shutdown_response": "Shutdown response",
+    "broadcast": "Broadcast: {summary}",
+    "send_message_to": "To {recipient}: {summary}",
+    "send_message": "Send message",
+    "delete_team": "Delete team",
+    "subagent": "Subagent"
+  },
+
+  "hooks.useAttachments": {
+    "_source": "src/renderer/hooks/useAttachments.ts",
+    "unsupported_file_type": "Unsupported file type: {name}",
+    "failed_to_read_file": "Failed to read file: {name}",
+    "max_attachments_allowed": "Maximum {n} attachments allowed",
+    "total_size_exceeds_limit": "Total attachment size exceeds 20MB limit"
+  },
+
+  "hooks.useToolApprovalDiff": {
+    "_source": "src/renderer/hooks/useToolApprovalDiff.ts",
+    "edit_old_string_empty": "Edit: old_string is empty",
+    "fragment_not_found": "Fragment not found in current file",
+    "unknown_read_error": "Unknown read error"
+  },
+
+  "hooks.useExtensionsTabState": {
+    "_source": "src/renderer/hooks/useExtensionsTabState.ts",
+    "search_failed": "Search failed"
+  },
+
+  "hooks.useMemberStats": {
+    "_source": "src/renderer/hooks/useMemberStats.ts",
+    "unknown_error": "Unknown error"
+  },
+
+  "hooks.useTeamSuggestions": {
+    "_source": "src/renderer/hooks/useTeamSuggestions.ts",
+    "online": "online",
+    "offline": "offline"
+  },
+
+  "features.agentGraph.graphNodePopover": {
+    "_source": "src/renderer/features/agent-graph/ui/GraphNodePopover.tsx",
+    "external_team": "External team",
+    "started_by": "Started by:",
+    "at_label": "At:",
+    "open_url": "Open URL",
+    "status_active": "Active",
+    "status_idle": "Idle",
+    "status_offline": "Offline",
+    "status_running_tool": "Running tool",
+    "lead_badge": "Lead",
+    "working_on": "working on",
+    "running_tool_state": "Running tool",
+    "tool_failed": "Tool failed",
+    "tool_finished": "Tool finished",
+    "recent_tools": "Recent tools",
+    "button_message": "Message",
+    "button_profile": "Profile",
+    "button_task": "Task"
+  },
+
+  "contexts": {
+    "_source": "src/renderer/contexts/",
+    "_note": "No translatable user-facing strings found in TabUIContext.tsx or useTabUIContext.ts"
+  },
+
+  "constants.layout": {
+    "_source": "src/renderer/constants/layout.ts",
+    "_note": "No translatable strings — only re-exports numeric layout constants"
+  },
+
+  "constants.teamColors": {
+    "_source": "src/renderer/constants/teamColors.ts",
+    "_note": "No translatable strings — color definitions only"
+  },
+
+  "constants.cssVariables": {
+    "_source": "src/renderer/constants/cssVariables.ts",
+    "_note": "No translatable strings — CSS variable references only"
+  }
+}

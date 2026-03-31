@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
@@ -24,6 +25,7 @@ export const TaskCommentAwaitingReply = ({
   taskCreatedBy,
   members,
 }: TaskCommentAwaitingReplyProps): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const colorMap = useMemo(() => buildMemberColorMap(members), [members]);
   const result = useMemo(
     () => computeAwaitingReply(comments, taskOwner, taskCreatedBy),
@@ -42,7 +44,9 @@ export const TaskCommentAwaitingReply = ({
         <span className="relative inline-flex size-full rounded-full bg-emerald-500" />
       </span>
 
-      <span className="text-[10px] text-[var(--color-text-muted)]">Awaiting reply from</span>
+      <span className="text-[10px] text-[var(--color-text-muted)]">
+        {t('dialogs.taskCommentAwaiting.awaitingReply')}
+      </span>
 
       {result.awaitingFrom.map((name, i) => (
         <React.Fragment key={name}>

@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { formatRelativeTime, formatTokensCompact } from '@renderer/utils/formatters';
 
 export type MemberDetailTab = 'tasks' | 'messages' | 'stats' | 'logs';
@@ -57,34 +59,41 @@ export const MemberDetailStats = ({
   statsComputedAt,
   onTabChange,
 }: MemberDetailStatsProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const tokensValue = statsLoading
     ? '...'
     : totalTokens != null
       ? formatTokensCompact(totalTokens)
       : '—';
   const tokensSub =
-    !statsLoading && statsComputedAt ? `updated ${formatRelativeTime(statsComputedAt)}` : undefined;
+    !statsLoading && statsComputedAt
+      ? t('members.detailStats.updated', { time: formatRelativeTime(statsComputedAt) })
+      : undefined;
 
   return (
     <div className="grid min-w-0 flex-1 grid-cols-4 gap-1.5">
       <StatBlock
-        label="Tasks"
+        label={t('members.detailStats.tasks')}
         value={totalTasks}
-        sub={inProgressTasks > 0 ? `in progress: ${inProgressTasks}` : undefined}
+        sub={
+          inProgressTasks > 0
+            ? t('members.detailStats.inProgress', { count: inProgressTasks })
+            : undefined
+        }
         onClick={onTabChange ? () => onTabChange('tasks') : undefined}
       />
       <StatBlock
-        label="Completed"
+        label={t('members.detailStats.completed')}
         value={completedTasks}
         onClick={onTabChange ? () => onTabChange('tasks') : undefined}
       />
       <StatBlock
-        label="Messages"
+        label={t('members.detailStats.messages')}
         value={messageCount}
         onClick={onTabChange ? () => onTabChange('messages') : undefined}
       />
       <StatBlock
-        label="Tokens"
+        label={t('members.detailStats.tokens')}
         value={tokensValue}
         sub={tokensSub}
         onClick={onTabChange ? () => onTabChange('stats') : undefined}

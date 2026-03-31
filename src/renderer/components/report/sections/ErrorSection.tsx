@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -73,8 +74,13 @@ interface ErrorSectionProps {
 }
 
 export const ErrorSection = ({ data, defaultCollapsed }: ErrorSectionProps) => {
+  const { t } = useTranslation();
   return (
-    <ReportSection title="Errors" icon={AlertTriangle} defaultCollapsed={defaultCollapsed}>
+    <ReportSection
+      title={t('report.sections.errors.title')}
+      icon={AlertTriangle}
+      defaultCollapsed={defaultCollapsed}
+    >
       <div className="mb-3 flex items-center gap-3">
         <span
           className="rounded px-2 py-0.5 text-xs font-medium"

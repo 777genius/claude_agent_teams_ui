@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { DisplayItemList } from '@renderer/components/chat/DisplayItemList';
 import { LastOutputDisplay } from '@renderer/components/chat/LastOutputDisplay';
@@ -28,10 +29,7 @@ export const MemberExecutionLog = ({
   const conversation = useMemo(() => transformChunksToConversation(chunks, [], false), [chunks]);
 
   // Show newest groups first — most recent activity is most relevant in execution logs.
-  const orderedItems = useMemo(
-    () => [...conversation.items].reverse(),
-    [conversation.items]
-  );
+  const orderedItems = useMemo(() => [...conversation.items].reverse(), [conversation.items]);
 
   // Store collapsed groups instead of expanded: by default, everything is expanded.
   // This avoids resetting state in an effect when conversation changes.

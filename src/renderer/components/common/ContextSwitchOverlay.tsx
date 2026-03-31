@@ -6,10 +6,12 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useStore } from '@renderer/store';
 
 export const ContextSwitchOverlay: React.FC = () => {
+  const { t } = useTranslation();
   const isContextSwitching = useStore((state) => state.isContextSwitching);
   const targetContextId = useStore((state) => state.targetContextId);
 
@@ -29,8 +31,12 @@ export const ContextSwitchOverlay: React.FC = () => {
 
         {/* Text */}
         <div className="flex flex-col items-center gap-1">
-          <p className="text-text">Switching to {contextLabel}...</p>
-          <p className="text-sm text-text-secondary">Loading workspace</p>
+          <p className="text-text">
+            {t('common.contextSwitch.switchingTo', { context: contextLabel })}
+          </p>
+          <p className="text-sm text-text-secondary">
+            {t('common.contextSwitch.loadingWorkspace')}
+          </p>
         </div>
       </div>
     </div>

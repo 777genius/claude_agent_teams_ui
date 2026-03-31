@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { Input } from '@renderer/components/ui/input';
@@ -34,12 +35,7 @@ import type { Schedule, ScheduleRun, ScheduleStatus } from '@shared/types';
 // Constants
 // =============================================================================
 
-const STATUS_OPTIONS: { value: ScheduleStatus | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'active', label: 'Active' },
-  { value: 'paused', label: 'Paused' },
-  { value: 'disabled', label: 'Disabled' },
-];
+const STATUS_OPTION_VALUES: (ScheduleStatus | 'all')[] = ['all', 'active', 'paused', 'disabled'];
 
 // =============================================================================
 // ScheduleListItem
@@ -66,6 +62,7 @@ const ScheduleListItem = ({
   onTeamClick,
   teamColor,
 }: ScheduleListItemProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [selectedRun, setSelectedRun] = useState<ScheduleRun | null>(null);
   const runs = useStore((s) => s.scheduleRuns[schedule.id] ?? []);
@@ -124,7 +121,7 @@ const ScheduleListItem = ({
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="shrink-0 text-xs text-[var(--color-text-muted)]">
-              Next: {formatNextRun(schedule.nextRunAt)}
+              {t('schedules.view.next', { time: formatNextRun(schedule.nextRunAt) })}
             </span>
           </TooltipTrigger>
           {schedule.nextRunAt ? (
@@ -153,7 +150,7 @@ const ScheduleListItem = ({
                 <Zap className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top">Run now</TooltipContent>
+            <TooltipContent side="top">{t('schedules.view.runNow')}</TooltipContent>
           </Tooltip>
 
           <Popover>
@@ -169,7 +166,7 @@ const ScheduleListItem = ({
                 onClick={() => onEdit(schedule)}
               >
                 <Pencil className="mr-2 size-3.5" />
-                Edit
+                {t('schedules.view.edit')}
               </button>
               {schedule.status === 'active' ? (
                 <button
@@ -178,7 +175,7 @@ const ScheduleListItem = ({
                   onClick={() => onPause(schedule.id)}
                 >
                   <Pause className="mr-2 size-3.5" />
-                  Pause
+                  {t('schedules.view.pause')}
                 </button>
               ) : (
                 <button
@@ -187,7 +184,7 @@ const ScheduleListItem = ({
                   onClick={() => onResume(schedule.id)}
                 >
                   <Play className="mr-2 size-3.5" />
-                  Resume
+                  {t('schedules.view.resume')}
                 </button>
               )}
               <button
@@ -196,7 +193,7 @@ const ScheduleListItem = ({
                 onClick={() => onDelete(schedule.id)}
               >
                 <Trash2 className="mr-2 size-3.5" />
-                Delete
+                {t('schedules.view.delete')}
               </button>
             </PopoverContent>
           </Popover>
@@ -208,11 +205,11 @@ const ScheduleListItem = ({
         <div className="border-t border-[var(--color-border)]">
           {runsLoading ? (
             <div className="flex items-center justify-center py-4 text-xs text-[var(--color-text-muted)]">
-              Loading run history...
+              {t('schedules.view.loadingRunHistory')}
             </div>
           ) : runs.length === 0 ? (
             <div className="flex items-center justify-center py-4 text-xs text-[var(--color-text-muted)]">
-              No runs yet
+              {t('schedules.view.noRunsYet')}
             </div>
           ) : (
             <div className="max-h-[240px] overflow-y-auto">
@@ -240,6 +237,7 @@ const ScheduleListItem = ({
 // =============================================================================
 
 export const SchedulesView = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const schedules = useStore((s) => s.schedules);
   const schedulesLoading = useStore((s) => s.schedulesLoading);
   const fetchSchedules = useStore((s) => s.fetchSchedules);
@@ -380,7 +378,9 @@ export const SchedulesView = (): React.JSX.Element => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Calendar className="size-5 text-[var(--color-text-muted)]" />
-            <h1 className="text-lg font-semibold text-[var(--color-text)]">Schedules</h1>
+            <h1 className="text-lg font-semibold text-[var(--color-text)]">
+              {t('schedules.view.title')}
+            </h1>
             {schedules.length > 0 && (
               <span className="rounded-full bg-[var(--color-surface-raised)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]">
                 {schedules.length}
@@ -389,7 +389,7 @@ export const SchedulesView = (): React.JSX.Element => {
           </div>
           <Button size="sm" className="gap-1.5" onClick={handleCreate}>
             <Plus className="size-3.5" />
-            Add Schedule
+            {t('schedules.view.addSchedule')}
           </Button>
         </div>
 
@@ -400,7 +400,7 @@ export const SchedulesView = (): React.JSX.Element => {
             <div className="relative max-w-xs flex-1">
               <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-text-muted)]" />
               <Input
-                placeholder="Search schedules..."
+                placeholder={t('schedules.view.searchSchedules')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-8 pl-8 text-xs"
@@ -409,20 +409,20 @@ export const SchedulesView = (): React.JSX.Element => {
 
             {/* Status filter chips */}
             <div className="flex items-center gap-1">
-              {STATUS_OPTIONS.map((opt) => (
+              {STATUS_OPTION_VALUES.map((value) => (
                 <button
-                  key={opt.value}
+                  key={value}
                   type="button"
                   className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
-                    statusFilter === opt.value
+                    statusFilter === value
                       ? 'bg-[var(--color-surface-raised)] font-medium text-[var(--color-text)]'
                       : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
                   }`}
-                  onClick={() => setStatusFilter(opt.value)}
+                  onClick={() => setStatusFilter(value)}
                 >
-                  {opt.label}
-                  {statusCounts[opt.value] > 0 && (
-                    <span className="ml-1 text-[10px] opacity-60">{statusCounts[opt.value]}</span>
+                  {t(`schedules.status.${value}`)}
+                  {statusCounts[value] > 0 && (
+                    <span className="ml-1 text-[10px] opacity-60">{statusCounts[value]}</span>
                   )}
                 </button>
               ))}
@@ -443,7 +443,7 @@ export const SchedulesView = (): React.JSX.Element => {
                         {teamFilter}
                       </>
                     ) : (
-                      'All teams'
+                      t('schedules.view.allTeams')
                     )}
                   </Button>
                 </PopoverTrigger>
@@ -457,7 +457,7 @@ export const SchedulesView = (): React.JSX.Element => {
                     } hover:bg-[var(--color-surface-raised)]`}
                     onClick={() => setTeamFilter(null)}
                   >
-                    All teams
+                    {t('schedules.view.allTeams')}
                   </button>
                   {teamNames.map((name) => (
                     <button
@@ -488,7 +488,7 @@ export const SchedulesView = (): React.JSX.Element => {
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {schedulesLoading && schedules.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-sm text-[var(--color-text-muted)]">
-            Loading schedules...
+            {t('schedules.view.loadingSchedules')}
           </div>
         ) : schedules.length === 0 ? (
           /* Global empty state */
@@ -496,16 +496,15 @@ export const SchedulesView = (): React.JSX.Element => {
             <Calendar className="size-12 text-[var(--color-text-muted)]" />
             <div className="space-y-1.5">
               <p className="text-sm font-medium text-[var(--color-text-secondary)]">
-                No scheduled tasks
+                {t('schedules.view.noScheduledTasks')}
               </p>
               <p className="max-w-sm text-xs text-[var(--color-text-muted)]">
-                Create a schedule on any team to automate Claude task execution with cron
-                expressions. Schedules from all teams will appear here.
+                {t('schedules.view.noScheduledTasksDesc')}
               </p>
             </div>
             <Button size="sm" variant="outline" className="mt-2 gap-1.5" onClick={handleCreate}>
               <Plus className="size-3.5" />
-              Create Schedule
+              {t('schedules.view.createSchedule')}
             </Button>
           </div>
         ) : filteredSchedules.length === 0 ? (
@@ -513,7 +512,7 @@ export const SchedulesView = (): React.JSX.Element => {
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
             <Search className="size-8 text-[var(--color-text-muted)]" />
             <p className="text-sm text-[var(--color-text-muted)]">
-              No schedules match the current filters
+              {t('schedules.view.noSchedulesMatch')}
             </p>
             <button
               type="button"
@@ -524,7 +523,7 @@ export const SchedulesView = (): React.JSX.Element => {
                 setTeamFilter(null);
               }}
             >
-              Clear filters
+              {t('schedules.view.clearFilters')}
             </button>
           </div>
         ) : (

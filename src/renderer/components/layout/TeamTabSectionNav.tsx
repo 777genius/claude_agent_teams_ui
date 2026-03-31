@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 
 import { useStore } from '@renderer/store';
@@ -11,27 +12,33 @@ interface TeamTabSectionNavProps {
   onActivate?: () => void;
 }
 
-const SECTIONS: readonly { id: string; label: string; icon: LucideIcon }[] = [
-  { id: 'team', label: 'Team', icon: Users },
-  { id: 'sessions', label: 'Sessions', icon: History },
-  { id: 'kanban', label: 'Kanban', icon: Columns3 },
-  { id: 'claude-logs', label: 'Claude Logs', icon: Terminal },
-  { id: 'messages', label: 'Messages', icon: MessageSquare },
+const SECTION_DEFS: readonly { id: string; labelKey: string; icon: LucideIcon }[] = [
+  { id: 'team', labelKey: 'layout.sectionNav.team', icon: Users },
+  { id: 'sessions', labelKey: 'layout.sectionNav.sessions', icon: History },
+  { id: 'kanban', labelKey: 'layout.sectionNav.kanban', icon: Columns3 },
+  { id: 'claude-logs', labelKey: 'layout.sectionNav.claudeLogs', icon: Terminal },
+  { id: 'messages', labelKey: 'layout.sectionNav.messages', icon: MessageSquare },
 ];
 
 export const TeamTabSectionNav = ({
   teamName,
   onActivate,
 }: TeamTabSectionNavProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const messagesPanelMode = useStore((s) => s.messagesPanelMode);
   const [open, setOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
-  const visibleSections = SECTIONS.filter(
-    (section) =>
-      messagesPanelMode !== 'sidebar' || (section.id !== 'messages' && section.id !== 'claude-logs')
+  const visibleSections = useMemo(
+    () =>
+      SECTION_DEFS.filter(
+        (section) =>
+          messagesPanelMode !== 'sidebar' ||
+          (section.id !== 'messages' && section.id !== 'claude-logs')
+      ).map((s) => ({ ...s, label: t(s.labelKey) })),
+    [messagesPanelMode, t]
   );
 
   const handleNavigate = useCallback(
@@ -86,7 +93,7 @@ export const TeamTabSectionNav = ({
           e.stopPropagation();
           setOpen((prev) => !prev);
         }}
-        title="Jump to section"
+        title={t('layout.sectionNav.jumpToSection')}
       >
         <ChevronDown size={10} />
       </button>

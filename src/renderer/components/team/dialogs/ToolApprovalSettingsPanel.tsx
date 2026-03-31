@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Checkbox } from '@renderer/components/ui/checkbox';
 import {
@@ -16,26 +17,29 @@ import type { ToolApprovalSettings, ToolApprovalTimeoutAction } from '@shared/ty
 export const ToolApprovalSettingsToggle: React.FC<{ expanded: boolean; onToggle: () => void }> = ({
   expanded,
   onToggle,
-}) => (
-  <button
-    type="button"
-    onClick={onToggle}
-    className="flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors"
-    style={{ color: 'var(--color-text-muted)' }}
-    onMouseEnter={(e) => {
-      Object.assign(e.currentTarget.style, {
-        backgroundColor: 'var(--color-surface-raised)',
-      });
-    }}
-    onMouseLeave={(e) => {
-      Object.assign(e.currentTarget.style, { backgroundColor: 'transparent' });
-    }}
-  >
-    <Settings className="size-3" />
-    <span>Settings</span>
-    {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-  </button>
-);
+}) => {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors"
+      style={{ color: 'var(--color-text-muted)' }}
+      onMouseEnter={(e) => {
+        Object.assign(e.currentTarget.style, {
+          backgroundColor: 'var(--color-surface-raised)',
+        });
+      }}
+      onMouseLeave={(e) => {
+        Object.assign(e.currentTarget.style, { backgroundColor: 'transparent' });
+      }}
+    >
+      <Settings className="size-3" />
+      <span>{t('dialogs.toolApproval.settings')}</span>
+      {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+    </button>
+  );
+};
 
 export const ToolApprovalSettingsContent: React.FC<{
   expanded: boolean;
@@ -44,6 +48,7 @@ export const ToolApprovalSettingsContent: React.FC<{
   const [localSeconds, setLocalSeconds] = useState<string>('');
   const settings = useStore((s) => s.toolApprovalSettings);
   const rawUpdateSettings = useStore((s) => s.updateToolApprovalSettings);
+  const { t } = useTranslation();
   const updateSettings = useCallback(
     (patch: Partial<ToolApprovalSettings>) => rawUpdateSettings(patch, teamName),
     [rawUpdateSettings, teamName]
@@ -68,7 +73,7 @@ export const ToolApprovalSettingsContent: React.FC<{
           checked={settings.autoAllowAll}
           onCheckedChange={(checked) => void updateSettings({ autoAllowAll: checked === true })}
         />
-        Auto-allow all tools
+        {t('dialogs.toolApproval.autoAllowAll')}
       </label>
 
       {/* Separator */}
@@ -89,7 +94,7 @@ export const ToolApprovalSettingsContent: React.FC<{
             void updateSettings({ autoAllowFileEdits: checked === true })
           }
         />
-        Auto-allow file edits (Edit, Write, NotebookEdit)
+        {t('dialogs.toolApproval.autoAllowFileEdits')}
       </label>
 
       {/* Auto-allow safe bash */}
@@ -107,7 +112,7 @@ export const ToolApprovalSettingsContent: React.FC<{
             void updateSettings({ autoAllowSafeBash: checked === true })
           }
         />
-        Auto-allow safe commands (git, pnpm, npm, ls...)
+        {t('dialogs.toolApproval.autoAllowSafeBash')}
       </label>
 
       {/* Separator */}
@@ -118,7 +123,7 @@ export const ToolApprovalSettingsContent: React.FC<{
         className="flex items-center gap-2 text-xs"
         style={{ color: 'var(--color-text-secondary)' }}
       >
-        <span className="shrink-0">On timeout:</span>
+        <span className="shrink-0">{t('dialogs.toolApproval.onTimeout')}</span>
         <Select
           value={settings.timeoutAction}
           onValueChange={(value) =>
@@ -129,15 +134,15 @@ export const ToolApprovalSettingsContent: React.FC<{
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="z-[60]">
-            <SelectItem value="wait">Wait forever</SelectItem>
-            <SelectItem value="allow">Allow</SelectItem>
-            <SelectItem value="deny">Deny</SelectItem>
+            <SelectItem value="wait">{t('dialogs.toolApproval.waitForever')}</SelectItem>
+            <SelectItem value="allow">{t('dialogs.toolApproval.allow')}</SelectItem>
+            <SelectItem value="deny">{t('dialogs.toolApproval.deny')}</SelectItem>
           </SelectContent>
         </Select>
 
         {settings.timeoutAction !== 'wait' && (
           <>
-            <span className="shrink-0">after</span>
+            <span className="shrink-0">{t('dialogs.toolApproval.after')}</span>
             <input
               type="number"
               min={5}
@@ -163,7 +168,7 @@ export const ToolApprovalSettingsContent: React.FC<{
                 color: 'var(--color-text)',
               }}
             />
-            <span className="shrink-0">sec</span>
+            <span className="shrink-0">{t('dialogs.toolApproval.sec')}</span>
           </>
         )}
       </div>

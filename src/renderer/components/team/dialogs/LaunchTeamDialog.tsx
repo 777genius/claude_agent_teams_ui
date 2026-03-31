@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { LimitContextCheckbox } from '@renderer/components/team/dialogs/LimitContextCheckbox';
@@ -111,6 +112,7 @@ function getLocalTimezone(): string {
 export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Element => {
   const { open, onClose } = props;
   const { isLight } = useTheme();
+  const { t } = useTranslation();
   const isLaunch = props.mode === 'launch';
   const isSchedule = props.mode === 'schedule';
   const schedule = isSchedule ? (props.schedule ?? null) : null;
@@ -355,23 +357,21 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
     if (typeof api.teams.prepareProvisioning !== 'function') {
       setPrepareState('failed');
       setPrepareWarnings([]);
-      setPrepareMessage(
-        'Current preload version does not support team:prepareProvisioning. Restart the dev app.'
-      );
+      setPrepareMessage(t('dialogs.launchTeam.preloadNotSupported'));
       return;
     }
 
     if (!effectiveCwd) {
       setPrepareState('idle');
       setPrepareWarnings([]);
-      setPrepareMessage('Select a working directory to validate the launch environment.');
+      setPrepareMessage(t('dialogs.launchTeam.selectCwdToValidate'));
       return;
     }
 
     let cancelled = false;
     const requestSeq = ++prepareRequestSeqRef.current;
     setPrepareState('loading');
-    setPrepareMessage('Warming up CLI environment...');
+    setPrepareMessage(t('dialogs.launchTeam.warmingUp'));
     setPrepareWarnings([]);
 
     void (async () => {
@@ -387,7 +387,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
         setPrepareState('failed');
         setPrepareWarnings([]);
         setPrepareMessage(
-          error instanceof Error ? error.message : 'Failed to warm up Claude CLI environment'
+          error instanceof Error ? error.message : t('dialogs.launchTeam.failedToWarmUp')
         );
       }
     })();
@@ -436,7 +436,9 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
         setProjects([...apiProjects, ...extras]);
       } catch (error) {
         if (cancelled) return;
-        setProjectsError(error instanceof Error ? error.message : 'Failed to load projects');
+        setProjectsError(
+          error instanceof Error ? error.message : t('dialogs.launchTeam.failedToLoadProjects')
+        );
         setProjects([]);
       } finally {
         if (!cancelled) setProjectsLoading(false);
@@ -527,14 +529,16 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
     if (!isLaunch) return [];
 
     const summary: string[] = [];
-    if (promptDraft.value.trim()) summary.push('Lead prompt');
-    if (selectedModel) summary.push(`Model: ${selectedModel}`);
-    if (selectedEffort) summary.push(`Effort: ${selectedEffort}`);
-    if (limitContext) summary.push('Limited to 200K context');
-    if (skipPermissions) summary.push('Auto-approve tools');
-    if (clearContext) summary.push('Fresh session');
-    if (worktreeEnabled && worktreeName.trim()) summary.push(`Worktree: ${worktreeName.trim()}`);
-    if (customArgs.trim()) summary.push('Custom CLI args');
+    if (promptDraft.value.trim()) summary.push(t('dialogs.launchTeam.summaryLeadPrompt'));
+    if (selectedModel) summary.push(t('dialogs.launchTeam.summaryModel', { model: selectedModel }));
+    if (selectedEffort)
+      summary.push(t('dialogs.launchTeam.summaryEffort', { effort: selectedEffort }));
+    if (limitContext) summary.push(t('dialogs.launchTeam.summaryLimitedContext'));
+    if (skipPermissions) summary.push(t('dialogs.launchTeam.summaryAutoApprove'));
+    if (clearContext) summary.push(t('dialogs.launchTeam.summaryFreshSession'));
+    if (worktreeEnabled && worktreeName.trim())
+      summary.push(t('dialogs.launchTeam.summaryWorktree', { name: worktreeName.trim() }));
+    if (customArgs.trim()) summary.push(t('dialogs.launchTeam.summaryCustomArgs'));
     return summary;
   }, [
     isLaunch,
@@ -555,11 +559,11 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
 
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
-    if (!effectiveCwd) errors.push('Working directory is required');
+    if (!effectiveCwd) errors.push(t('dialogs.launchTeam.validation.cwdRequired'));
     if (isSchedule) {
-      if (!effectiveTeamName) errors.push('Team is required');
-      if (!promptDraft.value.trim()) errors.push('Prompt is required');
-      if (!cronExpression.trim()) errors.push('Cron expression is required');
+      if (!effectiveTeamName) errors.push(t('dialogs.launchTeam.validation.teamRequired'));
+      if (!promptDraft.value.trim()) errors.push(t('dialogs.launchTeam.validation.promptRequired'));
+      if (!cronExpression.trim()) errors.push(t('dialogs.launchTeam.validation.cronRequired'));
     }
     return errors;
   }, [effectiveCwd, isSchedule, effectiveTeamName, promptDraft.value, cronExpression]);
@@ -581,7 +585,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
       return;
     }
     if (isLaunch && !effectiveCwd) {
-      setLocalError('Select working directory (cwd)');
+      setLocalError(t('dialogs.launchTeam.selectCwd'));
       return;
     }
     setLocalError(null);
@@ -643,7 +647,9 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
         }
       } catch (err) {
         if (isSchedule) {
-          setLocalError(err instanceof Error ? err.message : 'Failed to save schedule');
+          setLocalError(
+            err instanceof Error ? err.message : t('dialogs.launchTeam.failedToSaveSchedule')
+          );
         }
         // launch errors shown via provisioningError prop
       } finally {
@@ -664,24 +670,33 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   // Dynamic labels
   // ---------------------------------------------------------------------------
 
-  const dialogTitle = isLaunch ? 'Launch Team' : isEditing ? 'Edit Schedule' : 'Create Schedule';
+  const dialogTitle = isLaunch
+    ? t('dialogs.launchTeam.titleLaunch')
+    : isEditing
+      ? t('dialogs.launchTeam.titleEditSchedule')
+      : t('dialogs.launchTeam.titleCreateSchedule');
 
   const dialogDescription = isLaunch ? (
-    <>
-      Start team <span className="font-mono font-medium">{effectiveTeamName}</span> via local Claude
-      CLI.
-    </>
+    <>{t('dialogs.launchTeam.descriptionLaunch', { name: effectiveTeamName })}</>
   ) : isEditing ? (
-    `Editing schedule for team "${effectiveTeamName}"`
+    t('dialogs.launchTeam.descriptionEditSchedule', { name: effectiveTeamName })
   ) : effectiveTeamName ? (
-    `Schedule automatic runs for team "${effectiveTeamName}"`
+    t('dialogs.launchTeam.descriptionScheduleRuns', { name: effectiveTeamName })
   ) : (
-    'Schedule automatic Claude task execution'
+    t('dialogs.launchTeam.descriptionScheduleAutomatic')
   );
 
-  const submitLabel = isLaunch ? 'Launch' : isEditing ? 'Save Changes' : 'Create Schedule';
+  const submitLabel = isLaunch
+    ? t('dialogs.launchTeam.launch')
+    : isEditing
+      ? t('dialogs.launchTeam.saveChanges')
+      : t('dialogs.launchTeam.createSchedule');
 
-  const submittingLabel = isLaunch ? 'Launching...' : isEditing ? 'Saving...' : 'Creating...';
+  const submittingLabel = isLaunch
+    ? t('dialogs.launchTeam.launching')
+    : isEditing
+      ? t('dialogs.launchTeam.saving')
+      : t('dialogs.launchTeam.creating');
 
   // ---------------------------------------------------------------------------
   // Render
@@ -719,15 +734,12 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <div className="min-w-0 flex-1 space-y-1">
                 <p className="font-medium">
-                  Another team &ldquo;{conflictingTeam.displayName}&rdquo; is already running for
-                  this working directory
+                  {t('dialogs.launchTeam.conflictTitle', { name: conflictingTeam.displayName })}
                 </p>
-                <p className="opacity-80">
-                  Running two teams in the same directory is risky — they may conflict editing the
-                  same files. Consider using a different directory or a git worktree for isolation.
-                </p>
+                <p className="opacity-80">{t('dialogs.launchTeam.conflictDescription')}</p>
                 <p className="text-[11px] opacity-70">
-                  Working directory: <span className="font-mono">{effectiveCwd}</span>
+                  {t('dialogs.launchTeam.conflictWorkingDirectory')}:{' '}
+                  <span className="font-mono">{effectiveCwd}</span>
                 </p>
               </div>
               <button
@@ -748,10 +760,10 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-400" />
               <div className="min-w-0 space-y-1">
                 <p className="font-medium text-red-300">
-                  Claude CLI is not installed — launch is blocked
+                  {t('dialogs.launchTeam.cliNotAvailable')}
                 </p>
                 <p className="text-red-300/80">
-                  {prepareMessage ?? 'Failed to prepare environment'}
+                  {prepareMessage ?? t('dialogs.launchTeam.failedToPrepare')}
                 </p>
                 {prepareWarnings.length > 0 ? (
                   <div className="space-y-0.5">
@@ -768,7 +780,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                 ) : null}
                 <div className="flex items-center gap-2 pt-1">
                   <p className="text-[11px] text-[var(--color-text-muted)]">
-                    Install Claude CLI from the Dashboard, then reopen this dialog.
+                    {t('dialogs.launchTeam.cliInstallFromDashboard')}
                   </p>
                   <button
                     type="button"
@@ -778,7 +790,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                       openDashboard();
                     }}
                   >
-                    Go to Dashboard
+                    {t('dialogs.launchTeam.cliGoToDashboard')}
                   </button>
                 </div>
               </div>
@@ -792,17 +804,17 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
               ═══════════════════════════════════════════════════════════════════ */}
           {needsTeamSelector ? (
             <div className="space-y-1.5">
-              <Label className="text-xs">Team</Label>
+              <Label className="text-xs">{t('dialogs.launchTeam.team')}</Label>
               <Combobox
                 options={teamOptions}
                 value={selectedTeamName}
                 onValueChange={setSelectedTeamName}
-                placeholder="Select a team..."
-                searchPlaceholder="Search teams..."
+                placeholder={t('dialogs.launchTeam.selectTeam')}
+                searchPlaceholder={t('dialogs.launchTeam.searchTeams')}
                 emptyMessage={
                   teamOptions.length === 0
-                    ? 'No teams available. Create a team first.'
-                    : 'No teams match your search.'
+                    ? t('dialogs.launchTeam.noTeamsAvailable')
+                    : t('dialogs.launchTeam.noTeamsMatch')
                 }
                 disabled={teamOptions.length === 0}
                 renderOption={(option, isSelected) => {
@@ -868,7 +880,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   <ChevronRight className="size-3.5 shrink-0 text-[var(--color-text-muted)]" />
                 )}
                 <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Schedule
+                  {t('dialogs.launchTeam.schedule')}
                 </span>
                 {!schedExpanded && (schedLabel || cronExpression) ? (
                   <span className="ml-auto truncate text-[11px] text-[var(--color-text-muted)] opacity-70">
@@ -882,14 +894,14 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   {/* Label */}
                   <div className="space-y-1.5">
                     <Label htmlFor="schedule-label" className="label-optional">
-                      Label (optional)
+                      {t('dialogs.launchTeam.labelOptional')}
                     </Label>
                     <Input
                       id="schedule-label"
                       className="h-8 text-xs"
                       value={schedLabel}
                       onChange={(e) => setSchedLabel(e.target.value)}
-                      placeholder="e.g., Daily code review, Nightly tests..."
+                      placeholder={t('dialogs.launchTeam.labelPlaceholder')}
                     />
                   </div>
 
@@ -928,14 +940,14 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
               ═══════════════════════════════════════════════════════════════════ */}
           {isLaunch ? (
             <OptionalSettingsSection
-              title="Optional launch settings"
-              description="Keep the launch flow focused on the project path and only expand this when you want extra control."
+              title={t('dialogs.launchTeam.optionalLaunchSettings')}
+              description={t('dialogs.launchTeam.optionalLaunchDescription')}
               summary={launchOptionalSummary}
             >
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="dialog-prompt" className="label-optional">
-                    Prompt for team lead (optional)
+                    {t('dialogs.launchTeam.promptLabelOptional')}
                   </Label>
                   <MentionableTextarea
                     id="dialog-prompt"
@@ -949,10 +961,12 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                     chips={chipDraft.chips}
                     onChipRemove={chipDraft.removeChip}
                     onFileChipInsert={chipDraft.addChip}
-                    placeholder="Instructions for team lead..."
+                    placeholder={t('dialogs.launchTeam.promptPlaceholderLaunch')}
                     footerRight={
                       promptDraft.isSaved ? (
-                        <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
+                        <span className="text-[10px] text-[var(--color-text-muted)]">
+                          {t('dialogs.launchTeam.saved')}
+                        </span>
                       ) : null
                     }
                   />
@@ -994,7 +1008,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                       className="flex cursor-pointer items-center gap-1.5 text-xs font-normal text-text-secondary"
                     >
                       <RotateCcw className="size-3 shrink-0" />
-                      Clear context (fresh session)
+                      {t('dialogs.launchTeam.clearContext')}
                     </Label>
                   </div>
                   {clearContext && (
@@ -1008,11 +1022,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                     >
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                        <p>
-                          The team lead will start a new session without resuming previous context.
-                          All accumulated session memory and conversation history will not be
-                          available.
-                        </p>
+                        <p>{t('dialogs.launchTeam.clearContextWarning')}</p>
                       </div>
                     </div>
                   )}
@@ -1033,7 +1043,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
           ) : (
             <>
               <div className="space-y-1.5">
-                <Label htmlFor="dialog-prompt">Prompt</Label>
+                <Label htmlFor="dialog-prompt">{t('dialogs.launchTeam.prompt')}</Label>
                 <MentionableTextarea
                   id="dialog-prompt"
                   className="min-h-[100px] text-xs"
@@ -1046,16 +1056,17 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   chips={chipDraft.chips}
                   onChipRemove={chipDraft.removeChip}
                   onFileChipInsert={chipDraft.addChip}
-                  placeholder="Instructions for Claude to execute on schedule..."
+                  placeholder={t('dialogs.launchTeam.promptPlaceholderSchedule')}
                   footerRight={
                     promptDraft.isSaved ? (
-                      <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
+                      <span className="text-[10px] text-[var(--color-text-muted)]">
+                        {t('dialogs.launchTeam.saved')}
+                      </span>
                     ) : null
                   }
                 />
                 <p className="text-[11px] text-[var(--color-text-muted)]">
-                  This prompt will be passed to <code className="font-mono">claude -p</code> for
-                  one-shot execution
+                  {t('dialogs.launchTeam.promptOneShotDescription')}
                 </p>
               </div>
 
@@ -1089,7 +1100,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   htmlFor="schedule-max-turns"
                   className="text-[11px] text-[var(--color-text-muted)]"
                 >
-                  Max turns
+                  {t('dialogs.launchTeam.maxTurns')}
                 </Label>
                 <Input
                   id="schedule-max-turns"
@@ -1107,7 +1118,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   htmlFor="schedule-max-budget"
                   className="text-[11px] text-[var(--color-text-muted)]"
                 >
-                  Max budget (USD)
+                  {t('dialogs.launchTeam.maxBudget')}
                 </Label>
                 <Input
                   id="schedule-max-budget"
@@ -1117,7 +1128,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   className="h-8 text-xs"
                   value={maxBudgetUsd}
                   onChange={(e) => setMaxBudgetUsd(e.target.value)}
-                  placeholder="No limit"
+                  placeholder={t('dialogs.launchTeam.noLimit')}
                 />
               </div>
             </div>
@@ -1143,17 +1154,17 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                     <span>
                       {prepareMessage ??
                         (prepareState === 'idle'
-                          ? 'Warming up CLI environment...'
-                          : 'Preparing environment...')}
+                          ? t('dialogs.launchTeam.warmingUp')
+                          : t('dialogs.launchTeam.preparingEnvironment'))}
                     </span>
                     <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)] opacity-70">
-                      <span>Pre-flight check to catch errors before launch</span>
+                      <span>{t('dialogs.launchTeam.preFlightCheck')}</span>
                       <button
                         type="button"
                         onClick={() => setPrepareState('ready')}
                         className="rounded px-1.5 py-0.5 text-[10px] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text-secondary)]"
                       >
-                        Skip
+                        {t('dialogs.launchTeam.skip')}
                       </button>
                     </p>
                   </div>
@@ -1166,8 +1177,8 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                     <CheckCircle2 className="size-3.5 shrink-0" />
                     <span>
                       {prepareWarnings.length > 0
-                        ? 'CLI environment ready (with notes)'
-                        : 'CLI environment ready'}
+                        ? t('dialogs.launchTeam.cliReadyWithNotes')
+                        : t('dialogs.launchTeam.cliReady')}
                     </span>
                   </div>
                   {prepareMessage ? (
@@ -1193,7 +1204,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
 
           <div className="flex shrink-0 items-center gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>
-              {isLaunch ? 'Close' : 'Cancel'}
+              {isLaunch ? t('dialogs.launchTeam.close') : t('dialogs.launchTeam.cancel')}
             </Button>
             <Button
               size="sm"

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { cn } from '@renderer/lib/utils';
@@ -139,6 +140,7 @@ export const ProvisioningProgressBlock = ({
   assistantOutput,
   className,
 }: ProvisioningProgressBlockProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const elapsed = useElapsedTimer(startedAt, loading);
   const [logsOpen, setLogsOpen] = useState(() => Boolean(cliLogsTail) && loading);
   const [liveOutputOpen, setLiveOutputOpen] = useState(defaultLiveOutputOpen);
@@ -246,7 +248,7 @@ export const ProvisioningProgressBlock = ({
             className="h-6 shrink-0 px-2 text-xs"
             onClick={onCancel}
           >
-            Cancel
+            {t('team.provisioningProgress.cancel')}
           </Button>
         ) : null}
       </div>
@@ -278,7 +280,7 @@ export const ProvisioningProgressBlock = ({
           onClick={() => setLiveOutputOpen((v) => !v)}
         >
           {liveOutputOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          Live output
+          {t('team.provisioningProgress.liveOutput')}
         </button>
         {liveOutputOpen ? (
           <div
@@ -297,7 +299,7 @@ export const ProvisioningProgressBlock = ({
                   isError ? 'text-[var(--step-error-text-dim)]' : 'text-[var(--color-text-muted)]'
                 )}
               >
-                No output captured yet.
+                {t('team.provisioningProgress.noOutputYet')}
               </p>
             )}
           </div>
@@ -311,7 +313,7 @@ export const ProvisioningProgressBlock = ({
             onClick={() => setLogsOpen((v) => !v)}
           >
             {logsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            CLI logs
+            {t('team.provisioningProgress.cliLogs')}
           </button>
           {logsOpen ? (
             <CliLogsRichView cliLogsTail={cliLogsTail} order="newest-first" className="mt-1" />

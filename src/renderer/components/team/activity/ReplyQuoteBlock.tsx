@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
@@ -26,6 +27,7 @@ export const ReplyQuoteBlock = ({
   bodyMaxHeight = 'max-h-56',
   replyTaskRefs,
 }: ReplyQuoteBlockProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const isLong = reply.originalText.length > LONG_QUOTE_THRESHOLD;
   const [expanded, setExpanded] = useState(false);
 
@@ -42,7 +44,9 @@ export const ReplyQuoteBlock = ({
 
         {/* "Replying to" + MemberBadge */}
         <div className="mb-1 flex items-center gap-1.5">
-          <span className="text-[10px] text-blue-600/60 dark:text-blue-300/60">Replying to</span>
+          <span className="text-[10px] text-blue-600/60 dark:text-blue-300/60">
+            {t('team.replyQuote.replyingTo')}
+          </span>
           <MemberBadge name={reply.agentName} color={memberColor} size="sm" />
         </div>
 
@@ -62,7 +66,7 @@ export const ReplyQuoteBlock = ({
             className="mt-0.5 text-[10px] text-blue-600/60 hover:text-blue-700 dark:text-blue-400/60 dark:hover:text-blue-300"
             onClick={() => setExpanded((v) => !v)}
           >
-            {expanded ? 'less' : 'more'}
+            {expanded ? t('team.replyQuote.less') : t('team.replyQuote.more')}
           </button>
         ) : null}
       </div>

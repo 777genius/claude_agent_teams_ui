@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 
 import {
   CARD_ICON_MUTED,
@@ -48,6 +49,7 @@ export const MetricsPill = ({
   isolatedOverride,
   phaseBreakdown,
 }: Readonly<MetricsPillProps>): React.ReactElement | null => {
+  const { t } = useTranslation();
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
   const containerRef = useRef<HTMLDivElement>(null);
@@ -123,7 +125,7 @@ export const MetricsPill = ({
 
   const mainValue = hasMainImpact ? formatTokensCompact(mainSessionImpact.totalTokens) : null;
   const isolatedValue = hasIsolated ? formatTokensCompact(isolatedTotal) : null;
-  const rightLabel = isolatedLabel ?? 'Subagent Context';
+  const rightLabel = isolatedLabel ?? t('chat.items.metricsPill.subagentContext');
 
   return (
     <>
@@ -160,7 +162,9 @@ export const MetricsPill = ({
             <div className="space-y-1">
               {hasMainImpact && (
                 <div className="flex items-center justify-between gap-3">
-                  <span style={{ color: COLOR_TEXT_MUTED }}>Main Context</span>
+                  <span style={{ color: COLOR_TEXT_MUTED }}>
+                    {t('chat.items.metricsPill.mainContext')}
+                  </span>
                   <span className="font-mono tabular-nums" style={{ color: CARD_TEXT_LIGHT }}>
                     {mainSessionImpact.totalTokens.toLocaleString()}
                   </span>
@@ -181,7 +185,7 @@ export const MetricsPill = ({
                     className="flex items-center justify-between gap-3 pl-2"
                   >
                     <span className="text-[10px]" style={{ color: CARD_ICON_MUTED }}>
-                      Phase {phase.phaseNumber}
+                      {t('chat.displayItemList.phase', { n: phase.phaseNumber })}
                     </span>
                     <span
                       className="font-mono text-[10px] tabular-nums"
@@ -202,10 +206,10 @@ export const MetricsPill = ({
                 style={{ borderTop: `1px solid ${TAG_BORDER}`, color: CARD_ICON_MUTED }}
               >
                 {hasMainImpact && hasIsolated
-                  ? 'Left: parent injection · Right: internal'
+                  ? t('chat.items.metricsPill.parentInjectionTooltip')
                   : hasMainImpact
-                    ? 'Tokens injected to parent'
-                    : 'Internal token usage'}
+                    ? t('chat.items.metricsPill.tokensInjectedToParent')
+                    : t('chat.items.metricsPill.internalTokenUsage')}
               </div>
             </div>
           </div>,

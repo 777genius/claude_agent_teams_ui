@@ -1,0 +1,208 @@
+{
+  "editor": {
+    "emptyState": {
+      "selectFilePrompt": "Selecciona un archivo del arbol para editar",
+      "shortcutQuickOpen": "Apertura rapida",
+      "shortcutSearchInFiles": "Buscar en archivos",
+      "shortcutSave": "Guardar",
+      "shortcutToggleSidebar": "Alternar barra lateral",
+      "shortcutGoToLine": "Ir a linea",
+      "shortcutCloseEditor": "Cerrar editor"
+    },
+    "toolbar": {
+      "save": "Guardar",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "enableWordWrap": "Activar ajuste de linea",
+      "disableWordWrap": "Desactivar ajuste de linea",
+      "splitPreview": "Vista dividida",
+      "closeSplitPreview": "Cerrar vista dividida",
+      "fullPreview": "Vista previa completa",
+      "closePreview": "Cerrar vista previa"
+    },
+    "tabBar": {
+      "unsavedChanges": "Cambios sin guardar"
+    },
+    "tabContextMenu": {
+      "close": "Cerrar",
+      "closeOthers": "Cerrar otras",
+      "closeTabsToLeft": "Cerrar pestanas a la izquierda",
+      "closeTabsToRight": "Cerrar pestanas a la derecha",
+      "closeAll": "Cerrar todas"
+    },
+    "contextMenu": {
+      "newFile": "Nuevo archivo",
+      "newFolder": "Nueva carpeta",
+      "rename": "Renombrar",
+      "delete": "Eliminar",
+      "copyPath": "Copiar ruta",
+      "copyRelativePath": "Copiar ruta relativa",
+      "revealInFinder": "Mostrar en Finder",
+      "writeTeammate": "Escribir a companero",
+      "createTask": "Crear tarea"
+    },
+    "fileTree": {
+      "failedToLoadFiles": "Error al cargar archivos:",
+      "loadingFiles": "Cargando archivos...",
+      "noFilesFound": "No se encontraron archivos",
+      "dropHereForProjectRoot": "Soltar aqui para la raiz del proyecto",
+      "moveToTrash": "Mover a la papelera",
+      "moveToTrashConfirm": "Mover \u00ab{name}\u00bb a la papelera?",
+      "cancel": "Cancelar"
+    },
+    "searchPanel": {
+      "toggleReplace": "Alternar reemplazo",
+      "searchPlaceholder": "Buscar",
+      "matchCase": "Coincidir mayusculas",
+      "matchWholeWord": "Coincidir palabra completa",
+      "useRegularExpression": "Usar expresion regular",
+      "noResults": "Sin resultados",
+      "found": "encontrados",
+      "previousMatch": "Coincidencia anterior",
+      "nextMatch": "Siguiente coincidencia",
+      "close": "Cerrar",
+      "replacePlaceholder": "Reemplazar",
+      "replace": "Reemplazar",
+      "replaceNext": "Reemplazar siguiente",
+      "all": "Todo",
+      "replaceAll": "Reemplazar todo"
+    },
+    "searchInFiles": {
+      "title": "Buscar en archivos",
+      "closeSearch": "Cerrar busqueda",
+      "closeSearchEsc": "Cerrar busqueda (Esc)",
+      "searchPlaceholder": "Buscar...",
+      "matchCase": "Coincidir mayusculas",
+      "noResultsFound": "No se encontraron resultados",
+      "match": "coincidencia",
+      "matches": "coincidencias",
+      "in": "en",
+      "file": "archivo",
+      "files": "archivos",
+      "truncated": "(truncado)"
+    },
+    "selectionMenu": {
+      "writeTeammate": "Escribir a companero",
+      "createTask": "Crear tarea"
+    },
+    "shortcuts": {
+      "dialogTitle": "Atajos de teclado",
+      "fileOperations": "Operaciones de archivo",
+      "quickOpen": "Apertura rapida",
+      "save": "Guardar",
+      "saveAll": "Guardar todo",
+      "closeTab": "Cerrar pestana",
+      "search": "Busqueda",
+      "findInFile": "Buscar en archivo",
+      "searchInFiles": "Buscar en archivos",
+      "goToLine": "Ir a linea",
+      "navigation": "Navegacion",
+      "nextTab": "Siguiente pestana",
+      "previousTab": "Pestana anterior",
+      "cycleTabs": "Ciclar pestanas",
+      "toggleSidebar": "Alternar barra lateral",
+      "editing": "Edicion",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "selectNextMatch": "Seleccionar siguiente coincidencia",
+      "toggleComment": "Alternar comentario",
+      "markdown": "Markdown",
+      "splitPreview": "Vista dividida",
+      "fullPreview": "Vista previa completa",
+      "general": "General",
+      "closeEditor": "Cerrar editor"
+    },
+    "statusBar": {
+      "ln": "Lin",
+      "col": "Col",
+      "watching": "observando",
+      "watch": "observar",
+      "utf8": "UTF-8",
+      "spaces": "Espacios: 2",
+      "disableFileWatcher": "Desactivar observador de archivos",
+      "enableFileWatcher": "Activar observador de archivos",
+      "disableExternalChangeWatcher": "Desactivar observador de cambios externos",
+      "watchForExternalChanges": "Observar cambios externos"
+    },
+    "unsavedChanges": {
+      "unsavedChangesTitle": "Cambios sin guardar",
+      "youHaveUnsavedChanges": "Tienes cambios sin guardar. \u00bfQue deseas hacer?",
+      "thisFileHasUnsavedChanges": "Este archivo tiene cambios sin guardar. \u00bfQue deseas hacer?",
+      "cancel": "Cancelar",
+      "discardAndClose": "Descartar y cerrar",
+      "saveAllAndClose": "Guardar todo y cerrar",
+      "discard": "Descartar",
+      "save": "Guardar"
+    },
+    "saveConflict": {
+      "title": "Conflicto al guardar",
+      "description": "El archivo ha sido modificado externamente desde que lo abriste. \u00bfSobrescribir con tus cambios?",
+      "cancel": "Cancelar",
+      "overwrite": "Sobrescribir"
+    },
+    "overlay": {
+      "projectEditor": "Editor de proyecto",
+      "refresh": "Actualizar (F5)",
+      "refreshGitStatus": "Actualizar estado de git (F5)",
+      "keyboardShortcuts": "Atajos de teclado",
+      "closeEditor": "Cerrar editor",
+      "closeEditorEsc": "Cerrar editor (Esc)",
+      "explorer": "Explorador",
+      "hideSidebar": "Ocultar barra lateral",
+      "showSidebar": "Mostrar barra lateral",
+      "recoveredUnsavedChanges": "Se recuperaron cambios sin guardar de una sesion anterior.",
+      "keep": "Mantener",
+      "discard": "Descartar",
+      "retry": "Reintentar",
+      "saveFailed": "Error al guardar:",
+      "fileNoLongerExists": "El archivo ya no existe en disco.",
+      "fileChangedOnDisk": "El archivo cambio en disco.",
+      "closeTab": "Cerrar pestana",
+      "reload": "Recargar",
+      "keepMine": "Conservar el mio"
+    },
+    "binaryPlaceholder": {
+      "binaryFile": "Archivo binario",
+      "openInSystemViewer": "Abrir en visor del sistema"
+    },
+    "errorState": {
+      "retry": "Reintentar",
+      "closeTab": "Cerrar pestana"
+    },
+    "errorBoundary": {
+      "editorCrashed": "El editor fallo:",
+      "unknownError": "Error desconocido",
+      "retry": "Reintentar"
+    },
+    "imagePreview": {
+      "loadingPreview": "Cargando vista previa\u2026",
+      "openFullSizePreview": "Abrir vista previa a tamano completo",
+      "openInSystemViewer": "Abrir en visor del sistema"
+    },
+    "goToLine": {
+      "title": "Ir a linea",
+      "ariaLabel": "Ir a linea",
+      "current": "actual:",
+      "total": "total:",
+      "placeholder": "Numero de linea, +desplazamiento, -desplazamiento o %",
+      "go": "Ir"
+    },
+    "quickOpen": {
+      "title": "Apertura rapida",
+      "ariaLabel": "Apertura rapida",
+      "placeholder": "Buscar archivos por nombre...",
+      "loadingFiles": "Cargando archivos...",
+      "noFilesFound": "No se encontraron archivos"
+    },
+    "newFileDialog": {
+      "nameCannotBeEmpty": "El nombre no puede estar vacio",
+      "invalidName": "Nombre no valido",
+      "nameContainsInvalidCharacters": "El nombre contiene caracteres no validos",
+      "nameIsTooLong": "El nombre es demasiado largo",
+      "fileNamePlaceholder": "Nombre del archivo...",
+      "folderNamePlaceholder": "Nombre de la carpeta...",
+      "newFileName": "Nombre del nuevo archivo",
+      "newFolderName": "Nombre de la nueva carpeta"
+    }
+  }
+}

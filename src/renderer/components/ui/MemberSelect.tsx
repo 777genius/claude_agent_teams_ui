@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
@@ -31,16 +32,18 @@ export const MemberSelect = ({
   members,
   value,
   onChange,
-  placeholder = 'Select member...',
+  placeholder,
   allowUnassigned = false,
   size = 'sm',
   disabled = false,
   className,
 }: MemberSelectProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const listboxId = React.useId();
   const { isLight } = useTheme();
+  const resolvedPlaceholder = placeholder ?? t('layout.memberSelect.selectMember');
 
   const colorMap = React.useMemo(() => buildMemberColorMap(members), [members]);
   const selectedMember = React.useMemo(
@@ -97,9 +100,11 @@ export const MemberSelect = ({
             {selectedMember ? (
               renderMemberInline(selectedMember)
             ) : value === null && allowUnassigned ? (
-              <span className="text-xs text-[var(--color-text-muted)]">Unassigned</span>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {t('layout.memberSelect.unassigned')}
+              </span>
             ) : (
-              <span className="text-[var(--color-text-muted)]">{placeholder}</span>
+              <span className="text-[var(--color-text-muted)]">{resolvedPlaceholder}</span>
             )}
           </span>
           <ChevronsUpDown className="ml-2 size-3.5 shrink-0 opacity-50" />
@@ -120,7 +125,7 @@ export const MemberSelect = ({
             <CommandPrimitive.Input
               value={search}
               onValueChange={setSearch}
-              placeholder="Search members..."
+              placeholder={t('layout.memberSelect.searchMembers')}
               className="flex h-8 w-full border-0 bg-transparent px-2 py-1 text-xs text-[var(--color-text)] outline-none placeholder:text-[var(--color-text-muted)]"
             />
           </div>
@@ -130,7 +135,7 @@ export const MemberSelect = ({
             onWheel={(e) => e.stopPropagation()}
           >
             <CommandPrimitive.Empty className="py-4 pr-2 text-center text-xs text-[var(--color-text-muted)]">
-              No members found.
+              {t('layout.memberSelect.noMembersFound')}
             </CommandPrimitive.Empty>
             {allowUnassigned && !search.trim() ? (
               <CommandPrimitive.Item
@@ -142,7 +147,9 @@ export const MemberSelect = ({
                 }}
                 className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none data-[selected=true]:bg-[var(--color-surface-raised)] data-[selected=true]:text-[var(--color-text)]"
               >
-                <span className="text-[var(--color-text-muted)]">Unassigned</span>
+                <span className="text-[var(--color-text-muted)]">
+                  {t('layout.memberSelect.unassigned')}
+                </span>
                 {value === null ? (
                   <Check size={12} className="ml-auto shrink-0 text-blue-400" />
                 ) : null}

@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { Button } from '@renderer/components/ui/button';
@@ -28,6 +29,7 @@ import { SkillsPanel } from './skills/SkillsPanel';
 import { ExtensionsSubTabTrigger } from './ExtensionsSubTabTrigger';
 
 export const ExtensionStoreView = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const tabId = useTabIdOptional();
   const fetchPluginCatalog = useStore((s) => s.fetchPluginCatalog);
   const fetchApiKeys = useStore((s) => s.fetchApiKeys);
@@ -62,34 +64,30 @@ export const ExtensionStoreView = (): React.JSX.Element => {
     () => [
       {
         value: 'plugins' as const,
-        label: 'Plugins',
+        label: t('extensions.extensionStoreView.tabs.plugins'),
         icon: Puzzle,
-        description:
-          'Small add-ons for Claude. They give the app extra features and integrations you can install when you need them.',
+        description: t('extensions.extensionStoreView.tabs.pluginsDescription'),
       },
       {
         value: 'mcp-servers' as const,
-        label: 'MCP Servers',
+        label: t('extensions.extensionStoreView.tabs.mcpServers'),
         icon: Server,
-        description:
-          'Connections to outside tools and apps. They let Claude read data or do actions beyond this app.',
+        description: t('extensions.extensionStoreView.tabs.mcpServersDescription'),
       },
       {
         value: 'skills' as const,
-        label: 'Skills',
+        label: t('extensions.extensionStoreView.tabs.skills'),
         icon: BookOpen,
-        description:
-          'Ready-made instructions for common jobs. They help Claude do specific tasks better and more consistently.',
+        description: t('extensions.extensionStoreView.tabs.skillsDescription'),
       },
       {
         value: 'api-keys' as const,
-        label: 'API Keys',
+        label: t('extensions.extensionStoreView.tabs.apiKeys'),
         icon: Key,
-        description:
-          'Secret keys for online services. Add them here so plugins, servers, and integrations can connect and work.',
+        description: t('extensions.extensionStoreView.tabs.apiKeysDescription'),
       },
     ],
-    []
+    [t]
   );
 
   // Fetch plugin catalog on mount
@@ -128,8 +126,12 @@ export const ExtensionStoreView = (): React.JSX.Element => {
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center">
           <Puzzle className="mx-auto mb-3 size-12 text-text-muted" />
-          <h2 className="text-lg font-semibold text-text">Extensions</h2>
-          <p className="mt-1 text-sm text-text-muted">Available in the desktop app only.</p>
+          <h2 className="text-lg font-semibold text-text">
+            {t('extensions.extensionStoreView.title')}
+          </h2>
+          <p className="mt-1 text-sm text-text-muted">
+            {t('extensions.extensionStoreView.desktopOnly')}
+          </p>
         </div>
       </div>
     );
@@ -143,7 +145,9 @@ export const ExtensionStoreView = (): React.JSX.Element => {
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-3">
               <Puzzle className="size-5 text-text-muted" />
-              <h1 className="text-lg font-semibold text-text">Extensions</h1>
+              <h1 className="text-lg font-semibold text-text">
+                {t('extensions.extensionStoreView.title')}
+              </h1>
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -151,7 +155,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
                   <RefreshCw className={`size-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Refresh catalog</TooltipContent>
+              <TooltipContent>{t('extensions.extensionStoreView.refreshCatalog')}</TooltipContent>
             </Tooltip>
           </div>
 
@@ -161,14 +165,14 @@ export const ExtensionStoreView = (): React.JSX.Element => {
             {!cliInstalled && (
               <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-400">
                 <AlertTriangle className="size-4 shrink-0" />
-                Claude CLI is required to install or uninstall extensions. Install it from Settings.
+                {t('extensions.extensionStoreView.cliRequiredWarning')}
               </div>
             )}
             {/* Active sessions warning */}
             {hasOngoingSessions && (
               <div className="mb-4 flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/5 px-4 py-3 text-sm text-blue-400">
                 <Info className="size-4 shrink-0" />
-                Running sessions won&apos;t pick up extension changes until restarted.
+                {t('extensions.extensionStoreView.activeSessionsWarning')}
               </div>
             )}
             <Tabs
@@ -197,7 +201,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
                     className="mb-1 whitespace-nowrap"
                   >
                     <Plus className="mr-1 size-3.5" />
-                    Add Custom
+                    {t('extensions.extensionStoreView.addCustom')}
                   </Button>
                 )}
               </div>

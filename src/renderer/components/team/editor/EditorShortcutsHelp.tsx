@@ -6,6 +6,7 @@
  */
 
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog';
 import { IS_MAC } from '@renderer/utils/platformKeys';
@@ -21,59 +22,59 @@ interface EditorShortcutsHelpProps {
 interface ShortcutDef {
   mac: string;
   other: string;
-  description: string;
+  descriptionKey: string;
 }
 
 // =============================================================================
-// Shortcuts data
+// Shortcuts data (uses i18n keys for titles and descriptions)
 // =============================================================================
 
-const SHORTCUT_GROUPS: { title: string; shortcuts: ShortcutDef[] }[] = [
+const SHORTCUT_GROUPS: { titleKey: string; shortcuts: ShortcutDef[] }[] = [
   {
-    title: 'File Operations',
+    titleKey: 'editor.shortcuts.fileOperations',
     shortcuts: [
-      { mac: '⌘ P', other: 'Ctrl+P', description: 'Quick Open' },
-      { mac: '⌘ S', other: 'Ctrl+S', description: 'Save' },
-      { mac: '⌘ ⇧ S', other: 'Ctrl+Shift+S', description: 'Save All' },
-      { mac: '⌘ W', other: 'Ctrl+W', description: 'Close Tab' },
+      { mac: '⌘ P', other: 'Ctrl+P', descriptionKey: 'editor.shortcuts.quickOpen' },
+      { mac: '⌘ S', other: 'Ctrl+S', descriptionKey: 'editor.shortcuts.save' },
+      { mac: '⌘ ⇧ S', other: 'Ctrl+Shift+S', descriptionKey: 'editor.shortcuts.saveAll' },
+      { mac: '⌘ W', other: 'Ctrl+W', descriptionKey: 'editor.shortcuts.closeTab' },
     ],
   },
   {
-    title: 'Search',
+    titleKey: 'editor.shortcuts.search',
     shortcuts: [
-      { mac: '⌘ F', other: 'Ctrl+F', description: 'Find in File' },
-      { mac: '⌘ ⇧ F', other: 'Ctrl+Shift+F', description: 'Search in Files' },
-      { mac: '⌘ G', other: 'Ctrl+G', description: 'Go to Line' },
+      { mac: '⌘ F', other: 'Ctrl+F', descriptionKey: 'editor.shortcuts.findInFile' },
+      { mac: '⌘ ⇧ F', other: 'Ctrl+Shift+F', descriptionKey: 'editor.shortcuts.searchInFiles' },
+      { mac: '⌘ G', other: 'Ctrl+G', descriptionKey: 'editor.shortcuts.goToLine' },
     ],
   },
   {
-    title: 'Navigation',
+    titleKey: 'editor.shortcuts.navigation',
     shortcuts: [
-      { mac: '⌘ ⇧ ]', other: 'Ctrl+Shift+]', description: 'Next Tab' },
-      { mac: '⌘ ⇧ [', other: 'Ctrl+Shift+[', description: 'Previous Tab' },
-      { mac: '⌃ Tab', other: 'Ctrl+Tab', description: 'Cycle Tabs' },
-      { mac: '⌘ B', other: 'Ctrl+B', description: 'Toggle Sidebar' },
+      { mac: '⌘ ⇧ ]', other: 'Ctrl+Shift+]', descriptionKey: 'editor.shortcuts.nextTab' },
+      { mac: '⌘ ⇧ [', other: 'Ctrl+Shift+[', descriptionKey: 'editor.shortcuts.previousTab' },
+      { mac: '⌃ Tab', other: 'Ctrl+Tab', descriptionKey: 'editor.shortcuts.cycleTabs' },
+      { mac: '⌘ B', other: 'Ctrl+B', descriptionKey: 'editor.shortcuts.toggleSidebar' },
     ],
   },
   {
-    title: 'Editing',
+    titleKey: 'editor.shortcuts.editing',
     shortcuts: [
-      { mac: '⌘ Z', other: 'Ctrl+Z', description: 'Undo' },
-      { mac: '⌘ ⇧ Z', other: 'Ctrl+Y', description: 'Redo' },
-      { mac: '⌘ D', other: 'Ctrl+D', description: 'Select Next Match' },
-      { mac: '⌘ /', other: 'Ctrl+/', description: 'Toggle Comment' },
+      { mac: '⌘ Z', other: 'Ctrl+Z', descriptionKey: 'editor.shortcuts.undo' },
+      { mac: '⌘ ⇧ Z', other: 'Ctrl+Y', descriptionKey: 'editor.shortcuts.redo' },
+      { mac: '⌘ D', other: 'Ctrl+D', descriptionKey: 'editor.shortcuts.selectNextMatch' },
+      { mac: '⌘ /', other: 'Ctrl+/', descriptionKey: 'editor.shortcuts.toggleComment' },
     ],
   },
   {
-    title: 'Markdown',
+    titleKey: 'editor.shortcuts.markdown',
     shortcuts: [
-      { mac: '⌘ ⇧ M', other: 'Ctrl+Shift+M', description: 'Split Preview' },
-      { mac: '⌘ ⇧ V', other: 'Ctrl+Shift+V', description: 'Full Preview' },
+      { mac: '⌘ ⇧ M', other: 'Ctrl+Shift+M', descriptionKey: 'editor.shortcuts.splitPreview' },
+      { mac: '⌘ ⇧ V', other: 'Ctrl+Shift+V', descriptionKey: 'editor.shortcuts.fullPreview' },
     ],
   },
   {
-    title: 'General',
-    shortcuts: [{ mac: 'Esc', other: 'Esc', description: 'Close Editor' }],
+    titleKey: 'editor.shortcuts.general',
+    shortcuts: [{ mac: 'Esc', other: 'Esc', descriptionKey: 'editor.shortcuts.closeEditor' }],
   },
 ];
 
@@ -82,24 +83,26 @@ const SHORTCUT_GROUPS: { title: string; shortcuts: ShortcutDef[] }[] = [
 // =============================================================================
 
 export const EditorShortcutsHelp = ({ onClose }: EditorShortcutsHelpProps): React.ReactElement => {
-  // Resolve platform-specific keys once
+  const { t } = useTranslation();
+
+  // Resolve platform-specific keys and translate labels
   const resolvedGroups = useMemo(
     () =>
       SHORTCUT_GROUPS.map((group) => ({
-        ...group,
+        title: t(group.titleKey),
         shortcuts: group.shortcuts.map((s) => ({
           keys: IS_MAC ? s.mac : s.other,
-          description: s.description,
+          description: t(s.descriptionKey),
         })),
       })),
-    []
+    [t]
   );
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[480px] max-w-[480px]">
         <DialogHeader>
-          <DialogTitle className="text-sm">Keyboard Shortcuts</DialogTitle>
+          <DialogTitle className="text-sm">{t('editor.shortcuts.dialogTitle')}</DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">

@@ -7,6 +7,7 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { cn } from '@renderer/lib/utils';
@@ -38,6 +39,7 @@ export const ClaudeLogsPanel = ({
   viewerClassName,
   className,
 }: ClaudeLogsPanelProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const {
     data,
     loading,
@@ -72,9 +74,9 @@ export const ClaudeLogsPanel = ({
               <span className="font-mono">{data.total}</span>
             </>
           ) : isAlive ? (
-            'No logs yet.'
+            t('team.logsPanel.noLogsYet')
           ) : (
-            'Team is not running.'
+            t('team.logsPanel.teamNotRunning')
           )}
         </span>
         <div className="flex items-center gap-2">
@@ -84,7 +86,7 @@ export const ClaudeLogsPanel = ({
                 <Search size={12} className="shrink-0 text-[var(--color-text-muted)]" />
                 <input
                   type="text"
-                  placeholder="Search logs..."
+                  placeholder={t('team.logs.searchPlaceholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="min-w-0 flex-1 bg-transparent text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none"
@@ -94,7 +96,7 @@ export const ClaudeLogsPanel = ({
                     type="button"
                     className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)]"
                     onClick={() => setSearchQuery('')}
-                    aria-label="Clear search"
+                    aria-label={t('team.logs.clearSearchAriaLabel')}
                   >
                     <X size={14} />
                   </button>
@@ -144,7 +146,7 @@ export const ClaudeLogsPanel = ({
                     onClick={() => void loadOlderLogs()}
                     disabled={loadingMore}
                   >
-                    {loadingMore ? 'Loading…' : 'Show more'}
+                    {loadingMore ? t('team.logsPanel.loading') : t('team.logsPanel.showMore')}
                   </Button>
                 </div>
               ) : null
@@ -153,11 +155,13 @@ export const ClaudeLogsPanel = ({
         ) : null}
         {!error && data.lines.length === 0 && isAlive ? (
           <p className="p-2 text-xs text-[var(--color-text-muted)]">
-            {loading ? 'Loading…' : 'No logs captured.'}
+            {loading ? t('team.logsPanel.loading') : t('team.logsPanel.noLogsCaptured')}
           </p>
         ) : null}
         {!error && data.lines.length > 0 && filteredText.trim().length === 0 ? (
-          <p className="p-2 text-xs text-[var(--color-text-muted)]">No matching logs.</p>
+          <p className="p-2 text-xs text-[var(--color-text-muted)]">
+            {t('team.logs.noMatchingLogs')}
+          </p>
         ) : null}
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { FileIcon } from '@renderer/components/team/editor/FileIcon';
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
@@ -58,6 +59,7 @@ export const MentionSuggestionList = ({
   filesLoading,
 }: MentionSuggestionListProps): React.JSX.Element => {
   const listRef = useRef<HTMLUListElement>(null);
+  const { t } = useTranslation();
   const { isLight } = useTheme();
 
   useEffect(() => {
@@ -71,10 +73,8 @@ export const MentionSuggestionList = ({
 
   if (suggestions.length === 0) {
     const emptyStateText = filesLoading
-      ? 'Searching...'
-      : hasFileSearch
-        ? 'No matching suggestions'
-        : 'No matching suggestions';
+      ? t('layout.mentionSuggestionList.searching')
+      : t('layout.mentionSuggestionList.noMatchingSuggestions');
     return (
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-overlay)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
         {emptyStateText}
@@ -93,11 +93,11 @@ export const MentionSuggestionList = ({
   };
 
   const sectionLabel: Record<Section, string> = {
-    member: 'Members',
-    team: 'Teams',
-    task: 'Tasks',
-    file: 'Files',
-    command: 'Commands',
+    member: t('layout.mentionSuggestionList.members'),
+    team: t('layout.mentionSuggestionList.teams'),
+    task: t('layout.mentionSuggestionList.tasks'),
+    file: t('layout.mentionSuggestionList.files'),
+    command: t('layout.mentionSuggestionList.commands'),
   };
 
   // Determine which sections are present
@@ -228,7 +228,11 @@ export const MentionSuggestionList = ({
           <span
             className="inline-block size-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: s.isOnline ? '#22c55e' : '#71717a' }}
-            title={s.isOnline ? 'Online' : 'Offline'}
+            title={
+              s.isOnline
+                ? t('layout.mentionSuggestionList.online')
+                : t('layout.mentionSuggestionList.offline')
+            }
           />
         ) : null}
         {s.subtitle && isFileOrFolder ? (
@@ -253,7 +257,7 @@ export const MentionSuggestionList = ({
       {filesLoading ? (
         <li className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-[var(--color-text-muted)]">
           <Loader2 size={10} className="shrink-0 animate-spin" />
-          <span>Searching files...</span>
+          <span>{t('layout.mentionSuggestionList.searchingFiles')}</span>
         </li>
       ) : null}
     </ul>

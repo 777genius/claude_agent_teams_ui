@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { Checkbox } from '@renderer/components/ui/checkbox';
@@ -40,6 +41,7 @@ export const TaskFiltersPopover = ({
   onFiltersChange,
   onApply,
 }: TaskFiltersPopoverProps): React.JSX.Element => {
+  const { t } = useTranslation();
   // Draft state — all changes accumulate here and only commit on Apply
   const [draft, setDraft] = useState<TaskFiltersState>(filters);
 
@@ -91,13 +93,17 @@ export const TaskFiltersPopover = ({
         <div className="space-y-3">
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-text-secondary">Status</span>
+              <span className="text-[11px] font-semibold text-text-secondary">
+                {t('sidebar.taskFilters.status')}
+              </span>
               <button
                 type="button"
                 className="text-[10px] text-text-muted hover:text-text-secondary"
                 onClick={handleSelectAll}
               >
-                {allSelected ? 'Clear all' : 'Select all'}
+                {allSelected
+                  ? t('sidebar.taskFilters.clearAll')
+                  : t('sidebar.taskFilters.selectAll')}
               </button>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -122,7 +128,9 @@ export const TaskFiltersPopover = ({
           </div>
 
           <div>
-            <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Team</span>
+            <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">
+              {t('sidebar.taskFilters.team')}
+            </span>
             <Combobox
               options={[
                 { value: '__all__', label: 'All teams' },
@@ -135,9 +143,9 @@ export const TaskFiltersPopover = ({
                   teamName: v === '__all__' ? null : v,
                 })
               }
-              placeholder="All teams"
-              searchPlaceholder="Search teams..."
-              emptyMessage="No teams found"
+              placeholder={t('sidebar.taskFilters.allTeams')}
+              searchPlaceholder={t('sidebar.taskFilters.searchTeams')}
+              emptyMessage={t('sidebar.taskFilters.noTeamsFound')}
               className="text-[12px]"
             />
           </div>
@@ -145,17 +153,17 @@ export const TaskFiltersPopover = ({
           {projectOptions.length > 0 && (
             <div>
               <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">
-                Project
+                {t('sidebar.taskFilters.project')}
               </span>
               <Combobox
                 options={projectOptions}
                 value={draft.projectPath ?? ''}
                 onValueChange={(v) => setDraft({ ...draft, projectPath: v || null })}
-                placeholder="All Projects"
-                searchPlaceholder="Search projects..."
-                emptyMessage="No projects"
+                placeholder={t('sidebar.taskFilters.allProjects')}
+                searchPlaceholder={t('sidebar.taskFilters.searchProjects')}
+                emptyMessage={t('sidebar.taskFilters.noProjects')}
                 className="text-[12px]"
-                resetLabel="All Projects"
+                resetLabel={t('sidebar.taskFilters.allProjects')}
                 onReset={() => setDraft({ ...draft, projectPath: null })}
               />
             </div>
@@ -163,7 +171,7 @@ export const TaskFiltersPopover = ({
 
           <div>
             <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">
-              Comments
+              {t('sidebar.taskFilters.comments')}
             </span>
             <div className="flex rounded-md border border-[var(--color-border)]">
               {READ_FILTER_OPTIONS.map((opt) => (
@@ -196,7 +204,7 @@ export const TaskFiltersPopover = ({
             className="w-full"
             onClick={handleApply}
           >
-            Apply
+            {t('sidebar.taskFilters.apply')}
           </Button>
         </div>
       </PopoverContent>

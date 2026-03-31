@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useDroppable } from '@dnd-kit/core';
 import { horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable';
@@ -25,6 +26,7 @@ interface TabBarProps {
 }
 
 export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const {
     pane,
     isFocused,
@@ -302,7 +304,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
             onMouseEnter={() => setRefreshHover(true)}
             onMouseLeave={() => setRefreshHover(false)}
             onClick={handleRefresh}
-            title={`Refresh Session (${formatShortcut('R')})`}
+            title={`${t('layout.tabBar.refreshSession')} (${formatShortcut('R')})`}
           >
             <RefreshCw className="size-4" />
           </button>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactDOM from 'react-dom';
 
 import { CheckCircle, Terminal, X, XCircle } from 'lucide-react';
@@ -27,16 +28,20 @@ interface TerminalModalProps {
 }
 
 export function TerminalModal({
-  title = 'Terminal',
+  title,
   command,
   args,
   cwd,
   onClose,
   onExit,
   autoCloseOnSuccessMs = 0,
-  successMessage = 'Completed successfully',
-  failureMessage = 'Process failed',
+  successMessage,
+  failureMessage,
 }: TerminalModalProps): React.JSX.Element {
+  const { t } = useTranslation();
+  const resolvedTitle = title ?? t('terminal.modal.terminal');
+  const resolvedSuccessMessage = successMessage ?? t('terminal.modal.completedSuccessfully');
+  const resolvedFailureMessage = failureMessage ?? t('terminal.modal.processFailed');
   const [exited, setExited] = useState<number | null>(null);
   const [countdown, setCountdown] = useState<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -94,7 +99,7 @@ export function TerminalModal({
       <div
         ref={dialogRef}
         role="dialog"
-        aria-label={title}
+        aria-label={resolvedTitle}
         aria-modal="true"
         tabIndex={-1}
         className="flex h-[60vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border-emphasis bg-surface shadow-2xl outline-none"
@@ -103,11 +108,11 @@ export function TerminalModal({
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2 text-sm font-medium text-text">
             <Terminal size={16} className="text-text-secondary" />
-            {title}
+            {resolvedTitle}
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('terminal.modal.close')}
             className="rounded p-1 text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
           >
             <X size={16} />
@@ -136,9 +141,13 @@ export function TerminalModal({
                   <div className="flex items-center gap-2.5">
                     <CheckCircle size={18} className="shrink-0 text-green-400" aria-hidden="true" />
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-green-400">{successMessage}</span>
+                      <span className="text-sm font-medium text-green-400">
+                        {resolvedSuccessMessage}
+                      </span>
                       {countdown > 0 && (
-                        <span className="text-xs text-text-muted">Closing in {countdown}s...</span>
+                        <span className="text-xs text-text-muted">
+                          {t('terminal.modal.closingIn', { count: countdown })}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -147,11 +156,13 @@ export function TerminalModal({
                     <XCircle size={18} className="shrink-0 text-red-400" aria-hidden="true" />
                     <div className="flex flex-col">
                       <span className="text-sm font-medium text-red-400">
-                        {failureMessage}{' '}
-                        <span className="font-mono opacity-75">(exit code {exited})</span>
+                        {resolvedFailureMessage}{' '}
+                        <span className="font-mono opacity-75">
+                          ({t('terminal.modal.exitCode', { code: exited })})
+                        </span>
                       </span>
                       <span className="text-xs text-text-muted">
-                        Check terminal output above for details
+                        {t('terminal.modal.checkOutput')}
                       </span>
                     </div>
                   </div>
@@ -160,7 +171,7 @@ export function TerminalModal({
                   onClick={onClose}
                   className="shrink-0 rounded-md bg-surface-raised px-4 py-1.5 text-sm text-text transition-colors hover:bg-border-emphasis"
                 >
-                  Close
+                  {t('terminal.modal.close')}
                 </button>
               </div>
 

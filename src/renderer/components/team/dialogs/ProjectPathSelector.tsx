@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { Button } from '@renderer/components/ui/button';
@@ -69,131 +70,134 @@ export const ProjectPathSelector = ({
   projectsLoading,
   projectsError,
   fieldError,
-}: ProjectPathSelectorProps): React.JSX.Element => (
-  <div className="space-y-1.5">
-    <Label>Project</Label>
-    <div className="space-y-2">
-      <div className="flex flex-col gap-2 md:flex-row md:items-start">
-        <div className="inline-flex shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5">
-          <button
-            type="button"
-            className={cn(
-              'rounded-[3px] px-3 py-1 text-xs font-medium transition-colors',
-              cwdMode === 'project'
-                ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
-                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-            )}
-            onClick={() => onCwdModeChange('project')}
-          >
-            From project list
-          </button>
-          <button
-            type="button"
-            className={cn(
-              'rounded-[3px] px-3 py-1 text-xs font-medium transition-colors',
-              cwdMode === 'custom'
-                ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
-                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-            )}
-            onClick={() => onCwdModeChange('custom')}
-          >
-            Custom path
-          </button>
-        </div>
+}: ProjectPathSelectorProps): React.JSX.Element => {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-1.5">
+      <Label>{t('dialogs.projectPath.label')}</Label>
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start">
+          <div className="inline-flex shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5">
+            <button
+              type="button"
+              className={cn(
+                'rounded-[3px] px-3 py-1 text-xs font-medium transition-colors',
+                cwdMode === 'project'
+                  ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
+                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+              )}
+              onClick={() => onCwdModeChange('project')}
+            >
+              {t('dialogs.projectPath.fromProjectList')}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'rounded-[3px] px-3 py-1 text-xs font-medium transition-colors',
+                cwdMode === 'custom'
+                  ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
+                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+              )}
+              onClick={() => onCwdModeChange('custom')}
+            >
+              {t('dialogs.projectPath.customPath')}
+            </button>
+          </div>
 
-        <div className="min-w-0 flex-1">
-          {cwdMode === 'project' ? (
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <FolderOpen size={16} className="shrink-0 text-[var(--color-text-muted)]" />
-                <div className="min-w-0 flex-1">
-                  <Combobox
-                    options={projects.map((project) => ({
-                      value: project.path,
-                      label: project.name,
-                      description: project.path,
-                    }))}
-                    value={selectedProjectPath}
-                    onValueChange={onSelectedProjectPathChange}
-                    placeholder={projectsLoading ? 'Loading projects...' : 'Select a project...'}
-                    searchPlaceholder="Search project by name or path"
-                    emptyMessage="Nothing found"
-                    disabled={projectsLoading || projects.length === 0}
-                    renderOption={(option, isSelected, query) => (
-                      <>
-                        <Check
-                          className={cn(
-                            'mr-2 size-3.5 shrink-0',
-                            isSelected ? 'opacity-100' : 'opacity-0'
-                          )}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium text-[var(--color-text)]">
-                            {renderHighlightedText(option.label, query)}
-                          </p>
-                          <p className="truncate text-[var(--color-text-muted)]">
-                            {renderHighlightedText(option.description ?? '', query)}
-                          </p>
-                        </div>
-                      </>
-                    )}
-                  />
+          <div className="min-w-0 flex-1">
+            {cwdMode === 'project' ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <FolderOpen size={16} className="shrink-0 text-[var(--color-text-muted)]" />
+                  <div className="min-w-0 flex-1">
+                    <Combobox
+                      options={projects.map((project) => ({
+                        value: project.path,
+                        label: project.name,
+                        description: project.path,
+                      }))}
+                      value={selectedProjectPath}
+                      onValueChange={onSelectedProjectPathChange}
+                      placeholder={projectsLoading ? 'Loading projects...' : 'Select a project...'}
+                      searchPlaceholder="Search project by name or path"
+                      emptyMessage="Nothing found"
+                      disabled={projectsLoading || projects.length === 0}
+                      renderOption={(option, isSelected, query) => (
+                        <>
+                          <Check
+                            className={cn(
+                              'mr-2 size-3.5 shrink-0',
+                              isSelected ? 'opacity-100' : 'opacity-0'
+                            )}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium text-[var(--color-text)]">
+                              {renderHighlightedText(option.label, query)}
+                            </p>
+                            <p className="truncate text-[var(--color-text-muted)]">
+                              {renderHighlightedText(option.description ?? '', query)}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    />
+                  </div>
                 </div>
+                {!selectedProjectPath ? (
+                  <p className="text-[11px] text-[var(--color-text-muted)]">
+                    Select a project from the list
+                  </p>
+                ) : null}
+                {projectsError ? <p className="text-[11px] text-red-300">{projectsError}</p> : null}
+                {!projectsLoading && projects.length === 0 ? (
+                  <p className="text-[11px]" style={{ color: 'var(--warning-text)' }}>
+                    No projects found, switch to custom path.
+                  </p>
+                ) : null}
               </div>
-              {!selectedProjectPath ? (
-                <p className="text-[11px] text-[var(--color-text-muted)]">
-                  Select a project from the list
-                </p>
-              ) : null}
-              {projectsError ? <p className="text-[11px] text-red-300">{projectsError}</p> : null}
-              {!projectsLoading && projects.length === 0 ? (
-                <p className="text-[11px]" style={{ color: 'var(--warning-text)' }}>
-                  No projects found, switch to custom path.
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <FolderOpen size={16} className="shrink-0 text-[var(--color-text-muted)]" />
-                <Input
-                  className="h-8 flex-1 text-xs"
-                  value={customCwd}
-                  aria-label="Custom working directory"
-                  onChange={(event) => onCustomCwdChange(event.target.value)}
-                  placeholder="/absolute/path/to/project"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        const paths = await api.config.selectFolders();
-                        if (paths.length > 0) {
-                          onCustomCwdChange(paths[0]);
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <FolderOpen size={16} className="shrink-0 text-[var(--color-text-muted)]" />
+                  <Input
+                    className="h-8 flex-1 text-xs"
+                    value={customCwd}
+                    aria-label={t('dialogs.projectPath.ariaLabel')}
+                    onChange={(event) => onCustomCwdChange(event.target.value)}
+                    placeholder={t('dialogs.projectPath.placeholder')}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      void (async () => {
+                        try {
+                          const paths = await api.config.selectFolders();
+                          if (paths.length > 0) {
+                            onCustomCwdChange(paths[0]);
+                          }
+                        } catch {
+                          // IPC error — dialog may have been cancelled or failed
                         }
-                      } catch {
-                        // IPC error — dialog may have been cancelled or failed
-                      }
-                    })();
-                  }}
-                >
-                  Browse
-                </Button>
+                      })();
+                    }}
+                  >
+                    {t('dialogs.projectPath.browse')}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-[var(--color-text-muted)]">
+                  If the directory does not exist, it will be created automatically.
+                </p>
               </div>
-              <p className="text-[11px] text-[var(--color-text-muted)]">
-                If the directory does not exist, it will be created automatically.
-              </p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
+      {fieldError ? (
+        <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
+          {fieldError}
+        </p>
+      ) : null}
     </div>
-    {fieldError ? (
-      <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
-        {fieldError}
-      </p>
-    ) : null}
-  </div>
-);
+  );
+};

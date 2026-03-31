@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
@@ -43,9 +44,9 @@ interface PluginDetailDialogProps {
   onClose: () => void;
 }
 
-const SCOPE_OPTIONS: { value: InstallScope; label: string }[] = [
-  { value: 'user', label: 'User (global)' },
-  { value: 'project', label: 'Project' },
+const SCOPE_OPTIONS: { value: InstallScope; labelKey: string }[] = [
+  { value: 'user', labelKey: 'extensions.plugins.pluginDetailDialog.scopeUserGlobal' },
+  { value: 'project', labelKey: 'extensions.plugins.pluginDetailDialog.scopeProject' },
 ];
 
 export const PluginDetailDialog = ({
@@ -53,6 +54,7 @@ export const PluginDetailDialog = ({
   open,
   onClose,
 }: PluginDetailDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const fetchPluginReadme = useStore((s) => s.fetchPluginReadme);
   const readmes = useStore((s) => s.pluginReadmes);
   const readmeLoading = useStore((s) => s.pluginReadmeLoading);
@@ -93,7 +95,7 @@ export const PluginDetailDialog = ({
                   className="shrink-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                   variant="outline"
                 >
-                  Installed
+                  {t('extensions.plugins.pluginDetailDialog.installed')}
                 </Badge>
               )}
               <SourceBadge source={plugin.source} />
@@ -104,25 +106,37 @@ export const PluginDetailDialog = ({
         {/* Metadata grid */}
         <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <div>
-            <span className="text-text-muted">Author</span>
-            <p className="text-text">{plugin.author?.name ?? 'Unknown'}</p>
+            <span className="text-text-muted">
+              {t('extensions.plugins.pluginDetailDialog.author')}
+            </span>
+            <p className="text-text">
+              {plugin.author?.name ?? t('extensions.plugins.pluginDetailDialog.unknown')}
+            </p>
           </div>
           <div>
-            <span className="text-text-muted">Category</span>
+            <span className="text-text-muted">
+              {t('extensions.plugins.pluginDetailDialog.category')}
+            </span>
             <p className="capitalize text-text">{category}</p>
           </div>
           <div>
-            <span className="text-text-muted">Source</span>
+            <span className="text-text-muted">
+              {t('extensions.plugins.pluginDetailDialog.source')}
+            </span>
             <p className="capitalize text-text">{plugin.source}</p>
           </div>
           {plugin.version && (
             <div>
-              <span className="text-text-muted">Version</span>
+              <span className="text-text-muted">
+                {t('extensions.plugins.pluginDetailDialog.version')}
+              </span>
               <p className="text-text">{plugin.version}</p>
             </div>
           )}
           <div>
-            <span className="text-text-muted">Capabilities</span>
+            <span className="text-text-muted">
+              {t('extensions.plugins.pluginDetailDialog.capabilities')}
+            </span>
             <div className="mt-0.5 flex flex-wrap gap-1">
               {capabilities.map((cap) => (
                 <Badge
@@ -136,7 +150,9 @@ export const PluginDetailDialog = ({
             </div>
           </div>
           <div>
-            <span className="text-text-muted">Installs</span>
+            <span className="text-text-muted">
+              {t('extensions.plugins.pluginDetailDialog.installs')}
+            </span>
             <div className="mt-0.5">
               <InstallCountBadge count={plugin.installCount} />
             </div>
@@ -146,7 +162,9 @@ export const PluginDetailDialog = ({
         {/* Install controls */}
         <div className="flex items-center gap-3 rounded-md border border-border bg-surface-raised px-4 py-3">
           <div className="flex flex-1 items-center gap-2">
-            <Label className="text-xs text-text-muted">Scope:</Label>
+            <Label className="text-xs text-text-muted">
+              {t('extensions.plugins.pluginDetailDialog.scope')}
+            </Label>
             <Select value={scope} onValueChange={(v) => setScope(v as InstallScope)}>
               <SelectTrigger className="h-7 w-36 text-xs">
                 <SelectValue />
@@ -154,7 +172,7 @@ export const PluginDetailDialog = ({
               <SelectContent>
                 {SCOPE_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -179,7 +197,7 @@ export const PluginDetailDialog = ({
               onClick={() => void api.openExternal(plugin.homepage!)}
             >
               <ExternalLink className="mr-1 size-3.5" />
-              Homepage
+              {t('extensions.plugins.pluginDetailDialog.homepage')}
             </Button>
           )}
           {plugin.author?.email && (
@@ -189,7 +207,7 @@ export const PluginDetailDialog = ({
               onClick={() => void api.openExternal(`mailto:${plugin.author!.email}`)}
             >
               <Mail className="mr-1 size-3.5" />
-              Contact
+              {t('extensions.plugins.pluginDetailDialog.contact')}
             </Button>
           )}
         </div>
@@ -199,14 +217,16 @@ export const PluginDetailDialog = ({
           {isReadmeLoading && (
             <div className="flex items-center gap-2 text-sm text-text-muted">
               <Loader2 className="size-4 animate-spin" />
-              Loading README...
+              {t('extensions.plugins.pluginDetailDialog.loadingReadme')}
             </div>
           )}
           {!isReadmeLoading && readme && (
             <MarkdownViewer content={readme} bare maxHeight="max-h-none" />
           )}
           {!isReadmeLoading && !readme && (
-            <p className="text-sm text-text-muted">No README available.</p>
+            <p className="text-sm text-text-muted">
+              {t('extensions.plugins.pluginDetailDialog.noReadmeAvailable')}
+            </p>
           )}
         </div>
       </DialogContent>

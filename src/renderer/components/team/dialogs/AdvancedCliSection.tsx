@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { Checkbox } from '@renderer/components/ui/checkbox';
@@ -79,6 +80,7 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
   customArgs,
   onCustomArgsChange,
 }) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [validationState, setValidationState] = useState<ValidationState>('idle');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
@@ -197,7 +199,7 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
           className={`size-3.5 transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}
         />
         <Terminal className="size-3" />
-        <span>Advanced</span>
+        <span>{t('dialogs.advancedCli.title')}</span>
       </button>
 
       {isOpen && (
@@ -214,7 +216,7 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
                 htmlFor={`worktree-${teamName}`}
                 className="cursor-pointer text-xs font-normal text-text-secondary"
               >
-                Use worktree
+                {t('dialogs.advancedCli.useWorktree')}
               </Label>
             </div>
 
@@ -222,7 +224,7 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
               <Popover open={showHistory && filteredHistory.length > 0}>
                 <PopoverAnchor asChild>
                   <Input
-                    placeholder="worktree-name"
+                    placeholder={t('dialogs.advancedCli.worktreePlaceholder')}
                     className="h-7 font-mono text-xs"
                     value={worktreeName}
                     onChange={(e) => onWorktreeNameChange(e.target.value)}
@@ -244,7 +246,7 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
                 >
                   <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] text-text-muted">
                     <Clock className="size-3" />
-                    <span>Recent</span>
+                    <span>{t('dialogs.advancedCli.recentLabel')}</span>
                   </div>
                   {filteredHistory.map((name) => (
                     <button
@@ -268,7 +270,7 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
           {/* Command preview */}
           <div className="space-y-1">
             <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
-              Command preview
+              {t('dialogs.advancedCli.commandPreview')}
             </span>
             <div className="overflow-x-auto rounded border border-border bg-surface-sidebar px-2.5 py-1.5">
               <code className="flex flex-wrap gap-x-1 gap-y-0.5 font-mono text-[11px] leading-relaxed">
@@ -284,11 +286,11 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
           {/* Custom arguments */}
           <div className="space-y-1.5">
             <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
-              Custom arguments
+              {t('dialogs.advancedCli.customArguments')}
             </span>
             <div className="flex items-center gap-2">
               <Input
-                placeholder="--max-turns 5"
+                placeholder={t('dialogs.advancedCli.maxTurnsPlaceholder')}
                 className="h-7 flex-1 font-mono text-xs"
                 value={customArgs}
                 onChange={(e) => handleCustomArgsChange(e.target.value)}
@@ -305,7 +307,7 @@ export const AdvancedCliSection: React.FC<AdvancedCliSectionProps> = ({
                   {validationState === 'loading' ? (
                     <Loader2 className="mr-1 size-3 animate-spin" />
                   ) : null}
-                  Validate
+                  {t('dialogs.advancedCli.validate')}
                 </Button>
               )}
             </div>

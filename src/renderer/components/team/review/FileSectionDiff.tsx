@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { CodeMirrorDiffView } from './CodeMirrorDiffView';
 import { DiffErrorBoundary } from './DiffErrorBoundary';
@@ -49,6 +50,7 @@ export const FileSectionDiff = ({
   globalHunkOffset = 0,
   totalReviewHunks,
 }: FileSectionDiffProps): React.ReactElement => {
+  const { t } = useTranslation();
   const localEditorViewRef = useRef<EditorView | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const canRenderSnippetPreview = shouldRenderSnippetReviewPreview(file.snippets);
@@ -95,7 +97,7 @@ export const FileSectionDiff = ({
         {canRenderSnippetPreview ? (
           <ReviewDiffContent file={file} />
         ) : (
-          <OversizedDiffNotice message="Diff preview skipped because the change is too large to render safely." />
+          <OversizedDiffNotice message={t('review.fileSectionDiff.diffPreviewSkippedTooLarge')} />
         )}
         <div ref={sentinelRef} className="h-1 shrink-0" />
       </div>
@@ -135,10 +137,10 @@ export const FileSectionDiff = ({
         <OversizedDiffNotice
           message={
             canRenderCodeMirror && !canRenderSnippetPreview
-              ? 'Full diff skipped because it is large enough to risk a renderer out-of-memory crash.'
+              ? t('review.fileSectionDiff.fullDiffSkippedOomRisk')
               : canRenderCodeMirror
-                ? 'Large diff opened in safe preview mode to avoid a renderer out-of-memory crash.'
-                : 'Diff preview skipped because the available change data is too large to render safely.'
+                ? t('review.fileSectionDiff.largeDiffSafePreview')
+                : t('review.fileSectionDiff.diffPreviewSkippedDataTooLarge')
           }
         />
         {canRenderSnippetPreview ? <ReviewDiffContent file={file} /> : null}
@@ -154,8 +156,8 @@ export const FileSectionDiff = ({
           className="border-b border-border bg-red-500/10 px-4 py-2 text-xs"
           style={{ color: 'var(--diff-removed-text)' }}
         >
-          File is missing on disk. This diff may be only a preview from agent logs. Use{' '}
-          <span className="font-medium">Restore</span> to create the file on disk.
+          {t('review.fileSectionHeader.fileMissingOnDisk')}.{' '}
+          {t('review.fileSectionHeader.useRestoreToWrite')}
         </div>
       )}
       <DiffErrorBoundary

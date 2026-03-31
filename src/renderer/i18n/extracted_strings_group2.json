@@ -1,0 +1,666 @@
+{
+  "editor": {
+    "emptyState": {
+      "selectFilePrompt": "Select a file from the tree to edit",
+      "shortcutQuickOpen": "Quick Open",
+      "shortcutSearchInFiles": "Search in Files",
+      "shortcutSave": "Save",
+      "shortcutToggleSidebar": "Toggle Sidebar",
+      "shortcutGoToLine": "Go to Line",
+      "shortcutCloseEditor": "Close Editor"
+    },
+    "toolbar": {
+      "save": "Save",
+      "undo": "Undo",
+      "redo": "Redo",
+      "enableWordWrap": "Enable word wrap",
+      "disableWordWrap": "Disable word wrap",
+      "splitPreview": "Split preview",
+      "closeSplitPreview": "Close split preview",
+      "fullPreview": "Full preview",
+      "closePreview": "Close preview"
+    },
+    "tabContextMenu": {
+      "close": "Close",
+      "closeOthers": "Close Others",
+      "closeTabsToLeft": "Close Tabs to the Left",
+      "closeTabsToRight": "Close Tabs to the Right",
+      "closeAll": "Close All"
+    },
+    "contextMenu": {
+      "newFile": "New File",
+      "newFolder": "New Folder",
+      "rename": "Rename",
+      "delete": "Delete",
+      "copyPath": "Copy Path",
+      "copyRelativePath": "Copy Relative Path",
+      "revealInFinder": "Reveal in Finder",
+      "writeTeammate": "Write Teammate",
+      "createTask": "Create Task"
+    },
+    "fileTree": {
+      "failedToLoadFiles": "Failed to load files:",
+      "loadingFiles": "Loading files...",
+      "noFilesFound": "No files found",
+      "dropHereForProjectRoot": "Drop here for project root",
+      "moveToTrash": "Move to Trash",
+      "cancel": "Cancel"
+    },
+    "searchPanel": {
+      "toggleReplace": "Toggle Replace",
+      "searchPlaceholder": "Search",
+      "nextMatch": "Next Match",
+      "close": "Close",
+      "replacePlaceholder": "Replace",
+      "replaceNext": "Replace Next",
+      "replaceAll": "Replace All",
+      "noResults": "No results",
+      "matchCase": "Match Case",
+      "matchWholeWord": "Match Whole Word",
+      "useRegularExpression": "Use Regular Expression"
+    },
+    "searchInFiles": {
+      "title": "Search in Files",
+      "closeSearch": "Close search",
+      "searchPlaceholder": "Search...",
+      "matchCase": "Match Case",
+      "noResultsFound": "No results found"
+    },
+    "selectionMenu": {
+      "writeTeammate": "Write Teammate",
+      "createTask": "Create Task"
+    },
+    "shortcuts": {
+      "dialogTitle": "Keyboard Shortcuts",
+      "fileOperations": "File Operations",
+      "quickOpen": "Quick Open",
+      "save": "Save",
+      "saveAll": "Save All",
+      "closeTab": "Close Tab",
+      "search": "Search",
+      "findInFile": "Find in File",
+      "searchInFiles": "Search in Files",
+      "goToLine": "Go to Line",
+      "navigation": "Navigation",
+      "nextTab": "Next Tab",
+      "previousTab": "Previous Tab",
+      "cycleTabs": "Cycle Tabs",
+      "toggleSidebar": "Toggle Sidebar",
+      "editing": "Editing",
+      "undo": "Undo",
+      "redo": "Redo",
+      "selectNextMatch": "Select Next Match",
+      "toggleComment": "Toggle Comment",
+      "markdown": "Markdown",
+      "splitPreview": "Split Preview",
+      "fullPreview": "Full Preview",
+      "general": "General",
+      "closeEditor": "Close Editor"
+    },
+    "statusBar": {
+      "utf8": "UTF-8",
+      "spaces": "Spaces: 2",
+      "disableFileWatcher": "Disable file watcher",
+      "enableFileWatcher": "Enable file watcher",
+      "disableExternalChangeWatcher": "Disable external change watcher",
+      "watchForExternalChanges": "Watch for external changes"
+    },
+    "unsavedChanges": {
+      "unsavedChangesTitle": "Unsaved Changes",
+      "youHaveUnsavedChanges": "You have unsaved changes. What would you like to do?",
+      "thisFileHasUnsavedChanges": "This file has unsaved changes. What would you like to do?",
+      "cancel": "Cancel",
+      "discardAndClose": "Discard & Close",
+      "saveAllAndClose": "Save All & Close",
+      "discard": "Discard",
+      "save": "Save"
+    },
+    "saveConflict": {
+      "title": "Save Conflict",
+      "description": "The file has been modified externally since you opened it. Overwrite with your changes?",
+      "cancel": "Cancel",
+      "overwrite": "Overwrite"
+    },
+    "overlay": {
+      "projectEditor": "Project Editor",
+      "refresh": "Refresh (F5)",
+      "refreshGitStatus": "Refresh git status (F5)",
+      "keyboardShortcuts": "Keyboard shortcuts",
+      "closeEditor": "Close editor",
+      "closeEditorEsc": "Close editor (Esc)",
+      "hideSidebar": "Hide sidebar",
+      "showSidebar": "Show sidebar",
+      "recoveredUnsavedChanges": "Recovered unsaved changes from a previous session.",
+      "keep": "Keep",
+      "retry": "Retry",
+      "saveFailed": "Save failed:",
+      "fileNoLongerExists": "File no longer exists on disk.",
+      "fileChangedOnDisk": "File changed on disk.",
+      "closeTab": "Close tab",
+      "reload": "Reload",
+      "keepMine": "Keep mine"
+    },
+    "binaryPlaceholder": {
+      "binaryFile": "Binary file",
+      "openInSystemViewer": "Open in System Viewer"
+    },
+    "errorState": {
+      "retry": "Retry",
+      "closeTab": "Close Tab"
+    },
+    "errorBoundary": {
+      "editorCrashed": "Editor crashed:",
+      "unknownError": "Unknown error"
+    },
+    "imagePreview": {
+      "loadingPreview": "Loading preview\u2026",
+      "openFullSizePreview": "Open full-size preview"
+    },
+    "goToLine": {
+      "ariaLabel": "Go to Line",
+      "placeholder": "Line number, +offset, -offset, or %"
+    },
+    "quickOpen": {
+      "ariaLabel": "Quick Open",
+      "placeholder": "Search files by name...",
+      "loadingFiles": "Loading files..."
+    },
+    "newFileDialog": {
+      "nameCannotBeEmpty": "Name cannot be empty",
+      "invalidName": "Invalid name",
+      "nameContainsInvalidCharacters": "Name contains invalid characters",
+      "nameIsTooLong": "Name is too long",
+      "fileNamePlaceholder": "File name...",
+      "folderNamePlaceholder": "Folder name...",
+      "newFileName": "New file name",
+      "newFolderName": "New folder name"
+    },
+    "unsavedChangesAriaLabel": "Unsaved changes"
+  },
+  "review": {
+    "changeReview": {
+      "changesBy": "Changes by",
+      "changesForTask": "Changes for task",
+      "noFileChangesDetected": "No file changes detected"
+    },
+    "diffView": {
+      "previousChunk": "Previous chunk",
+      "nextChunk": "Next chunk",
+      "rejectChange": "Reject change",
+      "acceptChange": "Accept change",
+      "undo": "Undo ",
+      "keep": "Keep "
+    },
+    "confidence": {
+      "high": "High confidence",
+      "medium": "Medium confidence",
+      "low": "Low confidence",
+      "bestEffort": "Best effort"
+    },
+    "conflict": {
+      "conflictDetected": "Conflict Detected",
+      "fileModifiedSinceChanges": "This file has been modified since the agent's changes",
+      "cancel": "Cancel",
+      "saveResolution": "Save Resolution",
+      "editManually": "Edit Manually",
+      "useOriginal": "Use Original",
+      "keepCurrent": "Keep Current"
+    },
+    "diffError": {
+      "failedToRenderDiffView": "Failed to render diff view",
+      "unexpectedError": "An unexpected error occurred while rendering the diff."
+    },
+    "fileTimeline": {
+      "noEditEvents": "No edit events",
+      "editTimeline": "Edit Timeline"
+    },
+    "fileSectionDiff": {
+      "restoreToCreateFile": "Restore",
+      "diffPreviewSkippedTooLarge": "Diff preview skipped because the change is too large to render safely.",
+      "fullDiffSkippedOomRisk": "Full diff skipped because it is large enough to risk a renderer out-of-memory crash.",
+      "largeDiffSafePreview": "Large diff opened in safe preview mode to avoid a renderer out-of-memory crash.",
+      "diffPreviewSkippedDataTooLarge": "Diff preview skipped because the available change data is too large to render safely."
+    },
+    "fileSectionHeader": {
+      "fileMissingOnDisk": "File is missing on disk",
+      "useRestoreToWrite": "Use Restore to write the preview",
+      "discardAllEdits": "Discard all edits for this file",
+      "saveFileToDisk": "Save file to disk",
+      "fileHistory": "File History",
+      "reconstructed": "Reconstructed",
+      "currentDisk": "Current Disk",
+      "gitFallback": "Git Fallback",
+      "missingOnDisk": "Missing on disk",
+      "deletedOnDisk": "Deleted on disk",
+      "recreatedOnDisk": "Recreated on disk",
+      "changedOnDisk": "Changed on disk",
+      "from": "From",
+      "to": "To"
+    },
+    "fileSectionPlaceholder": {
+      "preparingEditorDiff": "Preparing a full editor diff for this file."
+    },
+    "fullDiffLoading": {
+      "preparingFullDiff": "Preparing Full Diff",
+      "preparingMultipleDiffs": "Preparing {count} Full Diffs",
+      "finalizingExactDiff": "Finalizing the exact editor diff for the current file.",
+      "resolvingBaselines": "Resolving exact before/after baselines for the files currently loading.",
+      "snippetPreviewsStayVisible": "Snippet previews stay visible below while the exact baseline is reconstructed."
+    },
+    "keyboardShortcuts": {
+      "title": "Keyboard Shortcuts",
+      "nextChange": "Next change",
+      "previousChange": "Previous change",
+      "nextFile": "Next file",
+      "previousFile": "Previous file",
+      "acceptChange": "Accept change",
+      "rejectChange": "Reject change",
+      "saveFile": "Save file",
+      "undo": "Undo",
+      "redo": "Redo",
+      "toggleShortcuts": "Toggle shortcuts",
+      "closeDialog": "Close dialog"
+    },
+    "diffContent": {
+      "noChangesToDisplay": "No changes to display",
+      "newFile": "New file",
+      "fullRewrite": "Full rewrite",
+      "multiEdit": "Multi-edit",
+      "edit": "Edit"
+    },
+    "fileTree": {
+      "viewed": "Viewed",
+      "noChangedFiles": "No changed files",
+      "searchFilesPlaceholder": "Search files\u2026",
+      "noMatchingFiles": "No matching files",
+      "allChangesAccepted": "All changes accepted",
+      "allChangesRejected": "All changes rejected",
+      "partiallyReviewed": "Partially reviewed",
+      "pendingReview": "Pending review"
+    },
+    "toolbar": {
+      "showAllLines": "Show all lines",
+      "collapseUnchangedRegions": "Collapse unchanged regions",
+      "autoMarkViewedOn": "Auto-mark files as viewed when scrolled to end (ON)",
+      "autoMarkViewedOff": "Auto-mark files as viewed when scrolled to end (OFF)",
+      "auto": "Auto",
+      "undoLastReviewOperation": "Undo last review operation (Ctrl+Z)",
+      "acceptAllChanges": "Accept all changes across all files",
+      "rejectAllChanges": "Reject all changes across all files",
+      "applyReviewDecisions": "Apply review decisions across all files",
+      "applying": "Applying...",
+      "applyAllChanges": "Apply All Changes"
+    },
+    "scopeWarning": {
+      "taskScopePrecise": "Task scope determined precisely",
+      "taskScopePreciseDetail": "Both start and completion markers found in the session log. The diff includes only changes made during this specific task \u2014 other tasks that modified the same files are excluded.",
+      "endBoundaryEstimated": "End boundary estimated",
+      "endBoundaryEstimatedDetail": "Only the start marker was found \u2014 the task has no completion marker yet. Changes shown from task start to end of session. If other tasks ran after this one in the same session, their changes may also be included.",
+      "startBoundaryEstimated": "Start boundary estimated",
+      "startBoundaryEstimatedDetail": "Only the completion marker was found \u2014 the start of work was not captured. If other tasks ran before this one in the same session, their changes to the same files may also be included.",
+      "showingAllSessionChanges": "Showing all session changes",
+      "showingAllSessionChangesDetail": "No task markers found in the session log. Cannot isolate this task \u2014 all file changes from the entire session are shown, including changes from other tasks. This can happen with older CLI versions or non-standard workflows.",
+      "readMore": "Read more"
+    },
+    "changesLoading": {
+      "scanningRepository": "Scanning repository\u2026",
+      "computingDiffs": "Computing diffs\u2026",
+      "resolvingBranches": "Resolving branches\u2026",
+      "analyzingHunks": "Analyzing hunks\u2026"
+    }
+  },
+  "schedule": {
+    "cronInput": {
+      "cronPlaceholder": "0 9 * * 1-5",
+      "highFrequencyWarning": "High frequency schedule (less than 5 min interval)",
+      "selectTimezone": "Select timezone",
+      "warmUpTime": "Warm-up time",
+      "enterCronExpression": "Enter a cron expression",
+      "invalidCronExpression": "Invalid cron expression"
+    },
+    "timezonePresets": {
+      "utc": "UTC",
+      "newYork": "New York (ET)",
+      "chicago": "Chicago (CT)",
+      "denver": "Denver (MT)",
+      "losAngeles": "Los Angeles (PT)",
+      "london": "London (GMT/BST)",
+      "berlin": "Berlin (CET)",
+      "moscow": "Moscow (MSK)",
+      "tokyo": "Tokyo (JST)",
+      "shanghai": "Shanghai (CST)",
+      "kolkata": "Kolkata (IST)",
+      "sydney": "Sydney (AEST)"
+    },
+    "warmUpOptions": {
+      "noWarmUp": "No warm-up",
+      "fiveMin": "5 min",
+      "tenMin": "10 min",
+      "fifteenMin": "15 min",
+      "thirtyMin": "30 min"
+    },
+    "cronPresets": {
+      "everyHour": "Every hour",
+      "everySixHours": "Every 6 hours",
+      "dailyAt9am": "Daily at 9am",
+      "weekdaysAt9am": "Weekdays at 9am",
+      "mondayAt9am": "Monday at 9am",
+      "everyThirtyMin": "Every 30 min"
+    },
+    "emptyState": {
+      "noSchedulesYet": "No schedules yet"
+    },
+    "runLogDialog": {
+      "errors": "Errors",
+      "failedToLoadLogs": "Failed to load logs"
+    },
+    "section": {
+      "runNow": "Run now",
+      "addSchedule": "Add Schedule",
+      "edit": "Edit",
+      "pause": "Pause",
+      "resume": "Resume",
+      "delete": "Delete",
+      "loadingRunHistory": "Loading run history...",
+      "noRunsYet": "No runs yet",
+      "next": "Next:"
+    },
+    "statusBadge": {
+      "active": "Active",
+      "pending": "Pending",
+      "warmingUp": "Warming up",
+      "warm": "Warm",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "cancelled": "Cancelled"
+    }
+  },
+  "attachments": {
+    "display": {
+      "loadingAttachments": "Loading attachments..."
+    },
+    "previewItem": {
+      "removeAttachment": "Remove"
+    },
+    "dropZone": {
+      "filesCanOnlyBeSentToTeamLead": "Files can only be sent to the team lead",
+      "dropFilesHere": "Drop files here"
+    },
+    "sourceMessage": {
+      "fromOriginalMessage": "From original message"
+    }
+  },
+  "sidebar": {},
+  "settings": {
+    "tabs": {
+      "general": "General",
+      "generalDescription": "Core app preferences like theme, language, display density, and startup behavior.",
+      "notifications": "Notifications",
+      "notificationsDescription": "Control when and how you get notified about agent activity, task completions, and errors.",
+      "advanced": "Advanced",
+      "advancedDescription": "Developer settings and advanced configuration."
+    },
+    "view": {
+      "loadingSettings": "Loading settings..."
+    },
+    "components": {
+      "select": "Select..."
+    },
+    "general": {
+      "agentLanguage": "Agent Language",
+      "language": "Language",
+      "languageDescription": "Language for agent communication",
+      "selectLanguage": "Select language...",
+      "searchLanguage": "Search language...",
+      "noLanguageFound": "No language found.",
+      "startup": "Startup",
+      "launchAtLogin": "Launch at login",
+      "launchAtLoginDescription": "Automatically start the app when you log in",
+      "showDockIcon": "Show dock icon",
+      "showDockIconDescription": "Display the app icon in the dock (macOS)",
+      "appearance": "Appearance",
+      "theme": "Theme",
+      "themeDescription": "Choose your preferred color theme",
+      "themeDark": "Dark",
+      "themeLight": "Light",
+      "themeSystem": "System",
+      "expandAiResponses": "Expand AI responses by default",
+      "expandAiResponsesDescription": "Automatically expand each response turn when opening a transcript or receiving a new message",
+      "useNativeTitleBar": "Use native title bar",
+      "useNativeTitleBarDescription": "Use the default system window frame instead of the custom title bar",
+      "localClaudeRoot": "Local Claude Root",
+      "currentLocalRoot": "Current Local Root",
+      "selectedFolderNotClaude": "Selected folder is not .claude",
+      "useFolderButton": "Use Folder",
+      "noProjectsDirectory": "No projects directory found",
+      "noProjectsDirectoryMessage": "This folder does not contain a \"projects\" directory. Continue anyway?",
+      "wslPathMissingProjects": "WSL path missing projects directory",
+      "usePathButton": "Use Path",
+      "noWslClaudePaths": "No WSL Claude paths found",
+      "noWslClaudePathsMessage": "Could not find WSL distros with Claude data automatically. Select folder manually?",
+      "selectFolderButton": "Select Folder",
+      "browserAccess": "Browser Access",
+      "enableServerMode": "Enable server mode",
+      "enableServerModeDescription": "Start an HTTP server to access the UI from a browser or embed in iframes",
+      "server": "Server",
+      "privacy": "Privacy",
+      "sendCrashReports": "Send crash reports",
+      "sendCrashReportsDescription": "Help improve the app by sending anonymous crash and performance data"
+    },
+    "notifications": {
+      "devMode": "Dev Mode",
+      "notificationSettings": "Notification Settings",
+      "enableSystemNotifications": "Enable System Notifications",
+      "enableSystemNotificationsDescription": "Show system notifications for errors and events",
+      "playSound": "Play sound",
+      "playSoundDescription": "Play a sound when notifications appear",
+      "includeSubagentErrors": "Include subagent errors",
+      "includeSubagentErrorsDescription": "Detect and notify about errors in subagent sessions",
+      "testNotification": "Test notification",
+      "testNotificationDescription": "Send a test notification to verify delivery",
+      "sent": "Sent!",
+      "sending": "Sending...",
+      "sendTest": "Send Test",
+      "snoozeNotifications": "Snooze notifications",
+      "temporarilyPauseNotifications": "Temporarily pause notifications",
+      "selectDuration": "Select duration...",
+      "untilTomorrow": "Until tomorrow",
+      "teamNotifications": "Team Notifications",
+      "leadInboxNotifications": "Lead inbox notifications",
+      "leadInboxDescription": "Notify when teammates send messages to the team lead",
+      "userInboxNotifications": "User inbox notifications",
+      "userInboxDescription": "Notify when teammates send messages to you",
+      "taskClarificationNotifications": "Task clarification notifications",
+      "taskClarificationDescription": "Show native OS notifications when a task needs your input",
+      "taskCommentNotifications": "Task comment notifications",
+      "taskCommentDescription": "Show native OS notifications when agents comment on tasks",
+      "taskCreatedNotifications": "Task created notifications",
+      "taskCreatedDescription": "Show native OS notifications when a new task is created",
+      "allTasksCompleted": "All tasks completed",
+      "allTasksCompletedDescription": "Notify when every task in a team reaches completed status",
+      "crossTeamMessageNotifications": "Cross-team message notifications",
+      "crossTeamMessageDescription": "Notify when a message arrives from another team",
+      "teamLaunchedNotifications": "Team launched notifications",
+      "teamLaunchedDescription": "Notify when a team finishes launching and is ready",
+      "toolApprovalNotifications": "Tool approval notifications",
+      "toolApprovalDescription": "Notify when a tool needs your approval (Allow/Deny) while the app is not focused",
+      "taskStatusChangeNotifications": "Task status change notifications",
+      "taskStatusChangeDescription": "Show native OS notifications when a task's status changes",
+      "taskCompletionNotifications": "Task Completion Notifications",
+      "ignoredRepositories": "Ignored Repositories",
+      "selectRepositoryToIgnore": "Select repository to ignore..."
+    },
+    "advanced": {
+      "configuration": "Configuration",
+      "editConfig": "Edit Config",
+      "resetToDefaults": "Reset to Defaults",
+      "exportConfig": "Export Config",
+      "importConfig": "Import Config",
+      "openInEditor": "Open in Editor",
+      "about": "About",
+      "claudeAgentTeamsUi": "Claude Agent Teams UI",
+      "checking": "Checking...",
+      "upToDate": "Up to date",
+      "updateReady": "Update ready",
+      "available": "available",
+      "checkForUpdates": "Check for Updates"
+    },
+    "cliStatus": {
+      "claudeCli": "Claude CLI",
+      "checkingCli": "Checking CLI...",
+      "update": "Update",
+      "checkForUpdates": "Check for Updates",
+      "checking": "Checking...",
+      "extensions": "Extensions",
+      "cliNotInstalled": "Claude CLI not installed",
+      "installClaudeCli": "Install Claude CLI",
+      "downloading": "Downloading...",
+      "checkingLatestVersion": "Checking latest version...",
+      "verifyingChecksum": "Verifying checksum...",
+      "installing": "Installing...",
+      "installed": "Installed",
+      "installationFailed": "Installation failed",
+      "retry": "Retry"
+    },
+    "connection": {
+      "remoteConnection": "Remote Connection",
+      "currentMode": "Current Mode",
+      "currentModeDescription": "Data source for session files",
+      "hostnamePlaceholder": "hostname or ssh config alias",
+      "portPlaceholder": "22",
+      "userPlaceholder": "user",
+      "privateKeyPlaceholder": "~/.ssh/id_rsa",
+      "sshAgent": "SSH Agent",
+      "privateKey": "Private Key",
+      "password": "Password",
+      "connectionSuccessful": "Connection successful",
+      "connectionFailed": "Connection failed:",
+      "testConnection": "Test Connection"
+    },
+    "workspace": {
+      "workspaceProfiles": "Workspace Profiles",
+      "loadingProfiles": "Loading profiles...",
+      "noSavedProfiles": "No saved profiles",
+      "addSshProfile": "Add an SSH profile to connect quickly",
+      "deleteProfile": "Delete Profile",
+      "deleteButton": "Delete",
+      "namePlaceholder": "My Server",
+      "hostnamePlaceholder": "hostname or IP",
+      "portPlaceholder": "22",
+      "userPlaceholder": "user",
+      "privateKeyPlaceholder": "~/.ssh/id_rsa",
+      "sshAgent": "SSH Agent",
+      "privateKey": "Private Key",
+      "password": "Password"
+    },
+    "configEditor": {
+      "saveFailed": "Save failed",
+      "invalidJson": "Invalid JSON"
+    },
+    "triggerSettings": {
+      "addCustomTrigger": "Add Custom Trigger",
+      "dotColor": "Dot Color",
+      "triggerCondition": "Trigger Condition",
+      "configuration": "Configuration",
+      "generalInfo": "General Info",
+      "customHexColor": "Custom hex color",
+      "hexPlaceholder": "#ff6600",
+      "invalidHex": "Invalid hex",
+      "patternPlaceholder": "e.g., error|failed|exception",
+      "alertIfGreaterThan": "Alert if >",
+      "thresholdPlaceholder": "0",
+      "triggerNamePlaceholder": "e.g., Build Failure Alert",
+      "removeIgnorePattern": "Remove ignore pattern",
+      "addIgnoreRegex": "Add ignore regex...",
+      "selectRepositoryToAdd": "Select repository to add...",
+      "editName": "Edit name",
+      "deleteTrigger": "Delete trigger",
+      "collapse": "Collapse",
+      "expand": "Expand",
+      "preview": "Preview",
+      "testTrigger": "Test Trigger",
+      "builtInTriggers": "Built-in Triggers",
+      "customTriggers": "Custom Triggers",
+      "noCustomTriggersYet": "No custom triggers configured yet."
+    }
+  },
+  "common": {
+    "confirmDialog": {
+      "closeDialog": "Close dialog",
+      "cancel": "Cancel",
+      "confirm": "Confirm"
+    },
+    "contextSwitch": {
+      "loadingWorkspace": "Loading workspace",
+      "local": "Local",
+      "unknown": "Unknown"
+    },
+    "copyButton": {
+      "copyToClipboard": "Copy to clipboard"
+    },
+    "errorBoundary": {
+      "somethingWentWrong": "Something went wrong",
+      "unexpectedError": "An unexpected error occurred in the application. You can try reloading the page or resetting the error state.",
+      "componentStack": "Component Stack",
+      "tryAgain": "Try Again",
+      "copied": "Copied",
+      "copyErrorDetails": "Copy Error Details",
+      "reportBugOnGithub": "Report Bug on GitHub",
+      "reloadApp": "Reload App"
+    },
+    "exportDropdown": {
+      "exportSession": "Export session",
+      "markdown": "Markdown",
+      "json": "JSON",
+      "plainText": "Plain Text"
+    },
+    "ongoingIndicator": {
+      "sessionInProgress": "Session in progress..."
+    },
+    "repositoryDropdown": {
+      "selectRepository": "Select repository...",
+      "noRepositoriesAvailable": "No repositories available",
+      "removeRepository": "Remove repository"
+    },
+    "tokenUsage": {
+      "visibleContext": "Visible Context",
+      "thinkingAndText": "Thinking + Text",
+      "inputTokens": "Input Tokens",
+      "cacheRead": "Cache Read",
+      "cacheWrite": "Cache Write",
+      "outputTokens": "Output Tokens",
+      "costUsd": "Cost (USD)",
+      "model": "Model"
+    },
+    "updateBanner": {
+      "updatingApp": "Updating app"
+    },
+    "updateDialog": {
+      "closeDialog": "Close dialog",
+      "updateAvailable": "Update Available",
+      "updateReady": "Update Ready",
+      "noReleaseNotesAvailable": "No release notes available.",
+      "viewOnGithub": "View on GitHub",
+      "later": "Later",
+      "restartNow": "Restart now",
+      "download": "Download"
+    },
+    "cliWarningBanner": {
+      "cliNotInstalled": "Claude Code is not installed. Install it from the Dashboard to enable all features.",
+      "goToDashboard": "Go to Dashboard"
+    },
+    "workspaceIndicator": {
+      "local": "Local"
+    },
+    "worktreeBadge": {
+      "vibe": "Vibe",
+      "conductor": "Conductor",
+      "auto": "Auto",
+      "desktop": "Desktop",
+      "worktree": "Worktree",
+      "default": "Default"
+    }
+  }
+}

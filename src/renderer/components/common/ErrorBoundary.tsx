@@ -1,4 +1,5 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
+import i18n from '@renderer/i18n';
 
 import { captureRendererException, isSentryRendererActive } from '@renderer/sentry';
 import { useStore } from '@renderer/store';
@@ -147,12 +148,11 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="flex h-screen flex-col items-center justify-center bg-claude-dark-bg p-8 text-claude-dark-text">
           <div className="mb-6 flex items-center gap-3">
             <AlertTriangle className="size-10 text-red-500" />
-            <h1 className="text-2xl font-semibold">Something went wrong</h1>
+            <h1 className="text-2xl font-semibold">{i18n.t('common.errorBoundary.title')}</h1>
           </div>
 
           <p className="mb-6 max-w-md text-center text-claude-dark-text-secondary">
-            An unexpected error occurred in the application. You can try reloading the page or
-            resetting the error state.
+            {i18n.t('common.errorBoundary.description')}
           </p>
 
           {error && (
@@ -161,7 +161,7 @@ export class ErrorBoundary extends Component<Props, State> {
               {errorInfo?.componentStack && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs text-claude-dark-text-secondary hover:text-claude-dark-text">
-                    Component Stack
+                    {i18n.t('common.errorBoundary.componentStack')}
                   </summary>
                   <pre className="mt-2 whitespace-pre-wrap text-xs text-claude-dark-text-secondary">
                     {errorInfo.componentStack}
@@ -176,7 +176,7 @@ export class ErrorBoundary extends Component<Props, State> {
               onClick={this.handleReset}
               className="flex items-center gap-2 rounded-lg border border-claude-dark-border bg-claude-dark-surface px-4 py-2 transition-colors hover:bg-claude-dark-border"
             >
-              Try Again
+              {i18n.t('common.errorBoundary.tryAgain')}
             </button>
             <button
               onClick={() => void this.handleCopyErrorDetails()}
@@ -187,26 +187,27 @@ export class ErrorBoundary extends Component<Props, State> {
               ) : (
                 <Copy className="size-4" />
               )}
-              {copiedReport ? 'Copied' : 'Copy Error Details'}
+              {copiedReport
+                ? i18n.t('common.errorBoundary.copied')
+                : i18n.t('common.errorBoundary.copyErrorDetails')}
             </button>
             <button
               onClick={this.handleCreateGitHubIssue}
               className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-red-300 transition-colors hover:bg-red-500/20"
             >
               <Bug className="size-4" />
-              Report Bug on GitHub
+              {i18n.t('common.errorBoundary.reportBug')}
             </button>
             <button
               onClick={this.handleReload}
               className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 transition-colors hover:bg-blue-700"
             >
               <RefreshCw className="size-4" />
-              Reload App
+              {i18n.t('common.errorBoundary.reloadApp')}
             </button>
           </div>
           <p className="mt-4 max-w-md text-center text-xs text-claude-dark-text-secondary">
-            GitHub bug reports and copied diagnostics include the error message, stack traces, app
-            version, active tab, selected team, task context, and environment details.
+            {i18n.t('common.errorBoundary.diagnosticsHint')}
           </p>
         </div>
       );

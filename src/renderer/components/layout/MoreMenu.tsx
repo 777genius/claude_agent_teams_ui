@@ -6,6 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useStore } from '@renderer/store';
 import { triggerDownload } from '@renderer/utils/sessionExporter';
@@ -35,6 +36,7 @@ export const MoreMenu = ({
   activeTabSessionDetail,
   activeTabId,
 }: Readonly<MoreMenuProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [buttonHover, setButtonHover] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -88,7 +90,7 @@ export const MoreMenu = ({
   const topItems: MenuItem[] = [
     {
       id: 'search',
-      label: 'Search',
+      label: t('layout.moreMenu.search'),
       icon: Search,
       shortcut: formatShortcut('K'),
       onClick: () => {
@@ -98,7 +100,7 @@ export const MoreMenu = ({
     },
     {
       id: 'schedules',
-      label: 'Schedules',
+      label: t('layout.moreMenu.schedules'),
       icon: Calendar,
       onClick: () => {
         openSchedulesTab();
@@ -111,28 +113,28 @@ export const MoreMenu = ({
     ? [
         {
           id: 'export-md',
-          label: 'Export as Markdown',
+          label: t('layout.moreMenu.exportMarkdown'),
           icon: FileText,
           shortcut: '.md',
           onClick: () => handleExport('markdown'),
         },
         {
           id: 'export-json',
-          label: 'Export as JSON',
+          label: t('layout.moreMenu.exportJson'),
           icon: Braces,
           shortcut: '.json',
           onClick: () => handleExport('json'),
         },
         {
           id: 'export-txt',
-          label: 'Export as Plain Text',
+          label: t('layout.moreMenu.exportPlainText'),
           icon: Type,
           shortcut: '.txt',
           onClick: () => handleExport('plaintext'),
         },
         {
           id: 'analyze',
-          label: 'Analyze Session',
+          label: t('layout.moreMenu.analyzeSession'),
           icon: Activity,
           onClick: () => {
             if (activeTabId) openSessionReport(activeTabId);
@@ -180,7 +182,7 @@ export const MoreMenu = ({
           color: buttonHover || isOpen ? 'var(--color-text)' : 'var(--color-text-muted)',
           backgroundColor: buttonHover || isOpen ? 'var(--color-surface-raised)' : 'transparent',
         }}
-        title="More actions"
+        title={t('layout.moreMenu.moreActions')}
       >
         <MoreHorizontal className="size-4" />
       </button>

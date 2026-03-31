@@ -1,4 +1,5 @@
 import { type JSX, memo, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { CopyButton } from '@renderer/components/common/CopyButton';
@@ -41,6 +42,7 @@ export const ThoughtBodyContent = memo(
     teamColorByName,
     onTeamClick,
   }: ThoughtBodyContentProps): JSX.Element {
+    const { t } = useTranslation();
     const displayContent = useMemo(() => {
       // Strip leaked protocol XML (<teammate-message> blocks) before rendering
       let text = stripTeammateMessageBlocks(thought.text).replace(/\n/g, '  \n');
@@ -115,7 +117,7 @@ export const ThoughtBodyContent = memo(
                     <Reply size={13} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Reply</TooltipContent>
+                <TooltipContent side="top">{t('team.thoughtBody.reply')}</TooltipContent>
               </Tooltip>
             ) : null}
             <CopyButton text={thought.text} inline />

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import {
@@ -223,6 +224,7 @@ export const CreateTeamDialog = ({
   onOpenTeam,
 }: CreateTeamDialogProps): React.JSX.Element => {
   const { isLight } = useTheme();
+  const { t } = useTranslation();
 
   // ── Persisted draft state (survives tab navigation) ──────────────────
   const {
@@ -379,23 +381,21 @@ export const CreateTeamDialog = ({
     if (typeof api.teams.prepareProvisioning !== 'function') {
       setPrepareState('failed');
       setPrepareWarnings([]);
-      setPrepareMessage(
-        'Current preload version does not support team:prepareProvisioning. Restart the dev app.'
-      );
+      setPrepareMessage(t('dialogs.createTeam.preloadNotSupported'));
       return;
     }
 
     if (!effectiveCwd) {
       setPrepareState('idle');
       setPrepareWarnings([]);
-      setPrepareMessage('Select a working directory to validate the launch environment.');
+      setPrepareMessage(t('dialogs.createTeam.selectCwdToValidate'));
       return;
     }
 
     let cancelled = false;
     const requestSeq = ++prepareRequestSeqRef.current;
     setPrepareState('loading');
-    setPrepareMessage('Warming up CLI environment...');
+    setPrepareMessage(t('dialogs.createTeam.warmingUp'));
     setPrepareWarnings([]);
 
     // Defer so file list fetch (triggered by project select) can run first
@@ -413,7 +413,7 @@ export const CreateTeamDialog = ({
           setPrepareState('failed');
           setPrepareWarnings([]);
           setPrepareMessage(
-            error instanceof Error ? error.message : 'Failed to warm up Claude CLI environment'
+            error instanceof Error ? error.message : t('dialogs.createTeam.failedToWarmUp')
           );
         }
       })();
@@ -464,7 +464,9 @@ export const CreateTeamDialog = ({
         if (cancelled) {
           return;
         }
-        setProjectsError(error instanceof Error ? error.message : 'Failed to load projects');
+        setProjectsError(
+          error instanceof Error ? error.message : t('dialogs.createTeam.failedToLoadProjects')
+        );
         setProjects([]);
       } finally {
         if (!cancelled) {
@@ -642,13 +644,15 @@ export const CreateTeamDialog = ({
 
   const launchOptionalSummary = useMemo(() => {
     const summary: string[] = [];
-    if (prompt.trim()) summary.push('Lead prompt');
-    if (selectedModel) summary.push(`Model: ${selectedModel}`);
-    if (selectedEffort) summary.push(`Effort: ${selectedEffort}`);
-    if (limitContext) summary.push('Limited to 200K context');
-    if (skipPermissions) summary.push('Auto-approve tools');
-    if (worktreeEnabled && worktreeName.trim()) summary.push(`Worktree: ${worktreeName.trim()}`);
-    if (customArgs.trim()) summary.push('Custom CLI args');
+    if (prompt.trim()) summary.push(t('dialogs.createTeam.summaryLeadPrompt'));
+    if (selectedModel) summary.push(t('dialogs.createTeam.summaryModel', { model: selectedModel }));
+    if (selectedEffort)
+      summary.push(t('dialogs.createTeam.summaryEffort', { effort: selectedEffort }));
+    if (limitContext) summary.push(t('dialogs.createTeam.summaryLimitedContext'));
+    if (skipPermissions) summary.push(t('dialogs.createTeam.summaryAutoApprove'));
+    if (worktreeEnabled && worktreeName.trim())
+      summary.push(t('dialogs.createTeam.summaryWorktree', { name: worktreeName.trim() }));
+    if (customArgs.trim()) summary.push(t('dialogs.createTeam.summaryCustomArgs'));
     return summary;
   }, [
     prompt,
@@ -663,8 +667,8 @@ export const CreateTeamDialog = ({
 
   const teamDetailsSummary = useMemo(() => {
     const summary: string[] = [];
-    if (description.trim()) summary.push('Description');
-    if (teamColor) summary.push(`Color: ${teamColor}`);
+    if (description.trim()) summary.push(t('dialogs.createTeam.summaryDescription'));
+    if (teamColor) summary.push(t('dialogs.createTeam.summaryColor', { color: teamColor }));
     return summary;
   }, [description, teamColor]);
 
@@ -686,7 +690,9 @@ export const CreateTeamDialog = ({
 
   const handleSubmit = (): void => {
     if (allTakenTeamNames.includes(sanitizedTeamName)) {
-      const msg = isNameProvisioning ? 'Team is currently launching' : 'Team name already exists';
+      const msg = isNameProvisioning
+        ? t('dialogs.createTeam.nameCurrentlyLaunching')
+        : t('dialogs.createTeam.nameAlreadyExists');
       setFieldErrors({ teamName: msg });
       setLocalError(msg);
       return;
@@ -696,7 +702,7 @@ export const CreateTeamDialog = ({
       const errors = validation.errors ?? {};
       setFieldErrors(errors);
       const messages = Object.values(errors).filter(Boolean);
-      setLocalError(messages.join(' · ') || 'Check form fields');
+      setLocalError(messages.join(' · ') || t('dialogs.createTeam.checkFormFields'));
       return;
     }
     setFieldErrors({});
@@ -718,7 +724,9 @@ export const CreateTeamDialog = ({
           resetFormState();
           onClose();
         } catch (error) {
-          setLocalError(error instanceof Error ? error.message : 'Failed to create team config');
+          setLocalError(
+            error instanceof Error ? error.message : t('dialogs.createTeam.failedToCreateConfig')
+          );
         } finally {
           setIsSubmitting(false);
         }
@@ -768,11 +776,13 @@ export const CreateTeamDialog = ({
     >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-sm">{initialData ? 'Copy Team' : 'Create Team'}</DialogTitle>
+          <DialogTitle className="text-sm">
+            {initialData ? t('dialogs.createTeam.titleCopy') : t('dialogs.createTeam.titleCreate')}
+          </DialogTitle>
           <DialogDescription className="text-xs">
             {initialData
-              ? 'Create a new team based on an existing one.'
-              : 'Team provisioning via local Claude CLI.'}
+              ? t('dialogs.createTeam.descriptionCopy')
+              : t('dialogs.createTeam.descriptionCreate')}
           </DialogDescription>
         </DialogHeader>
 
@@ -789,15 +799,12 @@ export const CreateTeamDialog = ({
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <div className="min-w-0 flex-1 space-y-1">
                 <p className="font-medium">
-                  Another team &ldquo;{conflictingTeam.displayName}&rdquo; is already running for
-                  this working directory
+                  {t('dialogs.createTeam.conflictTitle', { teamName: conflictingTeam.displayName })}
                 </p>
-                <p className="opacity-80">
-                  Running two teams in the same directory is risky — they may conflict editing the
-                  same files. Consider using a different directory or a git worktree for isolation.
-                </p>
+                <p className="opacity-80">{t('dialogs.createTeam.conflictDescription')}</p>
                 <p className="text-[11px] opacity-70">
-                  Working directory: <span className="font-mono">{effectiveCwd}</span>
+                  {t('dialogs.createTeam.conflictWorkingDirectory')}:{' '}
+                  <span className="font-mono">{effectiveCwd}</span>
                 </p>
               </div>
               <button
@@ -817,10 +824,10 @@ export const CreateTeamDialog = ({
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-400" />
               <div className="min-w-0 space-y-1">
                 <p className="font-medium text-red-300">
-                  CLI environment is not available — launch is blocked
+                  {t('dialogs.createTeam.cliNotAvailable')}
                 </p>
                 <p className="text-red-300/80">
-                  {prepareMessage ?? 'Failed to prepare environment'}
+                  {prepareMessage ?? t('dialogs.createTeam.failedToPrepare')}
                 </p>
                 {prepareWarnings.length > 0 ? (
                   <div className="space-y-0.5">
@@ -836,8 +843,7 @@ export const CreateTeamDialog = ({
                   </div>
                 ) : null}
                 <p className="text-[11px] text-[var(--color-text-muted)]">
-                  Make sure <span className="font-mono">claude</span> CLI is installed and available
-                  in PATH, then reopen this dialog.
+                  {t('dialogs.createTeam.cliInstallHint')}
                 </p>
               </div>
             </div>
@@ -853,13 +859,13 @@ export const CreateTeamDialog = ({
               color: 'var(--warning-text)',
             }}
           >
-            Available only in local Electron mode.
+            {t('dialogs.createTeam.electronOnly')}
           </p>
         ) : null}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-1.5 md:col-span-2">
-            <Label htmlFor="team-name">Team name</Label>
+            <Label htmlFor="team-name">{t('dialogs.createTeam.teamNameLabel')}</Label>
             <Input
               id="team-name"
               className={cn(
@@ -873,7 +879,9 @@ export const CreateTeamDialog = ({
             />
             {allTakenTeamNames.includes(sanitizedTeamName) ? (
               <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
-                {isNameProvisioning ? 'Team is currently launching' : 'Team name already exists'}
+                {isNameProvisioning
+                  ? t('dialogs.createTeam.nameCurrentlyLaunching')
+                  : t('dialogs.createTeam.nameAlreadyExists')}
               </p>
             ) : validateTeamNameInline(teamName) ? (
               <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
@@ -886,7 +894,8 @@ export const CreateTeamDialog = ({
             ) : null}
             {sanitizedTeamName && sanitizedTeamName !== teamName.trim() ? (
               <p className="text-[11px] text-[var(--color-text-muted)]">
-                On disk: <span className="font-mono">{sanitizedTeamName}</span>
+                {t('dialogs.createTeam.onDisk')}:{' '}
+                <span className="font-mono">{sanitizedTeamName}</span>
               </p>
             ) : null}
           </div>
@@ -916,17 +925,14 @@ export const CreateTeamDialog = ({
                       htmlFor="solo-team"
                       className="cursor-pointer text-xs font-normal text-text-secondary"
                     >
-                      Solo team
+                      {t('dialogs.createTeam.soloTeam')}
                     </Label>
                   </div>
                   {soloTeam && (
                     <div className="flex items-start gap-2 rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2">
                       <Info className="mt-0.5 size-3.5 shrink-0 text-sky-400" />
                       <p className="text-[11px] leading-relaxed text-sky-300">
-                        Only the team lead (main process) will be started &mdash; no teammates will
-                        be spawned. Works like a regular Claude session but with access to the task
-                        board for planning. Saves tokens by avoiding teammate coordination overhead.
-                        You can add members later from the team settings.
+                        {t('dialogs.createTeam.soloTeamDescription')}
                       </p>
                     </div>
                   )}
@@ -952,7 +958,7 @@ export const CreateTeamDialog = ({
               />
               <div className="space-y-1">
                 <Label htmlFor="launch-team" className="cursor-pointer text-sm font-semibold">
-                  Run command after create
+                  {t('dialogs.createTeam.runCommandAfterCreate')}
                 </Label>
                 <p
                   className="text-xs"
@@ -962,7 +968,7 @@ export const CreateTeamDialog = ({
                       : 'var(--color-text-muted)',
                   }}
                 >
-                  Start the team immediately via local Claude CLI.
+                  {t('dialogs.createTeam.runCommandDescription')}
                 </p>
               </div>
             </div>
@@ -983,14 +989,14 @@ export const CreateTeamDialog = ({
                 />
 
                 <OptionalSettingsSection
-                  title="Optional launch settings"
-                  description="Prompt, model, safety, and CLI overrides live here when you need them."
+                  title={t('dialogs.createTeam.optionalLaunchSettings')}
+                  description={t('dialogs.createTeam.optionalLaunchDescription')}
                   summary={launchOptionalSummary}
                 >
                   <div className="space-y-4">
                     <div className="space-y-1.5">
                       <Label htmlFor="team-prompt" className="label-optional">
-                        Prompt for team lead (optional)
+                        {t('dialogs.createTeam.promptLabel')}
                       </Label>
                       <MentionableTextarea
                         id="team-prompt"
@@ -1006,11 +1012,11 @@ export const CreateTeamDialog = ({
                         chips={promptChipDraft.chips}
                         onChipRemove={promptChipDraft.removeChip}
                         onFileChipInsert={promptChipDraft.addChip}
-                        placeholder="Instructions for the team lead during provisioning..."
+                        placeholder={t('dialogs.createTeam.launchPromptPlaceholder')}
                         footerRight={
                           promptDraft.isSaved ? (
                             <span className="text-[10px] text-[var(--color-text-muted)]">
-                              Saved
+                              {t('dialogs.createTeam.saved')}
                             </span>
                           ) : null
                         }
@@ -1059,14 +1065,14 @@ export const CreateTeamDialog = ({
 
           <div className="md:col-span-2">
             <OptionalSettingsSection
-              title="Optional team details"
-              description="Keep the default flow compact and only open this when you want extra context or a custom color."
+              title={t('dialogs.createTeam.optionalTeamDetails')}
+              description={t('dialogs.createTeam.optionalTeamDetailsDescription')}
               summary={teamDetailsSummary}
             >
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="team-description" className="label-optional">
-                    Description (optional)
+                    {t('dialogs.createTeam.descriptionLabel')}
                   </Label>
                   <AutoResizeTextarea
                     id="team-description"
@@ -1075,15 +1081,17 @@ export const CreateTeamDialog = ({
                     maxRows={8}
                     value={description}
                     onChange={(event) => descriptionDraft.setValue(event.target.value)}
-                    placeholder="Brief description of the team purpose"
+                    placeholder={t('dialogs.createTeam.descriptionPlaceholder')}
                   />
                   {descriptionDraft.isSaved ? (
-                    <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
+                    <span className="text-[10px] text-[var(--color-text-muted)]">
+                      {t('dialogs.createTeam.saved')}
+                    </span>
                   ) : null}
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="label-optional">Color (optional)</Label>
+                  <Label className="label-optional">{t('dialogs.createTeam.colorLabel')}</Label>
                   <div className="flex flex-wrap gap-2">
                     {TEAM_COLOR_NAMES.map((colorName) => {
                       const colorSet = getTeamColorSet(colorName);
@@ -1139,17 +1147,17 @@ export const CreateTeamDialog = ({
                   <span>
                     {prepareMessage ??
                       (prepareState === 'idle'
-                        ? 'Warming up CLI environment...'
-                        : 'Preparing environment...')}
+                        ? t('dialogs.createTeam.warmingUp')
+                        : t('dialogs.createTeam.preparingEnvironment'))}
                   </span>
                   <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)] opacity-70">
-                    <span>Pre-flight check to catch errors before launch</span>
+                    <span>{t('dialogs.createTeam.preFlightCheck')}</span>
                     <button
                       type="button"
                       onClick={() => setPrepareState('ready')}
                       className="rounded px-1.5 py-0.5 text-[10px] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text-secondary)]"
                     >
-                      Skip
+                      {t('dialogs.createTeam.skip')}
                     </button>
                   </p>
                 </div>
@@ -1162,8 +1170,8 @@ export const CreateTeamDialog = ({
                   <CheckCircle2 className="size-3.5 shrink-0" />
                   <span>
                     {prepareWarnings.length > 0
-                      ? 'CLI environment ready (with notes)'
-                      : 'CLI environment ready'}
+                      ? t('dialogs.createTeam.cliReadyWithNotes')
+                      : t('dialogs.createTeam.cliReady')}
                   </span>
                 </div>
                 {prepareMessage ? (
@@ -1194,11 +1202,11 @@ export const CreateTeamDialog = ({
                   onClose();
                 }}
               >
-                Open Existing Team
+                {t('dialogs.createTeam.openExistingTeam')}
               </Button>
             ) : null}
             <Button variant="outline" size="sm" onClick={onClose}>
-              Close
+              {t('dialogs.createTeam.close')}
             </Button>
             <Button
               size="sm"
@@ -1213,10 +1221,10 @@ export const CreateTeamDialog = ({
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                  Creating...
+                  {t('dialogs.createTeam.creating')}
                 </>
               ) : (
-                'Create'
+                t('dialogs.createTeam.create')
               )}
             </Button>
           </div>

@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { isElectronMode } from '@renderer/api';
 import { useCliInstaller } from '@renderer/hooks/useCliInstaller';
@@ -23,6 +24,7 @@ import {
 import { SettingsSectionHeader } from '../components';
 
 export const CliStatusSection = (): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const isElectron = useMemo(() => isElectronMode(), []);
   const {
     cliStatus,
@@ -56,7 +58,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
 
   return (
     <div className="mb-2">
-      <SettingsSectionHeader title="Claude CLI" />
+      <SettingsSectionHeader title={t('settings.cliStatus.claudeCli')} />
       <div className="space-y-3 py-2">
         {/* Loading status */}
         {!cliStatus && installerState === 'idle' && (
@@ -65,7 +67,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
             style={{ color: 'var(--color-text-muted)' }}
           >
             <Loader2 className="size-4 animate-spin" />
-            Checking CLI...
+            {t('settings.cliStatus.checkingCli')}
           </div>
         )}
 
@@ -91,7 +93,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
                       style={{ backgroundColor: '#3b82f6' }}
                     >
                       <Download className="size-3.5" />
-                      Update
+                      {t('settings.cliStatus.update')}
                     </button>
                   ) : (
                     <button
@@ -106,12 +108,12 @@ export const CliStatusSection = (): React.JSX.Element | null => {
                       {cliStatusLoading ? (
                         <>
                           <Loader2 className="size-3.5 animate-spin" />
-                          Checking...
+                          {t('settings.cliStatus.checking')}
                         </>
                       ) : (
                         <>
                           <RefreshCw className="size-3.5" />
-                          Check for Updates
+                          {t('settings.cliStatus.checkForUpdates')}
                         </>
                       )}
                     </button>
@@ -127,7 +129,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
                     }}
                   >
                     <Puzzle className="size-3.5" />
-                    Extensions
+                    {t('settings.cliStatus.extensions')}
                   </button>
                 </div>
                 {cliStatus.binaryPath && (
@@ -153,7 +155,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
                 style={{ color: 'var(--color-text-secondary)' }}
               >
                 <AlertTriangle className="size-4 shrink-0" style={{ color: '#fbbf24' }} />
-                Claude CLI not installed
+                {t('settings.cliStatus.cliNotInstalled')}
               </div>
             )}
 
@@ -166,7 +168,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
                 style={{ backgroundColor: '#3b82f6' }}
               >
                 <Download className="size-3.5" />
-                Install Claude CLI
+                {t('settings.cliStatus.installClaudeCli')}
               </button>
             )}
           </div>
@@ -179,7 +181,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
               className="flex items-center justify-between text-xs"
               style={{ color: 'var(--color-text-secondary)' }}
             >
-              <span>Downloading...</span>
+              <span>{t('settings.cliStatus.downloading')}</span>
               <span>
                 {downloadTotal > 0
                   ? `${formatBytes(downloadTransferred)} / ${formatBytes(downloadTotal)} (${downloadProgress}%)`
@@ -215,7 +217,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
             style={{ color: 'var(--color-text-secondary)' }}
           >
             <Loader2 className="size-4 animate-spin" />
-            Checking latest version...
+            {t('settings.cliStatus.checkingLatestVersion')}
           </div>
         )}
 
@@ -226,7 +228,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
             style={{ color: 'var(--color-text-secondary)' }}
           >
             <Loader2 className="size-4 animate-spin" />
-            Verifying checksum...
+            {t('settings.cliStatus.verifyingChecksum')}
           </div>
         )}
 
@@ -237,7 +239,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
             style={{ color: 'var(--color-text-secondary)' }}
           >
             <Loader2 className="size-4 animate-spin" />
-            Installing...
+            {t('settings.cliStatus.installing')}
           </div>
         )}
 
@@ -245,7 +247,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
         {installerState === 'completed' && (
           <div className="flex items-center gap-2 text-sm" style={{ color: '#4ade80' }}>
             <CheckCircle className="size-4" />
-            Installed v{completedVersion ?? 'latest'}
+            {t('settings.cliStatus.installed')} v{completedVersion ?? 'latest'}
           </div>
         )}
 
@@ -254,7 +256,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm" style={{ color: '#f87171' }}>
               <AlertTriangle className="size-4" />
-              {installerError ?? 'Installation failed'}
+              {installerError ?? t('settings.cliStatus.installationFailed')}
             </div>
             <button
               onClick={handleInstall}
@@ -265,7 +267,7 @@ export const CliStatusSection = (): React.JSX.Element | null => {
               }}
             >
               <RefreshCw className="size-3.5" />
-              Retry
+              {t('settings.cliStatus.retry')}
             </button>
           </div>
         )}

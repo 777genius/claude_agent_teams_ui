@@ -6,6 +6,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 
 import { useStore } from '@renderer/store';
 import { formatSessionLabel, parseSessionTitle } from '@renderer/utils/sessionTitleParser';
@@ -62,6 +63,7 @@ const ConsumptionBadge = ({
   contextConsumption: number;
   phaseBreakdown?: PhaseTokenBreakdown[];
 }>): React.JSX.Element => {
+  const { t } = useTranslation();
   const [popoverPosition, setPopoverPosition] = useState<{
     top: number;
     left: number;
@@ -105,20 +107,25 @@ const ConsumptionBadge = ({
             }}
           >
             <div className="mb-1 font-medium" style={{ color: 'var(--color-text)' }}>
-              Total Context: {formatTokensCompact(contextConsumption)} tokens
+              {t('sidebar.sessionItem.totalContext')}: {formatTokensCompact(contextConsumption)}{' '}
+              tokens
             </div>
             {phaseBreakdown.length === 1 ? (
-              <div>Context: {formatTokensCompact(phaseBreakdown[0].peakTokens)}</div>
+              <div>
+                {t('sidebar.sessionItem.context')}:{' '}
+                {formatTokensCompact(phaseBreakdown[0].peakTokens)}
+              </div>
             ) : (
               phaseBreakdown.map((phase) => (
                 <div key={phase.phaseNumber} className="flex items-center gap-1">
                   <span style={{ color: 'var(--color-text-muted)' }}>
-                    Phase {phase.phaseNumber}:
+                    {t('sidebar.sessionItem.phase')} {phase.phaseNumber}:
                   </span>
                   <span className="tabular-nums">{formatTokensCompact(phase.contribution)}</span>
                   {phase.postCompaction != null && (
                     <span style={{ color: 'var(--color-text-muted)' }}>
-                      (compacted to {formatTokensCompact(phase.postCompaction)})
+                      ({t('sidebar.sessionItem.compactedTo')}{' '}
+                      {formatTokensCompact(phase.postCompaction)})
                     </span>
                   )}
                 </div>
@@ -140,6 +147,7 @@ export const SessionItem = ({
   isSelected,
   onToggleSelect,
 }: Readonly<SessionItemProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   const {
     openTab,
     activeProjectId,
@@ -310,7 +318,9 @@ export const SessionItem = ({
                       ) : (
                         <Play className="size-2.5" />
                       )}
-                      {parsed.kind === 'team-resume' ? 'resume' : 'new'}
+                      {parsed.kind === 'team-resume'
+                        ? t('sidebar.sessionItem.resume')
+                        : t('sidebar.sessionItem.new')}
                     </span>
                     <span style={{ opacity: 0.5 }}>·</span>
                   </>

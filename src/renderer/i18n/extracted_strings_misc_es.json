@@ -1,0 +1,339 @@
+{
+  "_meta": {
+    "description": "Cadenas traducibles extraídas de los directorios hooks, contexts, constants, utils y features",
+    "extractedBy": "elena",
+    "translatedBy": "luis",
+    "date": "2026-03-30",
+    "language": "es"
+  },
+
+  "constants.teamRoles": {
+    "_source": "src/renderer/constants/teamRoles.ts",
+    "role_architect": "arquitecto",
+    "role_reviewer": "revisor",
+    "role_developer": "desarrollador",
+    "role_qa": "control de calidad",
+    "role_researcher": "investigador",
+    "role_docs": "documentación",
+    "role_auditor": "auditor",
+    "role_optimizer": "optimizador"
+  },
+
+  "utils.memberHelpers.taskStatusLabels": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "pending": "Pendiente",
+    "in_progress": "En progreso",
+    "completed": "Completada",
+    "deleted": "Eliminada"
+  },
+
+  "utils.memberHelpers.presenceLabels": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "terminated": "terminado",
+    "processing": "procesando",
+    "processing_with_pct": "procesando ({pct}%)",
+    "ready": "listo",
+    "connecting": "conectando",
+    "offline": "desconectado",
+    "idle": "inactivo",
+    "working": "trabajando"
+  },
+
+  "utils.memberHelpers.spawnPresenceLabels": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "offline": "desconectado",
+    "waiting": "esperando",
+    "spawning": "iniciando",
+    "online": "en línea",
+    "spawn_failed": "inicio fallido"
+  },
+
+  "utils.memberHelpers.kanbanColumnDisplay": {
+    "_source": "src/renderer/utils/memberHelpers.ts",
+    "in_review": "En revisión",
+    "approved": "Aprobada",
+    "needs_fixes": "Requiere correcciones"
+  },
+
+  "utils.agentMessageFormatting.typeLabels": {
+    "_source": "src/renderer/utils/agentMessageFormatting.ts",
+    "idle_notification": "Inactivo",
+    "shutdown_approved": "Apagado confirmado",
+    "teammate_terminated": "Terminado",
+    "shutdown_request": "Apagado solicitado",
+    "shutdown_response": "Respuesta de apagado",
+    "message": "Mensaje",
+    "broadcast": "Difusión",
+    "permission_request": "Solicitud de permiso",
+    "permission_response": "Respuesta de permiso",
+    "structured_message": "Mensaje estructurado"
+  },
+
+  "utils.reportAssessments.takeawayTitles": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "high_cost_per_commit": "Alto costo por commit",
+    "elevated_cost_per_commit": "Costo elevado por commit",
+    "low_cache_efficiency": "Baja eficiencia de caché",
+    "tool_reliability_issues": "Problemas de fiabilidad de herramientas",
+    "degraded_tool_health": "Salud degradada de herramientas",
+    "significant_thrashing": "Thrashing significativo detectado",
+    "mild_thrashing": "Thrashing leve detectado",
+    "high_idle_time": "Alto tiempo de inactividad",
+    "prompt_quality_issues": "Problemas de calidad del prompt",
+    "context_window_pressure": "Presión en la ventana de contexto",
+    "redundant_file_reads": "Lecturas de archivo redundantes",
+    "tests_regressing": "Pruebas en regresión",
+    "session_looks_healthy": "La sesión se ve saludable"
+  },
+
+  "utils.reportAssessments.takeawayDetails": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "cost_consider_smaller_sessions": "${cost} en total — considera sesiones más pequeñas y enfocadas",
+    "cost_above_typical": "El costo por commit está por encima del rango típico",
+    "cache_hit_rate": "{pct}% de tasa de aciertos de caché — la estructura del prompt puede reducir el almacenamiento en caché",
+    "tools_failing": "Múltiples llamadas a herramientas están fallando — revisa la sección de errores para más detalles",
+    "tools_elevated_failure": "Algunas herramientas tienen tasas de fallo elevadas",
+    "thrashing_unclear_direction": "Comandos repetidos y retrabajo de archivos sugieren una dirección poco clara",
+    "thrashing_some_repeated": "Se detectaron algunos comandos repetidos o retrabajo de archivos",
+    "idle_wall_clock": "{pct}% del tiempo total fue inactividad",
+    "friction_rate_detail": "{pct}% de tasa de fricción — intenta prompts iniciales más detallados",
+    "compaction_occurred": "{count} compactación(es) ocurrida(s) — la sesión puede perder contexto inicial",
+    "reads_per_unique": "{count}x lecturas por archivo único",
+    "test_failures_increased": "Los fallos en pruebas aumentaron durante la sesión",
+    "no_significant_issues": "No se detectaron problemas significativos en ninguna métrica"
+  },
+
+  "utils.reportAssessments.sectionTitles": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "cost_analysis": "Análisis de costos",
+    "token_usage": "Uso de tokens",
+    "tool_usage": "Uso de herramientas",
+    "friction_signals": "Señales de fricción",
+    "timeline_activity": "Línea de tiempo y actividad",
+    "quality_signals": "Señales de calidad",
+    "overview": "Resumen general"
+  },
+
+  "utils.reportAssessments.explanations.thrashing": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "none": "Sin comandos repetidos ni archivos retrabajados",
+    "mild": "1–2 señales de thrashing detectadas",
+    "severe": "3+ señales de thrashing detectadas"
+  },
+
+  "utils.reportAssessments.explanations.promptQuality": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "well_specified": "Primer mensaje claro con baja tasa de fricción",
+    "moderate_friction": "Se necesitaron algunas correcciones a mitad de sesión",
+    "underspecified": "El prompt inicial corto generó muchas correcciones",
+    "verbose_but_unclear": "Prompt inicial largo pero aún con alta fricción"
+  },
+
+  "utils.reportAssessments.explanations.testTrajectory": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "improving": "Los fallos en pruebas disminuyeron durante la sesión",
+    "stable": "Los resultados de pruebas se mantuvieron aproximadamente iguales",
+    "regressing": "Los fallos en pruebas aumentaron durante la sesión",
+    "insufficient_data": "No hay suficientes ejecuciones de pruebas para determinar la tendencia"
+  },
+
+  "utils.reportAssessments.modelMismatch": {
+    "_source": "src/renderer/utils/reportAssessments.ts",
+    "mechanical_recommendation": "Considera usar Haiku para tareas mecánicas y reducir costos.",
+    "read_only_recommendation": "Considera usar Haiku o Sonnet para tareas de exploración de solo lectura."
+  },
+
+  "utils.displaySummary": {
+    "_source": "src/renderer/utils/displaySummary.ts",
+    "thinking": "pensamiento",
+    "tool_call": "llamada a herramienta",
+    "tool_calls": "llamadas a herramientas",
+    "message": "mensaje",
+    "messages": "mensajes",
+    "teammate": "miembro del equipo",
+    "teammates": "miembros del equipo",
+    "subagent": "subagente",
+    "subagents": "subagentes",
+    "slash": "slash",
+    "slashes": "slashes",
+    "teammate_message": "mensaje de miembro",
+    "teammate_messages": "mensajes de miembros",
+    "compaction": "compactación",
+    "compactions": "compactaciones",
+    "no_items": "Sin elementos"
+  },
+
+  "utils.formatters": {
+    "_source": "src/renderer/utils/formatters.ts",
+    "just_now": "justo ahora",
+    "minutes_ago": "hace {n}m",
+    "hours_ago": "hace {n}h"
+  },
+
+  "utils.scheduleFormatters": {
+    "_source": "src/renderer/utils/scheduleFormatters.ts",
+    "na": "N/D",
+    "overdue": "vencido",
+    "in_hours_minutes": "en {h}h {m}m",
+    "in_minutes": "en {m}m",
+    "soon": "pronto"
+  },
+
+  "utils.dateGrouping": {
+    "_source": "src/renderer/utils/dateGrouping.ts",
+    "today": "Hoy",
+    "yesterday": "Ayer",
+    "previous_7_days": "Últimos 7 días",
+    "older": "Anteriores"
+  },
+
+  "utils.taskGrouping": {
+    "_source": "src/renderer/utils/taskGrouping.ts",
+    "without_project": "Sin proyecto"
+  },
+
+  "utils.bugReportUtils": {
+    "_source": "src/renderer/utils/bugReportUtils.ts",
+    "bug_application_crash": "[ERROR] La aplicación se detuvo inesperadamente",
+    "not_available": "No disponible",
+    "unknown": "Desconocido",
+    "describe_the_bug": "Describe el error",
+    "app_crashed_error_screen": "La aplicación se detuvo y mostró la pantalla de error global.",
+    "what_happened": "Qué ocurrió",
+    "steps_to_reproduce": "Pasos para reproducir",
+    "step_1": "Abre la aplicación y navega a la pantalla donde ocurrió el fallo.",
+    "step_2": "Repite la acción que provocó el error.",
+    "step_3": "Observa la pantalla de error global.",
+    "expected_behavior": "Comportamiento esperado",
+    "expected_behavior_detail": "La aplicación debería seguir funcionando en lugar de detenerse.",
+    "screenshots": "Capturas de pantalla",
+    "screenshots_detail": "Adjunta una captura de pantalla si tienes una.",
+    "environment": "Entorno",
+    "diagnostics": "Diagnósticos",
+    "js_stack_trace": "Traza de pila de JavaScript",
+    "react_component_stack": "Pila de componentes React",
+    "electron_renderer": "Renderizador Electron",
+    "web_browser": "Navegador web"
+  },
+
+  "utils.sessionExporter": {
+    "_source": "src/renderer/utils/sessionExporter.ts",
+    "session_export": "EXPORTACIÓN DE SESIÓN",
+    "metrics": "MÉTRICAS",
+    "conversation": "CONVERSACIÓN",
+    "duration": "Duración",
+    "total_tokens": "Tokens totales",
+    "input_tokens": "Tokens de entrada",
+    "output_tokens": "Tokens de salida",
+    "cache_read": "Lectura de caché",
+    "cache_created": "Caché creado",
+    "messages_label": "Mensajes",
+    "cost": "Costo",
+    "session_export_title": "Exportación de sesión",
+    "property": "Propiedad",
+    "value": "Valor",
+    "session": "Sesión",
+    "project": "Proyecto",
+    "branch": "Rama",
+    "date": "Fecha",
+    "metric": "Métrica",
+    "user_turn": "Usuario (Turno {n})",
+    "assistant_turn": "Asistente (Turno {n})",
+    "system_turn": "Sistema (Turno {n})",
+    "thinking_label": "Pensamiento:",
+    "context_compacted": "Contexto compactado",
+    "image_placeholder": "[Imagen]",
+    "no_result": "[Sin resultado]",
+    "error_result": "[ERROR] Resultado: ",
+    "result_label": "Resultado:",
+    "tool_label": "Herramienta:"
+  },
+
+  "utils.toolRendering.toolSummaryHelpers": {
+    "_source": "src/renderer/utils/toolRendering/toolSummaryHelpers.ts",
+    "create_team": "Crear equipo",
+    "create_task": "Crear tarea",
+    "update_task": "Actualizar tarea",
+    "list_tasks": "Listar tareas",
+    "get_task": "Obtener tarea",
+    "shutdown": "Apagar {name}",
+    "shutdown_response": "Respuesta de apagado",
+    "broadcast": "Difusión: {summary}",
+    "send_message_to": "Para {recipient}: {summary}",
+    "send_message": "Enviar mensaje",
+    "delete_team": "Eliminar equipo",
+    "subagent": "Subagente"
+  },
+
+  "hooks.useAttachments": {
+    "_source": "src/renderer/hooks/useAttachments.ts",
+    "unsupported_file_type": "Tipo de archivo no soportado: {name}",
+    "failed_to_read_file": "Error al leer el archivo: {name}",
+    "max_attachments_allowed": "Máximo {n} archivos adjuntos permitidos",
+    "total_size_exceeds_limit": "El tamaño total de los archivos adjuntos supera el límite de 20MB"
+  },
+
+  "hooks.useToolApprovalDiff": {
+    "_source": "src/renderer/hooks/useToolApprovalDiff.ts",
+    "edit_old_string_empty": "Edición: old_string está vacío",
+    "fragment_not_found": "Fragmento no encontrado en el archivo actual",
+    "unknown_read_error": "Error de lectura desconocido"
+  },
+
+  "hooks.useExtensionsTabState": {
+    "_source": "src/renderer/hooks/useExtensionsTabState.ts",
+    "search_failed": "La búsqueda falló"
+  },
+
+  "hooks.useMemberStats": {
+    "_source": "src/renderer/hooks/useMemberStats.ts",
+    "unknown_error": "Error desconocido"
+  },
+
+  "hooks.useTeamSuggestions": {
+    "_source": "src/renderer/hooks/useTeamSuggestions.ts",
+    "online": "en línea",
+    "offline": "desconectado"
+  },
+
+  "features.agentGraph.graphNodePopover": {
+    "_source": "src/renderer/features/agent-graph/ui/GraphNodePopover.tsx",
+    "external_team": "Equipo externo",
+    "started_by": "Iniciado por:",
+    "at_label": "En:",
+    "open_url": "Abrir URL",
+    "status_active": "Activo",
+    "status_idle": "Inactivo",
+    "status_offline": "Desconectado",
+    "status_running_tool": "Ejecutando herramienta",
+    "lead_badge": "Líder",
+    "working_on": "trabajando en",
+    "running_tool_state": "Ejecutando herramienta",
+    "tool_failed": "Herramienta falló",
+    "tool_finished": "Herramienta finalizada",
+    "recent_tools": "Herramientas recientes",
+    "button_message": "Mensaje",
+    "button_profile": "Perfil",
+    "button_task": "Tarea"
+  },
+
+  "contexts": {
+    "_source": "src/renderer/contexts/",
+    "_note": "No se encontraron cadenas traducibles visibles al usuario en TabUIContext.tsx o useTabUIContext.ts"
+  },
+
+  "constants.layout": {
+    "_source": "src/renderer/constants/layout.ts",
+    "_note": "Sin cadenas traducibles — solo reexporta constantes numéricas de diseño"
+  },
+
+  "constants.teamColors": {
+    "_source": "src/renderer/constants/teamColors.ts",
+    "_note": "Sin cadenas traducibles — solo definiciones de colores"
+  },
+
+  "constants.cssVariables": {
+    "_source": "src/renderer/constants/cssVariables.ts",
+    "_note": "Sin cadenas traducibles — solo referencias a variables CSS"
+  }
+}

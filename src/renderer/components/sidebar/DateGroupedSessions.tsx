@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
@@ -155,6 +156,7 @@ const LOADER_HEIGHT = 36;
 const OVERSCAN = 5;
 
 export const DateGroupedSessions = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const {
     sessions,
     selectedSessionId,
@@ -515,11 +517,11 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           options={projectComboboxOptions}
           value={activeProjectValue ?? ''}
           onValueChange={handleProjectValueChange}
-          placeholder="Select Project"
-          searchPlaceholder="Search..."
-          emptyMessage="Nothing found"
+          placeholder={t('sidebar.sessions.selectProject')}
+          searchPlaceholder={t('sidebar.sessions.search')}
+          emptyMessage={t('sidebar.sessions.nothingFound')}
           className="text-[12px]"
-          resetLabel="Reset selection"
+          resetLabel={t('sidebar.sessions.resetSelection')}
           onReset={clearActiveProject}
           renderOption={(option, isSelected) => {
             const sessionCount = (option.meta?.sessionCount as number) ?? 0;
@@ -610,7 +612,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                   className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider"
                   style={{ color: 'var(--color-text-muted)' }}
                 >
-                  Switch Worktree
+                  {t('sidebar.sessions.switchWorktree')}
                 </div>
                 {mainWorktree && (
                   <WorktreeItem
@@ -656,7 +658,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
         {projectSelector}
         <div className="flex flex-1 items-center justify-center p-4">
           <div className="text-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            <p>Select a project to view sessions</p>
+            <p>{t('sidebar.sessions.selectProjectPrompt')}</p>
           </div>
         </div>
       </div>
@@ -709,7 +711,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
             }}
           >
             <p className="mb-1 font-semibold" style={{ color: 'var(--color-text)' }}>
-              Error loading sessions
+              {t('sidebar.sessions.errorLoading')}
             </p>
             <p>{sessionsError}</p>
           </div>
@@ -725,8 +727,8 @@ export const DateGroupedSessions = (): React.JSX.Element => {
         <div className="flex flex-1 items-center justify-center p-4">
           <div className="text-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
             <MessageSquareOff className="mx-auto mb-2 size-8 opacity-50" />
-            <p className="mb-2">No sessions found</p>
-            <p className="text-xs opacity-70">This project has no sessions yet</p>
+            <p className="mb-2">{t('sidebar.sessions.noSessionsFound')}</p>
+            <p className="text-xs opacity-70">{t('sidebar.sessions.noSessionsYet')}</p>
           </div>
         </div>
       </div>
@@ -742,7 +744,9 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           className="text-[11px] uppercase tracking-wider"
           style={{ color: 'var(--color-text-muted)' }}
         >
-          {sessionSortMode === 'most-context' ? 'By Context' : 'Sessions'}
+          {sessionSortMode === 'most-context'
+            ? t('sidebar.sessions.byContext')
+            : t('sidebar.sessions.sessions')}
         </h2>
         {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- tooltip trigger via hover, not interactive */}
         <span
@@ -772,8 +776,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                 color: 'var(--color-text-secondary)',
               }}
             >
-              {sessions.length} loaded so far — scroll down to load more. Context sorting only ranks
-              loaded sessions.
+              {t('sidebar.sessions.loadedSoFarTooltip', { count: sessions.length })}
             </div>,
             document.body
           )}
@@ -782,7 +785,11 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           <button
             onClick={toggleSidebarMultiSelect}
             className="rounded p-1 transition-colors hover:bg-white/5"
-            title={sidebarMultiSelectActive ? 'Exit selection mode' : 'Select sessions'}
+            title={
+              sidebarMultiSelectActive
+                ? t('sidebar.sessions.exitSelectionMode')
+                : t('sidebar.sessions.selectSessions')
+            }
             style={{
               color: sidebarMultiSelectActive ? '#818cf8' : 'var(--color-text-muted)',
             }}
@@ -794,7 +801,11 @@ export const DateGroupedSessions = (): React.JSX.Element => {
             <button
               onClick={toggleShowHiddenSessions}
               className="rounded p-1 transition-colors hover:bg-white/5"
-              title={showHiddenSessions ? 'Hide hidden sessions' : 'Show hidden sessions'}
+              title={
+                showHiddenSessions
+                  ? t('sidebar.sessions.hideHidden')
+                  : t('sidebar.sessions.showHidden')
+              }
               style={{
                 color: showHiddenSessions ? '#818cf8' : 'var(--color-text-muted)',
               }}
@@ -808,7 +819,11 @@ export const DateGroupedSessions = (): React.JSX.Element => {
               setSessionSortMode(sessionSortMode === 'recent' ? 'most-context' : 'recent')
             }
             className="rounded p-1 transition-colors hover:bg-white/5"
-            title={sessionSortMode === 'recent' ? 'Sort by context consumption' : 'Sort by recent'}
+            title={
+              sessionSortMode === 'recent'
+                ? t('sidebar.sessions.sortByContext')
+                : t('sidebar.sessions.sortByRecent')
+            }
             style={{
               color: sessionSortMode === 'most-context' ? '#818cf8' : 'var(--color-text-muted)',
             }}
@@ -831,40 +846,40 @@ export const DateGroupedSessions = (): React.JSX.Element => {
             className="text-[11px] font-medium"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            {sidebarSelectedSessionIds.length} selected
+            {t('sidebar.sessions.nSelected', { count: sidebarSelectedSessionIds.length })}
           </span>
           <div className="ml-auto flex items-center gap-1">
             <button
               onClick={handleBulkPin}
               className="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-white/5"
               style={{ color: 'var(--color-text-secondary)' }}
-              title="Pin selected sessions"
+              title={t('sidebar.sessions.pinSelected')}
             >
-              <Pin className="inline-block size-3" /> Pin
+              <Pin className="inline-block size-3" /> {t('sidebar.sessions.pin')}
             </button>
             <button
               onClick={handleBulkHide}
               className="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-white/5"
               style={{ color: 'var(--color-text-secondary)' }}
-              title="Hide selected sessions"
+              title={t('sidebar.sessions.hideSelected')}
             >
-              <EyeOff className="inline-block size-3" /> Hide
+              <EyeOff className="inline-block size-3" /> {t('sidebar.sessions.hide')}
             </button>
             {showHiddenSessions && someSelectedAreHidden && (
               <button
                 onClick={handleBulkUnhide}
                 className="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-white/5"
                 style={{ color: 'var(--color-text-secondary)' }}
-                title="Unhide selected sessions"
+                title={t('sidebar.sessions.unhideSelected')}
               >
-                <Eye className="inline-block size-3" /> Unhide
+                <Eye className="inline-block size-3" /> {t('sidebar.sessions.unhide')}
               </button>
             )}
             <button
               onClick={clearSidebarSelection}
               className="rounded p-0.5 transition-colors hover:bg-white/5"
               style={{ color: 'var(--color-text-muted)' }}
-              title="Cancel selection"
+              title={t('sidebar.sessions.cancelSelection')}
             >
               <X className="size-3.5" />
             </button>
@@ -907,7 +922,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                     }}
                   >
                     <Pin className="size-3" />
-                    Pinned
+                    {t('sidebar.sessions.pinned')}
                   </div>
                 ) : item.type === 'header' ? (
                   <div
@@ -929,10 +944,12 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                     {sessionsLoadingMore ? (
                       <>
                         <Loader2 className="mr-2 size-4 animate-spin" />
-                        <span className="text-xs">Loading more sessions...</span>
+                        <span className="text-xs">{t('sidebar.sessions.loadingMore')}</span>
                       </>
                     ) : (
-                      <span className="text-xs opacity-50">Scroll to load more</span>
+                      <span className="text-xs opacity-50">
+                        {t('sidebar.sessions.scrollToLoadMore')}
+                      </span>
                     )}
                   </div>
                 ) : (

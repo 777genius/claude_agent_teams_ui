@@ -1,3 +1,5 @@
+import i18next from 'i18next';
+
 import { MESSAGE_REPLY_TAG } from '@shared/constants/agentBlocks';
 
 type StructuredAgentMessage = Record<string, unknown>;
@@ -65,16 +67,16 @@ const NOISE_TYPES = new Set([
   'shutdown_request',
 ]);
 
-const TYPE_LABELS: Record<string, string> = {
-  idle_notification: 'Idle',
-  shutdown_approved: 'Shutdown confirmed',
-  teammate_terminated: 'Terminated',
-  shutdown_request: 'Shutdown requested',
-  shutdown_response: 'Shutdown response',
-  message: 'Message',
-  broadcast: 'Broadcast',
-  permission_request: 'Permission request',
-  permission_response: 'Permission response',
+const TYPE_LABEL_KEYS: Record<string, string> = {
+  idle_notification: 'utils.agentMessageFormatting.typeLabels.idle_notification',
+  shutdown_approved: 'utils.agentMessageFormatting.typeLabels.shutdown_approved',
+  teammate_terminated: 'utils.agentMessageFormatting.typeLabels.teammate_terminated',
+  shutdown_request: 'utils.agentMessageFormatting.typeLabels.shutdown_request',
+  shutdown_response: 'utils.agentMessageFormatting.typeLabels.shutdown_response',
+  message: 'utils.agentMessageFormatting.typeLabels.message',
+  broadcast: 'utils.agentMessageFormatting.typeLabels.broadcast',
+  permission_request: 'utils.agentMessageFormatting.typeLabels.permission_request',
+  permission_response: 'utils.agentMessageFormatting.typeLabels.permission_response',
 };
 
 export function parseStructuredAgentMessage(content: string): StructuredAgentMessage | null {
@@ -99,7 +101,8 @@ export function getMessageTypeLabel(type: string | null): string | null {
   if (!type) {
     return null;
   }
-  return TYPE_LABELS[type] ?? type;
+  const key = TYPE_LABEL_KEYS[type];
+  return key ? i18next.t(key) : type;
 }
 
 function getStringField(value: unknown): string | null {
@@ -135,5 +138,8 @@ export function getStructuredMessageSummary(parsed: StructuredAgentMessage): str
   }
 
   const type = getStringField(parsed.type);
-  return getMessageTypeLabel(type) ?? 'Structured message';
+  return (
+    getMessageTypeLabel(type) ??
+    i18next.t('utils.agentMessageFormatting.typeLabels.structured_message')
+  );
 }

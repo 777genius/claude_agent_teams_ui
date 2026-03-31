@@ -1,4 +1,8 @@
+import { createLogger } from '@shared/utils/logger';
+
 import { type IpcMain } from 'electron';
+
+const logger = createLogger('rendererHeartbeat');
 
 // IPC channel names — must match the preload bindings in src/preload/index.ts
 const RENDERER_LOG = 'renderer:log';
@@ -11,6 +15,17 @@ const hasReceivedHeartbeatByWebContentsId = new Set<number>();
 let heartbeatMonitorStarted = false;
 let heartbeatMonitorInterval: ReturnType<typeof setInterval> | null = null;
 
+/** Callback invoked when a renderer's heartbeat has been stale for RECOVERY_AFTER_MS. */
+let onRendererStaleCallback: ((webContentsId: number) => void) | null = null;
+
+/**
+ * Register a callback to be invoked when the renderer heartbeat goes stale
+ * beyond the recovery threshold. Used by index.ts to trigger renderer recovery.
+ */
+export function setOnRendererStale(cb: (webContentsId: number) => void): void {
+  onRendererStaleCallback = cb;
+}
+
 function startHeartbeatMonitor(): void {
   if (heartbeatMonitorStarted) return;
   heartbeatMonitorStarted = true;
@@ -18,6 +33,8 @@ function startHeartbeatMonitor(): void {
   const CHECK_EVERY_MS = 1500;
   const STALE_AFTER_MS = 5000;
   const WARN_THROTTLE_MS = 10_000;
+  /** Trigger recovery callback after this duration of missed heartbeats. */
+  const RECOVERY_AFTER_MS = 30_000;
 
   heartbeatMonitorInterval = setInterval(() => {
     const now = Date.now();
@@ -32,6 +49,19 @@ function startHeartbeatMonitor(): void {
       const lastWarnedAt = lastHeartbeatWarnedAtByWebContentsId.get(id) ?? 0;
       if (now - lastWarnedAt < WARN_THROTTLE_MS) continue;
       lastHeartbeatWarnedAtByWebContentsId.set(id, now);
+      logger.warn(`Renderer heartbeat stale for webContents ${id} (${Math.round(age / 1000)}s)`);
+
+      // Trigger recovery when heartbeat has been stale long enough
+      if (age >= RECOVERY_AFTER_MS && onRendererStaleCallback) {
+        logger.error(
+          `Renderer heartbeat stale for ${Math.round(age / 1000)}s — triggering recovery`
+        );
+        onRendererStaleCallback(id);
+        // Remove from tracking to avoid re-triggering recovery repeatedly
+        lastHeartbeatByWebContentsId.delete(id);
+        hasReceivedHeartbeatByWebContentsId.delete(id);
+        lastHeartbeatWarnedAtByWebContentsId.delete(id);
+      }
     }
   }, CHECK_EVERY_MS);
 
@@ -75,6 +105,7 @@ export function removeRendererLogHandlers(ipcMain: IpcMain): void {
     heartbeatMonitorInterval = null;
   }
   heartbeatMonitorStarted = false;
+  onRendererStaleCallback = null;
   lastHeartbeatByWebContentsId.clear();
   lastHeartbeatWarnedAtByWebContentsId.clear();
   hasReceivedHeartbeatByWebContentsId.clear();

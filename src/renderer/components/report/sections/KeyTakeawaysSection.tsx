@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { severityColor } from '@renderer/utils/reportAssessments';
 import { AlertTriangle, CheckCircle, ChevronRight, Info, XCircle } from 'lucide-react';
 
@@ -23,9 +24,12 @@ interface KeyTakeawaysSectionProps {
 }
 
 export const KeyTakeawaysSection = ({ takeaways }: KeyTakeawaysSectionProps) => {
+  const { t } = useTranslation();
   return (
     <div className="rounded-lg border border-border bg-surface-raised p-4">
-      <div className="mb-3 text-sm font-semibold text-text">Key Takeaways</div>
+      <div className="mb-3 text-sm font-semibold text-text">
+        {t('report.sections.keyTakeaways.title')}
+      </div>
       <div className="flex flex-col gap-2">
         {takeaways.map((t, idx) => {
           const Icon = SEVERITY_ICONS[t.severity];

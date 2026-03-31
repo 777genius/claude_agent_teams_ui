@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from '@renderer/components/ui/dialog';
@@ -58,6 +59,7 @@ export const MemberDetailDialog = ({
   updatingRole,
   onViewMemberChanges,
 }: MemberDetailDialogProps): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const memberTasks = useMemo(
     () => (member ? tasks.filter((t) => t.owner === member.name) : []),
     [tasks, member]
@@ -126,7 +128,7 @@ export const MemberDetailDialog = ({
         >
           <TabsList className="w-full">
             <TabsTrigger value="tasks" className="flex-1 gap-1.5">
-              Tasks
+              {t('members.detailDialog.tabTasks')}
               {memberTasks.length > 0 && (
                 <span className="rounded-full bg-[var(--color-surface)] px-1.5 text-[10px]">
                   {memberTasks.length}
@@ -134,7 +136,7 @@ export const MemberDetailDialog = ({
               )}
             </TabsTrigger>
             <TabsTrigger value="messages" className="flex-1 gap-1.5">
-              Messages
+              {t('members.detailDialog.tabMessages')}
               {memberMessages.length > 0 && (
                 <span className="rounded-full bg-[var(--color-surface)] px-1.5 text-[10px]">
                   {memberMessages.length}
@@ -143,11 +145,11 @@ export const MemberDetailDialog = ({
             </TabsTrigger>
             <TabsTrigger value="stats" className="flex-1 gap-1.5">
               <BarChart3 size={12} />
-              Stats
+              {t('members.detailDialog.tabStats')}
             </TabsTrigger>
             <TabsTrigger value="logs" className="flex-1 gap-1.5">
               <FileText size={12} />
-              Logs
+              {t('members.detailDialog.tabLogs')}
             </TabsTrigger>
           </TabsList>
           <TabsContent value="tasks">
@@ -175,17 +177,19 @@ export const MemberDetailDialog = ({
         <DialogFooter>
           {member.removedAt ? (
             <span className="text-xs text-[var(--color-text-muted)]">
-              Removed {new Date(member.removedAt).toLocaleDateString()}
+              {t('members.detailDialog.removedOn', {
+                date: new Date(member.removedAt).toLocaleDateString(),
+              })}
             </span>
           ) : (
             <>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={onSendMessage}>
                 <MessageSquare size={14} />
-                Send Message
+                {t('members.detailDialog.sendMessage')}
               </Button>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={onAssignTask}>
                 <ListPlus size={14} />
-                Assign Task
+                {t('members.detailDialog.assignTask')}
               </Button>
               {onRemoveMember && !isLeadMember(member) && (
                 <Button
@@ -195,7 +199,7 @@ export const MemberDetailDialog = ({
                   onClick={onRemoveMember}
                 >
                   <UserMinus size={14} />
-                  Remove
+                  {t('members.detailDialog.remove')}
                 </Button>
               )}
             </>

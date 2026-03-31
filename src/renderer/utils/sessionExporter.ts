@@ -5,6 +5,8 @@
  * and a download trigger for browser-based file saving.
  */
 
+import i18next from 'i18next';
+
 import type { Chunk, SessionDetail } from '@renderer/types/data';
 import type { ContentBlock } from '@shared/types';
 
@@ -297,7 +299,7 @@ export function exportAsPlainText(detail: SessionDetail): string {
 
   // Header
   lines.push('═'.repeat(60));
-  lines.push('SESSION EXPORT');
+  lines.push(i18next.t('utils.sessionExporter.session_export'));
   lines.push('═'.repeat(60));
   lines.push(`Session:  ${session.id}`);
   lines.push(`Project:  ${session.projectPath}`);
@@ -309,21 +311,37 @@ export function exportAsPlainText(detail: SessionDetail): string {
 
   // Metrics
   lines.push('─'.repeat(40));
-  lines.push('METRICS');
+  lines.push(i18next.t('utils.sessionExporter.metrics'));
   lines.push('─'.repeat(40));
-  lines.push(`Duration:       ${formatDurationForExport(metrics.durationMs)}`);
-  lines.push(`Total Tokens:   ${formatNumber(metrics.totalTokens)}`);
-  lines.push(`Input Tokens:   ${formatNumber(metrics.inputTokens)}`);
-  lines.push(`Output Tokens:  ${formatNumber(metrics.outputTokens)}`);
-  lines.push(`Cache Read:     ${formatNumber(metrics.cacheReadTokens)}`);
-  lines.push(`Cache Created:  ${formatNumber(metrics.cacheCreationTokens)}`);
-  lines.push(`Messages:       ${formatNumber(metrics.messageCount)}`);
-  lines.push(`Cost:           ${formatCost(metrics.costUsd)}`);
+  lines.push(
+    `${i18next.t('utils.sessionExporter.duration')}:       ${formatDurationForExport(metrics.durationMs)}`
+  );
+  lines.push(
+    `${i18next.t('utils.sessionExporter.total_tokens')}:   ${formatNumber(metrics.totalTokens)}`
+  );
+  lines.push(
+    `${i18next.t('utils.sessionExporter.input_tokens')}:   ${formatNumber(metrics.inputTokens)}`
+  );
+  lines.push(
+    `${i18next.t('utils.sessionExporter.output_tokens')}:  ${formatNumber(metrics.outputTokens)}`
+  );
+  lines.push(
+    `${i18next.t('utils.sessionExporter.cache_read')}:     ${formatNumber(metrics.cacheReadTokens)}`
+  );
+  lines.push(
+    `${i18next.t('utils.sessionExporter.cache_created')}:  ${formatNumber(metrics.cacheCreationTokens)}`
+  );
+  lines.push(
+    `${i18next.t('utils.sessionExporter.messages_label')}:       ${formatNumber(metrics.messageCount)}`
+  );
+  lines.push(
+    `${i18next.t('utils.sessionExporter.cost')}:           ${formatCost(metrics.costUsd)}`
+  );
   lines.push('');
 
   // Conversation
   lines.push('═'.repeat(60));
-  lines.push('CONVERSATION');
+  lines.push(i18next.t('utils.sessionExporter.conversation'));
   lines.push('═'.repeat(60));
   lines.push('');
 
@@ -347,37 +365,57 @@ export function exportAsMarkdown(detail: SessionDetail): string {
   const lines: string[] = [];
 
   // Title
-  lines.push('# Session Export');
+  lines.push(`# ${i18next.t('utils.sessionExporter.session_export_title')}`);
   lines.push('');
 
   // Property table
-  lines.push('| Property | Value |');
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.property')} | ${i18next.t('utils.sessionExporter.value')} |`
+  );
   lines.push('|----------|-------|');
-  lines.push(`| Session | \`${session.id}\` |`);
-  lines.push(`| Project | \`${session.projectPath}\` |`);
+  lines.push(`| ${i18next.t('utils.sessionExporter.session')} | \`${session.id}\` |`);
+  lines.push(`| ${i18next.t('utils.sessionExporter.project')} | \`${session.projectPath}\` |`);
   if (session.gitBranch) {
-    lines.push(`| Branch | \`${session.gitBranch}\` |`);
+    lines.push(`| ${i18next.t('utils.sessionExporter.branch')} | \`${session.gitBranch}\` |`);
   }
-  lines.push(`| Date | ${formatTimestamp(new Date(session.createdAt))} |`);
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.date')} | ${formatTimestamp(new Date(session.createdAt))} |`
+  );
   lines.push('');
 
   // Metrics table
-  lines.push('## Metrics');
+  lines.push(`## ${i18next.t('utils.sessionExporter.metrics')}`);
   lines.push('');
-  lines.push('| Metric | Value |');
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.metric')} | ${i18next.t('utils.sessionExporter.value')} |`
+  );
   lines.push('|--------|-------|');
-  lines.push(`| Duration | ${formatDurationForExport(metrics.durationMs)} |`);
-  lines.push(`| Total Tokens | ${formatNumber(metrics.totalTokens)} |`);
-  lines.push(`| Input Tokens | ${formatNumber(metrics.inputTokens)} |`);
-  lines.push(`| Output Tokens | ${formatNumber(metrics.outputTokens)} |`);
-  lines.push(`| Cache Read | ${formatNumber(metrics.cacheReadTokens)} |`);
-  lines.push(`| Cache Created | ${formatNumber(metrics.cacheCreationTokens)} |`);
-  lines.push(`| Messages | ${formatNumber(metrics.messageCount)} |`);
-  lines.push(`| Cost | ${formatCost(metrics.costUsd)} |`);
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.duration')} | ${formatDurationForExport(metrics.durationMs)} |`
+  );
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.total_tokens')} | ${formatNumber(metrics.totalTokens)} |`
+  );
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.input_tokens')} | ${formatNumber(metrics.inputTokens)} |`
+  );
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.output_tokens')} | ${formatNumber(metrics.outputTokens)} |`
+  );
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.cache_read')} | ${formatNumber(metrics.cacheReadTokens)} |`
+  );
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.cache_created')} | ${formatNumber(metrics.cacheCreationTokens)} |`
+  );
+  lines.push(
+    `| ${i18next.t('utils.sessionExporter.messages_label')} | ${formatNumber(metrics.messageCount)} |`
+  );
+  lines.push(`| ${i18next.t('utils.sessionExporter.cost')} | ${formatCost(metrics.costUsd)} |`);
   lines.push('');
 
   // Conversation
-  lines.push('## Conversation');
+  lines.push(`## ${i18next.t('utils.sessionExporter.conversation')}`);
   lines.push('');
 
   let turnNum = 0;

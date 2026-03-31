@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useStore } from '@renderer/store';
 import { formatShortcut } from '@renderer/utils/stringUtils';
@@ -28,6 +29,7 @@ const MAX_WIDTH = 500;
 const DEFAULT_WIDTH = 280;
 
 export const Sidebar = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const { sidebarCollapsed, toggleSidebar } = useStore(
     useShallow((s) => ({
       sidebarCollapsed: s.sidebarCollapsed,
@@ -117,13 +119,13 @@ export const Sidebar = (): React.JSX.Element => {
               color: isCollapseHovered ? 'var(--color-text-secondary)' : 'var(--color-text-muted)',
               backgroundColor: isCollapseHovered ? 'var(--color-surface-raised)' : 'transparent',
             }}
-            title={`Collapse sidebar (${formatShortcut('B')})`}
+            title={`${t('layout.sidebar.collapseSidebar')} (${formatShortcut('B')})`}
           >
             <PanelLeft className="size-3.5" />
           </button>
 
           <div className="flex-1" />
-          <div className="flex" role="tablist" aria-label="Sidebar view">
+          <div className="flex" role="tablist" aria-label={t('layout.sidebar.sidebarView')}>
             <button
               type="button"
               role="tab"
@@ -143,7 +145,7 @@ export const Sidebar = (): React.JSX.Element => {
               }
               onClick={() => setSidebarTab('tasks')}
             >
-              Tasks
+              {t('layout.sidebar.tasks')}
             </button>
             <button
               type="button"
@@ -166,7 +168,7 @@ export const Sidebar = (): React.JSX.Element => {
               }
               onClick={() => setSidebarTab('sessions')}
             >
-              Sessions
+              {t('layout.sidebar.sessions')}
             </button>
           </div>
           <div className="flex-1" />
@@ -203,7 +205,7 @@ export const Sidebar = (): React.JSX.Element => {
       {!sidebarCollapsed && (
         <button
           type="button"
-          aria-label="Resize sidebar"
+          aria-label={t('layout.sidebar.resizeSidebar')}
           className={`absolute left-0 top-0 h-full w-1 cursor-col-resize border-0 bg-transparent p-0 transition-colors hover:bg-blue-500/50 ${
             isResizing ? 'bg-blue-500/50' : ''
           }`}

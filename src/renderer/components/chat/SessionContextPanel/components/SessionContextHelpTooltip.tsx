@@ -4,10 +4,12 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 
 import { HelpCircle } from 'lucide-react';
 
 export const SessionContextHelpTooltip = (): React.ReactElement => {
+  const { t } = useTranslation();
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
   const [arrowStyle, setArrowStyle] = useState<React.CSSProperties>({});
@@ -119,7 +121,10 @@ export const SessionContextHelpTooltip = (): React.ReactElement => {
               {/* What is Visible Context */}
               <div>
                 <div className="mb-1 font-semibold" style={{ color: 'var(--color-text)' }}>
-                  What is Visible Context?
+                  {t(
+                    'chat.sessionContextPanel.helpTooltip.whatIsVisibleContext',
+                    'What is Visible Context?'
+                  )}
                 </div>
                 <p style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
                   Tokens consumed by file reads, tool outputs, and configuration files (CLAUDE.md)
@@ -164,15 +169,21 @@ export const SessionContextHelpTooltip = (): React.ReactElement => {
               {/* Tips */}
               <div className="pt-2" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
                 <div className="mb-1 font-semibold" style={{ color: 'var(--color-text)' }}>
-                  Optimization Tips
+                  {t('chat.sessionContextPanel.helpTooltip.optimizationTips', 'Optimization Tips')}
                 </div>
                 <ul
                   className="space-y-1 pl-3"
                   style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}
                 >
-                  <li className="list-disc">Shorten large CLAUDE.md files</li>
-                  <li className="list-disc">Split large @-mentioned files</li>
-                  <li className="list-disc">Adjust MCP tool output verbosity</li>
+                  <li className="list-disc">
+                    {t('chat.sessionContextPanel.helpTooltip.shortenClaudeMd')}
+                  </li>
+                  <li className="list-disc">
+                    {t('chat.sessionContextPanel.helpTooltip.splitMentionedFiles')}
+                  </li>
+                  <li className="list-disc">
+                    {t('chat.sessionContextPanel.helpTooltip.adjustMcpVerbosity')}
+                  </li>
                 </ul>
               </div>
             </div>

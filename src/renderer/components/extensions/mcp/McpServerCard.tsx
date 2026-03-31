@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { Badge } from '@renderer/components/ui/badge';
@@ -35,6 +36,7 @@ export const McpServerCard = ({
   diagnosticsLoading,
   onClick,
 }: McpServerCardProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const installProgress = useStore((s) => s.mcpInstallProgress[server.id] ?? 'idle');
   const installMcpServer = useStore((s) => s.installMcpServer);
   const uninstallMcpServer = useStore((s) => s.uninstallMcpServer);
@@ -103,7 +105,7 @@ export const McpServerCard = ({
                   className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                   variant="outline"
                 >
-                  Installed
+                  {t('extensions.mcp.card.installed')}
                 </Badge>
               )}
               {isInstalled && diagnosticsLoading && !diagnostic && (
@@ -111,7 +113,7 @@ export const McpServerCard = ({
                   className="border-border bg-surface-raised text-text-muted"
                   variant="outline"
                 >
-                  Checking...
+                  {t('extensions.mcp.card.checking')}
                 </Badge>
               )}
               {diagnostic && (
@@ -138,19 +140,19 @@ export const McpServerCard = ({
           {server.tools.length > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full bg-surface-raised px-1.5 py-0.5 ring-1 ring-border">
               <Wrench className="size-3" />
-              {server.tools.length} {server.tools.length === 1 ? 'tool' : 'tools'}
+              {t('extensions.mcp.card.toolCount', { count: server.tools.length })}
             </span>
           )}
           {server.envVars.length > 0 && (
             <span className="inline-flex items-center gap-1">
               <KeyRound className="size-3" />
-              {server.envVars.length} {server.envVars.length === 1 ? 'env' : 'envs'}
+              {t('extensions.mcp.card.envCount', { count: server.envVars.length })}
             </span>
           )}
           {server.requiresAuth && (
             <span className="inline-flex items-center gap-1 text-amber-400">
               <Lock className="size-3" />
-              Auth
+              {t('extensions.mcp.card.auth')}
             </span>
           )}
           {server.version && (
@@ -165,23 +167,27 @@ export const McpServerCard = ({
               {formatRelativeTime(server.updatedAt)}
             </span>
           )}
-          {server.author && <span className="truncate">by {server.author}</span>}
+          {server.author && (
+            <span className="truncate">
+              {t('extensions.mcp.card.byAuthor', { author: server.author })}
+            </span>
+          )}
           {server.hostingType === 'remote' && (
             <span className="inline-flex items-center gap-1">
               <Cloud className="size-3" />
-              Remote
+              {t('extensions.mcp.card.remote')}
             </span>
           )}
           {server.hostingType === 'local' && (
             <span className="inline-flex items-center gap-1">
               <Monitor className="size-3" />
-              Local
+              {t('extensions.mcp.card.local')}
             </span>
           )}
           {server.hostingType === 'both' && (
             <span className="inline-flex items-center gap-1">
               <Globe className="size-3" />
-              Both
+              {t('extensions.mcp.card.both')}
             </span>
           )}
           {/* External links + stars */}
@@ -204,7 +210,7 @@ export const McpServerCard = ({
                   )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top">Repository</TooltipContent>
+              <TooltipContent side="top">{t('extensions.mcp.card.repository')}</TooltipContent>
             </Tooltip>
           )}
           {server.websiteUrl && (
@@ -220,7 +226,7 @@ export const McpServerCard = ({
                   <Globe className="size-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top">Website</TooltipContent>
+              <TooltipContent side="top">{t('extensions.mcp.card.website')}</TooltipContent>
             </Tooltip>
           )}
         </div>
@@ -254,7 +260,7 @@ export const McpServerCard = ({
                 onClick(server.id);
               }}
             >
-              {isInstalled ? 'Manage' : 'Configure'}
+              {isInstalled ? t('extensions.mcp.card.manage') : t('extensions.mcp.card.configure')}
             </Button>
           </div>
         )}

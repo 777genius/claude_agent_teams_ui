@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { Lightbulb } from 'lucide-react';
 
 import { ReportSection } from '../ReportSection';
@@ -32,13 +34,18 @@ export const InsightsSection = ({
   subagentsList,
   defaultCollapsed,
 }: InsightsSectionProps) => {
+  const { t } = useTranslation();
   return (
-    <ReportSection title="Session Insights" icon={Lightbulb} defaultCollapsed={defaultCollapsed}>
+    <ReportSection
+      title={t('report.sections.sessionInsights.title')}
+      icon={Lightbulb}
+      defaultCollapsed={defaultCollapsed}
+    >
       {/* Skills invoked */}
       {skills.length > 0 && (
         <div className="mb-4">
           <div className="mb-2 text-xs font-medium text-text-muted">
-            Skills Invoked ({skills.length})
+            {t('report.sections.sessionInsights.skillsInvoked', { count: skills.length })}
           </div>
           <div className="flex flex-col gap-1">
             {skills.map((s, idx) => (
@@ -53,18 +60,26 @@ export const InsightsSection = ({
 
       {/* Bash commands */}
       <div className="mb-4">
-        <div className="mb-2 text-xs font-medium text-text-muted">Bash Commands</div>
+        <div className="mb-2 text-xs font-medium text-text-muted">
+          {t('report.sections.sessionInsights.bashCommands')}
+        </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div>
-            <div className="text-xs text-text-muted">Total</div>
+            <div className="text-xs text-text-muted">
+              {t('report.sections.sessionInsights.total')}
+            </div>
             <div className="text-sm font-medium text-text">{bash.total}</div>
           </div>
           <div>
-            <div className="text-xs text-text-muted">Unique</div>
+            <div className="text-xs text-text-muted">
+              {t('report.sections.sessionInsights.unique')}
+            </div>
             <div className="text-sm font-medium text-text">{bash.unique}</div>
           </div>
           <div>
-            <div className="text-xs text-text-muted">Repeated</div>
+            <div className="text-xs text-text-muted">
+              {t('report.sections.sessionInsights.repeated')}
+            </div>
             <div className="text-sm font-medium text-text">{Object.keys(bash.repeated).length}</div>
           </div>
         </div>
@@ -86,7 +101,7 @@ export const InsightsSection = ({
       {subagentsList.length > 0 && (
         <div className="mb-4">
           <div className="mb-2 text-xs font-medium text-text-muted">
-            Task Dispatches ({subagentsList.length})
+            {t('report.sections.sessionInsights.taskDispatches', { count: subagentsList.length })}
           </div>
           <div className="flex flex-col gap-1">
             {subagentsList.map((s, idx) => (
@@ -95,7 +110,11 @@ export const InsightsSection = ({
                   {s.subagentType}
                 </span>
                 <span className="truncate text-text">{s.description}</span>
-                {s.runInBackground && <span className="text-text-muted">(background)</span>}
+                {s.runInBackground && (
+                  <span className="text-text-muted">
+                    ({t('report.sections.sessionInsights.background')})
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -106,7 +125,7 @@ export const InsightsSection = ({
       {lifecycleTasks.length > 0 && (
         <div className="mb-4">
           <div className="mb-2 text-xs font-medium text-text-muted">
-            Tasks Created ({lifecycleTasks.length})
+            {t('report.sections.sessionInsights.tasksCreated', { count: lifecycleTasks.length })}
           </div>
           <div className="flex flex-col gap-1">
             {lifecycleTasks.map((task, idx) => (
@@ -122,7 +141,7 @@ export const InsightsSection = ({
       {userQuestions.length > 0 && (
         <div className="mb-4">
           <div className="mb-2 text-xs font-medium text-text-muted">
-            Questions Asked ({userQuestions.length})
+            {t('report.sections.sessionInsights.questionsAsked', { count: userQuestions.length })}
           </div>
           <div className="flex flex-col gap-2">
             {userQuestions.map((q, idx) => (
@@ -151,16 +170,16 @@ export const InsightsSection = ({
       {agentTree.agentCount > 0 && (
         <div className="mb-4">
           <div className="mb-2 text-xs font-medium text-text-muted">
-            Agent Tree ({agentTree.agentCount} agent{agentTree.agentCount !== 1 ? 's' : ''})
+            {t('report.sections.sessionInsights.agentTree', { count: agentTree.agentCount })}
             {agentTree.hasTeamMode && (
               <span className="ml-2 rounded px-1.5 py-0.5 text-xs" style={{ color: '#60a5fa' }}>
-                Team Mode
+                {t('report.sections.sessionInsights.teamMode')}
               </span>
             )}
           </div>
           {agentTree.teamNames.length > 0 && (
             <div className="mb-2 text-xs text-text-muted">
-              Teams: {agentTree.teamNames.join(', ')}
+              {t('report.sections.sessionInsights.teams')}: {agentTree.teamNames.join(', ')}
             </div>
           )}
           <div className="flex flex-col gap-1">
@@ -182,7 +201,7 @@ export const InsightsSection = ({
       {outOfScope.length > 0 && (
         <div>
           <div className="mb-2 text-xs font-medium text-text-muted">
-            Out-of-Scope Findings ({outOfScope.length})
+            {t('report.sections.sessionInsights.outOfScopeFindings', { count: outOfScope.length })}
           </div>
           <div className="flex flex-col gap-2">
             {outOfScope.map((f, idx) => (

@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { Ban, Paperclip } from 'lucide-react';
 
 interface DropZoneOverlayProps {
@@ -13,6 +15,7 @@ export const DropZoneOverlay = ({
   rejected,
   rejectionReason,
 }: DropZoneOverlayProps): React.JSX.Element | null => {
+  const { t } = useTranslation();
   if (!active) return null;
 
   if (rejected) {
@@ -27,7 +30,7 @@ export const DropZoneOverlay = ({
         <div className="flex flex-col items-center gap-1.5 text-red-400">
           <Ban size={24} />
           <span className="text-xs font-medium">
-            {rejectionReason ?? 'Files can only be sent to the team lead'}
+            {rejectionReason ?? t('attachments.dropZone.filesCanOnlyBeSentToTeamLead')}
           </span>
         </div>
       </div>
@@ -47,7 +50,7 @@ export const DropZoneOverlay = ({
         style={{ color: 'var(--color-accent, #6366f1)' }}
       >
         <Paperclip size={24} />
-        <span className="text-xs font-medium">Drop files here</span>
+        <span className="text-xs font-medium">{t('attachments.dropZone.dropFilesHere')}</span>
       </div>
     </div>
   );

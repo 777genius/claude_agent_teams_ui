@@ -17,6 +17,7 @@ import { displayMemberName } from '@renderer/utils/memberHelpers';
 import { type TaskChangeRequestOptions } from '@renderer/utils/taskChangeRequest';
 import { normalizePathForComparison } from '@shared/utils/platformPath';
 import { ChevronDown, Clock, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { ChangesLoadingAnimation } from './ChangesLoadingAnimation';
 import { acceptAllChunks, computeChunkIndexAtPos, rejectAllChunks } from './CodeMirrorDiffUtils';
@@ -74,6 +75,7 @@ export const ChangeReviewDialog = ({
   projectPath,
   onEditorAction,
 }: ChangeReviewDialogProps): React.ReactElement | null => {
+  const { t } = useTranslation();
   const {
     activeChangeSet,
     changeSetLoading,
@@ -1183,12 +1185,17 @@ export const ChangeReviewDialog = ({
   }, [activeChangeSet, activeFilePath]);
 
   const title = useMemo(() => {
-    if (mode === 'agent') return `Changes by ${displayMemberName(memberName ?? 'unknown')}`;
-    const task = taskId ? globalTasks.find((t) => t.id === taskId) : undefined;
+    if (mode === 'agent')
+      return t('review.changeReview.changesBy', {
+        name: displayMemberName(memberName ?? 'unknown'),
+      });
+    const task = taskId ? globalTasks.find((tk) => tk.id === taskId) : undefined;
     const shortId = task?.displayId ?? taskId?.slice(0, 8) ?? '?';
     const subject = task?.subject;
-    return subject ? `Changes for task #${shortId} — ${subject}` : `Changes for task #${shortId}`;
-  }, [mode, memberName, taskId, globalTasks]);
+    return subject
+      ? t('review.changeReview.changesForTaskWithSubject', { id: shortId, subject })
+      : t('review.changeReview.changesForTask', { id: shortId });
+  }, [mode, memberName, taskId, globalTasks, t]);
 
   const isMacElectron =
     isElectronMode() && window.navigator.userAgent.toLowerCase().includes('mac');
@@ -1306,7 +1313,9 @@ export const ChangeReviewDialog = ({
                     className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-text-secondary hover:text-text"
                   >
                     <Clock className="size-3.5" />
-                    <span>Edit Timeline ({activeFile.timeline.events.length})</span>
+                    <span>
+                      {t('review.fileTimeline.editTimeline')} ({activeFile.timeline.events.length})
+                    </span>
                     <ChevronDown
                       className={cn(
                         'ml-auto size-3 transition-transform',
@@ -1390,7 +1399,7 @@ export const ChangeReviewDialog = ({
 
         {!changeSetLoading && !changeSetError && activeChangeSet?.files.length === 0 && (
           <div className="flex w-full items-center justify-center text-sm text-text-muted">
-            No file changes detected
+            {t('review.changeReview.noFileChangesDetected')}
           </div>
         )}
       </div>

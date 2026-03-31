@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useStore } from '@renderer/store';
 import { computeTakeaways } from '@renderer/utils/reportAssessments';
@@ -24,6 +25,7 @@ interface SessionReportTabProps {
 }
 
 export const SessionReportTab = ({ tab }: SessionReportTabProps) => {
+  const { t } = useTranslation();
   // Find session data from any session tab with matching sessionId
   const sessionDetail = useStore((s) => {
     const allTabs = s.paneLayout.panes.flatMap((p) => p.tabs);
@@ -41,14 +43,14 @@ export const SessionReportTab = ({ tab }: SessionReportTabProps) => {
   if (!report) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
-        No session data available. Open the session tab first.
+        {t('report.sessionReportTab.noData')}
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-y-auto p-6" style={{ backgroundColor: 'var(--color-surface)' }}>
-      <h1 className="mb-6 text-lg font-semibold text-text">Session Analysis Report</h1>
+      <h1 className="mb-6 text-lg font-semibold text-text">{t('report.sessionReportTab.title')}</h1>
       <div className="flex flex-col gap-4">
         {takeaways.length > 0 && <KeyTakeawaysSection takeaways={takeaways} />}
         <OverviewSection data={report.overview} />

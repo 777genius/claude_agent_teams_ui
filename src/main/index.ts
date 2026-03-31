@@ -59,6 +59,7 @@ import { join } from 'path';
 
 import { cleanupEditorState, setEditorMainWindow } from './ipc/editor';
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
+import { setOnRendererStale } from './ipc/rendererLogs';
 import { setReviewMainWindow } from './ipc/review';
 import {
   ApiKeyService,
@@ -935,6 +936,15 @@ function initializeServices(): void {
     teamBackupService ?? undefined
   );
 
+  // Wire heartbeat monitor to trigger renderer recovery when stale for 30s+
+  setOnRendererStale(() => {
+    logger.error('Renderer heartbeat stale — triggering recovery');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      markRendererUnavailable(mainWindow);
+      scheduleRendererRecovery(mainWindow);
+    }
+  });
+
   // Forward SSH state changes to renderer and HTTP SSE clients
   sshConnectionManager.on('state-change', (status: unknown) => {
     safeSendToRenderer(mainWindow, SSH_STATUS, status);
@@ -1093,18 +1103,23 @@ function syncTrafficLightPosition(win: BrowserWindow): void {
   safeSendToRenderer(win, WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL, zoomFactor);
 }
 
+const MAX_RENDERER_RECOVERY_ATTEMPTS = 5;
+
 function scheduleRendererRecovery(win: BrowserWindow): void {
   if (rendererRecoveryTimer) {
     return;
   }
-  if (rendererRecoveryAttempts >= 2) {
+  if (rendererRecoveryAttempts >= MAX_RENDERER_RECOVERY_ATTEMPTS) {
     logger.error('Renderer recovery limit reached; skipping automatic reload');
     return;
   }
 
   rendererRecoveryAttempts += 1;
-  const delayMs = rendererRecoveryAttempts * 1000;
-  logger.warn(`Scheduling renderer recovery attempt ${rendererRecoveryAttempts} in ${delayMs}ms`);
+  // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+  const delayMs = Math.pow(2, rendererRecoveryAttempts - 1) * 1000;
+  logger.warn(
+    `Scheduling renderer recovery attempt ${rendererRecoveryAttempts}/${MAX_RENDERER_RECOVERY_ATTEMPTS} in ${delayMs}ms`
+  );
 
   rendererRecoveryTimer = setTimeout(() => {
     rendererRecoveryTimer = null;
@@ -1137,6 +1152,7 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
       // In development, use a persistent partition so that renderer-side storage
       // (localStorage, IndexedDB — used by comment read state, etc.) survives
       // app restarts. A fixed name is used instead of per-PID to keep data stable.
@@ -1260,7 +1276,7 @@ function createWindow(): void {
     logger.warn('[startup] renderer dom-ready');
   });
 
-  // Log top-level renderer load failures (helps diagnose blank/black window issues in packaged apps)
+  // Handle renderer load failures — log and attempt recovery for main frame failures
   mainWindow.webContents.on(
     'did-fail-load',
     (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
@@ -1268,6 +1284,11 @@ function createWindow(): void {
         logger.error(
           `Failed to load renderer (code=${errorCode}): ${errorDescription} - ${validatedURL}`
         );
+        // Attempt automatic recovery for main frame load failures (e.g., file path issues in packaged app).
+        // Error code -3 (ERR_ABORTED) is fired on navigation cancellation and should not trigger recovery.
+        if (mainWindow && errorCode !== -3) {
+          scheduleRendererRecovery(mainWindow);
+        }
       }
     }
   );
@@ -1367,6 +1388,16 @@ function createWindow(): void {
     }
   });
 
+  // Handle renderer becoming unresponsive (frozen JS thread, heavy DOM work)
+  mainWindow.on('unresponsive', () => {
+    logger.error('Renderer became unresponsive');
+    markRendererUnavailable(mainWindow);
+  });
+  mainWindow.on('responsive', () => {
+    logger.warn('Renderer became responsive again');
+    markRendererReady(mainWindow);
+  });
+
   // Set main window reference for notification manager and updater
   if (notificationManager) {
     notificationManager.setMainWindow(mainWindow);
@@ -1388,6 +1419,11 @@ function createWindow(): void {
 
   logger.info('Main window created');
 }
+
+// Disable GPU hardware acceleration to prevent black-screen issues on some
+// systems (especially macOS with certain GPU drivers). Must be called before
+// app.whenReady().
+app.disableHardwareAcceleration();
 
 /**
  * Application ready handler.

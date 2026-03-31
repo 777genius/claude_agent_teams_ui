@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import {
   ContextMenu,
   ContextMenuContent,
@@ -30,6 +32,7 @@ export const TaskContextMenu = ({
   onDelete,
   children,
 }: TaskContextMenuProps): React.JSX.Element => {
+  const { t } = useTranslation();
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -40,19 +43,19 @@ export const TaskContextMenu = ({
           {isPinned ? (
             <>
               <PinOff className="size-3.5 shrink-0" />
-              <span>Unpin</span>
+              <span>{t('sidebar.taskContextMenu.unpin')}</span>
             </>
           ) : (
             <>
               <Pin className="size-3.5 shrink-0" />
-              <span>Pin</span>
+              <span>{t('sidebar.taskContextMenu.pin')}</span>
             </>
           )}
         </ContextMenuItem>
 
         <ContextMenuItem onSelect={onRename}>
           <Pencil className="size-3.5 shrink-0" />
-          <span>Rename</span>
+          <span>{t('sidebar.taskContextMenu.rename')}</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator />
@@ -61,12 +64,12 @@ export const TaskContextMenu = ({
           {isArchived ? (
             <>
               <ArchiveRestore className="size-3.5 shrink-0" />
-              <span>Unarchive</span>
+              <span>{t('sidebar.taskContextMenu.unarchive')}</span>
             </>
           ) : (
             <>
               <Archive className="size-3.5 shrink-0" />
-              <span>Archive</span>
+              <span>{t('sidebar.taskContextMenu.archive')}</span>
             </>
           )}
         </ContextMenuItem>
@@ -74,12 +77,9 @@ export const TaskContextMenu = ({
         {onDelete && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem
-              onSelect={onDelete}
-              className="text-red-400 focus:text-red-400"
-            >
+            <ContextMenuItem onSelect={onDelete} className="text-red-400 focus:text-red-400">
               <Trash2 className="size-3.5 shrink-0" />
-              <span>Delete task</span>
+              <span>{t('sidebar.taskContextMenu.deleteTask')}</span>
             </ContextMenuItem>
           </>
         )}

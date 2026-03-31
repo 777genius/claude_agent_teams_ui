@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   Dialog,
@@ -47,6 +48,7 @@ const DialogThoughtsContent = ({
   teamColorByName,
   onTeamClick,
 }: DialogThoughtsContentProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const { thoughts } = group;
   const newest = thoughts[0];
   const oldest = thoughts[thoughts.length - 1];
@@ -65,7 +67,7 @@ const DialogThoughtsContent = ({
         />
         <MemberBadge name={newest.from} color={memberColor} hideAvatar />
         <span className="text-[10px]" style={{ color: CARD_ICON_MUTED }}>
-          {thoughts.length} thoughts
+          {thoughts.length} {t('activity.thoughts.label')}
         </span>
         <span className="ml-auto text-[10px]" style={{ color: CARD_ICON_MUTED }}>
           {formatTime(oldest.timestamp) === formatTime(newest.timestamp)

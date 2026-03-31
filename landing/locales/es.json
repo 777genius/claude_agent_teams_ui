@@ -6,7 +6,7 @@
     "download": "Descargar",
     "pricing": "Gratis",
     "faq": "FAQ",
-    "viewOnGithub": "View on GitHub"
+    "viewOnGithub": "Ver en GitHub"
   },
   "hero": {
     "badge": "Claude Agent Teams",
@@ -17,7 +17,7 @@
     "trust": {
       "agentTeams": "Equipos de agentes",
       "kanban": "Tablero Kanban",
-      "openSource": "Open Source"
+      "openSource": "Código abierto"
     },
     "watchDemo": "Ver demo",
     "videoUnavailable": "Vídeo no disponible"

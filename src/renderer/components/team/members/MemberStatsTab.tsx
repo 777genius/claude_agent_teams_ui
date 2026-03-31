@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { cn } from '@renderer/lib/utils';
@@ -36,6 +37,7 @@ export const MemberStatsTab = ({
   onFileClick,
   onShowAllFiles,
 }: MemberStatsTabProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const usePrefetched = prefetchedStats !== undefined;
 
   const [localStats, setLocalStats] = useState<MemberFullStats | null>(null);
@@ -73,7 +75,7 @@ export const MemberStatsTab = ({
     return (
       <div className="flex items-center justify-center gap-2 py-8 text-xs text-[var(--color-text-muted)]">
         <Loader2 size={14} className="animate-spin" />
-        Computing stats...
+        {t('members.stats.computingStats')}
       </div>
     );
   }
@@ -91,7 +93,7 @@ export const MemberStatsTab = ({
     return (
       <div className="py-8 text-center text-xs text-[var(--color-text-muted)]">
         <BarChart3 size={20} className="mx-auto mb-2 opacity-40" />
-        No stats available
+        {t('members.stats.noStatsAvailable')}
       </div>
     );
   }
@@ -153,19 +155,22 @@ const SummaryCards = ({
   stats: MemberFullStats;
   totalTokens: number;
   totalToolCalls: number;
-}): React.JSX.Element => (
-  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-    <StatCard
-      label="Lines"
-      value={`+${stats.linesAdded}`}
-      sub={stats.linesRemoved > 0 ? `-${stats.linesRemoved}` : undefined}
-      info="Approximate. Accurate for Edit and Write tools. Bash file writes are estimated from command patterns (heredoc, echo, sed) and may be underreported."
-    />
-    <StatCard label="Files" value={stats.filesTouched.length} />
-    <StatCard label="Tool Calls" value={totalToolCalls} />
-    <StatCard label="Tokens" value={formatTokensCompact(totalTokens)} />
-  </div>
-);
+}): React.JSX.Element => {
+  const { t } = useTranslation();
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <StatCard
+        label={t('members.stats.lines')}
+        value={`+${stats.linesAdded}`}
+        sub={stats.linesRemoved > 0 ? `-${stats.linesRemoved}` : undefined}
+        info={t('members.stats.linesInfo')}
+      />
+      <StatCard label={t('members.stats.files')} value={stats.filesTouched.length} />
+      <StatCard label={t('members.stats.toolCalls')} value={totalToolCalls} />
+      <StatCard label={t('members.stats.tokens')} value={formatTokensCompact(totalTokens)} />
+    </div>
+  );
+};
 
 const ToolUsageBars = ({
   toolUsage,

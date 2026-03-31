@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   areInboxMessagesEquivalentForRender,
@@ -292,6 +293,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
   onExpandItem,
   onExpandContent,
 }: ActivityTimelineProps): React.JSX.Element {
+  const { t } = useTranslation();
   const [visibleCount, setVisibleCount] = useState(MESSAGES_PAGE_SIZE);
   const rootRef = useRef<HTMLDivElement>(null);
   const [compactHeader, setCompactHeader] = useState(false);
@@ -478,8 +480,8 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
   if (messages.length === 0) {
     return (
       <div className="rounded-md border border-[var(--color-border)] p-3 pl-5 text-xs text-[var(--color-text-muted)]">
-        <p>No messages</p>
-        <p className="mt-1 text-[11px]">Send a message to a member to see activity.</p>
+        <p>{t('activity.timeline.noMessages')}</p>
+        <p className="mt-1 text-[11px]">{t('activity.timeline.noMessagesHint')}</p>
       </div>
     );
   }
@@ -554,7 +556,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
                 >
                   <div className="h-px flex-1 bg-blue-600/30 dark:bg-blue-400/30" />
                   <span className="whitespace-nowrap text-[11px] font-medium text-blue-600 dark:text-blue-400">
-                    New session
+                    {t('activity.timeline.newSession')}
                   </span>
                   <div className="h-px flex-1 bg-blue-600/30 dark:bg-blue-400/30" />
                 </div>
@@ -676,14 +678,16 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
             }}
           >
             <span className="text-[11px] tabular-nums text-[var(--color-text-muted)]">
-              +{hiddenCount} older
+              {t('activity.timeline.olderCount', { count: hiddenCount })}
             </span>
             <span className="h-3 w-px bg-blue-600/30 dark:bg-blue-400/30" />
             <button
               onClick={handleShowMore}
               className="rounded-full px-2.5 py-0.5 text-[11px] font-medium text-[var(--color-text-secondary)] transition-all hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--color-text)]"
             >
-              Show {Math.min(MESSAGES_PAGE_SIZE, hiddenCount)} more
+              {t('activity.timeline.showMore', {
+                count: Math.min(MESSAGES_PAGE_SIZE, hiddenCount),
+              })}
             </button>
             {hiddenCount > MESSAGES_PAGE_SIZE && (
               <>
@@ -692,7 +696,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
                   onClick={handleShowAll}
                   className="rounded-full px-2.5 py-0.5 text-[11px] text-[var(--color-text-muted)] transition-all hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--color-text-secondary)]"
                 >
-                  Show all
+                  {t('activity.timeline.showAll')}
                 </button>
               </>
             )}

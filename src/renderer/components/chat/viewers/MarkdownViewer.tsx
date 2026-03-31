@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown';
 
 import { api } from '@renderer/api';
@@ -687,6 +688,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   teamColorByName: providedTeamColorByName,
   onTeamClick: providedOnTeamClick,
 }) => {
+  const { t } = useTranslation();
   const [showRaw, setShowRaw] = React.useState(false);
   const [rawLimit, setRawLimit] = React.useState(LARGE_PREVIEW_CHARS);
   const { isLight } = useTheme();
@@ -769,11 +771,11 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
               disabled={isTooLarge}
               title={
                 isTooLarge
-                  ? 'Large content is shown as raw to prevent UI freeze'
-                  : 'Render markdown'
+                  ? t('chat.viewers.markdownViewer.largeContentRawWarning')
+                  : t('chat.viewers.markdownViewer.renderMarkdown')
               }
             >
-              Render markdown
+              {t('chat.viewers.markdownViewer.renderMarkdown')}
             </button>
             {copyable && <CopyButton text={content} inline />}
           </div>
@@ -784,7 +786,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
             className="flex items-center justify-between px-3 py-2 text-xs"
             style={{ color: COLOR_TEXT_MUTED }}
           >
-            <span>Raw preview</span>
+            <span>{t('chat.viewers.markdownViewer.rawPreview')}</span>
             <button
               type="button"
               className="underline"
@@ -793,11 +795,11 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
               disabled={isTooLarge}
               title={
                 isTooLarge
-                  ? 'Large content is shown as raw to prevent UI freeze'
-                  : 'Render markdown'
+                  ? t('chat.viewers.markdownViewer.largeContentRawWarning')
+                  : t('chat.viewers.markdownViewer.renderMarkdown')
               }
             >
-              Render markdown
+              {t('chat.viewers.markdownViewer.renderMarkdown')}
             </button>
           </div>
         )}

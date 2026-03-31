@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   CODE_BG,
@@ -80,6 +81,7 @@ export const DisplayItemList = ({
   registerToolRef,
   previewMaxLength,
 }: Readonly<DisplayItemListProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   // Reply-link highlight: when hovering a reply badge, dim everything except the linked pair
   const [replyLinkToolId, setReplyLinkToolId] = useState<string | null>(null);
 
@@ -99,7 +101,7 @@ export const DisplayItemList = ({
   if (!items || items.length === 0) {
     return (
       <div className="px-3 py-2 text-sm italic text-claude-dark-text-secondary">
-        No items to display
+        {t('chat.displayItemList.noItemsToDisplay')}
       </div>
     );
   }
@@ -251,7 +253,7 @@ export const DisplayItemList = ({
             element = (
               <BaseItem
                 icon={<MailOpen className="size-4" />}
-                label="Input"
+                label={t('chat.displayItemList.input')}
                 summary={truncateText(inputContent, previewMaxLength ?? 80)}
                 tokenCount={inputTokenCount}
                 timestamp={item.timestamp}
@@ -295,7 +297,7 @@ export const DisplayItemList = ({
                     <Layers size={14} />
                   </div>
                   <span className="shrink-0 text-xs font-medium" style={{ color: TOOL_CALL_TEXT }}>
-                    Compacted
+                    {t('chat.displayItemList.compacted')}
                   </span>
                   {item.tokenDelta && (
                     <span
@@ -317,7 +319,7 @@ export const DisplayItemList = ({
                       color: '#818cf8',
                     }}
                   >
-                    Phase {item.phaseNumber}
+                    {t('chat.displayItemList.phase', { n: item.phaseNumber })}
                   </span>
                   <span
                     className="ml-auto shrink-0 text-[11px]"

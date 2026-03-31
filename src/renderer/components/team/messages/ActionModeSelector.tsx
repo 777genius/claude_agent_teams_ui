@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import {
   Tooltip,
   TooltipContent,
@@ -18,29 +20,29 @@ interface ActionModeSelectorProps {
 
 const MODE_CONFIG: {
   mode: ActionMode;
-  label: string;
-  tooltip: string;
+  labelKey: string;
+  tooltipKey: string;
   activeClass: string;
   tooltipClass: string;
 }[] = [
   {
     mode: 'do',
-    label: 'Do',
-    tooltip: 'Full execution mode - can change code/state, run commands, or delegate',
+    labelKey: 'messages.actionMode.doLabel',
+    tooltipKey: 'messages.actionMode.doTooltip',
     activeClass: 'bg-rose-500/80 text-white',
     tooltipClass: 'bg-rose-500/80 border-rose-600 text-white',
   },
   {
     mode: 'ask',
-    label: 'Ask',
-    tooltip: 'Read-only discussion mode - no code/state changes or commands',
+    labelKey: 'messages.actionMode.askLabel',
+    tooltipKey: 'messages.actionMode.askTooltip',
     activeClass: 'bg-blue-600 text-white',
     tooltipClass: 'bg-blue-600 border-blue-700 text-white',
   },
   {
     mode: 'delegate',
-    label: 'Delegate',
-    tooltip: 'Lead-only orchestration - delegate everything, do not execute yourself',
+    labelKey: 'messages.actionMode.delegateLabel',
+    tooltipKey: 'messages.actionMode.delegateTooltip',
     activeClass: 'bg-amber-500/80 text-white',
     tooltipClass: 'bg-amber-500/80 border-amber-600 text-white',
   },
@@ -51,6 +53,7 @@ export const ActionModeSelector = ({
   onChange,
   showDelegate,
 }: ActionModeSelectorProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const modes = showDelegate ? MODE_CONFIG : MODE_CONFIG.filter((m) => m.mode !== 'delegate');
 
   return (
@@ -58,7 +61,7 @@ export const ActionModeSelector = ({
       <div
         className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]"
         role="radiogroup"
-        aria-label="Action mode"
+        aria-label={t('messages.actionMode.ariaLabel')}
       >
         {modes.map((cfg, idx) => {
           const isActive = value === cfg.mode;
@@ -82,14 +85,14 @@ export const ActionModeSelector = ({
                   )}
                   onClick={() => onChange(cfg.mode)}
                 >
-                  {cfg.label}
+                  {t(cfg.labelKey)}
                 </button>
               </TooltipTrigger>
               <TooltipContent
                 side="top"
                 className={cn(cfg.tooltipClass, 'data-[state=closed]:animate-none')}
               >
-                {cfg.tooltip}
+                {t(cfg.tooltipKey)}
               </TooltipContent>
             </Tooltip>
           );

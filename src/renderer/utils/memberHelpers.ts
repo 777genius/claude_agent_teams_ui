@@ -1,3 +1,5 @@
+import i18next from 'i18next';
+
 import {
   getMemberColorByName,
   MEMBER_COLOR_PALETTE,
@@ -68,20 +70,25 @@ export function getPresenceLabel(
   leadActivity?: LeadActivityState,
   leadContextPercent?: number
 ): string {
-  if (member.status === 'terminated') return 'terminated';
+  if (member.status === 'terminated')
+    return i18next.t('utils.memberHelpers.presenceLabels.terminated');
   // Lead activity check before provisioning fallback (mirrors getMemberDotClass order).
   if (leadActivity && isLeadMember(member)) {
     if (leadActivity === 'active') {
       return leadContextPercent != null && leadContextPercent > 0
-        ? `processing (${Math.round(leadContextPercent)}%)`
-        : 'processing';
+        ? i18next.t('utils.memberHelpers.presenceLabels.processing_with_pct', {
+            pct: Math.round(leadContextPercent),
+          })
+        : i18next.t('utils.memberHelpers.presenceLabels.processing');
     }
-    return 'ready';
+    return i18next.t('utils.memberHelpers.presenceLabels.ready');
   }
-  if (isTeamProvisioning) return 'connecting';
-  if (isTeamAlive === false) return 'offline';
-  if (member.status === 'unknown') return 'idle';
-  return member.currentTaskId ? 'working' : 'idle';
+  if (isTeamProvisioning) return i18next.t('utils.memberHelpers.presenceLabels.connecting');
+  if (isTeamAlive === false) return i18next.t('utils.memberHelpers.presenceLabels.offline');
+  if (member.status === 'unknown') return i18next.t('utils.memberHelpers.presenceLabels.idle');
+  return member.currentTaskId
+    ? i18next.t('utils.memberHelpers.presenceLabels.working')
+    : i18next.t('utils.memberHelpers.presenceLabels.idle');
 }
 
 /* ------------------------------------------------------------------ */
@@ -97,11 +104,21 @@ export const SPAWN_DOT_COLORS: Record<MemberSpawnStatus, string> = {
 };
 
 export const SPAWN_PRESENCE_LABELS: Record<MemberSpawnStatus, string> = {
-  offline: 'offline',
-  waiting: 'waiting',
-  spawning: 'spawning',
-  online: 'online',
-  error: 'spawn failed',
+  get offline() {
+    return i18next.t('utils.memberHelpers.spawnPresenceLabels.offline');
+  },
+  get waiting() {
+    return i18next.t('utils.memberHelpers.spawnPresenceLabels.waiting');
+  },
+  get spawning() {
+    return i18next.t('utils.memberHelpers.spawnPresenceLabels.spawning');
+  },
+  get online() {
+    return i18next.t('utils.memberHelpers.spawnPresenceLabels.online');
+  },
+  get error() {
+    return i18next.t('utils.memberHelpers.spawnPresenceLabels.spawn_failed');
+  },
 };
 
 /**
@@ -166,10 +183,18 @@ export const TASK_STATUS_STYLES: Record<TeamTaskStatus, { bg: string; text: stri
 };
 
 export const TASK_STATUS_LABELS: Record<TeamTaskStatus, string> = {
-  pending: 'Pending',
-  in_progress: 'In Progress',
-  completed: 'Completed',
-  deleted: 'Deleted',
+  get pending() {
+    return i18next.t('utils.memberHelpers.taskStatusLabels.pending');
+  },
+  get in_progress() {
+    return i18next.t('utils.memberHelpers.taskStatusLabels.in_progress');
+  },
+  get completed() {
+    return i18next.t('utils.memberHelpers.taskStatusLabels.completed');
+  },
+  get deleted() {
+    return i18next.t('utils.memberHelpers.taskStatusLabels.deleted');
+  },
 };
 
 interface MemberColorInput {
@@ -230,15 +255,45 @@ export const KANBAN_COLUMN_DISPLAY: Record<
   'review' | 'approved',
   { label: string; bg: string; text: string }
 > = {
-  review: { label: 'In Review', bg: 'bg-amber-500/15', text: 'text-amber-400' },
-  approved: { label: 'Approved', bg: 'bg-emerald-500/15', text: 'text-emerald-400' },
+  review: {
+    get label() {
+      return i18next.t('utils.memberHelpers.kanbanColumnDisplay.in_review');
+    },
+    bg: 'bg-amber-500/15',
+    text: 'text-amber-400',
+  },
+  approved: {
+    get label() {
+      return i18next.t('utils.memberHelpers.kanbanColumnDisplay.approved');
+    },
+    bg: 'bg-emerald-500/15',
+    text: 'text-emerald-400',
+  },
 };
 
 export const REVIEW_STATE_DISPLAY: Record<
   Exclude<TeamReviewState, 'none'>,
   { label: string; bg: string; text: string }
 > = {
-  review: { label: 'In Review', bg: 'bg-amber-500/15', text: 'text-amber-400' },
-  needsFix: { label: 'Needs Fixes', bg: 'bg-rose-500/15', text: 'text-rose-400' },
-  approved: { label: 'Approved', bg: 'bg-emerald-500/15', text: 'text-emerald-400' },
+  review: {
+    get label() {
+      return i18next.t('utils.memberHelpers.kanbanColumnDisplay.in_review');
+    },
+    bg: 'bg-amber-500/15',
+    text: 'text-amber-400',
+  },
+  needsFix: {
+    get label() {
+      return i18next.t('utils.memberHelpers.kanbanColumnDisplay.needs_fixes');
+    },
+    bg: 'bg-rose-500/15',
+    text: 'text-rose-400',
+  },
+  approved: {
+    get label() {
+      return i18next.t('utils.memberHelpers.kanbanColumnDisplay.approved');
+    },
+    bg: 'bg-emerald-500/15',
+    text: 'text-emerald-400',
+  },
 };

@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { useStore } from '@renderer/store';
@@ -20,6 +21,7 @@ export const EditorStatusBar = React.memo(function EditorStatusBar({
   col,
   language,
 }: EditorStatusBarProps): React.ReactElement {
+  const { t } = useTranslation();
   const { gitBranch, isGitRepo, watcherEnabled } = useStore(
     useShallow((s) => ({
       gitBranch: s.editorGitBranch,
@@ -53,14 +55,20 @@ export const EditorStatusBar = React.memo(function EditorStatusBar({
                   ? 'bg-green-500/15 text-green-400 hover:bg-green-500/20'
                   : 'text-text-muted hover:bg-surface-raised hover:text-text-secondary'
               }`}
-              aria-label={watcherEnabled ? 'Disable file watcher' : 'Enable file watcher'}
+              aria-label={
+                watcherEnabled
+                  ? t('editor.statusBar.disableWatcher')
+                  : t('editor.statusBar.enableWatcher')
+              }
               aria-pressed={watcherEnabled}
             >
-              {watcherEnabled ? 'watching' : 'watch'}
+              {watcherEnabled ? t('editor.statusBar.watching') : t('editor.statusBar.watch')}
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
-            {watcherEnabled ? 'Disable external change watcher' : 'Watch for external changes'}
+            {watcherEnabled
+              ? t('editor.statusBar.disableWatcherTooltip')
+              : t('editor.statusBar.enableWatcherTooltip')}
           </TooltipContent>
         </Tooltip>
         <span>{language}</span>

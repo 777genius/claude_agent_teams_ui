@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getNextSuggestedMemberName } from '@renderer/components/team/members/memberNameSets';
 import {
@@ -57,6 +58,7 @@ export const AddMemberDialog = ({
   projectPath,
   existingMembers,
 }: AddMemberDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const [members, setMembers] = useState<MemberDraft[]>(() => buildInitialDrafts(existingNames));
   const [error, setError] = useState<string | null>(null);
 
@@ -147,8 +149,8 @@ export const AddMemberDialog = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className={`${DIALOG_WIDTH} max-w-[90vw]`}>
         <DialogHeader>
-          <DialogTitle>Add Members</DialogTitle>
-          <DialogDescription>Add new members to {teamName}</DialogDescription>
+          <DialogTitle>{t('dialogs.addMember.title')}</DialogTitle>
+          <DialogDescription>{t('dialogs.addMember.description', { teamName })}</DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[60vh] overflow-y-auto py-2">
@@ -167,11 +169,13 @@ export const AddMemberDialog = ({
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={adding}>
-            Cancel
+            {t('dialogs.addMember.cancel')}
           </Button>
           <Button type="button" disabled={adding || !hasValidMembers} onClick={handleSubmit}>
             {adding ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
-            {memberCount > 1 ? `Add ${memberCount} members` : 'Add member'}
+            {memberCount > 1
+              ? t('dialogs.addMember.addCount', { count: memberCount })
+              : t('dialogs.addMember.addOne')}
           </Button>
         </DialogFooter>
       </DialogContent>

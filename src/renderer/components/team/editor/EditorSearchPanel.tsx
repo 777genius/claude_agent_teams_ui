@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { useTranslation } from 'react-i18next';
 
 import {
   closeSearchPanel,
@@ -136,6 +137,7 @@ const EditorSearchPanelContent = ({
   initialWholeWord,
   registerUpdateNotifier,
 }: EditorSearchPanelContentProps) => {
+  const { t } = useTranslation();
   const [searchText, setSearchText] = useState(initialSearch);
   const [replaceText, setReplaceText] = useState(initialReplace);
   const [caseSensitive, setCaseSensitive] = useState(initialCaseSensitive);
@@ -245,8 +247,8 @@ const EditorSearchPanelContent = ({
     ? matchCount === -1
       ? `${MAX_MATCH_COUNT}+`
       : matchCount === 0
-        ? 'No results'
-        : `${matchCount} found`
+        ? t('editor.searchPanel.noResults')
+        : t('editor.searchPanel.found', { count: matchCount })
     : '';
 
   return (
@@ -270,14 +272,14 @@ const EditorSearchPanelContent = ({
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Toggle Replace</TooltipContent>
+            <TooltipContent side="bottom">{t('editor.searchPanel.toggleReplace')}</TooltipContent>
           </Tooltip>
 
           {/* Search input */}
           <Input
             ref={searchInputRef}
             className="h-[26px] min-w-[180px] flex-1 rounded border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs"
-            placeholder="Search"
+            placeholder={t('editor.searchPanel.searchPlaceholder')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             onKeyDown={handleSearchKeyDown}
@@ -288,7 +290,7 @@ const EditorSearchPanelContent = ({
           <SearchToggleButton
             active={caseSensitive}
             onClick={() => setCaseSensitive((prev) => !prev)}
-            tooltip="Match Case"
+            tooltip={t('editor.searchPanel.matchCase')}
           >
             <CaseSensitive className="size-[14px]" />
           </SearchToggleButton>
@@ -296,7 +298,7 @@ const EditorSearchPanelContent = ({
           <SearchToggleButton
             active={wholeWord}
             onClick={() => setWholeWord((prev) => !prev)}
-            tooltip="Match Whole Word"
+            tooltip={t('editor.searchPanel.matchWholeWord')}
           >
             <WholeWord className="size-[14px]" />
           </SearchToggleButton>
@@ -304,7 +306,7 @@ const EditorSearchPanelContent = ({
           <SearchToggleButton
             active={useRegexp}
             onClick={() => setUseRegexp((prev) => !prev)}
-            tooltip="Use Regular Expression"
+            tooltip={t('editor.searchPanel.useRegularExpression')}
           >
             <Regex className="size-[14px]" />
           </SearchToggleButton>
@@ -339,7 +341,8 @@ const EditorSearchPanelContent = ({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              Previous Match <span className="text-[var(--color-text-muted)]">⇧Enter</span>
+              {t('editor.searchPanel.previousMatch')}{' '}
+              <span className="text-[var(--color-text-muted)]">⇧Enter</span>
             </TooltipContent>
           </Tooltip>
 
@@ -357,7 +360,8 @@ const EditorSearchPanelContent = ({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              Next Match <span className="text-[var(--color-text-muted)]">Enter</span>
+              {t('editor.searchPanel.nextMatch')}{' '}
+              <span className="text-[var(--color-text-muted)]">Enter</span>
             </TooltipContent>
           </Tooltip>
 
@@ -375,7 +379,8 @@ const EditorSearchPanelContent = ({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              Close <span className="text-[var(--color-text-muted)]">Esc</span>
+              {t('editor.searchPanel.close')}{' '}
+              <span className="text-[var(--color-text-muted)]">Esc</span>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -388,7 +393,7 @@ const EditorSearchPanelContent = ({
 
             <Input
               className="h-[26px] min-w-[180px] flex-1 rounded border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs"
-              placeholder="Replace"
+              placeholder={t('editor.searchPanel.replacePlaceholder')}
               value={replaceText}
               onChange={(e) => setReplaceText(e.target.value)}
               onKeyDown={handleReplaceKeyDown}
@@ -405,10 +410,10 @@ const EditorSearchPanelContent = ({
                   disabled={matchCount === 0}
                   tabIndex={-1}
                 >
-                  Replace
+                  {t('editor.searchPanel.replace')}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Replace Next</TooltipContent>
+              <TooltipContent side="bottom">{t('editor.searchPanel.replaceNext')}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -421,10 +426,10 @@ const EditorSearchPanelContent = ({
                   disabled={matchCount === 0}
                   tabIndex={-1}
                 >
-                  All
+                  {t('editor.searchPanel.all')}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Replace All</TooltipContent>
+              <TooltipContent side="bottom">{t('editor.searchPanel.replaceAll')}</TooltipContent>
             </Tooltip>
           </div>
         )}

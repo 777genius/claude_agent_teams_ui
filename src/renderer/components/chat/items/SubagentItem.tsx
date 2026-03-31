@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   CARD_BG,
@@ -77,7 +78,11 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
   notificationColorMap,
   registerToolRef,
 }) => {
-  const description = subagent.description ?? step.content.subagentDescription ?? 'Subagent';
+  const { t } = useTranslation();
+  const description =
+    subagent.description ??
+    step.content.subagentDescription ??
+    t('chat.items.subagentItem.subagent');
   const subagentType = subagent.subagentType ?? 'Task';
   const truncatedDesc = description.length > 60 ? description.slice(0, 60) + '...' : description;
 
@@ -248,7 +253,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
           {subagent.team.memberName}
         </span>
         <span className="text-xs" style={{ color: CARD_ICON_MUTED }}>
-          Shutdown confirmed
+          {t('chat.items.subagentItem.shutdownConfirmed', 'Shutdown confirmed')}
         </span>
         <span className="flex-1" />
         <span
@@ -389,14 +394,16 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
             style={{ color: COLOR_TEXT_MUTED }}
           >
             <span>
-              <span style={{ color: CARD_ICON_MUTED }}>Type</span>{' '}
+              <span style={{ color: CARD_ICON_MUTED }}>{t('chat.items.subagentItem.type')}</span>{' '}
               <span className="font-mono" style={{ color: CARD_TEXT_LIGHT }}>
                 {subagentType}
               </span>
             </span>
             <span style={{ color: CARD_SEPARATOR }}>•</span>
             <span>
-              <span style={{ color: CARD_ICON_MUTED }}>Duration</span>{' '}
+              <span style={{ color: CARD_ICON_MUTED }}>
+                {t('chat.items.subagentItem.duration')}
+              </span>{' '}
               <span className="font-mono tabular-nums" style={{ color: CARD_TEXT_LIGHT }}>
                 {formatDuration(subagent.durationMs)}
               </span>
@@ -405,7 +412,9 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
               <>
                 <span style={{ color: CARD_SEPARATOR }}>•</span>
                 <span>
-                  <span style={{ color: CARD_ICON_MUTED }}>Model</span>{' '}
+                  <span style={{ color: CARD_ICON_MUTED }}>
+                    {t('chat.items.subagentItem.model')}
+                  </span>{' '}
                   <span className={`font-mono ${getModelColorClass(modelInfo.family)}`}>
                     {modelInfo.name}
                   </span>
@@ -414,7 +423,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
             )}
             <span style={{ color: CARD_SEPARATOR }}>•</span>
             <span>
-              <span style={{ color: CARD_ICON_MUTED }}>ID</span>{' '}
+              <span style={{ color: CARD_ICON_MUTED }}>{t('chat.items.subagentItem.id')}</span>{' '}
               <span
                 className="inline-block max-w-[120px] truncate align-bottom font-mono"
                 style={{ color: CARD_ICON_MUTED }}
@@ -433,7 +442,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                 className="mb-2 text-[10px] font-semibold uppercase tracking-wider"
                 style={{ color: CARD_ICON_MUTED }}
               >
-                Context Usage
+                {t('chat.items.subagentItem.contextUsage', 'Context Usage')}
               </div>
 
               {/* Token rows - floating alignment */}
@@ -446,7 +455,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                         style={{ color: 'rgba(251, 191, 36, 0.7)' }}
                       />
                       <span className="text-xs" style={{ color: COLOR_TEXT_SECONDARY }}>
-                        Main Context
+                        {t('chat.items.metricsPill.mainContext')}
                       </span>
                     </div>
                     <span
@@ -463,7 +472,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                     <div className="flex items-center gap-2">
                       <Sigma className="size-3" style={{ color: 'rgba(168, 85, 247, 0.7)' }} />
                       <span className="text-xs" style={{ color: COLOR_TEXT_SECONDARY }}>
-                        Total Output
+                        {t('chat.items.subagentItem.totalOutput', 'Total Output')}
                       </span>
                     </div>
                     <span
@@ -484,7 +493,9 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                     <div className="flex items-center gap-2">
                       <CircleDot className="size-3" style={{ color: 'rgba(56, 189, 248, 0.7)' }} />
                       <span className="text-xs" style={{ color: COLOR_TEXT_SECONDARY }}>
-                        {subagent.team ? 'Context Window' : 'Subagent Context'}
+                        {subagent.team
+                          ? t('chat.items.metricsPill.contextWindow')
+                          : t('chat.items.metricsPill.subagentContext')}
                       </span>
                     </div>
                     <span
@@ -501,7 +512,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                   phaseData.phases.map((phase) => (
                     <div key={phase.phaseNumber} className="flex items-center justify-between pl-5">
                       <span className="text-[11px]" style={{ color: CARD_ICON_MUTED }}>
-                        Phase {phase.phaseNumber}
+                        {t('chat.displayItemList.phase', { n: phase.phaseNumber })}
                       </span>
                       <span
                         className="font-mono text-[11px] tabular-nums"
@@ -559,7 +570,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                 />
                 <Terminal className="size-3.5" style={{ color: CARD_ICON_MUTED }} />
                 <span className="text-xs" style={{ color: COLOR_TEXT_SECONDARY }}>
-                  Execution Trace
+                  {t('chat.items.subagentItem.executionTrace', 'Execution Trace')}
                 </span>
                 <span className="text-[11px]" style={{ color: CARD_ICON_MUTED }}>
                   · {itemsSummary}

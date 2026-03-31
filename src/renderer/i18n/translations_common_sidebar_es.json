@@ -1,0 +1,232 @@
+{
+  "_meta": {
+    "description": "Traducciones ingles-espanol de strings visibles al usuario en components/common/ y components/sidebar/",
+    "source_dirs": ["src/renderer/components/common/", "src/renderer/components/sidebar/"],
+    "translatedBy": "luis",
+    "date": "2026-03-30",
+    "language": "es"
+  },
+
+  "common.CliInstallWarningBanner": {
+    "Claude Code is not installed. Install it from the Dashboard to enable all features.": "Claude Code no esta instalado. Instalalo desde el Panel de control para habilitar todas las funciones.",
+    "Go to Dashboard": "Ir al Panel de control"
+  },
+
+  "common.ConfirmDialog": {
+    "Close dialog": "Cerrar dialogo",
+    "Cancel": "Cancelar",
+    "Confirm": "Confirmar"
+  },
+
+  "common.ContextSwitchOverlay": {
+    "Switching to {contextLabel}...": "Cambiando a {contextLabel}...",
+    "Loading workspace": "Cargando espacio de trabajo"
+  },
+
+  "common.CopyButton": {
+    "Copy to clipboard": "Copiar al portapapeles"
+  },
+
+  "common.ErrorBoundary": {
+    "Something went wrong": "Algo salio mal",
+    "An unexpected error occurred in the application. You can try reloading the page or resetting the error state.": "Ocurrio un error inesperado en la aplicacion. Puedes intentar recargar la pagina o reiniciar el estado de error.",
+    "Component Stack": "Pila de componentes",
+    "Try Again": "Intentar de nuevo",
+    "Copied": "Copiado",
+    "Copy Error Details": "Copiar detalles del error",
+    "Report Bug on GitHub": "Reportar error en GitHub",
+    "Reload App": "Recargar aplicacion",
+    "GitHub bug reports and copied diagnostics include the error message, stack traces, app version, active tab, selected team, task context, and environment details.": "Los reportes de errores en GitHub y los diagnosticos copiados incluyen el mensaje de error, trazas de pila, version de la aplicacion, pestana activa, equipo seleccionado, contexto de la tarea y detalles del entorno."
+  },
+
+  "common.ExportDropdown": {
+    "Export session": "Exportar sesion",
+    "Export Session": "Exportar sesion",
+    "Markdown": "Markdown",
+    "JSON": "JSON",
+    "Plain Text": "Texto plano"
+  },
+
+  "common.OngoingIndicator": {
+    "Session in progress...": "Sesion en progreso...",
+    "Session in progress": "Sesion en progreso",
+    "Session is in progress...": "La sesion esta en progreso..."
+  },
+
+  "common.RepositoryDropdown": {
+    "Select repository...": "Seleccionar repositorio...",
+    "No repositories available": "No hay repositorios disponibles",
+    "Remove repository": "Eliminar repositorio"
+  },
+
+  "common.TokenUsageDisplay": {
+    "Visible Context": "Contexto visible",
+    "Accumulated across entire session without duplication": "Acumulado a lo largo de toda la sesion sin duplicados",
+    "Input Tokens": "Tokens de entrada",
+    "Cache Read": "Lectura de cache",
+    "Cache Write": "Escritura de cache",
+    "Output Tokens": "Tokens de salida",
+    "Total": "Total",
+    "Cost (USD)": "Costo (USD)",
+    "Model": "Modelo",
+    "Tool Outputs": "Salidas de herramientas",
+    "Task Coordination": "Coordinacion de tareas",
+    "User Messages": "Mensajes del usuario",
+    "Thinking + Text": "Pensamiento + Texto",
+    "of context": "del contexto",
+    "of input": "de la entrada"
+  },
+
+  "common.UpdateBanner": {
+    "Updating app": "Actualizando aplicacion",
+    "Update ready": "Actualizacion lista",
+    "Restart now": "Reiniciar ahora"
+  },
+
+  "common.UpdateDialog": {
+    "Update Ready": "Actualizacion lista",
+    "Update Available": "Actualizacion disponible",
+    "Update available": "Actualizacion disponible",
+    "No release notes available.": "No hay notas de version disponibles.",
+    "View on GitHub": "Ver en GitHub",
+    "Later": "Mas tarde",
+    "Download": "Descargar"
+  },
+
+  "common.WorkspaceIndicator": {
+    "Switch Workspace": "Cambiar espacio de trabajo"
+  },
+
+  "common.WorktreeBadge": {
+    "Default": "Predeterminado",
+    "Worktree": "Arbol de trabajo",
+    "Created by {label}": "Creado por {label}"
+  },
+
+  "sidebar.DateGroupedSessions": {
+    "Select Project": "Seleccionar proyecto",
+    "Search...": "Buscar...",
+    "Nothing found": "No se encontro nada",
+    "Reset selection": "Restablecer seleccion",
+    "Switch Worktree": "Cambiar arbol de trabajo",
+    "Select a project to view sessions": "Selecciona un proyecto para ver sesiones",
+    "Error loading sessions": "Error al cargar sesiones",
+    "No sessions found": "No se encontraron sesiones",
+    "This project has no sessions yet": "Este proyecto aun no tiene sesiones",
+    "By Context": "Por contexto",
+    "Sessions": "Sesiones",
+    "Pinned": "Fijadas",
+    "Loading more sessions...": "Cargando mas sesiones...",
+    "Scroll to load more": "Desplaza para cargar mas",
+    "Exit selection mode": "Salir del modo de seleccion",
+    "Select sessions": "Seleccionar sesiones",
+    "Hide hidden sessions": "Ocultar sesiones ocultas",
+    "Show hidden sessions": "Mostrar sesiones ocultas",
+    "Sort by context consumption": "Ordenar por consumo de contexto",
+    "Sort by recent": "Ordenar por recientes",
+    "selected": "seleccionadas",
+    "Pin": "Fijar",
+    "Hide": "Ocultar",
+    "Unhide": "Mostrar",
+    "Cancel selection": "Cancelar seleccion",
+    "loaded so far — scroll down to load more. Context sorting only ranks loaded sessions.": "cargadas hasta ahora. Desplaza hacia abajo para cargar mas. La ordenacion por contexto solo clasifica las sesiones cargadas."
+  },
+
+  "sidebar.GlobalTaskList": {
+    "Tasks": "Tareas",
+    "Search tasks...": "Buscar tareas...",
+    "By time": "Por tiempo",
+    "By unread": "Por no leidas",
+    "By project": "Por proyecto",
+    "By team": "Por equipo",
+    "Pinned": "Fijadas",
+    "Group by:": "Agrupar por:",
+    "None": "Ninguno",
+    "Project": "Proyecto",
+    "Time": "Tiempo",
+    "Hide archived": "Ocultar archivadas",
+    "Show archived": "Mostrar archivadas",
+    "No matching tasks": "No hay tareas coincidentes",
+    "No tasks found": "No se encontraron tareas",
+    "Delete task": "Eliminar tarea",
+    "Move task #{displayId} to trash?": "Mover tarea #{displayId} a la papelera?",
+    "Delete": "Eliminar",
+    "Failed to delete task": "Error al eliminar tarea",
+    "An unexpected error occurred": "Ocurrio un error inesperado",
+    "OK": "Aceptar",
+    "Last 7 Days": "Ultimos 7 dias",
+    "Earlier": "Anteriores",
+    "Team:": "Equipo:"
+  },
+
+  "sidebar.SessionContextMenu": {
+    "Open in Current Pane": "Abrir en el panel actual",
+    "Open in New Tab": "Abrir en nueva pestana",
+    "Split Right and Open": "Dividir a la derecha y abrir",
+    "Unpin Session": "Desfijar sesion",
+    "Pin Session": "Fijar sesion",
+    "Unhide Session": "Mostrar sesion",
+    "Hide Session": "Ocultar sesion",
+    "Copied!": "Copiado!",
+    "Copy Session ID": "Copiar ID de sesion",
+    "Copy Resume Command": "Copiar comando de reanudacion"
+  },
+
+  "sidebar.SessionItem": {
+    "Total Context: {count} tokens": "Contexto total: {count} tokens",
+    "Context: {count}": "Contexto: {count}",
+    "Phase {n}:": "Fase {n}:",
+    "(compacted to {count})": "(compactado a {count})",
+    "resume": "reanudar",
+    "new": "nueva"
+  },
+
+  "sidebar.SidebarTaskItem": {
+    "pending": "pendiente",
+    "in progress": "en progreso",
+    "completed": "completada",
+    "deleted": "eliminada",
+    "approved": "aprobada",
+    "in review": "en revision",
+    "unassigned": "sin asignar",
+    "Team:": "Equipo:",
+    "Yesterday": "Ayer"
+  },
+
+  "sidebar.TaskContextMenu": {
+    "Unpin": "Desfijar",
+    "Pin": "Fijar",
+    "Rename": "Renombrar",
+    "Unarchive": "Desarchivar",
+    "Archive": "Archivar",
+    "Delete task": "Eliminar tarea"
+  },
+
+  "sidebar.TaskFiltersPopover": {
+    "Status": "Estado",
+    "Clear all": "Limpiar todo",
+    "Select all": "Seleccionar todo",
+    "Team": "Equipo",
+    "All teams": "Todos los equipos",
+    "Search teams...": "Buscar equipos...",
+    "No teams found": "No se encontraron equipos",
+    "Project": "Proyecto",
+    "All Projects": "Todos los proyectos",
+    "Search projects...": "Buscar proyectos...",
+    "No projects": "Sin proyectos",
+    "Comments": "Comentarios",
+    "All": "Todos",
+    "Unread": "No leidos",
+    "Read": "Leidos",
+    "Apply": "Aplicar"
+  },
+
+  "sidebar.taskFiltersState": {
+    "TODO": "POR HACER",
+    "IN PROGRESS": "EN PROGRESO",
+    "NEEDS FIXES": "REQUIERE CORRECCIONES",
+    "DONE": "COMPLETADA",
+    "REVIEW": "EN REVISION",
+    "APPROVED": "APROBADA"
+  }
+}

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover';
@@ -55,6 +56,7 @@ const ScheduleRow = ({
   onResume,
   onTriggerNow,
 }: ScheduleRowProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [selectedRun, setSelectedRun] = useState<ScheduleRun | null>(null);
   const runs = useStore((s) => s.scheduleRuns[schedule.id] ?? []);
@@ -120,7 +122,7 @@ const ScheduleRow = ({
                 <Zap className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top">Run now</TooltipContent>
+            <TooltipContent side="top">{t('schedule.section.runNow')}</TooltipContent>
           </Tooltip>
 
           <Popover>
@@ -136,7 +138,7 @@ const ScheduleRow = ({
                 onClick={() => onEdit(schedule)}
               >
                 <Pencil className="mr-2 size-3.5" />
-                Edit
+                {t('schedule.section.edit')}
               </button>
               {schedule.status === 'active' ? (
                 <button
@@ -145,7 +147,7 @@ const ScheduleRow = ({
                   onClick={() => onPause(schedule.id)}
                 >
                   <Pause className="mr-2 size-3.5" />
-                  Pause
+                  {t('schedule.section.pause')}
                 </button>
               ) : (
                 <button
@@ -154,7 +156,7 @@ const ScheduleRow = ({
                   onClick={() => onResume(schedule.id)}
                 >
                   <Play className="mr-2 size-3.5" />
-                  Resume
+                  {t('schedule.section.resume')}
                 </button>
               )}
               <button
@@ -163,7 +165,7 @@ const ScheduleRow = ({
                 onClick={() => onDelete(schedule.id)}
               >
                 <Trash2 className="mr-2 size-3.5" />
-                Delete
+                {t('schedule.section.delete')}
               </button>
             </PopoverContent>
           </Popover>
@@ -175,11 +177,11 @@ const ScheduleRow = ({
         <div className="border-t border-[var(--color-border)]">
           {runsLoading ? (
             <div className="flex items-center justify-center py-3 text-[11px] text-[var(--color-text-muted)]">
-              Loading run history...
+              {t('schedule.section.loadingRunHistory')}
             </div>
           ) : runs.length === 0 ? (
             <div className="flex items-center justify-center py-3 text-[11px] text-[var(--color-text-muted)]">
-              No runs yet
+              {t('schedule.section.noRunsYet')}
             </div>
           ) : (
             <div className="max-h-[200px] overflow-y-auto">
@@ -207,6 +209,7 @@ const ScheduleRow = ({
 // =============================================================================
 
 export const ScheduleSection = ({ teamName }: ScheduleSectionProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const schedules = useStore((s) => s.schedules.filter((sch) => sch.teamName === teamName));
   const pauseSchedule = useStore((s) => s.pauseSchedule);
   const resumeSchedule = useStore((s) => s.resumeSchedule);
@@ -265,7 +268,7 @@ export const ScheduleSection = ({ teamName }: ScheduleSectionProps): React.JSX.E
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-medium text-[var(--color-text-muted)]">
           {schedules.length > 0
-            ? `${schedules.length} schedule${schedules.length > 1 ? 's' : ''}`
+            ? t('schedule.section.scheduleCount', { count: schedules.length })
             : ''}
         </span>
         <Button
@@ -275,7 +278,7 @@ export const ScheduleSection = ({ teamName }: ScheduleSectionProps): React.JSX.E
           onClick={handleCreate}
         >
           <Plus className="size-3" />
-          Add Schedule
+          {t('schedule.section.addSchedule')}
         </Button>
       </div>
 

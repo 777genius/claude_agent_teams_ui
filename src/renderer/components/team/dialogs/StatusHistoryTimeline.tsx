@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { cn } from '@renderer/lib/utils';
@@ -17,10 +19,11 @@ interface WorkflowTimelineProps {
 }
 
 export const WorkflowTimeline = ({ events, memberColorMap }: WorkflowTimelineProps) => {
+  const { t } = useTranslation();
   if (events.length === 0) {
     return (
       <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
-        No workflow history recorded
+        {t('dialogs.statusHistory.noWorkflowHistory')}
       </div>
     );
   }
@@ -79,16 +82,19 @@ const EventContent = ({
   event: TaskHistoryEvent;
   memberColorMap?: Map<string, string>;
 }) => {
+  const { t } = useTranslation();
   switch (event.type) {
     case 'task_created':
       return (
         <span className="flex items-center gap-1">
           <Plus size={10} />
-          Created as
+          {t('dialogs.statusHistory.createdAs')}
           <StatusBadge status={event.status} />
           {event.actor ? (
             <>
-              <span className="text-[var(--color-text-muted)]">by</span>
+              <span className="text-[var(--color-text-muted)]">
+                {t('dialogs.statusHistory.by')}
+              </span>
               <MemberBadge
                 name={event.actor}
                 color={memberColorMap?.get(event.actor)}
@@ -111,7 +117,7 @@ const EventContent = ({
       return (
         <span className="flex items-center gap-1">
           <Eye size={10} className="text-purple-400" />
-          Review requested
+          {t('dialogs.statusHistory.reviewRequested')}
           {event.reviewer ? (
             <MemberBadge
               name={event.reviewer}
@@ -126,14 +132,14 @@ const EventContent = ({
       return (
         <span className="flex items-center gap-1">
           <Eye size={10} className="text-purple-400" />
-          Review started
+          {t('dialogs.statusHistory.reviewStarted')}
         </span>
       );
     case 'review_changes_requested':
       return (
         <span className="flex items-center gap-1">
           <MessageSquareX size={10} className="text-amber-400" />
-          Changes requested
+          {t('dialogs.statusHistory.changesRequested')}
           <ReviewStateBadge state="needsFix" />
         </span>
       );
@@ -141,12 +147,12 @@ const EventContent = ({
       return (
         <span className="flex items-center gap-1">
           <ShieldCheck size={10} className="text-emerald-400" />
-          Approved
+          {t('dialogs.statusHistory.approved')}
           <ReviewStateBadge state="approved" />
         </span>
       );
     default:
-      return <span>Unknown event</span>;
+      return <span>{t('dialogs.statusHistory.unknownEvent')}</span>;
   }
 };
 

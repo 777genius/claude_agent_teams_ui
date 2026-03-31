@@ -1,0 +1,346 @@
+{
+  "kanban": {
+    "board": {
+      "columns": {
+        "todo": "TODO",
+        "inProgress": "IN PROGRESS",
+        "review": "REVIEW",
+        "done": "DONE",
+        "approved": "APPROVED"
+      },
+      "tooltips": {
+        "trash": "Trash",
+        "gridView": "Grid view",
+        "columnsView": "Columns view"
+      },
+      "ariaLabels": {
+        "gridView": "Grid view",
+        "columnsView": "Columns view"
+      }
+    },
+    "filter": {
+      "ariaLabel": "Filter tasks",
+      "tooltip": "Filter tasks"
+    },
+    "search": {
+      "placeholder": "Search tasks... (#id or text)",
+      "clearTooltip": "Clear search"
+    },
+    "sort": {
+      "ariaLabel": "Sort tasks",
+      "tooltip": "Sort tasks"
+    },
+    "taskCard": {
+      "cancelTooltip": "Cancel",
+      "deleteLabel": "Delete task",
+      "requestReviewLabel": "Request review",
+      "requestChangesLabel": "Request changes"
+    },
+    "trash": {
+      "headers": {
+        "subject": "Subject",
+        "owner": "Owner",
+        "deleted": "Deleted"
+      },
+      "restoreAriaLabel": "Restore task",
+      "restoreTooltip": "Restore"
+    }
+  },
+  "dialogs": {
+    "addMember": {
+      "title": "Add Members"
+    },
+    "advancedCli": {
+      "title": "Advanced",
+      "worktreePlaceholder": "worktree-name",
+      "recentLabel": "Recent",
+      "maxTurnsPlaceholder": "--max-turns 5"
+    },
+    "createTask": {
+      "title": "Create Task",
+      "offlineWarning": "Team is offline. The task will be added to TODO — launch the team to start working on it.",
+      "subjectLabel": "Subject",
+      "subjectPlaceholder": "What needs to be done?",
+      "descriptionLabel": "Description (optional)",
+      "descriptionPlaceholder": "Task details (supports markdown)",
+      "promptPlaceholder": "Custom instructions for the team member...",
+      "saved": "Saved",
+      "blockedByLabel": "Blocked by tasks (optional)",
+      "blockedByPlaceholder": "Search tasks...",
+      "relatedLabel": "Related tasks (optional)",
+      "relatedPlaceholder": "Search tasks..."
+    },
+    "createTeam": {
+      "teamNameLabel": "Team name",
+      "optionalLaunchSettings": "Optional launch settings",
+      "launchPromptPlaceholder": "Instructions for the team lead during provisioning...",
+      "optionalTeamDetails": "Optional team details",
+      "descriptionPlaceholder": "Brief description of the team purpose",
+      "saved": "Saved",
+      "colorLabel": "Color (optional)",
+      "preFlightCheck": "Pre-flight check to catch errors before launch"
+    },
+    "editTeam": {
+      "title": "Edit Team",
+      "description": "Change team name, description and color",
+      "namePlaceholder": "Team name",
+      "descriptionPlaceholder": "Team description (optional)"
+    },
+    "launchTeam": {
+      "teamLabel": "Team",
+      "teamPlaceholder": "Select a team...",
+      "scheduleNamePlaceholder": "e.g., Daily code review, Nightly tests...",
+      "optionalLaunchSettings": "Optional launch settings",
+      "launchPromptPlaceholder": "Instructions for team lead...",
+      "saved": "Saved",
+      "promptLabel": "Prompt",
+      "scheduledPromptPlaceholder": "Instructions for Claude to execute on schedule...",
+      "noLimitPlaceholder": "No limit",
+      "preFlightCheck": "Pre-flight check to catch errors before launch"
+    },
+    "projectPath": {
+      "label": "Project",
+      "ariaLabel": "Custom working directory",
+      "placeholder": "/absolute/path/to/project"
+    },
+    "reviewChanges": {
+      "title": "Request Changes",
+      "placeholder": "Describe what needs to change... (Enter to submit)",
+      "saved": "Saved"
+    },
+    "sendMessage": {
+      "title": "Send Message",
+      "description": "Send a direct message to a team member.",
+      "recipientLabel": "Recipient",
+      "recipientPlaceholder": "Select member...",
+      "messageLabel": "Message",
+      "removeQuoteTooltip": "Remove quote",
+      "messagePlaceholder": "Write your message... (Enter to send)",
+      "saved": "Saved"
+    },
+    "skipPermissions": {
+      "manualMode": "Manual mode — you'll approve or deny each tool call in real-time."
+    },
+    "statusHistory": {
+      "unknownEvent": "Unknown event"
+    },
+    "taskCommentAwaiting": {
+      "awaitingReply": "Awaiting reply from"
+    },
+    "taskCommentInput": {
+      "cancelReplyTooltip": "Cancel reply",
+      "replyingTo": "Replying to",
+      "placeholder": "Add a comment... (Enter to send)",
+      "attachTooltip": "Attach file (or paste)",
+      "voiceTooltip": "Voice to text",
+      "saved": "Saved"
+    },
+    "taskComments": {
+      "replyTooltip": "Reply to comment",
+      "cancelReplyTooltip": "Cancel reply",
+      "placeholder": "Add a comment... (Enter to send)",
+      "saved": "Saved"
+    },
+    "taskDetail": {
+      "loadingTitle": "Loading task…",
+      "fetchingTeam": "Fetching team data",
+      "notFoundTitle": "Task not found",
+      "unassigned": "Unassigned",
+      "linksLabel": "Links",
+      "linkedFromLabel": "Linked from",
+      "descriptionTitle": "Description",
+      "descriptionPlaceholder": "Task description (supports markdown)",
+      "editDescriptionTooltip": "Edit description",
+      "attachmentsTitle": "Attachments",
+      "changesTitle": "Changes",
+      "refreshAriaLabel": "Refresh changes",
+      "refreshTooltip": "Refresh",
+      "reviewDiffTooltip": "Review diff",
+      "openInEditorTooltip": "Open in editor",
+      "noChanges": "No file changes detected",
+      "executionLogsTitle": "Execution Logs",
+      "onlineTitle": "Online",
+      "workflowHistoryTitle": "Workflow History",
+      "commentsTitle": "Comments"
+    },
+    "toolApprovalSettings": {
+      "title": "Settings",
+      "onTimeout": "On timeout:",
+      "waitForever": "Wait forever",
+      "allow": "Allow",
+      "deny": "Deny"
+    },
+    "removeMember": {
+      "title": "Remove member"
+    },
+    "deleteTeam": {
+      "title": "Delete team"
+    }
+  },
+  "members": {
+    "card": {
+      "connectingAriaLabel": "connecting",
+      "sendMessageTooltip": "Send message",
+      "assignTaskTooltip": "Assign task"
+    },
+    "detailHeader": {
+      "editRoleAriaLabel": "Edit role"
+    },
+    "draftRow": {
+      "namePlaceholder": "member-name",
+      "removeTitle": "Remove member",
+      "rolePlaceholder": "How this agent should behave, interact with others...",
+      "saved": "Saved"
+    },
+    "stats": {
+      "toolUsageTitle": "Tool Usage"
+    },
+    "currentTask": {
+      "openTaskTitle": "Open task"
+    },
+    "editor": {
+      "membersLabel": "Members"
+    }
+  },
+  "messages": {
+    "composer": {
+      "thisTeam": "This team",
+      "select": "Select...",
+      "searchPlaceholder": "Search...",
+      "voiceTooltip": "Voice to text",
+      "saved": "Saved"
+    },
+    "filter": {
+      "ariaLabel": "Filter messages",
+      "tooltip": "Filter messages",
+      "noData": "No data",
+      "showStatusUpdates": "Show status updates (idle/shutdown)"
+    },
+    "panel": {
+      "searchPlaceholder": "Search...",
+      "title": "Messages",
+      "markAllReadTooltip": "Mark all as read",
+      "moveToInlineTooltip": "Move to inline",
+      "moveToSidebarTooltip": "Move to sidebar"
+    },
+    "actionMode": {
+      "ariaLabel": "Action mode"
+    }
+  },
+  "activity": {
+    "activeTasks": {
+      "inProgress": "In progress"
+    },
+    "item": {
+      "unreadTitle": "Unread",
+      "expandAriaLabel": "Expand message",
+      "replyTooltip": "Reply to message",
+      "createTaskTooltip": "Create task from message"
+    },
+    "timeline": {
+      "noMessages": "No messages",
+      "noMessagesHint": "Send a message to a member to see activity."
+    },
+    "thoughts": {
+      "expandAriaLabel": "Expand thoughts"
+    },
+    "messageExpand": {
+      "srDescription": "Expanded message view"
+    },
+    "pendingReplies": {
+      "openMemberTitle": "Open member",
+      "awaitingReplyTitle": "Message sent, awaiting reply",
+      "crossTeamAwaitingTitle": "Cross-team message sent, awaiting reply"
+    },
+    "replyQuote": {
+      "replyingTo": "Replying to"
+    },
+    "thoughtBody": {
+      "replyTooltip": "Reply"
+    }
+  },
+  "tasks": {
+    "list": {
+      "filterByOwnerAriaLabel": "Filter tasks by owner",
+      "allOwners": "All owners",
+      "filterByStatusAriaLabel": "Filter tasks by status",
+      "allStatuses": "All statuses"
+    }
+  },
+  "team": {
+    "detailView": {
+      "notLaunched": "Team not launched yet",
+      "failedToLoad": "Failed to load team",
+      "visibleContext": "Visible Context",
+      "closePanelAriaLabel": "Close panel",
+      "stopTeamTooltip": "Stop team",
+      "editTeamTooltip": "Edit team",
+      "deleteTeamTooltip": "Delete team",
+      "openInEditorTooltip": "Open project in built-in editor",
+      "sections": {
+        "team": "Team",
+        "sessions": "Sessions",
+        "kanban": "Kanban",
+        "schedules": "Schedules",
+        "cliProcesses": "CLI Processes",
+        "active": "Active"
+      }
+    },
+    "emptyState": {
+      "noTeams": "No teams found",
+      "createHint": "Create a team in Claude Code, then refresh the list."
+    },
+    "listView": {
+      "selectTeam": "Select Team",
+      "searchPlaceholder": "Search teams...",
+      "failedToLoad": "Failed to load teams",
+      "launchAriaLabel": "Launch team",
+      "stopAriaLabel": "Stop team",
+      "copyTooltip": "Copy team",
+      "deleteTooltip": "Delete team",
+      "restoreAriaLabel": "Restore team",
+      "restoreTooltip": "Restore",
+      "deletePermanentlyAriaLabel": "Delete permanently",
+      "deleteForeverTooltip": "Delete forever"
+    },
+    "listFilter": {
+      "ariaLabel": "Filter teams",
+      "tooltip": "Filter teams"
+    },
+    "provisioning": {
+      "launchFailed": "Launch failed",
+      "launchDetails": "Launch details",
+      "launchingTeam": "Launching team"
+    },
+    "sessions": {
+      "afterProvisioning": "Sessions will appear after team provisioning",
+      "openSessionTooltip": "Open session"
+    },
+    "toolApprovalPreview": {
+      "previewChanges": "Preview changes",
+      "readingFile": "Reading file...",
+      "binaryFile": "Binary file — cannot preview",
+      "fileTruncated": "File truncated at 2MB — diff may be incomplete"
+    },
+    "taskTooltip": {
+      "unassigned": "Unassigned"
+    },
+    "logs": {
+      "sectionTitle": "Claude logs",
+      "searchPlaceholder": "Search logs...",
+      "clearSearchAriaLabel": "Clear search",
+      "noMatchingLogs": "No matching logs.",
+      "fullscreenAriaLabel": "Open fullscreen logs",
+      "fullscreenTooltip": "Fullscreen",
+      "filterAriaLabel": "Filter Claude logs",
+      "filterTooltip": "Filter logs"
+    },
+    "processes": {
+      "stopTitle": "Stop process (SIGTERM)",
+      "openInBrowserTitle": "Open in browser"
+    },
+    "roleSelect": {
+      "placeholder": "Enter custom role..."
+    }
+  }
+}

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 
 import { cn } from '@renderer/lib/utils';
 import { AlertTriangle, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ConflictDialogProps {
   open: boolean;
@@ -22,6 +23,7 @@ export const ConflictDialog = ({
   onResolveUseOriginal,
   onResolveManual,
 }: ConflictDialogProps) => {
+  const { t } = useTranslation();
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState(conflictContent);
 
@@ -39,9 +41,11 @@ export const ConflictDialog = ({
         <div className="flex items-center gap-3 border-b border-border px-4 py-3">
           <AlertTriangle className="size-4 text-yellow-400" />
           <div className="flex-1">
-            <h3 className="text-sm font-medium text-text">Conflict Detected</h3>
+            <h3 className="text-sm font-medium text-text">
+              {t('review.conflict.conflictDetected')}
+            </h3>
             <p className="text-xs text-text-muted">
-              This file has been modified since the agent&apos;s changes
+              {t('review.conflict.fileModifiedSinceChanges')}
             </p>
           </div>
           <button
@@ -98,13 +102,13 @@ export const ConflictDialog = ({
                 onClick={() => setEditMode(false)}
                 className="rounded px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
               >
-                Cancel
+                {t('review.conflict.cancel')}
               </button>
               <button
                 onClick={handleManualSave}
                 className="rounded bg-blue-500/20 px-3 py-1.5 text-xs text-blue-400 transition-colors hover:bg-blue-500/30"
               >
-                Save Resolution
+                {t('review.conflict.saveResolution')}
               </button>
             </>
           ) : (
@@ -116,7 +120,7 @@ export const ConflictDialog = ({
                 }}
                 className="rounded px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
               >
-                Edit Manually
+                {t('review.conflict.editManually')}
               </button>
               <button
                 onClick={onResolveUseOriginal}
@@ -125,7 +129,7 @@ export const ConflictDialog = ({
                   'bg-red-500/15 text-red-400 hover:bg-red-500/25'
                 )}
               >
-                Use Original
+                {t('review.conflict.useOriginal')}
               </button>
               <button
                 onClick={onResolveKeepCurrent}
@@ -134,7 +138,7 @@ export const ConflictDialog = ({
                   'bg-green-500/15 text-green-400 hover:bg-green-500/25'
                 )}
               >
-                Keep Current
+                {t('review.conflict.keepCurrent')}
               </button>
             </>
           )}

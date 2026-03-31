@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { Button } from '@renderer/components/ui/button';
@@ -43,16 +44,9 @@ type TransportMode = 'stdio' | 'http';
 type HttpTransport = 'streamable-http' | 'sse' | 'http';
 type Scope = 'local' | 'user';
 
-const SCOPE_OPTIONS: { value: Scope; label: string }[] = [
-  { value: 'user', label: 'User (global)' },
-  { value: 'local', label: 'Local' },
-];
+const SCOPE_OPTION_VALUES: Scope[] = ['user', 'local'];
 
-const HTTP_TRANSPORT_OPTIONS: { value: HttpTransport; label: string }[] = [
-  { value: 'streamable-http', label: 'Streamable HTTP' },
-  { value: 'sse', label: 'SSE' },
-  { value: 'http', label: 'HTTP' },
-];
+const HTTP_TRANSPORT_OPTION_VALUES: HttpTransport[] = ['streamable-http', 'sse', 'http'];
 
 interface EnvEntry {
   key: string;
@@ -63,6 +57,7 @@ export const CustomMcpServerDialog = ({
   open,
   onClose,
 }: CustomMcpServerDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const installCustomMcpServer = useStore((s) => s.installCustomMcpServer);
 
   // Form state
@@ -126,11 +121,11 @@ export const CustomMcpServerDialog = ({
     setError(null);
 
     if (!serverName.trim()) {
-      setError('Server name is required');
+      setError(t('extensions.mcp.customMcpServerDialog.serverNameLabelRequired'));
       return;
     }
     if (!SERVER_NAME_RE.test(serverName)) {
-      setError('Invalid server name. Use alphanumeric characters, dashes, underscores, dots.');
+      setError(t('extensions.mcp.customMcpServerDialog.invalidServerName'));
       return;
     }
 
@@ -138,7 +133,7 @@ export const CustomMcpServerDialog = ({
 
     if (transportMode === 'stdio') {
       if (!npmPackage.trim()) {
-        setError('npm package name is required');
+        setError(t('extensions.mcp.customMcpServerDialog.npmPackageLabelRequired'));
         return;
       }
       installSpec = {
@@ -148,7 +143,7 @@ export const CustomMcpServerDialog = ({
       };
     } else {
       if (!httpUrl.trim()) {
-        setError('Server URL is required');
+        setError(t('extensions.mcp.customMcpServerDialog.serverUrlLabelRequired'));
         return;
       }
       installSpec = {
@@ -178,7 +173,9 @@ export const CustomMcpServerDialog = ({
       await installCustomMcpServer(request);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Install failed');
+      setError(
+        err instanceof Error ? err.message : t('extensions.mcp.customMcpServerDialog.installFailed')
+      );
     } finally {
       setInstalling(false);
     }
@@ -208,8 +205,12 @@ export const CustomMcpServerDialog = ({
               <Server className="size-4 text-text-muted" />
             </div>
             <div>
-              <DialogTitle>Add Custom MCP Server</DialogTitle>
-              <DialogDescription>Add a server manually without the catalog.</DialogDescription>
+              <DialogTitle>
+                {t('extensions.mcp.customMcpServerDialog.addCustomMcpServer')}
+              </DialogTitle>
+              <DialogDescription>
+                {t('extensions.mcp.customMcpServerDialog.addServerDescription')}
+              </DialogDescription>
             </div>
           </div>
         </DialogHeader>
@@ -218,7 +219,7 @@ export const CustomMcpServerDialog = ({
           {/* Server name */}
           <div className="space-y-1.5">
             <Label htmlFor="custom-name" className="text-xs">
-              Server Name
+              {t('extensions.mcp.customMcpServerDialog.serverNameLabel')}
             </Label>
             <Input
               id="custom-name"
@@ -232,7 +233,9 @@ export const CustomMcpServerDialog = ({
 
           {/* Transport toggle */}
           <div className="space-y-1.5">
-            <Label className="text-xs">Transport</Label>
+            <Label className="text-xs">
+              {t('extensions.mcp.customMcpServerDialog.transportLabel')}
+            </Label>
             <div className="flex gap-2">
               <Button
                 type="button"
@@ -240,7 +243,7 @@ export const CustomMcpServerDialog = ({
                 size="sm"
                 onClick={() => setTransportMode('stdio')}
               >
-                Stdio (npm)
+                {t('extensions.mcp.customMcpServerDialog.stdioNpm')}
               </Button>
               <Button
                 type="button"
@@ -248,7 +251,7 @@ export const CustomMcpServerDialog = ({
                 size="sm"
                 onClick={() => setTransportMode('http')}
               >
-                HTTP / SSE
+                {t('extensions.mcp.customMcpServerDialog.httpSse')}
               </Button>
             </div>
           </div>
@@ -258,7 +261,7 @@ export const CustomMcpServerDialog = ({
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="custom-npm" className="text-xs">
-                  npm Package
+                  {t('extensions.mcp.customMcpServerDialog.npmPackageLabel')}
                 </Label>
                 <Input
                   id="custom-npm"
@@ -270,7 +273,7 @@ export const CustomMcpServerDialog = ({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="custom-version" className="text-xs">
-                  Version (optional)
+                  {t('extensions.mcp.customMcpServerDialog.versionLabel')}
                 </Label>
                 <Input
                   id="custom-version"
@@ -288,7 +291,7 @@ export const CustomMcpServerDialog = ({
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="custom-url" className="text-xs">
-                  Server URL
+                  {t('extensions.mcp.customMcpServerDialog.serverUrlLabel')}
                 </Label>
                 <Input
                   id="custom-url"
@@ -299,7 +302,9 @@ export const CustomMcpServerDialog = ({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Transport Type</Label>
+                <Label className="text-xs">
+                  {t('extensions.mcp.customMcpServerDialog.transportTypeLabel')}
+                </Label>
                 <Select
                   value={httpTransport}
                   onValueChange={(v) => setHttpTransport(v as HttpTransport)}
@@ -308,9 +313,13 @@ export const CustomMcpServerDialog = ({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {HTTP_TRANSPORT_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
+                    {HTTP_TRANSPORT_OPTION_VALUES.map((val) => (
+                      <SelectItem key={val} value={val}>
+                        {val === 'streamable-http'
+                          ? t('extensions.mcp.customMcpServerDialog.transportStreamableHttp')
+                          : val === 'sse'
+                            ? t('extensions.mcp.customMcpServerDialog.transportSse')
+                            : t('extensions.mcp.customMcpServerDialog.transportHttp')}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -320,7 +329,9 @@ export const CustomMcpServerDialog = ({
               {/* Headers */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs">Headers</Label>
+                  <Label className="text-xs">
+                    {t('extensions.mcp.customMcpServerDialog.headersLabel')}
+                  </Label>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -328,7 +339,7 @@ export const CustomMcpServerDialog = ({
                     className="h-6 px-1.5 text-xs"
                   >
                     <Plus className="mr-1 size-3" />
-                    Add
+                    {t('extensions.mcp.customMcpServerDialog.add')}
                   </Button>
                 </div>
                 {headers.length > 0 && (
@@ -365,15 +376,19 @@ export const CustomMcpServerDialog = ({
 
           {/* Scope */}
           <div className="space-y-1.5">
-            <Label className="text-xs">Scope</Label>
+            <Label className="text-xs">
+              {t('extensions.mcp.customMcpServerDialog.scopeLabel')}
+            </Label>
             <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
               <SelectTrigger className="h-8 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SCOPE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                {SCOPE_OPTION_VALUES.map((val) => (
+                  <SelectItem key={val} value={val}>
+                    {val === 'user'
+                      ? t('extensions.mcp.customMcpServerDialog.scopeUserGlobal')
+                      : t('extensions.mcp.customMcpServerDialog.scopeLocal')}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -383,10 +398,12 @@ export const CustomMcpServerDialog = ({
           {/* Environment variables */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-xs">Environment Variables</Label>
+              <Label className="text-xs">
+                {t('extensions.mcp.customMcpServerDialog.envVarsLabel')}
+              </Label>
               <Button variant="ghost" size="sm" onClick={addEnvVar} className="h-6 px-1.5 text-xs">
                 <Plus className="mr-1 size-3" />
-                Add
+                {t('extensions.mcp.customMcpServerDialog.add')}
               </Button>
             </div>
             {envVars.length > 0 && (
@@ -430,10 +447,12 @@ export const CustomMcpServerDialog = ({
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" size="sm" onClick={onClose}>
-              Cancel
+              {t('extensions.mcp.customMcpServerDialog.cancel')}
             </Button>
             <Button size="sm" disabled={!canSubmit} onClick={() => void handleInstall()}>
-              {installing ? 'Installing...' : 'Install'}
+              {installing
+                ? t('extensions.mcp.customMcpServerDialog.installing')
+                : t('extensions.mcp.customMcpServerDialog.install')}
             </Button>
           </div>
         </div>

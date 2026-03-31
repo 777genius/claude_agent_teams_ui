@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   CODE_BG,
@@ -357,6 +358,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   tokenCount,
   syntaxHighlight = false,
 }): React.JSX.Element => {
+  const { t } = useTranslation();
   // Compute diff
   const oldLines = oldString.split(/\r?\n/);
   const newLines = newString.split(/\r?\n/);
@@ -431,7 +433,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           )}
           {stats.removed > 0 && <span style={{ color: DIFF_REMOVED_TEXT }}>-{stats.removed}</span>}
           {stats.added === 0 && stats.removed === 0 && (
-            <span style={{ color: COLOR_TEXT_MUTED }}>Changed</span>
+            <span style={{ color: COLOR_TEXT_MUTED }}>{t('chat.viewers.diffViewer.changed')}</span>
           )}
         </span>
         {tokenCount !== undefined && tokenCount > 0 && (
@@ -449,7 +451,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           ))}
           {diffLines.length === 0 && (
             <div className="px-3 py-2 italic" style={{ color: COLOR_TEXT_MUTED }}>
-              No changes detected
+              {t('chat.viewers.diffViewer.noChangesDetected', 'No changes detected')}
             </div>
           )}
         </div>

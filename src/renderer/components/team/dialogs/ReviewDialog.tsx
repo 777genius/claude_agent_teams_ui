@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   Dialog,
@@ -41,6 +42,7 @@ export const ReviewDialog = ({
   onCancel,
   onSubmit,
 }: ReviewDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const projectPath = useStore((s) => s.selectedTeamData?.config.projectPath ?? null);
   const { suggestions: taskSuggestions } = useTaskSuggestions(teamName);
   const draft = useDraftPersistence({
@@ -81,7 +83,7 @@ export const ReviewDialog = ({
     >
       <DialogContent className="w-[600px]">
         <DialogHeader>
-          <DialogTitle>Request Changes</DialogTitle>
+          <DialogTitle>{t('dialogs.reviewChanges.title')}</DialogTitle>
           <DialogDescription>Task #{taskId ? deriveTaskDisplayId(taskId) : ''}</DialogDescription>
         </DialogHeader>
 
@@ -90,7 +92,7 @@ export const ReviewDialog = ({
             id="review-comment"
             value={draft.value}
             onValueChange={draft.setValue}
-            placeholder="Describe what needs to change... (Enter to submit)"
+            placeholder={t('dialogs.reviewChanges.placeholder')}
             suggestions={mentionSuggestions}
             taskSuggestions={taskSuggestions}
             projectPath={projectPath}
@@ -105,7 +107,7 @@ export const ReviewDialog = ({
                 onClick={handleSubmit}
               >
                 <Send size={12} />
-                Submit
+                {t('dialogs.reviewChanges.submit')}
               </button>
             }
             footerRight={
@@ -118,7 +120,9 @@ export const ReviewDialog = ({
                   </span>
                 ) : null}
                 {draft.isSaved ? (
-                  <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)]">
+                    {t('dialogs.reviewChanges.saved')}
+                  </span>
                 ) : null}
               </div>
             }

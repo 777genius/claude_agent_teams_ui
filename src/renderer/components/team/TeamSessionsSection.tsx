@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { useStore } from '@renderer/store';
@@ -38,6 +39,7 @@ export const TeamSessionsSection = ({
   onSelectSession,
   projectPath,
 }: TeamSessionsSectionProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const { openTab, selectSession, projects, repositoryGroups } = useStore(
     useShallow((s) => ({
       openTab: s.openTab,
@@ -83,8 +85,8 @@ export const TeamSessionsSection = ({
     return (
       <div className="py-6 text-center text-xs text-[var(--color-text-muted)]">
         <Monitor size={20} className="mx-auto mb-2 opacity-40" />
-        No project path linked
-        <p className="mt-1 text-[10px] opacity-60">Sessions will appear after team provisioning</p>
+        {t('team.sessionsSection.noProjectPath')}
+        <p className="mt-1 text-[10px] opacity-60">{t('team.sessions.afterProvisioning')}</p>
       </div>
     );
   }
@@ -93,7 +95,7 @@ export const TeamSessionsSection = ({
     return (
       <div className="py-6 text-center text-xs text-[var(--color-text-muted)]">
         <AlertCircle size={20} className="mx-auto mb-2 opacity-40" />
-        Project not found
+        {t('team.sessionsSection.projectNotFound')}
         <p className="mt-1 max-w-[260px] truncate text-[10px] opacity-60">{projectPath}</p>
       </div>
     );
@@ -103,7 +105,7 @@ export const TeamSessionsSection = ({
     return (
       <div className="flex items-center justify-center gap-2 py-6 text-xs text-[var(--color-text-muted)]">
         <Loader2 size={14} className="animate-spin" />
-        Loading sessions...
+        {t('team.sessionsSection.loadingSessions')}
       </div>
     );
   }
@@ -121,7 +123,7 @@ export const TeamSessionsSection = ({
     return (
       <div className="py-6 text-center text-xs text-[var(--color-text-muted)]">
         <Monitor size={20} className="mx-auto mb-2 opacity-40" />
-        No sessions found
+        {t('team.sessionsSection.noSessionsFound')}
       </div>
     );
   }
@@ -135,7 +137,7 @@ export const TeamSessionsSection = ({
           onClick={() => onSelectSession(null)}
         >
           <FilterX size={12} />
-          Show for all sessions
+          {t('team.sessionsSection.showForAllSessions')}
         </button>
       )}
       {sortedSessions.map((session) => (
@@ -173,6 +175,7 @@ const SessionRow = ({
   onClick,
   onToggleFilter,
 }: SessionRowProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const timeAgo = formatShortTime(new Date(session.createdAt));
   const label = formatSessionLabel(session.firstMessage);
 
@@ -225,7 +228,9 @@ const SessionRow = ({
             </button>
           </TooltipTrigger>
           <TooltipContent side="left">
-            {isSelected ? 'Remove filter' : 'Filter by this session'}
+            {isSelected
+              ? t('team.sessionsSection.removeFilter')
+              : t('team.sessionsSection.filterBySession')}
           </TooltipContent>
         </Tooltip>
         <Tooltip>
@@ -241,7 +246,7 @@ const SessionRow = ({
               <ExternalLink size={12} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="left">Open session</TooltipContent>
+          <TooltipContent side="left">{t('team.sessions.openSessionTooltip')}</TooltipContent>
         </Tooltip>
       </div>
     </div>

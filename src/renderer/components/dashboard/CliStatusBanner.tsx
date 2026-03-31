@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api, isElectronMode } from '@renderer/api';
 import { TerminalLogPanel } from '@renderer/components/terminal/TerminalLogPanel';
@@ -68,6 +69,7 @@ const ErrorDisplay = ({
   error: string;
   onRetry: () => void;
 }): React.JSX.Element => {
+  const { t } = useTranslation();
   const lines = error.split('\n');
   const title = lines[0];
   const details = lines.slice(1).filter(Boolean);
@@ -105,7 +107,7 @@ const ErrorDisplay = ({
           style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}
         >
           <RefreshCw className="size-3.5" />
-          Retry
+          {t('dashboard.cli.retry')}
         </button>
       </div>
     </div>
@@ -123,6 +125,7 @@ const CliCheckingSpinner = ({
 }: {
   styles: { border: string; bg: string };
 }): React.JSX.Element => {
+  const { t } = useTranslation();
   const [showHint, setShowHint] = useState(false);
 
   useEffect(() => {
@@ -141,11 +144,11 @@ const CliCheckingSpinner = ({
       />
       <div>
         <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-          Checking Claude CLI...
+          {t('dashboard.cli.checkingCli')}
         </span>
         {showHint && (
           <p className="mt-0.5 text-xs" style={{ color: 'var(--color-text-muted)', opacity: 0.7 }}>
-            First check may take up to 30 seconds
+            {t('dashboard.cli.firstCheckHint')}
           </p>
         )}
       </div>
@@ -176,6 +179,7 @@ const InstalledBanner = ({
   onRefresh,
   variant,
 }: InstalledBannerProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const openExtensionsTab = useStore((s) => s.openExtensionsTab);
   const styles = VARIANT_STYLES[variant];
 
@@ -190,7 +194,7 @@ const InstalledBanner = ({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm" style={{ color: 'var(--color-text)' }}>
-                Claude CLI v{cliStatus.installedVersion ?? 'unknown'}
+                {t('dashboard.cli.version', { version: cliStatus.installedVersion ?? 'unknown' })}
               </span>
 
               {/* Update / Check for Updates — inline next to version */}
@@ -202,7 +206,7 @@ const InstalledBanner = ({
                   style={{ backgroundColor: '#3b82f6' }}
                 >
                   <Download className="size-3" />
-                  Update to v{cliStatus.latestVersion}
+                  {t('dashboard.cli.updateTo', { version: cliStatus.latestVersion })}
                 </button>
               ) : (
                 <button
@@ -212,13 +216,15 @@ const InstalledBanner = ({
                   style={{ color: 'var(--color-text-muted)' }}
                 >
                   <RefreshCw className={cliStatusLoading ? 'size-3 animate-spin' : 'size-3'} />
-                  {cliStatusLoading ? 'Checking...' : 'Check for Updates'}
+                  {cliStatusLoading
+                    ? t('dashboard.cli.checking')
+                    : t('dashboard.cli.checkForUpdates')}
                 </button>
               )}
 
               {cliStatus.authLoggedIn && (
                 <span className="text-xs" style={{ color: '#4ade80' }}>
-                  Authenticated
+                  {t('dashboard.cli.authenticated')}
                 </span>
               )}
             </div>
@@ -226,7 +232,7 @@ const InstalledBanner = ({
               <button
                 className="truncate font-mono text-xs hover:underline"
                 style={{ color: 'var(--color-text-muted)' }}
-                title={`Reveal in file manager: ${cliStatus.binaryPath}`}
+                title={t('dashboard.cli.revealInFileManager', { path: cliStatus.binaryPath })}
                 onClick={() => void api.showInFolder(cliStatus.binaryPath!)}
               >
                 {cliStatus.binaryPath}
@@ -243,13 +249,13 @@ const InstalledBanner = ({
             style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}
           >
             <Puzzle className="size-3.5" />
-            Extensions
+            {t('dashboard.cli.extensions')}
           </button>
         )}
       </div>
       {cliStatusError && !cliStatusLoading && (
         <p className="mt-2 text-xs" style={{ color: '#f87171' }}>
-          Failed to check for updates. Check your network connection and try again.
+          {t('dashboard.cli.failedToCheckUpdates')}
         </p>
       )}
     </div>
@@ -261,6 +267,7 @@ const InstalledBanner = ({
 // =============================================================================
 
 export const CliStatusBanner = (): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const isElectron = useMemo(() => isElectronMode(), []);
   const {
     cliStatus,
@@ -345,7 +352,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
             <div className="flex items-center gap-2">
               <AlertTriangle className="size-4 shrink-0" style={{ color: '#f87171' }} />
               <span className="text-sm" style={{ color: '#f87171' }}>
-                Failed to check CLI status
+                {t('dashboard.cli.failedToCheckStatus')}
               </span>
             </div>
             <button
@@ -354,7 +361,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
               style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}
             >
               <RefreshCw className="size-3.5" />
-              Retry
+              {t('dashboard.cli.retry')}
             </button>
           </div>
         </div>
@@ -370,7 +377,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
           style={{ borderColor: styles.border, backgroundColor: styles.bg }}
         >
           <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            Claude CLI status will be checked in the background.
+            {t('dashboard.cli.backgroundCheck')}
           </span>
           <button
             onClick={handleRefresh}
@@ -378,7 +385,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
             style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}
           >
             <RefreshCw className="size-3.5" />
-            Check now
+            {t('dashboard.cli.checkNow')}
           </button>
         </div>
       );
@@ -399,7 +406,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
           <div className="flex items-center gap-2">
             <Loader2 className="size-4 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
             <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              Downloading Claude CLI...
+              {t('dashboard.cli.downloading')}
             </span>
           </div>
           <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-muted)' }}>
@@ -431,7 +438,9 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
   // ── Checking / Verifying ───────────────────────────────────────────────
   if (installerState === 'checking' || installerState === 'verifying') {
     const label =
-      installerState === 'checking' ? 'Checking latest version...' : 'Verifying checksum...';
+      installerState === 'checking'
+        ? t('dashboard.cli.checkingLatest')
+        : t('dashboard.cli.verifyingChecksum');
     return (
       <div
         className={`mb-6 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
@@ -458,7 +467,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
         <div className="flex items-center gap-3">
           <Loader2 className="size-4 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
           <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Installing Claude CLI...
+            {t('dashboard.cli.installing')}
           </span>
         </div>
         <TerminalLogPanel chunks={installerRawChunks} />
@@ -475,7 +484,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
       >
         <CheckCircle className="size-4 shrink-0" style={{ color: '#4ade80' }} />
         <span className="text-sm" style={{ color: '#4ade80' }}>
-          Successfully installed Claude CLI v{completedVersion ?? 'latest'}
+          {t('dashboard.cli.successfullyInstalled', { version: completedVersion ?? 'latest' })}
         </span>
       </div>
     );
@@ -488,7 +497,10 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
         className={`mb-6 rounded-lg border-l-4 px-4 py-3 ${BANNER_MIN_H}`}
         style={{ borderColor: styles.border, backgroundColor: styles.bg }}
       >
-        <ErrorDisplay error={installerError ?? 'Installation failed'} onRetry={handleInstall} />
+        <ErrorDisplay
+          error={installerError ?? t('dashboard.cli.installationFailed')}
+          onRetry={handleInstall}
+        />
       </div>
     );
   }
@@ -508,11 +520,10 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
             <AlertTriangle className="mt-0.5 size-5 shrink-0" style={{ color: '#ef4444' }} />
             <div>
               <p className="text-sm font-medium" style={{ color: '#f87171' }}>
-                Claude CLI is required
+                {t('dashboard.cli.cliRequired')}
               </p>
               <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Claude CLI is required for team provisioning and session management. Install it to
-                get started.
+                {t('dashboard.cli.cliRequiredDesc')}
               </p>
             </div>
           </div>
@@ -523,7 +534,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
             style={{ backgroundColor: '#3b82f6' }}
           >
             <Download className="size-4" />
-            Install Claude CLI
+            {t('dashboard.cli.installCli')}
           </button>
         </div>
       </div>
@@ -543,7 +554,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
         >
           <RefreshCw className="size-4 animate-spin" style={{ color: 'var(--color-text-muted)' }} />
           <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            Verifying authentication...
+            {t('dashboard.cli.verifyingAuth')}
           </p>
         </div>
       );
@@ -562,11 +573,10 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
               <AlertTriangle className="mt-0.5 size-5 shrink-0" style={{ color: '#f59e0b' }} />
               <div>
                 <p className="text-sm font-medium" style={{ color: '#fbbf24' }}>
-                  Not logged in
+                  {t('dashboard.cli.notLoggedIn')}
                 </p>
                 <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  Claude CLI is installed but you are not authenticated. Login is required for team
-                  provisioning and AI features.
+                  {t('dashboard.cli.notLoggedInDesc')}
                 </p>
               </div>
             </div>
@@ -580,7 +590,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
                 }}
               >
                 <HelpCircle className="size-3.5" />
-                Already logged in?
+                {t('dashboard.cli.alreadyLoggedIn')}
                 {showTroubleshoot ? (
                   <ChevronUp className="size-3" />
                 ) : (
@@ -593,7 +603,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
                 style={{ backgroundColor: '#f59e0b' }}
               >
                 <LogIn className="size-4" />
-                Login
+                {t('dashboard.cli.login')}
               </button>
             </div>
           </div>
@@ -610,7 +620,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
                 className="mb-2 text-xs font-medium"
                 style={{ color: 'var(--color-text-secondary)' }}
               >
-                If you&apos;re sure you&apos;re logged in, try these steps:
+                {t('dashboard.cli.troubleshootIntro')}
               </p>
               <ol
                 className="ml-4 list-decimal space-y-1.5 text-xs"
@@ -635,34 +645,34 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
                     }}
                   >
                     <RefreshCw className="size-3" />
-                    Re-check
+                    {t('dashboard.cli.troubleshootRecheck')}
                   </button>{' '}
-                  — sometimes the status is cached for a few seconds
+                  {t('dashboard.cli.troubleshootRecheckHint')}
                 </li>
                 <li>
-                  Open your terminal and run:{' '}
+                  {t('dashboard.cli.troubleshootAuthStatus')}{' '}
                   <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px]">
                     claude auth status
                   </code>{' '}
-                  — check if it shows &quot;Logged in&quot;
+                  {t('dashboard.cli.troubleshootAuthStatusHint')}
                 </li>
                 <li>
-                  If it says logged in but the app doesn&apos;t see it, try:{' '}
+                  {t('dashboard.cli.troubleshootRelogin')}{' '}
                   <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px]">
                     claude auth logout
                   </code>{' '}
-                  then{' '}
+                  {t('dashboard.cli.troubleshootReloginThen')}{' '}
                   <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px]">
                     claude auth login
                   </code>{' '}
-                  again
+                  {t('dashboard.cli.troubleshootReloginAgain')}
                 </li>
                 <li>
-                  Make sure{' '}
+                  {t('dashboard.cli.troubleshootBinary')}{' '}
                   <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px]">
                     claude
                   </code>{' '}
-                  in your terminal is the same binary the app uses
+                  {t('dashboard.cli.troubleshootBinaryHint')}
                   {cliStatus.binaryPath && (
                     <span>
                       :{' '}
@@ -674,15 +684,14 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
                 </li>
               </ol>
               <p className="mt-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Browsing sessions and projects works without login. Login is only needed to run
-                agent teams.
+                {t('dashboard.cli.troubleshootNote')}
               </p>
             </div>
           )}
         </div>
         {showLoginTerminal && cliStatus.binaryPath && (
           <TerminalModal
-            title="Claude Auth Login"
+            title={t('dashboard.cli.authLoginTitle')}
             command={cliStatus.binaryPath}
             args={['auth', 'login']}
             onClose={() => {
@@ -709,8 +718,8 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
               })();
             }}
             autoCloseOnSuccessMs={4000}
-            successMessage="Login complete"
-            failureMessage="Login failed"
+            successMessage={t('dashboard.cli.loginComplete')}
+            failureMessage={t('dashboard.cli.loginFailed')}
           />
         )}
       </>

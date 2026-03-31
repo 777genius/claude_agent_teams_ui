@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useTheme } from '@renderer/hooks/useTheme';
 import { cn } from '@renderer/lib/utils';
@@ -23,6 +24,7 @@ export const OptionalSettingsSection = ({
 }: OptionalSettingsSectionProps): React.JSX.Element => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const { isLight } = useTheme();
+  const { t } = useTranslation();
 
   const visibleSummary = useMemo(
     () =>
@@ -85,7 +87,7 @@ export const OptionalSettingsSection = ({
                 className="rounded-full border border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] px-2 py-0.5 text-[10px] uppercase tracking-wide"
                 style={{ color: headerMutedColor }}
               >
-                Optional
+                {t('dialogs.optionalSettings.optional')}
               </span>
             </div>
             <p className="mt-1 text-xs" style={{ color: headerMutedColor }}>
@@ -95,7 +97,7 @@ export const OptionalSettingsSection = ({
               <p className="mt-1.5 line-clamp-2 text-[11px]" style={{ color: headerMutedColor }}>
                 {visibleSummary.length > 0
                   ? visibleSummary.join(' • ')
-                  : 'Collapsed by default to keep the primary flow focused.'}
+                  : t('dialogs.optionalSettings.collapsedByDefault')}
               </p>
             ) : null}
           </div>

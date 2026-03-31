@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import {
@@ -37,16 +38,14 @@ interface ApiKeyFormDialogProps {
 
 type Scope = 'user' | 'project';
 
-const SCOPE_OPTIONS: { value: Scope; label: string }[] = [
-  { value: 'user', label: 'User (global)' },
-  { value: 'project', label: 'Project' },
-];
+const SCOPE_OPTION_VALUES: Scope[] = ['user', 'project'];
 
 export const ApiKeyFormDialog = ({
   open,
   editingKey,
   onClose,
 }: ApiKeyFormDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const saveApiKey = useStore((s) => s.saveApiKey);
   const apiKeySaving = useStore((s) => s.apiKeySaving);
   const storageStatus = useStore((s) => s.apiKeyStorageStatus);
@@ -83,7 +82,7 @@ export const ApiKeyFormDialog = ({
       return;
     }
     if (!ENV_KEY_RE.test(v)) {
-      setEnvVarError('Use letters, digits, underscores. Must start with a letter or underscore.');
+      setEnvVarError(t('extensions.apiKeys.apiKeyFormDialog.envVarFormatError'));
     } else {
       setEnvVarError(null);
     }
@@ -94,19 +93,19 @@ export const ApiKeyFormDialog = ({
     setError(null);
 
     if (!name.trim()) {
-      setError('Name is required');
+      setError(t('extensions.apiKeys.apiKeyFormDialog.nameRequired'));
       return;
     }
     if (!envVarName.trim()) {
-      setError('Environment variable name is required');
+      setError(t('extensions.apiKeys.apiKeyFormDialog.envVarRequired'));
       return;
     }
     if (!ENV_KEY_RE.test(envVarName)) {
-      setError('Invalid environment variable name');
+      setError(t('extensions.apiKeys.apiKeyFormDialog.invalidEnvVar'));
       return;
     }
     if (!value) {
-      setError('Key value is required');
+      setError(t('extensions.apiKeys.apiKeyFormDialog.keyValueRequired'));
       return;
     }
 
@@ -120,7 +119,9 @@ export const ApiKeyFormDialog = ({
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(
+        err instanceof Error ? err.message : t('extensions.apiKeys.apiKeyFormDialog.failedToSave')
+      );
     }
   };
 
@@ -136,11 +137,15 @@ export const ApiKeyFormDialog = ({
               <Key className="size-4 text-text-muted" />
             </div>
             <div>
-              <DialogTitle>{isEdit ? 'Edit API Key' : 'Add API Key'}</DialogTitle>
+              <DialogTitle>
+                {isEdit
+                  ? t('extensions.apiKeys.apiKeyFormDialog.editApiKey')
+                  : t('extensions.apiKeys.apiKeyFormDialog.addApiKey')}
+              </DialogTitle>
               <DialogDescription>
                 {isEdit
-                  ? 'Update the key details. You must re-enter the value.'
-                  : 'Store an API key for auto-filling in MCP server installations.'}
+                  ? t('extensions.apiKeys.apiKeyFormDialog.updateDescription')
+                  : t('extensions.apiKeys.apiKeyFormDialog.addDescription')}
               </DialogDescription>
             </div>
           </div>
@@ -149,8 +154,7 @@ export const ApiKeyFormDialog = ({
         {storageStatus && storageStatus.encryptionMethod !== 'os-keychain' && (
           <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
             <AlertTriangle className="size-3.5 shrink-0" />
-            OS keychain unavailable — keys encrypted with AES-256 locally. Install gnome-keyring for
-            OS-level protection.
+            {t('extensions.apiKeys.apiKeyFormDialog.osKeychainWarning')}
           </div>
         )}
 
@@ -158,13 +162,13 @@ export const ApiKeyFormDialog = ({
           {/* Name */}
           <div className="space-y-1.5">
             <Label htmlFor="apikey-name" className="text-xs">
-              Name
+              {t('extensions.apiKeys.apiKeyFormDialog.nameLabel')}
             </Label>
             <Input
               id="apikey-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. OpenAI Production"
+              placeholder={t('extensions.apiKeys.apiKeyFormDialog.namePlaceholder')}
               className="h-8 text-sm"
               autoFocus
             />
@@ -173,7 +177,7 @@ export const ApiKeyFormDialog = ({
           {/* Env var name */}
           <div className="space-y-1.5">
             <Label htmlFor="apikey-envvar" className="text-xs">
-              Environment Variable Name
+              {t('extensions.apiKeys.apiKeyFormDialog.envVarLabel')}
             </Label>
             <Input
               id="apikey-envvar"
@@ -182,7 +186,7 @@ export const ApiKeyFormDialog = ({
                 setEnvVarName(e.target.value);
                 validateEnvVar(e.target.value);
               }}
-              placeholder="e.g. OPENAI_API_KEY"
+              placeholder={t('extensions.apiKeys.apiKeyFormDialog.envVarPlaceholder')}
               className={`h-8 font-mono text-sm ${envVarError ? 'border-red-500/50' : ''}`}
             />
             {envVarError && <p className="text-xs text-red-400">{envVarError}</p>}
@@ -191,29 +195,35 @@ export const ApiKeyFormDialog = ({
           {/* Value */}
           <div className="space-y-1.5">
             <Label htmlFor="apikey-value" className="text-xs">
-              Value
+              {t('extensions.apiKeys.apiKeyFormDialog.valueLabel')}
             </Label>
             <Input
               id="apikey-value"
               type="password"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              placeholder={isEdit ? 'Re-enter key value' : 'sk-...'}
+              placeholder={
+                isEdit
+                  ? t('extensions.apiKeys.apiKeyFormDialog.reEnterKeyValue')
+                  : t('extensions.apiKeys.apiKeyFormDialog.keyValuePlaceholder')
+              }
               className="h-8 text-sm"
             />
           </div>
 
           {/* Scope */}
           <div className="space-y-1.5">
-            <Label className="text-xs">Scope</Label>
+            <Label className="text-xs">{t('extensions.apiKeys.apiKeyFormDialog.scopeLabel')}</Label>
             <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
               <SelectTrigger className="h-8 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SCOPE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                {SCOPE_OPTION_VALUES.map((val) => (
+                  <SelectItem key={val} value={val}>
+                    {val === 'user'
+                      ? t('extensions.apiKeys.apiKeyFormDialog.scopeUserGlobal')
+                      : t('extensions.apiKeys.apiKeyFormDialog.scopeProject')}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -230,10 +240,14 @@ export const ApiKeyFormDialog = ({
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-              Cancel
+              {t('extensions.apiKeys.apiKeyFormDialog.cancel')}
             </Button>
             <Button type="submit" size="sm" disabled={!canSubmit}>
-              {apiKeySaving ? 'Saving...' : isEdit ? 'Update' : 'Save'}
+              {apiKeySaving
+                ? t('extensions.apiKeys.apiKeyFormDialog.saving')
+                : isEdit
+                  ? t('extensions.apiKeys.apiKeyFormDialog.update')
+                  : t('extensions.apiKeys.apiKeyFormDialog.save')}
             </Button>
           </div>
         </form>

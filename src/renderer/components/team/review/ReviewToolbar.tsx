@@ -3,6 +3,7 @@ import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { cn } from '@renderer/lib/utils';
 import { Check, Eye, EyeOff, GitMerge, Loader2, Pencil, Undo2, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { ChangeStats } from '@shared/types';
 
@@ -39,6 +40,7 @@ export const ReviewToolbar = ({
   canUndo = false,
   onUndo,
 }: ReviewToolbarProps): React.ReactElement => {
+  const { t } = useTranslation();
   const hasRejected = stats.rejected > 0;
   const canApply = hasRejected && !applying;
   const totalChanges = stats.pending + stats.accepted + stats.rejected;
@@ -50,19 +52,19 @@ export const ReviewToolbar = ({
       <div className="flex items-center gap-2 text-xs">
         {stats.pending > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-zinc-500/20 px-2 py-0.5 text-zinc-400">
-            {stats.pending} pending
+            {stats.pending} {t('review.pending')}
           </span>
         )}
         {stats.accepted > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-green-400">
             <Check className="size-3" />
-            {stats.accepted} accepted
+            {stats.accepted} {t('review.accepted')}
           </span>
         )}
         {stats.rejected > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-red-500/20 px-2 py-0.5 text-red-400">
             <X className="size-3" />
-            {stats.rejected} rejected
+            {stats.rejected} {t('review.rejected')}
           </span>
         )}
       </div>
@@ -71,7 +73,7 @@ export const ReviewToolbar = ({
       <div className="flex items-center gap-1 text-xs text-text-muted">
         <span className="text-green-400">+{changeStats.linesAdded}</span>
         <span className="text-red-400">-{changeStats.linesRemoved}</span>
-        <span className="ml-1">across {changeStats.filesChanged} files</span>
+        <span className="ml-1">{t('review.acrossFiles', { count: changeStats.filesChanged })}</span>
       </div>
 
       {/* Review progress */}
@@ -126,9 +128,7 @@ export const ReviewToolbar = ({
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">
-          {autoViewed
-            ? 'Auto-mark files as viewed when scrolled to end (ON)'
-            : 'Auto-mark files as viewed when scrolled to end (OFF)'}
+          {autoViewed ? t('review.autoViewedOn') : t('review.autoViewedOff')}
         </TooltipContent>
       </Tooltip>
 
@@ -136,7 +136,7 @@ export const ReviewToolbar = ({
 
       {editedCount > 0 && (
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-400">
-          <Pencil className="size-3" /> {editedCount} edited
+          <Pencil className="size-3" /> {editedCount} {t('review.edited')}
         </span>
       )}
 
@@ -150,10 +150,10 @@ export const ReviewToolbar = ({
               className="flex items-center gap-1 rounded bg-zinc-500/15 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-500/25"
             >
               <Undo2 className="size-3" />
-              Undo
+              {t('review.undo')}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Undo last review operation (Ctrl+Z)</TooltipContent>
+          <TooltipContent side="bottom">{t('review.undoLastReview')}</TooltipContent>
         </Tooltip>
       )}
 
@@ -167,10 +167,10 @@ export const ReviewToolbar = ({
                 className="flex items-center gap-1 rounded bg-green-500/15 px-2.5 py-1 text-xs text-green-400 transition-colors hover:bg-green-500/25"
               >
                 <Check className="size-3" />
-                Accept All
+                {t('review.acceptAll')}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Accept all changes across all files</TooltipContent>
+            <TooltipContent side="bottom">{t('review.acceptAllTooltip')}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -180,10 +180,10 @@ export const ReviewToolbar = ({
                 className="flex items-center gap-1 rounded bg-red-500/15 px-2.5 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/25"
               >
                 <X className="size-3" />
-                Reject All
+                {t('review.rejectAll')}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Reject all changes across all files</TooltipContent>
+            <TooltipContent side="bottom">{t('review.rejectAllTooltip')}</TooltipContent>
           </Tooltip>
         </>
       )}
@@ -206,10 +206,10 @@ export const ReviewToolbar = ({
               ) : (
                 <GitMerge className="size-3" />
               )}
-              {applying ? 'Applying...' : 'Apply All Changes'}
+              {applying ? t('review.applying') : t('review.applyAllChanges')}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Apply review decisions across all files</TooltipContent>
+          <TooltipContent side="bottom">{t('review.applyTooltip')}</TooltipContent>
         </Tooltip>
       )}
     </div>

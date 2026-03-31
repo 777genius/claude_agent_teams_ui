@@ -1,4 +1,5 @@
 import { cn } from '@renderer/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 import type { FileEditTimeline as FileEditTimelineType } from '@shared/types/review';
 
@@ -13,8 +14,13 @@ export const FileEditTimeline = ({
   onEventClick,
   activeSnippetIndex,
 }: FileEditTimelineProps) => {
+  const { t } = useTranslation();
   if (timeline.events.length === 0) {
-    return <div className="px-3 py-2 text-xs text-text-muted">No edit events</div>;
+    return (
+      <div className="px-3 py-2 text-xs text-text-muted">
+        {t('review.fileTimeline.noEditEvents')}
+      </div>
+    );
   }
 
   return (

@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import {
@@ -36,6 +37,7 @@ export const InstallButton = ({
   size = 'sm',
   errorMessage,
 }: InstallButtonProps) => {
+  const { t } = useTranslation();
   const cliStatus = useStore((s) => s.cliStatus);
   const cliMissing = cliStatus !== null && !cliStatus.installed;
   const isDisabled = disabled || cliMissing;
@@ -53,7 +55,9 @@ export const InstallButton = ({
       <Button size={size} variant="outline" disabled>
         <Loader2 className="size-3.5 animate-spin" />
         <span className="ml-1.5">
-          {pendingAction === 'uninstall' ? 'Removing...' : 'Installing...'}
+          {pendingAction === 'uninstall'
+            ? t('extensions.common.installButton.removing')
+            : t('extensions.common.installButton.installing')}
         </span>
       </Button>
     );
@@ -63,7 +67,7 @@ export const InstallButton = ({
     return (
       <Button size={size} variant="outline" disabled className="text-green-400">
         <Check className="size-3.5" />
-        <span className="ml-1.5">Done</span>
+        <span className="ml-1.5">{t('extensions.common.installButton.done')}</span>
       </Button>
     );
   }
@@ -87,7 +91,7 @@ export const InstallButton = ({
         }}
         disabled={isDisabled}
       >
-        <span>Retry</span>
+        <span>{t('extensions.common.installButton.retry')}</span>
       </Button>
     );
 
@@ -121,7 +125,7 @@ export const InstallButton = ({
       disabled={isDisabled}
     >
       <Trash2 className="size-3.5" />
-      <span className="ml-1.5">Uninstall</span>
+      <span className="ml-1.5">{t('extensions.common.installButton.uninstall')}</span>
     </Button>
   ) : (
     <Button
@@ -134,7 +138,7 @@ export const InstallButton = ({
       }}
       disabled={isDisabled}
     >
-      Install
+      {t('extensions.common.installButton.install')}
     </Button>
   );
 
@@ -145,7 +149,7 @@ export const InstallButton = ({
           <TooltipTrigger asChild>
             <span tabIndex={0}>{button}</span>
           </TooltipTrigger>
-          <TooltipContent>Claude CLI required</TooltipContent>
+          <TooltipContent>{t('extensions.common.installButton.claudeCliRequired')}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     );

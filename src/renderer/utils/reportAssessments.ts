@@ -5,6 +5,8 @@
  * replacing duplicated assessmentColor() functions across report sections.
  */
 
+import i18next from 'i18next';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -220,21 +222,43 @@ const EXPLANATIONS: Record<string, Record<string, string>> = {
     heavy: `Over ${THRESHOLDS.startupOverhead.normal}% of tokens before first work`,
   },
   thrashing: {
-    none: 'No repeated commands or reworked files',
-    mild: '1\u20132 thrashing signals detected',
-    severe: '3+ thrashing signals detected',
+    get none() {
+      return i18next.t('utils.reportAssessments.explanations.thrashing.none');
+    },
+    get mild() {
+      return i18next.t('utils.reportAssessments.explanations.thrashing.mild');
+    },
+    get severe() {
+      return i18next.t('utils.reportAssessments.explanations.thrashing.severe');
+    },
   },
   promptQuality: {
-    well_specified: 'Clear first message with low friction rate',
-    moderate_friction: 'Some corrections needed mid-session',
-    underspecified: 'Short initial prompt led to many corrections',
-    verbose_but_unclear: 'Long initial prompt but still high friction',
+    get well_specified() {
+      return i18next.t('utils.reportAssessments.explanations.promptQuality.well_specified');
+    },
+    get moderate_friction() {
+      return i18next.t('utils.reportAssessments.explanations.promptQuality.moderate_friction');
+    },
+    get underspecified() {
+      return i18next.t('utils.reportAssessments.explanations.promptQuality.underspecified');
+    },
+    get verbose_but_unclear() {
+      return i18next.t('utils.reportAssessments.explanations.promptQuality.verbose_but_unclear');
+    },
   },
   testTrajectory: {
-    improving: 'Test failures decreased over the session',
-    stable: 'Test results stayed roughly the same',
-    regressing: 'Test failures increased over the session',
-    insufficient_data: 'Not enough test runs to determine trend',
+    get improving() {
+      return i18next.t('utils.reportAssessments.explanations.testTrajectory.improving');
+    },
+    get stable() {
+      return i18next.t('utils.reportAssessments.explanations.testTrajectory.stable');
+    },
+    get regressing() {
+      return i18next.t('utils.reportAssessments.explanations.testTrajectory.regressing');
+    },
+    get insufficient_data() {
+      return i18next.t('utils.reportAssessments.explanations.testTrajectory.insufficient_data');
+    },
   },
 };
 
@@ -328,7 +352,7 @@ export function detectModelMismatch(description: string, model: string): ModelMi
     return {
       description,
       expectedComplexity: 'mechanical',
-      recommendation: 'Consider using Haiku for mechanical tasks to reduce cost.',
+      recommendation: i18next.t('utils.reportAssessments.modelMismatch.mechanical_recommendation'),
     };
   }
 
@@ -336,7 +360,7 @@ export function detectModelMismatch(description: string, model: string): ModelMi
     return {
       description,
       expectedComplexity: 'read_only',
-      recommendation: 'Consider using Haiku or Sonnet for read-only exploration tasks.',
+      recommendation: i18next.t('utils.reportAssessments.modelMismatch.read_only_recommendation'),
     };
   }
 
@@ -419,21 +443,25 @@ interface TakeawayReport {
 export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   const items: Takeaway[] = [];
 
+  const t = i18next.t.bind(i18next);
+
   // Cost red flags
   const costSev = assessmentSeverity(report.costAnalysis.costPerCommitAssessment);
   if (costSev === 'danger') {
     items.push({
       severity: 'danger',
-      title: 'High cost per commit',
-      detail: `$${report.costAnalysis.totalSessionCostUsd.toFixed(2)} total \u2014 consider smaller, focused sessions`,
-      sectionTitle: 'Cost Analysis',
+      title: t('utils.reportAssessments.takeawayTitles.high_cost_per_commit'),
+      detail: t('utils.reportAssessments.takeawayDetails.cost_consider_smaller_sessions', {
+        cost: `$${report.costAnalysis.totalSessionCostUsd.toFixed(2)}`,
+      }),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.cost_analysis'),
     });
   } else if (costSev === 'warning') {
     items.push({
       severity: 'warning',
-      title: 'Elevated cost per commit',
-      detail: 'Cost per commit is above typical range',
-      sectionTitle: 'Cost Analysis',
+      title: t('utils.reportAssessments.takeawayTitles.elevated_cost_per_commit'),
+      detail: t('utils.reportAssessments.takeawayDetails.cost_above_typical'),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.cost_analysis'),
     });
   }
 
@@ -441,9 +469,11 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   if (report.cacheEconomics.cacheEfficiencyAssessment === 'concerning') {
     items.push({
       severity: 'warning',
-      title: 'Low cache efficiency',
-      detail: `${report.cacheEconomics.cacheEfficiencyPct}% cache hit rate \u2014 prompt structure may reduce caching`,
-      sectionTitle: 'Token Usage',
+      title: t('utils.reportAssessments.takeawayTitles.low_cache_efficiency'),
+      detail: t('utils.reportAssessments.takeawayDetails.cache_hit_rate', {
+        pct: report.cacheEconomics.cacheEfficiencyPct,
+      }),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.token_usage'),
     });
   }
 
@@ -452,16 +482,16 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   if (toolSev === 'danger') {
     items.push({
       severity: 'danger',
-      title: 'Tool reliability issues',
-      detail: 'Multiple tool calls are failing \u2014 check error section for details',
-      sectionTitle: 'Tool Usage',
+      title: t('utils.reportAssessments.takeawayTitles.tool_reliability_issues'),
+      detail: t('utils.reportAssessments.takeawayDetails.tools_failing'),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.tool_usage'),
     });
   } else if (toolSev === 'warning') {
     items.push({
       severity: 'warning',
-      title: 'Degraded tool health',
-      detail: 'Some tools have elevated failure rates',
-      sectionTitle: 'Tool Usage',
+      title: t('utils.reportAssessments.takeawayTitles.degraded_tool_health'),
+      detail: t('utils.reportAssessments.takeawayDetails.tools_elevated_failure'),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.tool_usage'),
     });
   }
 
@@ -469,16 +499,16 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   if (report.thrashingSignals.thrashingAssessment === 'severe') {
     items.push({
       severity: 'danger',
-      title: 'Significant thrashing detected',
-      detail: 'Repeated commands and file rework suggest unclear direction',
-      sectionTitle: 'Friction Signals',
+      title: t('utils.reportAssessments.takeawayTitles.significant_thrashing'),
+      detail: t('utils.reportAssessments.takeawayDetails.thrashing_unclear_direction'),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.friction_signals'),
     });
   } else if (report.thrashingSignals.thrashingAssessment === 'mild') {
     items.push({
       severity: 'warning',
-      title: 'Mild thrashing detected',
-      detail: 'Some repeated commands or file rework occurred',
-      sectionTitle: 'Friction Signals',
+      title: t('utils.reportAssessments.takeawayTitles.mild_thrashing'),
+      detail: t('utils.reportAssessments.takeawayDetails.thrashing_some_repeated'),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.friction_signals'),
     });
   }
 
@@ -486,9 +516,11 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   if (report.idleAnalysis.idleAssessment === 'high_idle') {
     items.push({
       severity: 'warning',
-      title: 'High idle time',
-      detail: `${report.idleAnalysis.idlePct}% of wall-clock time was idle`,
-      sectionTitle: 'Timeline & Activity',
+      title: t('utils.reportAssessments.takeawayTitles.high_idle_time'),
+      detail: t('utils.reportAssessments.takeawayDetails.idle_wall_clock', {
+        pct: report.idleAnalysis.idlePct,
+      }),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.timeline_activity'),
     });
   }
 
@@ -497,9 +529,11 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   if (promptSev === 'danger') {
     items.push({
       severity: 'danger',
-      title: 'Prompt quality issues',
-      detail: `${(report.promptQuality.frictionRate * 100).toFixed(0)}% friction rate \u2014 try more detailed initial prompts`,
-      sectionTitle: 'Quality Signals',
+      title: t('utils.reportAssessments.takeawayTitles.prompt_quality_issues'),
+      detail: t('utils.reportAssessments.takeawayDetails.friction_rate_detail', {
+        pct: (report.promptQuality.frictionRate * 100).toFixed(0),
+      }),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.quality_signals'),
     });
   }
 
@@ -510,9 +544,11 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   ) {
     items.push({
       severity: report.overview.contextAssessment === 'critical' ? 'danger' : 'warning',
-      title: 'Context window pressure',
-      detail: `${report.overview.compactionCount} compaction${report.overview.compactionCount !== 1 ? 's' : ''} occurred \u2014 session may lose early context`,
-      sectionTitle: 'Overview',
+      title: t('utils.reportAssessments.takeawayTitles.context_window_pressure'),
+      detail: t('utils.reportAssessments.takeawayDetails.compaction_occurred', {
+        count: report.overview.compactionCount,
+      }),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.overview'),
     });
   }
 
@@ -520,9 +556,11 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   if (report.fileReadRedundancy.redundancyAssessment === 'wasteful') {
     items.push({
       severity: 'warning',
-      title: 'Redundant file reads',
-      detail: `${report.fileReadRedundancy.readsPerUniqueFile}x reads per unique file`,
-      sectionTitle: 'Quality Signals',
+      title: t('utils.reportAssessments.takeawayTitles.redundant_file_reads'),
+      detail: t('utils.reportAssessments.takeawayDetails.reads_per_unique', {
+        count: report.fileReadRedundancy.readsPerUniqueFile,
+      }),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.quality_signals'),
     });
   }
 
@@ -530,9 +568,9 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
   if (report.testProgression.trajectory === 'regressing') {
     items.push({
       severity: 'danger',
-      title: 'Tests regressing',
-      detail: 'Test failures increased over the session',
-      sectionTitle: 'Quality Signals',
+      title: t('utils.reportAssessments.takeawayTitles.tests_regressing'),
+      detail: t('utils.reportAssessments.takeawayDetails.test_failures_increased'),
+      sectionTitle: t('utils.reportAssessments.sectionTitles.quality_signals'),
     });
   }
 
@@ -544,9 +582,9 @@ export function computeTakeaways(report: TakeawayReport): Takeaway[] {
     return [
       {
         severity: 'good',
-        title: 'Session looks healthy',
-        detail: 'No significant issues detected across all metrics',
-        sectionTitle: 'Overview',
+        title: t('utils.reportAssessments.takeawayTitles.session_looks_healthy'),
+        detail: t('utils.reportAssessments.takeawayDetails.no_significant_issues'),
+        sectionTitle: t('utils.reportAssessments.sectionTitles.overview'),
       },
     ];
   }

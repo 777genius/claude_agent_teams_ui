@@ -1,4 +1,5 @@
 import { Fragment, memo, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { CopyButton } from '@renderer/components/common/CopyButton';
@@ -434,6 +435,7 @@ export const ActivityItem = memo(
   }: ActivityItemProps): React.JSX.Element {
     const colors = getTeamColorSet(memberColor ?? message.color ?? '');
     const { isLight } = useTheme();
+    const { t } = useTranslation();
     // Hide role when it matches the sender name (avoids "lead" badge + "Team Lead" text duplication)
     const formattedRole =
       memberRole && memberRole !== message.from ? formatAgentRole(memberRole) : null;
@@ -639,7 +641,8 @@ export const ActivityItem = memo(
     const autoSummary = structured ? getStructuredMessageSummary(structured) : null;
 
     const handleCreateTask = useCallback((): void => {
-      const subject = message.summary || autoSummary || `Task from ${message.from}`;
+      const subject =
+        message.summary || autoSummary || t('activity.item.taskFrom', { name: message.from });
       const plainText = structured
         ? JSON.stringify(structured, null, 2)
         : stripAgentBlocks(message.text);
@@ -730,7 +733,11 @@ export const ActivityItem = memo(
           }
         >
           {isUnread ? (
-            <span className="size-2 shrink-0 rounded-full bg-blue-500" title="Unread" aria-hidden />
+            <span
+              className="size-2 shrink-0 rounded-full bg-blue-500"
+              title={t('activity.item.unreadTitle')}
+              aria-hidden
+            />
           ) : null}
           {/* Chevron for collapsible messages */}
           {showChevron ? (
@@ -749,7 +756,7 @@ export const ActivityItem = memo(
           ) : null}
           {isSlashCommandResult ? (
             <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300">
-              result
+              {t('activity.item.result')}
             </span>
           ) : (
             <MemberBadge
@@ -788,7 +795,9 @@ export const ActivityItem = memo(
               {message.commandOutput.stream}
             </span>
           ) : isSlashCommandMessage ? (
-            <span className="text-[10px] uppercase tracking-wide text-amber-400">command</span>
+            <span className="text-[10px] uppercase tracking-wide text-amber-400">
+              {t('activity.item.command')}
+            </span>
           ) : messageType ? (
             <span
               className="text-[10px] uppercase tracking-wide"
@@ -804,14 +813,14 @@ export const ActivityItem = memo(
               className="text-[10px] uppercase tracking-wide"
               style={{ color: CARD_ICON_MUTED }}
             >
-              session
+              {t('activity.item.session')}
             </span>
           ) : message.source === 'lead_process' && !isSlashCommandResult ? (
             <span
               className="text-[10px] uppercase tracking-wide"
               style={{ color: CARD_ICON_MUTED }}
             >
-              live
+              {t('activity.item.live')}
             </span>
           ) : null}
 
@@ -819,7 +828,7 @@ export const ActivityItem = memo(
           {rateLimited ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-red-500/20 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
               <AlertTriangle size={10} />
-              Rate Limited
+              {t('activity.item.rateLimited')}
             </span>
           ) : null}
 
@@ -827,7 +836,7 @@ export const ActivityItem = memo(
           {isApiError && !rateLimited ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-red-500/20 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
               <AlertTriangle size={10} />
-              API Error
+              {t('activity.item.apiError')}
             </span>
           ) : null}
 
@@ -915,7 +924,7 @@ export const ActivityItem = memo(
             {onExpand && expandItemKey && (
               <button
                 type="button"
-                aria-label="Expand message"
+                aria-label={t('activity.item.expandAriaLabel')}
                 className="absolute right-0 top-1/2 -translate-y-1/2 rounded p-0.5 opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500/50 group-hover:opacity-100"
                 style={{ color: CARD_ICON_MUTED }}
                 onClick={(e) => {
@@ -940,7 +949,7 @@ export const ActivityItem = memo(
                 ) : null}
                 <details className="rounded border border-[var(--color-border)] bg-[var(--color-surface)]">
                   <summary className="cursor-pointer px-2 py-1 text-[11px] text-[var(--color-text-muted)]">
-                    Raw JSON
+                    {t('activity.item.rawJson')}
                   </summary>
                   <pre className="overflow-auto px-2 pb-2 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
                     {JSON.stringify(structured, null, 2)}
@@ -1038,7 +1047,7 @@ export const ActivityItem = memo(
                           <Reply size={14} />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Reply to message</TooltipContent>
+                      <TooltipContent side="top">{t('activity.item.replyTooltip')}</TooltipContent>
                     </Tooltip>
                   ) : null}
                   {onCreateTask ? (
@@ -1056,7 +1065,9 @@ export const ActivityItem = memo(
                           <ListPlus size={14} />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Create task from message</TooltipContent>
+                      <TooltipContent side="top">
+                        {t('activity.item.createTaskTooltip')}
+                      </TooltipContent>
                     </Tooltip>
                   ) : null}
                   <CopyButton text={displayText} inline />
@@ -1101,9 +1112,7 @@ export const ActivityItem = memo(
                 <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-400" />
                 <div className="flex-1 space-y-1.5">
                   <p className="text-[11px] leading-relaxed text-red-300/90">
-                    Authentication failed. Restarting the team will refresh the session and may
-                    resolve this issue. If the problem persists, check your API credentials or try
-                    again later.
+                    {t('activity.item.authErrorMessage')}
                   </p>
                   <button
                     type="button"
@@ -1114,7 +1123,7 @@ export const ActivityItem = memo(
                     }}
                   >
                     <RefreshCw size={11} />
-                    Restart team
+                    {t('activity.item.restartTeam')}
                   </button>
                 </div>
               </div>

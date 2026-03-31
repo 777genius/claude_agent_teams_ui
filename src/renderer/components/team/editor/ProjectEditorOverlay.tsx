@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import {
@@ -77,6 +78,8 @@ export const ProjectEditorOverlay = ({
   onClose,
   onEditorAction,
 }: ProjectEditorOverlayProps): React.ReactElement => {
+  const { t } = useTranslation();
+
   // Data selectors — grouped with useShallow to prevent unnecessary re-renders
   const { activeTabId, openTabs, modifiedFiles, saveErrors, externalChanges, conflictFile } =
     useStore(
@@ -529,7 +532,7 @@ export const ProjectEditorOverlay = ({
       tabIndex={-1}
       role="dialog"
       aria-modal="true"
-      aria-label="Project Editor"
+      aria-label={t('editor.overlay.projectEditor')}
     >
       {/* Header */}
       <div
@@ -548,12 +551,12 @@ export const ProjectEditorOverlay = ({
                 size="icon"
                 className="size-7 text-text-muted"
                 onClick={handleManualRefresh}
-                aria-label="Refresh (F5)"
+                aria-label={t('editor.overlay.refresh')}
               >
                 <RefreshCw className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Refresh git status (F5)</TooltipContent>
+            <TooltipContent side="bottom">{t('editor.overlay.refreshGitStatus')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -562,12 +565,12 @@ export const ProjectEditorOverlay = ({
                 size="icon"
                 className="size-7 text-text-muted"
                 onClick={() => setShortcutsHelpVisible(true)}
-                aria-label="Keyboard shortcuts"
+                aria-label={t('editor.overlay.keyboardShortcuts')}
               >
                 <HelpCircle className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Keyboard shortcuts</TooltipContent>
+            <TooltipContent side="bottom">{t('editor.overlay.keyboardShortcuts')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -576,7 +579,7 @@ export const ProjectEditorOverlay = ({
                 size="icon"
                 className="size-7 text-text-muted"
                 onClick={handleCloseRequest}
-                aria-label="Close editor"
+                aria-label={t('editor.overlay.closeEditor')}
               >
                 <X className="size-4" />
               </Button>

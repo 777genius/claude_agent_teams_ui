@@ -4,16 +4,17 @@ import { FileIcon } from '@renderer/components/team/editor/FileIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { shortcutLabel } from '@renderer/utils/platformKeys';
 import { ChevronDown, ChevronRight, FilePlus, Loader2, Save, Undo2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { FileChangeWithContent, HunkDecision } from '@shared/types';
 import type { FileChangeSummary } from '@shared/types/review';
 
-const CONTENT_SOURCE_LABELS: Record<string, string> = {
-  'file-history': 'File History',
-  'snippet-reconstruction': 'Reconstructed',
-  'disk-current': 'Current Disk',
-  'git-fallback': 'Git Fallback',
-  unavailable: 'Missing on disk',
+const CONTENT_SOURCE_LABEL_KEYS: Record<string, string> = {
+  'file-history': 'review.fileSectionHeader.fileHistory',
+  'snippet-reconstruction': 'review.fileSectionHeader.reconstructed',
+  'disk-current': 'review.fileSectionHeader.currentDisk',
+  'git-fallback': 'review.fileSectionHeader.gitFallback',
+  unavailable: 'review.fileSectionHeader.missingOnDisk',
 };
 
 interface FileSectionHeaderProps {
@@ -55,6 +56,7 @@ export const FileSectionHeader = ({
   onAcceptFile,
   onRejectFile,
 }: FileSectionHeaderProps): React.ReactElement => {
+  const { t } = useTranslation();
   const isMissingOnDisk = fileContent ? fileContent.modifiedFullContent == null : false;
   const isPreviewOnly = isMissingOnDisk || fileContent?.contentSource === 'unavailable';
   const restoreContent =
@@ -69,11 +71,11 @@ export const FileSectionHeader = ({
   const canRestore = !!onRestoreMissingFile && isPreviewOnly && !hasEdits && restoreContent != null;
   const externalChangeLabel =
     externalChange?.type === 'unlink'
-      ? 'Deleted on disk'
+      ? t('review.fileSectionHeader.deletedOnDisk')
       : externalChange?.type === 'add'
-        ? 'Recreated on disk'
+        ? t('review.fileSectionHeader.recreatedOnDisk')
         : externalChange?.type === 'change'
-          ? 'Changed on disk'
+          ? t('review.fileSectionHeader.changedOnDisk')
           : null;
 
   const handleHeaderClick = (e: React.MouseEvent): void => {
@@ -123,7 +125,10 @@ export const FileSectionHeader = ({
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-xs">
-            {pathChangeLabel.direction === 'from' ? 'From' : 'To'} {pathChangeLabel.otherPath}
+            {pathChangeLabel.direction === 'from'
+              ? t('review.fileSectionHeader.from')
+              : t('review.fileSectionHeader.to')}{' '}
+            {pathChangeLabel.otherPath}
           </TooltipContent>
         </Tooltip>
       )}
@@ -138,31 +143,36 @@ export const FileSectionHeader = ({
               ].join(' ')}
             >
               {isPreviewOnly
-                ? 'Missing on disk'
-                : (CONTENT_SOURCE_LABELS[fileContent.contentSource] ?? fileContent.contentSource)}
+                ? t('review.fileSectionHeader.missingOnDisk')
+                : CONTENT_SOURCE_LABEL_KEYS[fileContent.contentSource]
+                  ? t(CONTENT_SOURCE_LABEL_KEYS[fileContent.contentSource])
+                  : fileContent.contentSource}
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-xs">
             {isPreviewOnly ? (
               <div className="space-y-1">
-                <div className="font-medium text-text">File is missing on disk</div>
+                <div className="font-medium text-text">
+                  {t('review.fileSectionHeader.fileMissingOnDisk')}
+                </div>
                 <div className="text-text-muted">
-                  We can still show a preview from agent logs, but your filesystem is out of sync.
+                  {t('review.fileSectionHeader.previewFromAgentLogs')}
                 </div>
                 {restoreContent != null ? (
                   <div className="text-text-muted">
-                    Use <span className="font-medium text-text">Restore</span> to write the preview
-                    content back to disk.
+                    {t('review.fileSectionHeader.useRestoreToWrite')}
                   </div>
                 ) : (
                   <div className="text-text-muted">
-                    Full file content is not available to restore automatically.
+                    {t('review.fileSectionHeader.fullContentNotAvailable')}
                   </div>
                 )}
               </div>
             ) : (
               <span>
-                {CONTENT_SOURCE_LABELS[fileContent.contentSource] ?? fileContent.contentSource}
+                {CONTENT_SOURCE_LABEL_KEYS[fileContent.contentSource]
+                  ? t(CONTENT_SOURCE_LABEL_KEYS[fileContent.contentSource])
+                  : fileContent.contentSource}
               </span>
             )}
           </TooltipContent>
@@ -197,14 +207,14 @@ export const FileSectionHeader = ({
               disabled={applying}
               className="rounded bg-blue-500/15 px-2 py-1 text-xs font-medium text-blue-300 transition-colors hover:bg-blue-500/25 disabled:opacity-50"
             >
-              Reload from disk
+              {t('review.fileSectionHeader.reloadFromDisk')}
             </button>
             <button
               onClick={() => onKeepDraft(file.filePath)}
               disabled={applying}
               className="rounded bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
             >
-              Keep my draft
+              {t('review.fileSectionHeader.keepMyDraft')}
             </button>
           </div>
         )}
@@ -225,13 +235,13 @@ export const FileSectionHeader = ({
                           : 'bg-green-500/15 text-green-400 hover:bg-green-500/25',
                       ].join(' ')}
                     >
-                      Accept
+                      {t('review.fileSectionHeader.accept')}
                     </button>
                   </span>
                 </TooltipTrigger>
                 {isPreviewOnly && (
                   <TooltipContent side="bottom">
-                    Accept/Reject is disabled while the file is missing on disk.
+                    {t('review.fileSectionHeader.acceptRejectDisabledMissing')}
                   </TooltipContent>
                 )}
               </Tooltip>
@@ -250,13 +260,13 @@ export const FileSectionHeader = ({
                           : 'bg-red-500/15 text-red-400 hover:bg-red-500/25',
                       ].join(' ')}
                     >
-                      Reject
+                      {t('review.fileSectionHeader.reject')}
                     </button>
                   </span>
                 </TooltipTrigger>
                 {isPreviewOnly && (
                   <TooltipContent side="bottom">
-                    Accept/Reject is disabled while the file is missing on disk.
+                    {t('review.fileSectionHeader.acceptRejectDisabledMissing')}
                   </TooltipContent>
                 )}
               </Tooltip>
@@ -272,11 +282,11 @@ export const FileSectionHeader = ({
                 className="flex items-center gap-1 rounded bg-blue-500/15 px-2 py-1 text-xs text-blue-300 transition-colors hover:bg-blue-500/25 disabled:opacity-50"
               >
                 <FilePlus className="size-3" />
-                Restore
+                {t('review.fileSectionDiff.restoreToCreateFile')}
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              Create/restore this file on disk from the preview
+              {t('review.fileSectionHeader.restoreTooltip')}
             </TooltipContent>
           </Tooltip>
         )}
@@ -289,10 +299,12 @@ export const FileSectionHeader = ({
                   className="flex items-center gap-1 rounded bg-orange-500/15 px-2 py-1 text-xs text-orange-400 transition-colors hover:bg-orange-500/25"
                 >
                   <Undo2 className="size-3" />
-                  Discard
+                  {t('review.fileSectionHeader.discard')}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Discard all edits for this file</TooltipContent>
+              <TooltipContent side="bottom">
+                {t('review.fileSectionHeader.discardAllEdits')}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -306,11 +318,11 @@ export const FileSectionHeader = ({
                   ) : (
                     <Save className="size-3" />
                   )}
-                  Save File
+                  {t('review.fileSectionHeader.saveFile')}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <span>Save file to disk</span>
+                <span>{t('review.fileSectionHeader.saveFileToDisk')}</span>
                 <kbd className="ml-2 rounded border border-border bg-surface-raised px-1 py-0.5 font-mono text-[10px] text-text-muted">
                   {shortcutLabel('⌘ S', 'Ctrl+S')}
                 </kbd>

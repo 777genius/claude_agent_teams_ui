@@ -1,0 +1,666 @@
+{
+  "editor": {
+    "emptyState": {
+      "selectFilePrompt": "Selecciona un archivo del arbol para editar",
+      "shortcutQuickOpen": "Apertura rapida",
+      "shortcutSearchInFiles": "Buscar en archivos",
+      "shortcutSave": "Guardar",
+      "shortcutToggleSidebar": "Alternar barra lateral",
+      "shortcutGoToLine": "Ir a linea",
+      "shortcutCloseEditor": "Cerrar editor"
+    },
+    "toolbar": {
+      "save": "Guardar",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "enableWordWrap": "Activar ajuste de linea",
+      "disableWordWrap": "Desactivar ajuste de linea",
+      "splitPreview": "Vista previa dividida",
+      "closeSplitPreview": "Cerrar vista previa dividida",
+      "fullPreview": "Vista previa completa",
+      "closePreview": "Cerrar vista previa"
+    },
+    "tabContextMenu": {
+      "close": "Cerrar",
+      "closeOthers": "Cerrar otras",
+      "closeTabsToLeft": "Cerrar pestanas a la izquierda",
+      "closeTabsToRight": "Cerrar pestanas a la derecha",
+      "closeAll": "Cerrar todas"
+    },
+    "contextMenu": {
+      "newFile": "Nuevo archivo",
+      "newFolder": "Nueva carpeta",
+      "rename": "Renombrar",
+      "delete": "Eliminar",
+      "copyPath": "Copiar ruta",
+      "copyRelativePath": "Copiar ruta relativa",
+      "revealInFinder": "Mostrar en Finder",
+      "writeTeammate": "Escribir a miembro",
+      "createTask": "Crear tarea"
+    },
+    "fileTree": {
+      "failedToLoadFiles": "Error al cargar archivos:",
+      "loadingFiles": "Cargando archivos...",
+      "noFilesFound": "No se encontraron archivos",
+      "dropHereForProjectRoot": "Soltar aqui para la raiz del proyecto",
+      "moveToTrash": "Mover a la papelera",
+      "cancel": "Cancelar"
+    },
+    "searchPanel": {
+      "toggleReplace": "Alternar reemplazo",
+      "searchPlaceholder": "Buscar",
+      "nextMatch": "Siguiente coincidencia",
+      "close": "Cerrar",
+      "replacePlaceholder": "Reemplazar",
+      "replaceNext": "Reemplazar siguiente",
+      "replaceAll": "Reemplazar todo",
+      "noResults": "Sin resultados",
+      "matchCase": "Coincidir mayusculas",
+      "matchWholeWord": "Coincidir palabra completa",
+      "useRegularExpression": "Usar expresion regular"
+    },
+    "searchInFiles": {
+      "title": "Buscar en archivos",
+      "closeSearch": "Cerrar busqueda",
+      "searchPlaceholder": "Buscar...",
+      "matchCase": "Coincidir mayusculas",
+      "noResultsFound": "No se encontraron resultados"
+    },
+    "selectionMenu": {
+      "writeTeammate": "Escribir a miembro",
+      "createTask": "Crear tarea"
+    },
+    "shortcuts": {
+      "dialogTitle": "Atajos de teclado",
+      "fileOperations": "Operaciones de archivo",
+      "quickOpen": "Apertura rapida",
+      "save": "Guardar",
+      "saveAll": "Guardar todo",
+      "closeTab": "Cerrar pestana",
+      "search": "Buscar",
+      "findInFile": "Buscar en archivo",
+      "searchInFiles": "Buscar en archivos",
+      "goToLine": "Ir a linea",
+      "navigation": "Navegacion",
+      "nextTab": "Siguiente pestana",
+      "previousTab": "Pestana anterior",
+      "cycleTabs": "Alternar pestanas",
+      "toggleSidebar": "Alternar barra lateral",
+      "editing": "Edicion",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "selectNextMatch": "Seleccionar siguiente coincidencia",
+      "toggleComment": "Alternar comentario",
+      "markdown": "Markdown",
+      "splitPreview": "Vista previa dividida",
+      "fullPreview": "Vista previa completa",
+      "general": "General",
+      "closeEditor": "Cerrar editor"
+    },
+    "statusBar": {
+      "utf8": "UTF-8",
+      "spaces": "Espacios: 2",
+      "disableFileWatcher": "Desactivar vigilancia de archivos",
+      "enableFileWatcher": "Activar vigilancia de archivos",
+      "disableExternalChangeWatcher": "Desactivar vigilancia de cambios externos",
+      "watchForExternalChanges": "Vigilar cambios externos"
+    },
+    "unsavedChanges": {
+      "unsavedChangesTitle": "Cambios sin guardar",
+      "youHaveUnsavedChanges": "Tienes cambios sin guardar. \u00bfQue deseas hacer?",
+      "thisFileHasUnsavedChanges": "Este archivo tiene cambios sin guardar. \u00bfQue deseas hacer?",
+      "cancel": "Cancelar",
+      "discardAndClose": "Descartar y cerrar",
+      "saveAllAndClose": "Guardar todo y cerrar",
+      "discard": "Descartar",
+      "save": "Guardar"
+    },
+    "saveConflict": {
+      "title": "Conflicto al guardar",
+      "description": "El archivo ha sido modificado externamente desde que lo abriste. \u00bfSobrescribir con tus cambios?",
+      "cancel": "Cancelar",
+      "overwrite": "Sobrescribir"
+    },
+    "overlay": {
+      "projectEditor": "Editor de proyecto",
+      "refresh": "Actualizar (F5)",
+      "refreshGitStatus": "Actualizar estado de git (F5)",
+      "keyboardShortcuts": "Atajos de teclado",
+      "closeEditor": "Cerrar editor",
+      "closeEditorEsc": "Cerrar editor (Esc)",
+      "hideSidebar": "Ocultar barra lateral",
+      "showSidebar": "Mostrar barra lateral",
+      "recoveredUnsavedChanges": "Se recuperaron cambios sin guardar de una sesion anterior.",
+      "keep": "Conservar",
+      "retry": "Reintentar",
+      "saveFailed": "Error al guardar:",
+      "fileNoLongerExists": "El archivo ya no existe en disco.",
+      "fileChangedOnDisk": "El archivo cambio en disco.",
+      "closeTab": "Cerrar pestana",
+      "reload": "Recargar",
+      "keepMine": "Conservar el mio"
+    },
+    "binaryPlaceholder": {
+      "binaryFile": "Archivo binario",
+      "openInSystemViewer": "Abrir en visor del sistema"
+    },
+    "errorState": {
+      "retry": "Reintentar",
+      "closeTab": "Cerrar pestana"
+    },
+    "errorBoundary": {
+      "editorCrashed": "El editor fallo:",
+      "unknownError": "Error desconocido"
+    },
+    "imagePreview": {
+      "loadingPreview": "Cargando vista previa\u2026",
+      "openFullSizePreview": "Abrir vista previa a tamano completo"
+    },
+    "goToLine": {
+      "ariaLabel": "Ir a linea",
+      "placeholder": "Numero de linea, +desplazamiento, -desplazamiento, o %"
+    },
+    "quickOpen": {
+      "ariaLabel": "Apertura rapida",
+      "placeholder": "Buscar archivos por nombre...",
+      "loadingFiles": "Cargando archivos..."
+    },
+    "newFileDialog": {
+      "nameCannotBeEmpty": "El nombre no puede estar vacio",
+      "invalidName": "Nombre invalido",
+      "nameContainsInvalidCharacters": "El nombre contiene caracteres invalidos",
+      "nameIsTooLong": "El nombre es demasiado largo",
+      "fileNamePlaceholder": "Nombre del archivo...",
+      "folderNamePlaceholder": "Nombre de la carpeta...",
+      "newFileName": "Nuevo nombre de archivo",
+      "newFolderName": "Nuevo nombre de carpeta"
+    },
+    "unsavedChangesAriaLabel": "Cambios sin guardar"
+  },
+  "review": {
+    "changeReview": {
+      "changesBy": "Cambios por",
+      "changesForTask": "Cambios de la tarea",
+      "noFileChangesDetected": "No se detectaron cambios en archivos"
+    },
+    "diffView": {
+      "previousChunk": "Fragmento anterior",
+      "nextChunk": "Siguiente fragmento",
+      "rejectChange": "Rechazar cambio",
+      "acceptChange": "Aceptar cambio",
+      "undo": "Deshacer ",
+      "keep": "Conservar "
+    },
+    "confidence": {
+      "high": "Confianza alta",
+      "medium": "Confianza media",
+      "low": "Confianza baja",
+      "bestEffort": "Mejor esfuerzo"
+    },
+    "conflict": {
+      "conflictDetected": "Conflicto detectado",
+      "fileModifiedSinceChanges": "Este archivo ha sido modificado desde los cambios del agente",
+      "cancel": "Cancelar",
+      "saveResolution": "Guardar resolucion",
+      "editManually": "Editar manualmente",
+      "useOriginal": "Usar original",
+      "keepCurrent": "Conservar actual"
+    },
+    "diffError": {
+      "failedToRenderDiffView": "Error al renderizar la vista de diferencias",
+      "unexpectedError": "Ocurrio un error inesperado al renderizar las diferencias."
+    },
+    "fileTimeline": {
+      "noEditEvents": "Sin eventos de edicion",
+      "editTimeline": "Linea de tiempo de ediciones"
+    },
+    "fileSectionDiff": {
+      "restoreToCreateFile": "Restaurar",
+      "diffPreviewSkippedTooLarge": "Vista previa de diferencias omitida porque el cambio es demasiado grande para renderizar de forma segura.",
+      "fullDiffSkippedOomRisk": "Diferencia completa omitida porque es lo suficientemente grande como para causar un fallo de memoria del renderizador.",
+      "largeDiffSafePreview": "Diferencia grande abierta en modo de vista previa segura para evitar un fallo de memoria del renderizador.",
+      "diffPreviewSkippedDataTooLarge": "Vista previa de diferencias omitida porque los datos de cambio disponibles son demasiado grandes para renderizar de forma segura."
+    },
+    "fileSectionHeader": {
+      "fileMissingOnDisk": "El archivo no se encuentra en disco",
+      "useRestoreToWrite": "Usar Restaurar para escribir la vista previa",
+      "discardAllEdits": "Descartar todas las ediciones de este archivo",
+      "saveFileToDisk": "Guardar archivo en disco",
+      "fileHistory": "Historial del archivo",
+      "reconstructed": "Reconstruido",
+      "currentDisk": "Disco actual",
+      "gitFallback": "Respaldo de Git",
+      "missingOnDisk": "No se encuentra en disco",
+      "deletedOnDisk": "Eliminado del disco",
+      "recreatedOnDisk": "Recreado en disco",
+      "changedOnDisk": "Modificado en disco",
+      "from": "Desde",
+      "to": "Hasta"
+    },
+    "fileSectionPlaceholder": {
+      "preparingEditorDiff": "Preparando una diferencia completa del editor para este archivo."
+    },
+    "fullDiffLoading": {
+      "preparingFullDiff": "Preparando diferencia completa",
+      "preparingMultipleDiffs": "Preparando {count} diferencias completas",
+      "finalizingExactDiff": "Finalizando la diferencia exacta del editor para el archivo actual.",
+      "resolvingBaselines": "Resolviendo las lineas base exactas antes/despues para los archivos que se estan cargando.",
+      "snippetPreviewsStayVisible": "Las vistas previas de fragmentos permanecen visibles abajo mientras se reconstruye la linea base exacta."
+    },
+    "keyboardShortcuts": {
+      "title": "Atajos de teclado",
+      "nextChange": "Siguiente cambio",
+      "previousChange": "Cambio anterior",
+      "nextFile": "Siguiente archivo",
+      "previousFile": "Archivo anterior",
+      "acceptChange": "Aceptar cambio",
+      "rejectChange": "Rechazar cambio",
+      "saveFile": "Guardar archivo",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "toggleShortcuts": "Alternar atajos",
+      "closeDialog": "Cerrar dialogo"
+    },
+    "diffContent": {
+      "noChangesToDisplay": "No hay cambios para mostrar",
+      "newFile": "Archivo nuevo",
+      "fullRewrite": "Reescritura completa",
+      "multiEdit": "Edicion multiple",
+      "edit": "Edicion"
+    },
+    "fileTree": {
+      "viewed": "Visto",
+      "noChangedFiles": "No hay archivos modificados",
+      "searchFilesPlaceholder": "Buscar archivos\u2026",
+      "noMatchingFiles": "No hay archivos coincidentes",
+      "allChangesAccepted": "Todos los cambios aceptados",
+      "allChangesRejected": "Todos los cambios rechazados",
+      "partiallyReviewed": "Revision parcial",
+      "pendingReview": "Pendiente de revision"
+    },
+    "toolbar": {
+      "showAllLines": "Mostrar todas las lineas",
+      "collapseUnchangedRegions": "Contraer regiones sin cambios",
+      "autoMarkViewedOn": "Marcar archivos como vistos automaticamente al desplazar hasta el final (ACTIVADO)",
+      "autoMarkViewedOff": "Marcar archivos como vistos automaticamente al desplazar hasta el final (DESACTIVADO)",
+      "auto": "Auto",
+      "undoLastReviewOperation": "Deshacer ultima operacion de revision (Ctrl+Z)",
+      "acceptAllChanges": "Aceptar todos los cambios en todos los archivos",
+      "rejectAllChanges": "Rechazar todos los cambios en todos los archivos",
+      "applyReviewDecisions": "Aplicar decisiones de revision en todos los archivos",
+      "applying": "Aplicando...",
+      "applyAllChanges": "Aplicar todos los cambios"
+    },
+    "scopeWarning": {
+      "taskScopePrecise": "Alcance de la tarea determinado con precision",
+      "taskScopePreciseDetail": "Se encontraron los marcadores de inicio y finalizacion en el registro de la sesion. La diferencia incluye solo los cambios realizados durante esta tarea especifica \u2014 se excluyen otras tareas que modificaron los mismos archivos.",
+      "endBoundaryEstimated": "Limite final estimado",
+      "endBoundaryEstimatedDetail": "Solo se encontro el marcador de inicio \u2014 la tarea aun no tiene marcador de finalizacion. Se muestran los cambios desde el inicio de la tarea hasta el final de la sesion. Si otras tareas se ejecutaron despues de esta en la misma sesion, sus cambios tambien pueden estar incluidos.",
+      "startBoundaryEstimated": "Limite inicial estimado",
+      "startBoundaryEstimatedDetail": "Solo se encontro el marcador de finalizacion \u2014 el inicio del trabajo no fue capturado. Si otras tareas se ejecutaron antes de esta en la misma sesion, sus cambios en los mismos archivos tambien pueden estar incluidos.",
+      "showingAllSessionChanges": "Mostrando todos los cambios de la sesion",
+      "showingAllSessionChangesDetail": "No se encontraron marcadores de tarea en el registro de la sesion. No se puede aislar esta tarea \u2014 se muestran todos los cambios de archivos de toda la sesion, incluyendo cambios de otras tareas. Esto puede ocurrir con versiones antiguas del CLI o flujos de trabajo no estandar.",
+      "readMore": "Leer mas"
+    },
+    "changesLoading": {
+      "scanningRepository": "Escaneando repositorio\u2026",
+      "computingDiffs": "Calculando diferencias\u2026",
+      "resolvingBranches": "Resolviendo ramas\u2026",
+      "analyzingHunks": "Analizando fragmentos\u2026"
+    }
+  },
+  "schedule": {
+    "cronInput": {
+      "cronPlaceholder": "0 9 * * 1-5",
+      "highFrequencyWarning": "Programacion de alta frecuencia (intervalo menor a 5 min)",
+      "selectTimezone": "Seleccionar zona horaria",
+      "warmUpTime": "Tiempo de precalentamiento",
+      "enterCronExpression": "Ingresa una expresion cron",
+      "invalidCronExpression": "Expresion cron invalida"
+    },
+    "timezonePresets": {
+      "utc": "UTC",
+      "newYork": "Nueva York (ET)",
+      "chicago": "Chicago (CT)",
+      "denver": "Denver (MT)",
+      "losAngeles": "Los Angeles (PT)",
+      "london": "Londres (GMT/BST)",
+      "berlin": "Berlin (CET)",
+      "moscow": "Moscu (MSK)",
+      "tokyo": "Tokio (JST)",
+      "shanghai": "Shanghai (CST)",
+      "kolkata": "Calcuta (IST)",
+      "sydney": "Sidney (AEST)"
+    },
+    "warmUpOptions": {
+      "noWarmUp": "Sin precalentamiento",
+      "fiveMin": "5 min",
+      "tenMin": "10 min",
+      "fifteenMin": "15 min",
+      "thirtyMin": "30 min"
+    },
+    "cronPresets": {
+      "everyHour": "Cada hora",
+      "everySixHours": "Cada 6 horas",
+      "dailyAt9am": "Diario a las 9am",
+      "weekdaysAt9am": "Dias laborables a las 9am",
+      "mondayAt9am": "Lunes a las 9am",
+      "everyThirtyMin": "Cada 30 min"
+    },
+    "emptyState": {
+      "noSchedulesYet": "Aun no hay programaciones"
+    },
+    "runLogDialog": {
+      "errors": "Errores",
+      "failedToLoadLogs": "Error al cargar los registros"
+    },
+    "section": {
+      "runNow": "Ejecutar ahora",
+      "addSchedule": "Agregar programacion",
+      "edit": "Editar",
+      "pause": "Pausar",
+      "resume": "Reanudar",
+      "delete": "Eliminar",
+      "loadingRunHistory": "Cargando historial de ejecuciones...",
+      "noRunsYet": "Aun no hay ejecuciones",
+      "next": "Siguiente:"
+    },
+    "statusBadge": {
+      "active": "Activo",
+      "pending": "Pendiente",
+      "warmingUp": "Precalentando",
+      "warm": "Listo",
+      "running": "En ejecucion",
+      "completed": "Completado",
+      "failed": "Fallido",
+      "interrupted": "Interrumpido",
+      "cancelled": "Cancelado"
+    }
+  },
+  "attachments": {
+    "display": {
+      "loadingAttachments": "Cargando archivos adjuntos..."
+    },
+    "previewItem": {
+      "removeAttachment": "Eliminar"
+    },
+    "dropZone": {
+      "filesCanOnlyBeSentToTeamLead": "Los archivos solo se pueden enviar al lider del equipo",
+      "dropFilesHere": "Soltar archivos aqui"
+    },
+    "sourceMessage": {
+      "fromOriginalMessage": "Del mensaje original"
+    }
+  },
+  "sidebar": {},
+  "settings": {
+    "tabs": {
+      "general": "General",
+      "generalDescription": "Preferencias principales de la aplicacion como tema, idioma, densidad de visualizacion y comportamiento de inicio.",
+      "notifications": "Notificaciones",
+      "notificationsDescription": "Controla cuando y como recibes notificaciones sobre actividad de agentes, tareas completadas y errores.",
+      "advanced": "Avanzado",
+      "advancedDescription": "Configuracion de desarrollador y configuracion avanzada."
+    },
+    "view": {
+      "loadingSettings": "Cargando configuracion..."
+    },
+    "components": {
+      "select": "Seleccionar..."
+    },
+    "general": {
+      "agentLanguage": "Idioma del agente",
+      "language": "Idioma",
+      "languageDescription": "Idioma para la comunicacion del agente",
+      "selectLanguage": "Seleccionar idioma...",
+      "searchLanguage": "Buscar idioma...",
+      "noLanguageFound": "No se encontro el idioma.",
+      "startup": "Inicio",
+      "launchAtLogin": "Iniciar al iniciar sesion",
+      "launchAtLoginDescription": "Iniciar automaticamente la aplicacion al iniciar sesion",
+      "showDockIcon": "Mostrar icono en el dock",
+      "showDockIconDescription": "Mostrar el icono de la aplicacion en el dock (macOS)",
+      "appearance": "Apariencia",
+      "theme": "Tema",
+      "themeDescription": "Elige tu tema de color preferido",
+      "themeDark": "Oscuro",
+      "themeLight": "Claro",
+      "themeSystem": "Sistema",
+      "expandAiResponses": "Expandir respuestas de IA por defecto",
+      "expandAiResponsesDescription": "Expandir automaticamente cada turno de respuesta al abrir una transcripcion o recibir un mensaje nuevo",
+      "useNativeTitleBar": "Usar barra de titulo nativa",
+      "useNativeTitleBarDescription": "Usar el marco de ventana predeterminado del sistema en lugar de la barra de titulo personalizada",
+      "localClaudeRoot": "Raiz local de Claude",
+      "currentLocalRoot": "Raiz local actual",
+      "selectedFolderNotClaude": "La carpeta seleccionada no es .claude",
+      "useFolderButton": "Usar carpeta",
+      "noProjectsDirectory": "No se encontro directorio de proyectos",
+      "noProjectsDirectoryMessage": "Esta carpeta no contiene un directorio \"projects\". \u00bfContinuar de todos modos?",
+      "wslPathMissingProjects": "Ruta WSL sin directorio de proyectos",
+      "usePathButton": "Usar ruta",
+      "noWslClaudePaths": "No se encontraron rutas WSL de Claude",
+      "noWslClaudePathsMessage": "No se pudieron encontrar distribuciones WSL con datos de Claude automaticamente. \u00bfSeleccionar carpeta manualmente?",
+      "selectFolderButton": "Seleccionar carpeta",
+      "browserAccess": "Acceso desde navegador",
+      "enableServerMode": "Activar modo servidor",
+      "enableServerModeDescription": "Iniciar un servidor HTTP para acceder a la interfaz desde un navegador o incrustar en iframes",
+      "server": "Servidor",
+      "privacy": "Privacidad",
+      "sendCrashReports": "Enviar reportes de fallos",
+      "sendCrashReportsDescription": "Ayuda a mejorar la aplicacion enviando datos anonimos de fallos y rendimiento"
+    },
+    "notifications": {
+      "devMode": "Modo desarrollador",
+      "notificationSettings": "Configuracion de notificaciones",
+      "enableSystemNotifications": "Activar notificaciones del sistema",
+      "enableSystemNotificationsDescription": "Mostrar notificaciones del sistema para errores y eventos",
+      "playSound": "Reproducir sonido",
+      "playSoundDescription": "Reproducir un sonido cuando aparezcan notificaciones",
+      "includeSubagentErrors": "Incluir errores de subagentes",
+      "includeSubagentErrorsDescription": "Detectar y notificar sobre errores en sesiones de subagentes",
+      "testNotification": "Notificacion de prueba",
+      "testNotificationDescription": "Enviar una notificacion de prueba para verificar la entrega",
+      "sent": "\u00a1Enviado!",
+      "sending": "Enviando...",
+      "sendTest": "Enviar prueba",
+      "snoozeNotifications": "Posponer notificaciones",
+      "temporarilyPauseNotifications": "Pausar notificaciones temporalmente",
+      "selectDuration": "Seleccionar duracion...",
+      "untilTomorrow": "Hasta manana",
+      "teamNotifications": "Notificaciones de equipo",
+      "leadInboxNotifications": "Notificaciones de bandeja del lider",
+      "leadInboxDescription": "Notificar cuando los miembros envien mensajes al lider del equipo",
+      "userInboxNotifications": "Notificaciones de tu bandeja",
+      "userInboxDescription": "Notificar cuando los miembros te envien mensajes",
+      "taskClarificationNotifications": "Notificaciones de aclaracion de tareas",
+      "taskClarificationDescription": "Mostrar notificaciones nativas del SO cuando una tarea necesite tu aporte",
+      "taskCommentNotifications": "Notificaciones de comentarios en tareas",
+      "taskCommentDescription": "Mostrar notificaciones nativas del SO cuando los agentes comenten en tareas",
+      "taskCreatedNotifications": "Notificaciones de tareas creadas",
+      "taskCreatedDescription": "Mostrar notificaciones nativas del SO cuando se cree una nueva tarea",
+      "allTasksCompleted": "Todas las tareas completadas",
+      "allTasksCompletedDescription": "Notificar cuando todas las tareas de un equipo alcancen el estado completado",
+      "crossTeamMessageNotifications": "Notificaciones de mensajes entre equipos",
+      "crossTeamMessageDescription": "Notificar cuando llegue un mensaje de otro equipo",
+      "teamLaunchedNotifications": "Notificaciones de equipo iniciado",
+      "teamLaunchedDescription": "Notificar cuando un equipo termine de iniciarse y este listo",
+      "toolApprovalNotifications": "Notificaciones de aprobacion de herramientas",
+      "toolApprovalDescription": "Notificar cuando una herramienta necesite tu aprobacion (Permitir/Denegar) mientras la app no este en primer plano",
+      "taskStatusChangeNotifications": "Notificaciones de cambio de estado de tareas",
+      "taskStatusChangeDescription": "Mostrar notificaciones nativas del SO cuando cambie el estado de una tarea",
+      "taskCompletionNotifications": "Notificaciones de finalizacion de tareas",
+      "ignoredRepositories": "Repositorios ignorados",
+      "selectRepositoryToIgnore": "Seleccionar repositorio a ignorar..."
+    },
+    "advanced": {
+      "configuration": "Configuracion",
+      "editConfig": "Editar configuracion",
+      "resetToDefaults": "Restablecer valores predeterminados",
+      "exportConfig": "Exportar configuracion",
+      "importConfig": "Importar configuracion",
+      "openInEditor": "Abrir en editor",
+      "about": "Acerca de",
+      "claudeAgentTeamsUi": "Claude Agent Teams UI",
+      "checking": "Verificando...",
+      "upToDate": "Actualizado",
+      "updateReady": "Actualizacion lista",
+      "available": "disponible",
+      "checkForUpdates": "Buscar actualizaciones"
+    },
+    "cliStatus": {
+      "claudeCli": "Claude CLI",
+      "checkingCli": "Verificando CLI...",
+      "update": "Actualizar",
+      "checkForUpdates": "Buscar actualizaciones",
+      "checking": "Verificando...",
+      "extensions": "Extensiones",
+      "cliNotInstalled": "Claude CLI no esta instalado",
+      "installClaudeCli": "Instalar Claude CLI",
+      "downloading": "Descargando...",
+      "checkingLatestVersion": "Verificando ultima version...",
+      "verifyingChecksum": "Verificando suma de comprobacion...",
+      "installing": "Instalando...",
+      "installed": "Instalado",
+      "installationFailed": "La instalacion fallo",
+      "retry": "Reintentar"
+    },
+    "connection": {
+      "remoteConnection": "Conexion remota",
+      "currentMode": "Modo actual",
+      "currentModeDescription": "Fuente de datos para archivos de sesion",
+      "hostnamePlaceholder": "nombre de host o alias de configuracion ssh",
+      "portPlaceholder": "22",
+      "userPlaceholder": "usuario",
+      "privateKeyPlaceholder": "~/.ssh/id_rsa",
+      "sshAgent": "Agente SSH",
+      "privateKey": "Clave privada",
+      "password": "Contrasena",
+      "connectionSuccessful": "Conexion exitosa",
+      "connectionFailed": "La conexion fallo:",
+      "testConnection": "Probar conexion"
+    },
+    "workspace": {
+      "workspaceProfiles": "Perfiles de espacio de trabajo",
+      "loadingProfiles": "Cargando perfiles...",
+      "noSavedProfiles": "No hay perfiles guardados",
+      "addSshProfile": "Agrega un perfil SSH para conectarte rapidamente",
+      "deleteProfile": "Eliminar perfil",
+      "deleteButton": "Eliminar",
+      "namePlaceholder": "Mi servidor",
+      "hostnamePlaceholder": "nombre de host o IP",
+      "portPlaceholder": "22",
+      "userPlaceholder": "usuario",
+      "privateKeyPlaceholder": "~/.ssh/id_rsa",
+      "sshAgent": "Agente SSH",
+      "privateKey": "Clave privada",
+      "password": "Contrasena"
+    },
+    "configEditor": {
+      "saveFailed": "Error al guardar",
+      "invalidJson": "JSON invalido"
+    },
+    "triggerSettings": {
+      "addCustomTrigger": "Agregar activador personalizado",
+      "dotColor": "Color del punto",
+      "triggerCondition": "Condicion del activador",
+      "configuration": "Configuracion",
+      "generalInfo": "Informacion general",
+      "customHexColor": "Color hexadecimal personalizado",
+      "hexPlaceholder": "#ff6600",
+      "invalidHex": "Hexadecimal invalido",
+      "patternPlaceholder": "ej., error|failed|exception",
+      "alertIfGreaterThan": "Alertar si >",
+      "thresholdPlaceholder": "0",
+      "triggerNamePlaceholder": "ej., Alerta de fallo de compilacion",
+      "removeIgnorePattern": "Eliminar patron de exclusion",
+      "addIgnoreRegex": "Agregar regex de exclusion...",
+      "selectRepositoryToAdd": "Seleccionar repositorio a agregar...",
+      "editName": "Editar nombre",
+      "deleteTrigger": "Eliminar activador",
+      "collapse": "Contraer",
+      "expand": "Expandir",
+      "preview": "Vista previa",
+      "testTrigger": "Probar activador",
+      "builtInTriggers": "Activadores integrados",
+      "customTriggers": "Activadores personalizados",
+      "noCustomTriggersYet": "Aun no hay activadores personalizados configurados."
+    }
+  },
+  "common": {
+    "confirmDialog": {
+      "closeDialog": "Cerrar dialogo",
+      "cancel": "Cancelar",
+      "confirm": "Confirmar"
+    },
+    "contextSwitch": {
+      "loadingWorkspace": "Cargando espacio de trabajo",
+      "local": "Local",
+      "unknown": "Desconocido"
+    },
+    "copyButton": {
+      "copyToClipboard": "Copiar al portapapeles"
+    },
+    "errorBoundary": {
+      "somethingWentWrong": "Algo salio mal",
+      "unexpectedError": "Ocurrio un error inesperado en la aplicacion. Puedes intentar recargar la pagina o restablecer el estado del error.",
+      "componentStack": "Pila de componentes",
+      "tryAgain": "Intentar de nuevo",
+      "copied": "Copiado",
+      "copyErrorDetails": "Copiar detalles del error",
+      "reportBugOnGithub": "Reportar error en GitHub",
+      "reloadApp": "Recargar aplicacion"
+    },
+    "exportDropdown": {
+      "exportSession": "Exportar sesion",
+      "markdown": "Markdown",
+      "json": "JSON",
+      "plainText": "Texto plano"
+    },
+    "ongoingIndicator": {
+      "sessionInProgress": "Sesion en progreso..."
+    },
+    "repositoryDropdown": {
+      "selectRepository": "Seleccionar repositorio...",
+      "noRepositoriesAvailable": "No hay repositorios disponibles",
+      "removeRepository": "Eliminar repositorio"
+    },
+    "tokenUsage": {
+      "visibleContext": "Contexto visible",
+      "thinkingAndText": "Razonamiento + Texto",
+      "inputTokens": "Tokens de entrada",
+      "cacheRead": "Lectura de cache",
+      "cacheWrite": "Escritura de cache",
+      "outputTokens": "Tokens de salida",
+      "costUsd": "Costo (USD)",
+      "model": "Modelo"
+    },
+    "updateBanner": {
+      "updatingApp": "Actualizando aplicacion"
+    },
+    "updateDialog": {
+      "closeDialog": "Cerrar dialogo",
+      "updateAvailable": "Actualizacion disponible",
+      "updateReady": "Actualizacion lista",
+      "noReleaseNotesAvailable": "No hay notas de version disponibles.",
+      "viewOnGithub": "Ver en GitHub",
+      "later": "Despues",
+      "restartNow": "Reiniciar ahora",
+      "download": "Descargar"
+    },
+    "cliWarningBanner": {
+      "cliNotInstalled": "Claude Code no esta instalado. Instalalo desde el Panel de control para habilitar todas las funciones.",
+      "goToDashboard": "Ir al Panel de control"
+    },
+    "workspaceIndicator": {
+      "local": "Local"
+    },
+    "worktreeBadge": {
+      "vibe": "Vibe",
+      "conductor": "Conductor",
+      "auto": "Auto",
+      "desktop": "Escritorio",
+      "worktree": "Arbol de trabajo",
+      "default": "Predeterminado"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
@@ -71,6 +72,7 @@ export const ClaudeLogsSection = ({
   teamName,
   position = 'inline',
 }: ClaudeLogsSectionProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const ctrl = useClaudeLogsController(teamName);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -95,7 +97,7 @@ export const ClaudeLogsSection = ({
     <>
       <CollapsibleTeamSection
         sectionId="claude-logs"
-        title="Claude logs"
+        title={t('team.logs.sectionTitle')}
         icon={null}
         badge={ctrl.badge}
         afterBadge={
@@ -110,12 +112,12 @@ export const ClaudeLogsSection = ({
                     e.stopPropagation();
                     setDialogOpen(true);
                   }}
-                  aria-label="Open fullscreen logs"
+                  aria-label={t('team.logs.fullscreenAriaLabel')}
                 >
                   <Expand size={14} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="top">Fullscreen</TooltipContent>
+              <TooltipContent side="top">{t('team.logs.fullscreenTooltip')}</TooltipContent>
             </Tooltip>
           ) : undefined
         }
@@ -128,7 +130,7 @@ export const ClaudeLogsSection = ({
         {dialogOpen ? (
           <div className="flex items-center gap-2 p-2 text-xs text-[var(--color-text-muted)]">
             <Expand size={12} />
-            Viewing in fullscreen mode
+            {t('team.logsSection.viewingFullscreen')}
           </div>
         ) : (
           <ClaudeLogsPanel ctrl={ctrl} viewerClassName="max-h-[213px]" />

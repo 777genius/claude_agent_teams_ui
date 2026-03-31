@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Badge } from '@renderer/components/ui/badge';
 import { Button } from '@renderer/components/ui/button';
@@ -105,6 +106,7 @@ export const MessagesPanel = memo(function MessagesPanel({
   onRestartTeam,
   onTaskIdClick,
 }: MessagesPanelProps): React.JSX.Element {
+  const { t } = useTranslation();
   const sendTeamMessage = useStore((s) => s.sendTeamMessage);
   const sendCrossTeamMessage = useStore((s) => s.sendCrossTeamMessage);
   const sendingMessage = useStore((s) => s.sendingMessage);
@@ -323,7 +325,7 @@ export const MessagesPanel = memo(function MessagesPanel({
         <Search size={12} className="shrink-0 text-[var(--color-text-muted)]" />
         <input
           type="text"
-          placeholder="Search..."
+          placeholder={t('messages.panel.searchPlaceholder')}
           value={messagesSearchQuery}
           onChange={(e) => setMessagesSearchQuery(e.target.value)}
           onPointerDown={(e) => e.stopPropagation()}
@@ -368,7 +370,7 @@ export const MessagesPanel = memo(function MessagesPanel({
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">
-          {messagesCollapsed ? 'Expand all messages' : 'Collapse all messages'}
+          {messagesCollapsed ? t('messages.panel.expandAll') : t('messages.panel.collapseAll')}
         </TooltipContent>
       </Tooltip>
     </div>
@@ -446,7 +448,9 @@ export const MessagesPanel = memo(function MessagesPanel({
         {/* Header */}
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-section-bg)] px-3 py-2">
           <MessageSquare size={14} className="shrink-0 text-[var(--color-text-muted)]" />
-          <span className="text-sm font-medium text-[var(--color-text)]">Messages</span>
+          <span className="text-sm font-medium text-[var(--color-text)]">
+            {t('messages.panel.title')}
+          </span>
           {filteredMessages.length > 0 && (
             <Badge
               variant="secondary"
@@ -462,10 +466,12 @@ export const MessagesPanel = memo(function MessagesPanel({
                   variant="secondary"
                   className="bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-normal leading-none text-blue-600 dark:text-blue-400"
                 >
-                  {messagesUnreadCount} new
+                  {t('messages.panel.newCount', { count: messagesUnreadCount })}
                 </Badge>
               </TooltipTrigger>
-              <TooltipContent side="bottom">{messagesUnreadCount} unread</TooltipContent>
+              <TooltipContent side="bottom">
+                {t('messages.panel.unreadCount', { count: messagesUnreadCount })}
+              </TooltipContent>
             </Tooltip>
           )}
           {messagesUnreadCount > 0 && (
@@ -479,7 +485,9 @@ export const MessagesPanel = memo(function MessagesPanel({
                   <CheckCheck size={12} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Mark all as read</TooltipContent>
+              <TooltipContent side="bottom">
+                {t('messages.panel.markAllReadTooltip')}
+              </TooltipContent>
             </Tooltip>
           )}
           <div className="ml-auto flex items-center gap-1">
@@ -495,7 +503,9 @@ export const MessagesPanel = memo(function MessagesPanel({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {messagesCollapsed ? 'Expand all messages' : 'Collapse all messages'}
+                {messagesCollapsed
+                  ? t('messages.panel.expandAll')
+                  : t('messages.panel.collapseAll')}
               </TooltipContent>
             </Tooltip>
             <Tooltip>
@@ -510,7 +520,9 @@ export const MessagesPanel = memo(function MessagesPanel({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {sidebarSearchVisible ? 'Hide search' : 'Search messages'}
+                {sidebarSearchVisible
+                  ? t('messages.panel.hideSearch')
+                  : t('messages.panel.searchMessages')}
               </TooltipContent>
             </Tooltip>
             <Tooltip>
@@ -524,7 +536,9 @@ export const MessagesPanel = memo(function MessagesPanel({
                   <PanelLeftClose size={14} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Move to inline</TooltipContent>
+              <TooltipContent side="bottom">
+                {t('messages.panel.moveToInlineTooltip')}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -611,7 +625,7 @@ export const MessagesPanel = memo(function MessagesPanel({
   return (
     <CollapsibleTeamSection
       sectionId="messages"
-      title="Messages"
+      title={t('messages.panel.title')}
       icon={<MessageSquare size={14} />}
       badge={filteredMessages.length}
       secondaryBadge={
@@ -651,7 +665,7 @@ export const MessagesPanel = memo(function MessagesPanel({
               <PanelLeft size={14} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">Move to sidebar</TooltipContent>
+          <TooltipContent side="top">{t('messages.panel.moveToSidebarTooltip')}</TooltipContent>
         </Tooltip>
       }
       defaultOpen

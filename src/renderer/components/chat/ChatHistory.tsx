@@ -1,4 +1,5 @@
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { isNearBottom, useAutoScrollBottom } from '@renderer/hooks/useAutoScrollBottom';
 import { useTabNavigationController } from '@renderer/hooks/useTabNavigationController';
@@ -41,6 +42,7 @@ interface ChatHistoryProps {
 }
 
 export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
+  const { t } = useTranslation();
   const VIRTUALIZATION_THRESHOLD = 120;
   const ESTIMATED_CHAT_ITEM_HEIGHT = 260;
 
@@ -1004,10 +1006,10 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
               color: 'var(--color-text-secondary)',
               border: '1px solid var(--color-border-emphasis)',
             }}
-            title="Scroll to bottom"
+            title={t('chat.chatHistory.scrollToBottom')}
           >
             <ChevronsDown className="size-3.5" />
-            <span>Bottom</span>
+            <span>{t('chat.chatHistory.bottom')}</span>
           </button>
         )}
       </div>

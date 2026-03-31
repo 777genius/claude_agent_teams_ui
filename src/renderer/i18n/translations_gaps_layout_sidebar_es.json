@@ -1,0 +1,135 @@
+{
+  "layout": {
+    "teamTabSectionNav": {
+      "team": "Equipo",
+      "sessions": "Sesiones",
+      "kanban": "Kanban",
+      "claudeLogs": "Registros de Claude",
+      "messages": "Mensajes"
+    },
+    "moreMenu": {
+      "moreActions": "Más acciones",
+      "search": "Buscar",
+      "schedules": "Programaciones",
+      "exportAsMarkdown": "Exportar como Markdown",
+      "exportAsJson": "Exportar como JSON",
+      "exportAsPlainText": "Exportar como texto plano",
+      "analyzeSession": "Analizar sesión"
+    },
+    "tabBarActions": {
+      "notifications": "Notificaciones",
+      "teams": "Equipos",
+      "extensions": "Extensiones",
+      "github": "GitHub",
+      "settings": "Configuración",
+      "expandSidebar": "Expandir barra lateral",
+      "updateApp": "Actualizar app",
+      "restartToUpdate": "Reiniciar para actualizar",
+      "updateDownloadedRestart": "Actualización descargada, reinicia para aplicar",
+      "newVersionAvailable": "Nueva versión disponible"
+    },
+    "sortableTab": {
+      "openedFromSearch": "Abierto desde búsqueda",
+      "pinnedSession": "Sesión fijada",
+      "closeTab": "Cerrar pestaña"
+    },
+    "customTitleBar": {
+      "minimize": "Minimizar",
+      "maximize": "Maximizar",
+      "restore": "Restaurar",
+      "close": "Cerrar"
+    },
+    "sessionTabContent": {
+      "failedToLoadSession": "Error al cargar la sesión",
+      "retry": "Reintentar",
+      "closeTab": "Cerrar pestaña"
+    }
+  },
+
+  "sidebar": {
+    "globalTaskList": {
+      "tasks": "Tareas",
+      "pinned": "Fijadas",
+      "sortByTime": "Por tiempo",
+      "sortByUnread": "Por no leídas",
+      "sortByProject": "Por proyecto",
+      "sortByTeam": "Por equipo"
+    },
+    "taskFiltersPopover": {
+      "status": "Estado",
+      "team": "Equipo",
+      "all": "Todas",
+      "unread": "No leídas",
+      "read": "Leídas",
+      "allTeams": "Todos los equipos",
+      "allProjects": "Todos los proyectos"
+    },
+    "dateGroupedSessions": {
+      "selectProject": "Seleccionar proyecto",
+      "selectProjectToView": "Selecciona un proyecto para ver sesiones",
+      "noSessionsFound": "No se encontraron sesiones",
+      "noSessionsYet": "Este proyecto aún no tiene sesiones",
+      "scrollToLoadMore": "Desplaza para cargar más",
+      "pinSelectedSessions": "Fijar sesiones seleccionadas",
+      "hideSelectedSessions": "Ocultar sesiones seleccionadas",
+      "unhideSelectedSessions": "Mostrar sesiones seleccionadas",
+      "cancelSelection": "Cancelar selección"
+    },
+    "taskContextMenu": {
+      "pin": "Fijar",
+      "unpin": "Desfijar",
+      "rename": "Renombrar",
+      "archive": "Archivar",
+      "unarchive": "Desarchivar",
+      "deleteTask": "Eliminar tarea"
+    }
+  },
+
+  "teamExtras": {
+    "teamDetailView": {
+      "tabs": {
+        "team": "Equipo",
+        "sessions": "Sesiones",
+        "kanban": "Kanban",
+        "schedules": "Programaciones",
+        "cliProcesses": "Procesos CLI",
+        "active": "Activos"
+      }
+    },
+    "emptyStates": {
+      "noSchedulesYet": "Aún no hay programaciones",
+      "createScheduleDescription": "Crea una programación para ejecutar tareas de Claude automáticamente con un horario cron.",
+      "noMessages": "Sin mensajes",
+      "noData": "Sin datos",
+      "noMatchingLogs": "No hay registros coincidentes.",
+      "noFilesFound": "No se encontraron archivos",
+      "noChangedFiles": "Sin archivos modificados",
+      "noMatchingFiles": "Sin archivos coincidentes",
+      "noEditEvents": "Sin eventos de edición",
+      "noResultsFound": "No se encontraron resultados",
+      "noChangesToDisplay": "Sin cambios para mostrar",
+      "noFileChangesDetected": "No se detectaron cambios en archivos",
+      "noTeamsFound": "No se encontraron equipos",
+      "createTeamInClaude": "Crea un equipo en Claude Code y luego actualiza la lista.",
+      "noConversationHistory": "Sin historial de conversación"
+    }
+  },
+
+  "notifications": {
+    "notificationRow": {
+      "markAsRead": "Marcar como leído",
+      "delete": "Eliminar",
+      "viewInSession": "Ver en sesión"
+    }
+  },
+
+  "dashboard": {
+    "dashboardView": {
+      "open": "Abrir",
+      "failedToLoadProjects": "Error al cargar los proyectos",
+      "noProjectsFound": "No se encontraron proyectos",
+      "noMatchesFor": "Sin resultados para \"{query}\"",
+      "selectProjectFolder": "Seleccionar carpeta de proyecto"
+    }
+  }
+}

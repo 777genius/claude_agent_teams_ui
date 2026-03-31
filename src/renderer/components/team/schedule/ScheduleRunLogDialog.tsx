@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { Button } from '@renderer/components/ui/button';
@@ -71,6 +72,7 @@ export const ScheduleRunLogDialog = ({
   scheduleId,
   onClose,
 }: ScheduleRunLogDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   // Read live run data from store — falls back to initial prop if not found
   const liveRun = useStore((s) => {
     if (!initialRun) return null;
@@ -110,7 +112,7 @@ export const ScheduleRunLogDialog = ({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load logs');
+          setError(err instanceof Error ? err.message : t('schedule.runLog.failedToLoadLogs'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -142,7 +144,7 @@ export const ScheduleRunLogDialog = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             <Terminal className="size-4" />
-            Run Log
+            {t('schedule.runLog.title')}
           </DialogTitle>
         </DialogHeader>
 
@@ -178,7 +180,7 @@ export const ScheduleRunLogDialog = ({
           {isRunning ? (
             <div className="flex items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-xs text-[var(--color-text-secondary)]">
               <Loader2 className="size-4 animate-spin" />
-              Task is still running...
+              {t('schedule.runLog.taskRunning')}
               {run.summary ? (
                 <span className="ml-2 truncate text-[var(--color-text-muted)]">{run.summary}</span>
               ) : null}
@@ -189,7 +191,7 @@ export const ScheduleRunLogDialog = ({
           {loading ? (
             <div className="flex items-center justify-center py-6 text-xs text-[var(--color-text-muted)]">
               <Loader2 className="mr-2 size-4 animate-spin" />
-              Loading logs...
+              {t('schedule.runLog.loadingLogs')}
             </div>
           ) : null}
 
@@ -213,7 +215,9 @@ export const ScheduleRunLogDialog = ({
               {/* Stderr */}
               {hasStderr ? (
                 <div>
-                  <div className="mb-1 text-[11px] font-medium text-red-400">Errors</div>
+                  <div className="mb-1 text-[11px] font-medium text-red-400">
+                    {t('schedule.runLog.errors')}
+                  </div>
                   <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap rounded border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs leading-relaxed text-red-300">
                     {logs.stderr}
                   </pre>
@@ -233,7 +237,7 @@ export const ScheduleRunLogDialog = ({
 
         <DialogFooter className="pt-2">
           <Button variant="outline" size="sm" onClick={onClose}>
-            Close
+            {t('schedule.runLog.close')}
           </Button>
         </DialogFooter>
       </DialogContent>

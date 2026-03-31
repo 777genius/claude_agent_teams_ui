@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
@@ -102,13 +103,15 @@ interface KanbanBoardProps {
 
 type KanbanViewMode = 'grid' | 'columns';
 
-const COLUMNS: { id: KanbanColumnId; title: string }[] = [
-  { id: 'todo', title: 'TODO' },
-  { id: 'in_progress', title: 'IN PROGRESS' },
-  { id: 'review', title: 'REVIEW' },
-  { id: 'done', title: 'DONE' },
-  { id: 'approved', title: 'APPROVED' },
-];
+const COLUMN_TITLE_KEYS: Record<KanbanColumnId, string> = {
+  todo: 'kanban.columns.todo',
+  in_progress: 'kanban.columns.inProgress',
+  review: 'kanban.columns.review',
+  done: 'kanban.columns.done',
+  approved: 'kanban.columns.approved',
+};
+
+const COLUMN_IDS: KanbanColumnId[] = ['todo', 'in_progress', 'review', 'done', 'approved'];
 
 function getTaskColumn(task: TeamTask, kanbanState: KanbanState): KanbanColumnId | null {
   // Kanban state is authoritative for review/approved placement.
@@ -303,7 +306,13 @@ export const KanbanBoard = ({
   deletedTaskCount,
   onOpenTrash,
 }: KanbanBoardProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<KanbanViewMode>('grid');
+
+  const COLUMNS = useMemo(
+    () => COLUMN_IDS.map((id) => ({ id, title: t(COLUMN_TITLE_KEYS[id]) })),
+    [t]
+  );
   const enableTaskSorting =
     viewMode === 'columns' && !!onColumnOrderChange && sort.field === 'manual';
 
@@ -330,7 +339,7 @@ export const KanbanBoard = ({
   const memberColorMap = useMemo(() => buildMemberColorMap(members), [members]);
   const grouped = useMemo(() => {
     const result = new Map<KanbanColumnId, TeamTask[]>(
-      COLUMNS.map(({ id }) => [id, [] as TeamTask[]])
+      COLUMN_IDS.map((id) => [id, [] as TeamTask[]])
     );
     for (const task of tasks) {
       const column = getTaskColumn(task, kanbanState);
@@ -400,7 +409,7 @@ export const KanbanBoard = ({
         className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border-emphasis)] hover:text-[var(--color-text-secondary)]"
       >
         <Plus size={13} />
-        Add task
+        {t('kanban.board.addTask')}
       </button>
     ) : null;
 
@@ -408,7 +417,7 @@ export const KanbanBoard = ({
       return (
         addButton ?? (
           <div className="rounded-md border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)]">
-            No tasks
+            {t('kanban.board.noTasks')}
           </div>
         )
       );
@@ -517,7 +526,7 @@ export const KanbanBoard = ({
                   <span className="ml-1 text-xs">{deletedTaskCount}</span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Trash</TooltipContent>
+              <TooltipContent side="bottom">{t('kanban.board.trash')}</TooltipContent>
             </Tooltip>
           ) : null}
           <div className="inline-flex rounded-md border border-[var(--color-border)]">
@@ -533,12 +542,12 @@ export const KanbanBoard = ({
                       : 'text-[var(--color-text-muted)]'
                   )}
                   onClick={() => setViewMode('grid')}
-                  aria-label="Grid view"
+                  aria-label={t('kanban.board.gridView')}
                 >
                   <LayoutGrid size={14} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Grid view</TooltipContent>
+              <TooltipContent side="bottom">{t('kanban.board.gridView')}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -552,12 +561,12 @@ export const KanbanBoard = ({
                       : 'text-[var(--color-text-muted)]'
                   )}
                   onClick={() => setViewMode('columns')}
-                  aria-label="Columns view"
+                  aria-label={t('kanban.board.columnsView')}
                 >
                   <Columns3 size={14} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Columns view</TooltipContent>
+              <TooltipContent side="bottom">{t('kanban.board.columnsView')}</TooltipContent>
             </Tooltip>
           </div>
         </div>

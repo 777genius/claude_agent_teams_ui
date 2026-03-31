@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { SessionContextPanel } from '@renderer/components/chat/SessionContextPanel/index';
@@ -186,6 +187,7 @@ export const TeamDetailView = ({
   teamName,
   isPaneFocused = false,
 }: TeamDetailViewProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const { isLight } = useTheme();
   const [requestChangesTaskId, setRequestChangesTaskId] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<TeamTaskWithKanban | null>(null);
@@ -996,10 +998,10 @@ export const TeamDetailView = ({
     (taskId: string) => {
       void (async () => {
         const confirmed = await confirm({
-          title: 'Delete task',
-          message: `Move task #${deriveTaskDisplayId(taskId)} to trash?`,
-          confirmLabel: 'Delete',
-          cancelLabel: 'Cancel',
+          title: t('team.detail.deleteTaskTitle'),
+          message: t('team.detail.deleteTaskMessage', { id: deriveTaskDisplayId(taskId) }),
+          confirmLabel: t('team.detail.delete'),
+          cancelLabel: t('team.detail.cancel'),
           variant: 'danger',
         });
         if (confirmed) {
@@ -1135,7 +1137,7 @@ export const TeamDetailView = ({
       <>
         <div className="flex size-full items-center justify-center p-6">
           <div className="max-w-md text-center">
-            <p className="text-sm font-medium text-text">Team not launched yet</p>
+            <p className="text-sm font-medium text-text">{t('team.detail.teamNotLaunched')}</p>
             <p className="mt-2 text-xs text-text-secondary">
               This is a draft team — <strong>{teamSummary?.displayName || teamName}</strong> has
               been configured with {teamSummary?.memberCount ?? 0} member
@@ -1147,7 +1149,7 @@ export const TeamDetailView = ({
                 className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-500"
                 onClick={() => setLaunchDialogOpen(true)}
               >
-                Launch
+                {t('team.detail.launch')}
               </button>
               <button
                 className="rounded-md bg-surface-raised px-4 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:text-text"
@@ -1155,7 +1157,7 @@ export const TeamDetailView = ({
                   void api.teams.deleteDraft(teamName).catch(() => {});
                 }}
               >
-                Delete
+                {t('team.detail.delete')}
               </button>
             </div>
           </div>
@@ -1181,7 +1183,7 @@ export const TeamDetailView = ({
     return (
       <div className="flex size-full items-center justify-center p-6">
         <div className="text-center">
-          <p className="text-sm font-medium text-red-400">Failed to load team</p>
+          <p className="text-sm font-medium text-red-400">{t('team.detail.failedToLoad')}</p>
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">{error}</p>
         </div>
       </div>
@@ -1195,7 +1197,7 @@ export const TeamDetailView = ({
           <TeamProvisioningBanner teamName={teamName} />
         </div>
         <div className="flex flex-1 items-center justify-center p-6 text-sm text-[var(--color-text-muted)]">
-          Team data will appear once provisioning completes
+          {t('team.detail.teamDataWillAppear')}
         </div>
       </div>
     );
@@ -1252,16 +1254,20 @@ export const TeamDetailView = ({
               >
                 <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-[var(--color-text)]">Visible Context</p>
+                    <p className="text-sm font-medium text-[var(--color-text)]">
+                      {t('team.detail.visibleContext')}
+                    </p>
                     <p className="text-[10px] text-[var(--color-text-muted)]">
-                      {leadSessionLoading ? 'Loading…' : 'No session loaded'}
+                      {leadSessionLoading
+                        ? t('team.detail.loading')
+                        : t('team.detail.noSessionLoaded')}
                     </p>
                   </div>
                   <button
                     type="button"
                     className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)]"
                     onClick={() => setContextPanelVisible(false)}
-                    aria-label="Close panel"
+                    aria-label={t('team.detail.closePanel')}
                   >
                     ×
                   </button>
@@ -1269,8 +1275,8 @@ export const TeamDetailView = ({
                 <div className="flex flex-1 items-center justify-center p-4">
                   <p className="text-xs text-[var(--color-text-muted)]">
                     {leadSessionLoading
-                      ? 'Loading context…'
-                      : 'Open the team lead session to view context.'}
+                      ? t('team.detail.loadingContext')
+                      : t('team.detail.openLeadSession')}
                   </p>
                 </div>
               </div>
@@ -1339,7 +1345,7 @@ export const TeamDetailView = ({
                       : leadSessionId
                 }
               >
-                {visibleContextPercentLabel ?? 'Context'}
+                {visibleContextPercentLabel ?? t('team.detail.context')}
               </button>
             </div>
           )}
@@ -1409,10 +1415,10 @@ export const TeamDetailView = ({
                         onClick={() => void handleStopTeam()}
                       >
                         <Square size={12} className={stoppingTeam ? 'animate-pulse' : ''} />
-                        Stop
+                        {t('team.detail.stop')}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Stop team</TooltipContent>
+                    <TooltipContent side="bottom">{t('team.detail.stopTeam')}</TooltipContent>
                   </Tooltip>
                 )}
                 <Tooltip>
@@ -1426,7 +1432,7 @@ export const TeamDetailView = ({
                       <Pencil size={12} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Edit team</TooltipContent>
+                  <TooltipContent side="bottom">{t('team.detail.editTeam')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1439,7 +1445,7 @@ export const TeamDetailView = ({
                       <Trash2 size={12} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Delete team</TooltipContent>
+                  <TooltipContent side="bottom">{t('team.detail.deleteTeam')}</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -1488,7 +1494,7 @@ export const TeamDetailView = ({
                           <Code size={10} className="shrink-0" /> Edit code
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Open project in built-in editor</TooltipContent>
+                      <TooltipContent>{t('team.detail.openInEditor')}</TooltipContent>
                     </Tooltip>
                   </span>
                 )}
@@ -1554,7 +1560,7 @@ export const TeamDetailView = ({
 
           {data.warnings?.some((warning) => warning.toLowerCase().includes('kanban')) ? (
             <div className="mb-3 rounded-md border border-[var(--step-warning-border)] bg-[var(--step-warning-bg)] px-3 py-2 text-xs text-[var(--step-warning-text)]">
-              Failed to fully load kanban. Displaying safe data.
+              {t('team.detail.kanbanWarning')}
             </div>
           ) : null}
           {reviewActionError ? (
@@ -1565,9 +1571,9 @@ export const TeamDetailView = ({
 
           <CollapsibleTeamSection
             sectionId="team"
-            title="Team"
+            title={t('team.detail.sectionTeam')}
             icon={<Users size={14} />}
-            badge={activeTeammateCount === 0 ? 'Solo' : activeTeammateCount}
+            badge={activeTeammateCount === 0 ? t('team.detail.solo') : activeTeammateCount}
             defaultOpen
             action={
               <div className="flex items-center gap-1">
@@ -1590,7 +1596,7 @@ export const TeamDetailView = ({
                       NEW
                     </span>
                   </span>
-                  Graph
+                  {t('team.detail.graph')}
                 </Button>
                 <Button
                   variant="ghost"
@@ -1602,7 +1608,7 @@ export const TeamDetailView = ({
                   }}
                 >
                   <UserPlus size={12} />
-                  Member
+                  {t('team.detail.member')}
                 </Button>
               </div>
             }
@@ -1633,7 +1639,7 @@ export const TeamDetailView = ({
 
           <CollapsibleTeamSection
             sectionId="sessions"
-            title="Sessions"
+            title={t('team.detail.sectionSessions')}
             icon={<History size={14} />}
             defaultOpen={false}
           >
@@ -1650,7 +1656,7 @@ export const TeamDetailView = ({
 
           <CollapsibleTeamSection
             sectionId="kanban"
-            title="Kanban"
+            title={t('team.detail.sectionKanban')}
             icon={<Columns3 size={14} />}
             badge={filteredTasks.length}
             defaultOpen
@@ -1832,7 +1838,7 @@ export const TeamDetailView = ({
 
           <CollapsibleTeamSection
             sectionId="schedules"
-            title="Schedules"
+            title={t('team.detail.sectionSchedules')}
             icon={<Clock size={14} />}
             defaultOpen={false}
           >
@@ -1842,14 +1848,14 @@ export const TeamDetailView = ({
           {(data.processes?.length ?? 0) > 0 && (
             <CollapsibleTeamSection
               sectionId="processes"
-              title="CLI Processes"
+              title={t('team.detail.sectionProcesses')}
               icon={<Terminal size={14} />}
               badge={data.processes.filter((p) => !p.stoppedAt).length}
               headerExtra={
                 data.processes.some((p) => !p.stoppedAt) ? (
                   <span
                     className="pointer-events-none relative inline-flex size-2 shrink-0"
-                    title="Active"
+                    title={t('team.detail.active')}
                   >
                     <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
                     <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
@@ -2018,15 +2024,14 @@ export const TeamDetailView = ({
           >
             <DialogContent className="max-w-sm">
               <DialogHeader>
-                <DialogTitle>Remove member</DialogTitle>
+                <DialogTitle>{t('team.detail.removeMemberTitle')}</DialogTitle>
                 <DialogDescription>
-                  Remove &ldquo;{removeMemberConfirm}&rdquo; from the team? Tasks and messages will
-                  be preserved, but this name cannot be reused.
+                  {t('team.detail.removeMemberMessage', { name: removeMemberConfirm })}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <Button variant="ghost" size="sm" onClick={() => setRemoveMemberConfirm(null)}>
-                  Cancel
+                  {t('team.detail.cancel')}
                 </Button>
                 <Button
                   variant="destructive"
@@ -2038,7 +2043,7 @@ export const TeamDetailView = ({
                     if (name) void removeMember(teamName, name);
                   }}
                 >
-                  Remove
+                  {t('team.detail.remove')}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -2047,18 +2052,17 @@ export const TeamDetailView = ({
           <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
             <DialogContent className="max-w-sm">
               <DialogHeader>
-                <DialogTitle>Delete team</DialogTitle>
+                <DialogTitle>{t('team.detail.deleteTeamTitle')}</DialogTitle>
                 <DialogDescription>
-                  Delete team &ldquo;{data.config.name}&rdquo;? This action is irreversible. All
-                  team data and tasks will be deleted.
+                  {t('team.detail.deleteTeamMessage', { name: data.config.name })}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <Button variant="ghost" size="sm" onClick={() => setDeleteConfirmOpen(false)}>
-                  Cancel
+                  {t('team.detail.cancel')}
                 </Button>
                 <Button variant="destructive" size="sm" onClick={confirmDeleteTeam}>
-                  Delete
+                  {t('team.detail.delete')}
                 </Button>
               </DialogFooter>
             </DialogContent>

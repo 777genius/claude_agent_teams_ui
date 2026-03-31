@@ -3,6 +3,7 @@
  * Renders different UI based on the selected trigger mode.
  */
 
+import { useTranslation } from 'react-i18next';
 import {
   getCursorClass,
   SELECT_INPUT_BASE,
@@ -50,18 +51,19 @@ export const DynamicConfigSection = ({
   onTokenThresholdChange,
   onTokenTypeChange,
 }: Readonly<DynamicConfigSectionProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   // Get available match fields based on content type and tool name
   const availableMatchFields = getAvailableMatchFields(contentType, toolName || undefined);
 
   return (
     <div className="space-y-3">
-      <SectionHeader title="Configuration" />
+      <SectionHeader title={t('settings.triggerSettings.configuration')} />
 
       {/* Error Status Mode */}
       {mode === 'error_status' && (
         <div className="py-2">
           <p className="text-sm text-text-muted">
-            Triggers when a tool execution reports an error (is_error: true).
+            {t('settings.triggerSettings.errorStatusDescription')}
           </p>
         </div>
       )}
@@ -72,7 +74,7 @@ export const DynamicConfigSection = ({
           {/* Content Type */}
           <div className="flex items-center justify-between border-b border-border-subtle py-2">
             <label htmlFor="new-trigger-content-type" className="text-sm text-text-secondary">
-              Content Type
+              {t('settings.triggerSettings.contentType')}
             </label>
             <select
               id="new-trigger-content-type"
@@ -93,7 +95,7 @@ export const DynamicConfigSection = ({
           {availableMatchFields.length > 0 && (
             <div className="flex items-center justify-between border-b border-border-subtle py-2">
               <label htmlFor="new-trigger-match-field" className="text-sm text-text-secondary">
-                Match Field
+                {t('settings.triggerSettings.matchField')}
               </label>
               <select
                 id="new-trigger-match-field"
@@ -115,7 +117,7 @@ export const DynamicConfigSection = ({
           <div className="border-b border-border-subtle py-2">
             <div className="mb-2 flex items-center justify-between">
               <label htmlFor="new-trigger-match-pattern" className="text-sm text-text-secondary">
-                Match Pattern (Regex)
+                {t('settings.triggerSettings.matchPatternRegex')}
               </label>
             </div>
             <input
@@ -123,7 +125,7 @@ export const DynamicConfigSection = ({
               type="text"
               value={matchPattern}
               onChange={(e) => onMatchPatternChange(e.target.value)}
-              placeholder="e.g., error|failed|exception"
+              placeholder={t('settings.triggerSettings.patternPlaceholder')}
               disabled={saving}
               className={`w-full rounded border bg-transparent px-2 py-1.5 font-mono text-sm text-text placeholder:text-text-muted focus:border-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 ${patternError ? 'border-red-500' : 'border-border'} ${saving ? 'cursor-not-allowed opacity-50' : ''} `}
             />
@@ -134,7 +136,7 @@ export const DynamicConfigSection = ({
               </p>
             )}
             <p className="mt-1 text-xs text-text-muted">
-              Leave empty to match all content. Uses JavaScript regex syntax.
+              {t('settings.triggerSettings.patternHint')}
             </p>
           </div>
         </div>
@@ -145,7 +147,7 @@ export const DynamicConfigSection = ({
         <div className="space-y-3">
           <div className="flex items-center justify-between border-b border-border-subtle py-2">
             <label htmlFor="new-trigger-token-type" className="text-sm text-text-secondary">
-              Token Type
+              {t('settings.triggerSettings.tokenType')}
             </label>
             <select
               id="new-trigger-token-type"
@@ -155,22 +157,24 @@ export const DynamicConfigSection = ({
               className={`${SELECT_INPUT_BASE} ${getCursorClass(saving)}`}
             >
               <option value="total" className={SELECT_OPTION_BG}>
-                Total Tokens
+                {t('settings.triggerSettings.totalTokens')}
               </option>
               <option value="input" className={SELECT_OPTION_BG}>
-                Input Tokens
+                {t('settings.triggerSettings.inputTokens')}
               </option>
               <option value="output" className={SELECT_OPTION_BG}>
-                Output Tokens
+                {t('settings.triggerSettings.outputTokens')}
               </option>
             </select>
           </div>
           <div className="flex items-center justify-between border-b border-border-subtle py-2">
             <label htmlFor="new-trigger-threshold" className="text-sm text-text-secondary">
-              Threshold
+              {t('settings.triggerSettings.threshold')}
             </label>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-text-muted">Alert if &gt;</span>
+              <span className="text-xs text-text-muted">
+                {t('settings.triggerSettings.alertIfGreaterThan')}
+              </span>
               <input
                 id="new-trigger-threshold"
                 type="text"
@@ -181,7 +185,9 @@ export const DynamicConfigSection = ({
                 disabled={saving}
                 className={`w-20 rounded border border-border bg-transparent px-2 py-1 text-right text-sm text-text focus:border-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 ${saving ? 'cursor-not-allowed opacity-50' : ''} `}
               />
-              <span className="text-xs text-text-muted">tokens</span>
+              <span className="text-xs text-text-muted">
+                {t('settings.triggerSettings.tokens')}
+              </span>
             </div>
           </div>
         </div>

@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { confirm } from '@renderer/components/common/ConfirmDialog';
@@ -47,6 +48,7 @@ const defaultForm = {
 };
 
 export const WorkspaceSection = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const [profiles, setProfiles] = useState<SshConnectionProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -146,9 +148,9 @@ export const WorkspaceSection = (): React.JSX.Element => {
     if (!profile) return;
 
     const confirmed = await confirm({
-      title: 'Delete Profile',
-      message: `Are you sure you want to delete "${profile.name}"? This cannot be undone.`,
-      confirmLabel: 'Delete',
+      title: t('settings.workspace.deleteProfile'),
+      message: t('settings.workspace.deleteConfirmMessage', { name: profile.name }),
+      confirmLabel: t('settings.workspace.deleteButton'),
       variant: 'danger',
     });
     if (!confirmed) return;
@@ -177,14 +179,14 @@ export const WorkspaceSection = (): React.JSX.Element => {
             className="mb-1 block text-xs"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            Name
+            {t('settings.workspace.nameLabel')}
           </label>
           <input
             id="ws-profile-name"
             type="text"
             value={formName}
             onChange={(e) => setFormName(e.target.value)}
-            placeholder="My Server"
+            placeholder={t('settings.workspace.namePlaceholder')}
             className={inputClass}
             style={inputStyle}
           />
@@ -195,14 +197,14 @@ export const WorkspaceSection = (): React.JSX.Element => {
             className="mb-1 block text-xs"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            Host
+            {t('settings.workspace.hostLabel')}
           </label>
           <input
             id="ws-profile-host"
             type="text"
             value={formHost}
             onChange={(e) => setFormHost(e.target.value)}
-            placeholder="hostname or IP"
+            placeholder={t('settings.workspace.hostnamePlaceholder')}
             className={inputClass}
             style={inputStyle}
           />
@@ -216,14 +218,14 @@ export const WorkspaceSection = (): React.JSX.Element => {
             className="mb-1 block text-xs"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            Port
+            {t('settings.workspace.portLabel')}
           </label>
           <input
             id="ws-profile-port"
             type="text"
             value={formPort}
             onChange={(e) => setFormPort(e.target.value)}
-            placeholder="22"
+            placeholder={t('settings.workspace.portPlaceholder')}
             className={inputClass}
             style={inputStyle}
           />
@@ -234,14 +236,14 @@ export const WorkspaceSection = (): React.JSX.Element => {
             className="mb-1 block text-xs"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            Username
+            {t('settings.workspace.usernameLabel')}
           </label>
           <input
             id="ws-profile-username"
             type="text"
             value={formUsername}
             onChange={(e) => setFormUsername(e.target.value)}
-            placeholder="user"
+            placeholder={t('settings.workspace.userPlaceholder')}
             className={inputClass}
             style={inputStyle}
           />
@@ -251,7 +253,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
       <div>
         {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- SettingsSelect is a custom dropdown without a native control */}
         <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          Authentication
+          {t('settings.workspace.authenticationLabel')}
         </label>
         <SettingsSelect
           value={formAuthMethod}
@@ -268,14 +270,14 @@ export const WorkspaceSection = (): React.JSX.Element => {
             className="mb-1 block text-xs"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            Private Key Path
+            {t('settings.workspace.privateKeyPathLabel')}
           </label>
           <input
             id="ws-profile-private-key-path"
             type="text"
             value={formPrivateKeyPath}
             onChange={(e) => setFormPrivateKeyPath(e.target.value)}
-            placeholder="~/.ssh/id_rsa"
+            placeholder={t('settings.workspace.privateKeyPlaceholder')}
             className={inputClass}
             style={inputStyle}
           />
@@ -284,7 +286,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
 
       {formAuthMethod === 'password' && (
         <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          You will be prompted for the password when connecting.
+          {t('settings.workspace.passwordPrompt')}
         </p>
       )}
 
@@ -299,7 +301,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
           }}
         >
           <Save className="size-3.5" />
-          Save
+          {t('settings.workspace.save')}
         </button>
         <button
           onClick={onCancel}
@@ -310,7 +312,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
           }}
         >
           <X className="size-3.5" />
-          Cancel
+          {t('settings.workspace.cancel')}
         </button>
       </div>
     </div>
@@ -318,15 +320,15 @@ export const WorkspaceSection = (): React.JSX.Element => {
 
   return (
     <div className="space-y-6">
-      <SettingsSectionHeader title="Workspace Profiles" />
+      <SettingsSectionHeader title={t('settings.workspace.workspaceProfiles')} />
       <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-        Save SSH connection profiles for quick reconnection
+        {t('settings.workspace.saveProfileDescription')}
       </p>
 
       {loading && (
         <div className="flex items-center gap-2 py-4" style={{ color: 'var(--color-text-muted)' }}>
           <Loader2 className="size-4 animate-spin" />
-          <span className="text-sm">Loading profiles...</span>
+          <span className="text-sm">{t('settings.workspace.loadingProfiles')}</span>
         </div>
       )}
 
@@ -339,8 +341,8 @@ export const WorkspaceSection = (): React.JSX.Element => {
           }}
         >
           <Server className="mx-auto mb-2 size-8 opacity-40" />
-          <p className="text-sm">No saved profiles</p>
-          <p className="mt-1 text-xs">Add an SSH profile to connect quickly</p>
+          <p className="text-sm">{t('settings.workspace.noSavedProfiles')}</p>
+          <p className="mt-1 text-xs">{t('settings.workspace.addSshProfile')}</p>
         </div>
       )}
 
@@ -395,7 +397,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs">
-                    Edit profile
+                    {t('settings.workspace.editProfile')}
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
@@ -409,7 +411,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs">
-                    Delete profile
+                    {t('settings.workspace.deleteProfile')}
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -438,7 +440,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
               }}
             >
               <Plus className="size-3.5" />
-              Add Profile
+              {t('settings.workspace.addProfile')}
             </button>
           )}
         </div>

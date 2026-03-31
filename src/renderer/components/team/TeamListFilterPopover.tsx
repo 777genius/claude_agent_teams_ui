@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- TeamListFilterState and EMPTY_TEAM_FILTER shared with TeamListView */
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
 import { Checkbox } from '@renderer/components/ui/checkbox';
@@ -37,6 +38,7 @@ export const TeamListFilterPopover = ({
   aliveTeams,
   onFilterChange,
 }: TeamListFilterPopoverProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const activeCount = useMemo(() => {
     let count = 0;
     if (filter.selectedStatuses.size > 0) count += 1;
@@ -95,7 +97,7 @@ export const TeamListFilterPopover = ({
               variant="ghost"
               size="sm"
               className="relative h-8 px-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-              aria-label="Filter teams"
+              aria-label={t('team.listFilter.filterTeams')}
             >
               <Filter size={14} />
               {activeCount > 0 && (
@@ -106,13 +108,13 @@ export const TeamListFilterPopover = ({
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="bottom">Filter teams</TooltipContent>
+        <TooltipContent side="bottom">{t('team.listFilter.filterTeams')}</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-72 p-0">
         {/* Status section */}
         <div className="border-b border-[var(--color-border)] p-3">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-            Status
+            {t('team.listFilter.status')}
           </p>
           <div className="space-y-1.5">
             {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- Radix Checkbox renders a button, not a native input */}
@@ -123,7 +125,7 @@ export const TeamListFilterPopover = ({
               />
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 rounded-full bg-emerald-400" />
-                Running
+                {t('team.listFilter.running')}
                 <span className="text-[var(--color-text-muted)]">({runningCount})</span>
               </span>
             </label>
@@ -135,7 +137,7 @@ export const TeamListFilterPopover = ({
               />
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 rounded-full bg-zinc-500" />
-                Offline
+                {t('team.listFilter.offline')}
                 <span className="text-[var(--color-text-muted)]">({offlineCount})</span>
               </span>
             </label>
@@ -146,7 +148,7 @@ export const TeamListFilterPopover = ({
         {uniqueProjects.length > 0 && (
           <div className="border-b border-[var(--color-border)] p-3">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-              Project
+              {t('team.listFilter.project')}
             </p>
             <div className="max-h-40 space-y-1.5 overflow-y-auto">
               {uniqueProjects.map((project) => (
@@ -175,7 +177,7 @@ export const TeamListFilterPopover = ({
             disabled={activeCount === 0}
             onClick={handleClearAll}
           >
-            Clear all
+            {t('team.listFilter.clearAll')}
           </Button>
         </div>
       </PopoverContent>

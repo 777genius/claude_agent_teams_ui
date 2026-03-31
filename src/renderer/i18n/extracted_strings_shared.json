@@ -1,0 +1,110 @@
+{
+  "slashCommands": {
+    "compact": "Compact conversation with optional focus instructions.",
+    "clear": "Clear conversation history and free up context.",
+    "cost": "Show token and cost information for the current session.",
+    "doctor": "Check the health of your Claude Code installation.",
+    "help": "Show available slash commands and usage tips.",
+    "init": "Initialize a new CLAUDE.md file in the current directory.",
+    "login": "Log in or switch accounts.",
+    "logout": "Log out from your current account.",
+    "memory": "Edit CLAUDE.md memory files.",
+    "review": "Review a pull request."
+  },
+
+  "agentMessageTypes": {
+    "idleNotification": "Idle",
+    "shutdownApproved": "Shutdown confirmed",
+    "teammateTerminated": "Terminated",
+    "shutdownRequest": "Shutdown requested",
+    "shutdownResponse": "Shutdown response",
+    "message": "Message",
+    "broadcast": "Broadcast",
+    "permissionRequest": "Permission request",
+    "permissionResponse": "Permission response",
+    "structuredMessageFallback": "Structured message"
+  },
+
+  "toolSummary": {
+    "toolSingular": "tool",
+    "toolPlural": "tools"
+  },
+
+  "reportAssessments": {
+    "explanations": {
+      "thrashing": {
+        "none": "No repeated commands or reworked files",
+        "mild": "1\u20132 thrashing signals detected",
+        "severe": "3+ thrashing signals detected"
+      },
+      "promptQuality": {
+        "wellSpecified": "Clear first message with low friction rate",
+        "moderateFriction": "Some corrections needed mid-session",
+        "underspecified": "Short initial prompt led to many corrections",
+        "verboseButUnclear": "Long initial prompt but still high friction"
+      },
+      "testTrajectory": {
+        "improving": "Test failures decreased over the session",
+        "stable": "Test results stayed roughly the same",
+        "regressing": "Test failures increased over the session",
+        "insufficientData": "Not enough test runs to determine trend"
+      }
+    },
+    "takeaways": {
+      "highCostPerCommit": "High cost per commit",
+      "highCostPerCommitDetail": "total \u2014 consider smaller, focused sessions",
+      "elevatedCostPerCommit": "Elevated cost per commit",
+      "elevatedCostPerCommitDetail": "Cost per commit is above typical range",
+      "lowCacheEfficiency": "Low cache efficiency",
+      "lowCacheEfficiencyDetail": "cache hit rate \u2014 prompt structure may reduce caching",
+      "toolReliabilityIssues": "Tool reliability issues",
+      "toolReliabilityIssuesDetail": "Multiple tool calls are failing \u2014 check error section for details",
+      "degradedToolHealth": "Degraded tool health",
+      "degradedToolHealthDetail": "Some tools have elevated failure rates",
+      "significantThrashing": "Significant thrashing detected",
+      "significantThrashingDetail": "Repeated commands and file rework suggest unclear direction",
+      "mildThrashing": "Mild thrashing detected",
+      "mildThrashingDetail": "Some repeated commands or file rework occurred",
+      "highIdleTime": "High idle time",
+      "highIdleTimeDetail": "of wall-clock time was idle",
+      "promptQualityIssues": "Prompt quality issues",
+      "promptQualityIssuesDetail": "friction rate \u2014 try more detailed initial prompts",
+      "contextWindowPressure": "Context window pressure",
+      "contextWindowPressureDetail": "occurred \u2014 session may lose early context",
+      "redundantFileReads": "Redundant file reads",
+      "redundantFileReadsDetail": "reads per unique file",
+      "testsRegressing": "Tests regressing",
+      "testsRegressingDetail": "Test failures increased over the session",
+      "sessionHealthy": "Session looks healthy",
+      "sessionHealthyDetail": "No significant issues detected across all metrics"
+    },
+    "sectionTitles": {
+      "costAnalysis": "Cost Analysis",
+      "tokenUsage": "Token Usage",
+      "toolUsage": "Tool Usage",
+      "frictionSignals": "Friction Signals",
+      "timelineActivity": "Timeline & Activity",
+      "qualitySignals": "Quality Signals",
+      "overview": "Overview"
+    },
+    "modelMismatch": {
+      "mechanicalRecommendation": "Consider using Haiku for mechanical tasks to reduce cost.",
+      "readOnlyRecommendation": "Consider using Haiku or Sonnet for read-only exploration tasks."
+    }
+  },
+
+  "sessionAnalyzer": {
+    "contextCompaction": "Context compaction/continuation",
+    "subagentsCombined": "Subagents (combined)",
+    "promptNotes": {
+      "underspecified": "Short initial prompt with multiple corrections suggests the task needed more upfront specification.",
+      "verboseButUnclear": "Initial prompt was detailed but still required corrections \u2014 consider restructuring for clarity.",
+      "wellSpecified": "Low friction \u2014 initial prompt effectively communicated intent.",
+      "moderateFriction": "Moderate friction detected \u2014 review correction patterns for improvement opportunities."
+    },
+    "compactionNotes": {
+      "compacted": "Session underwent compaction, which may have caused loss of earlier context. Check for repeated work after compaction events.",
+      "noCompaction": "No compaction occurred \u2014 session stayed within context limits."
+    }
+  }
+}

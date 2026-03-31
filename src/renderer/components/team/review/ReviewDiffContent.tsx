@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 
 import { highlightLines } from '@renderer/utils/syntaxHighlighter';
 import { diffLines } from 'diff';
+import { useTranslation } from 'react-i18next';
 
 import type { FileChangeSummary, SnippetDiff } from '@shared/types/review';
 
@@ -74,16 +75,17 @@ const SnippetDiffView = ({
   index: number;
   fileName: string;
 }) => {
+  const { t } = useTranslation();
   const lines = useMemo(() => buildHighlightedDiffLines(snippet, fileName), [snippet, fileName]);
 
   const toolLabel =
     snippet.type === 'write-new'
-      ? 'New file'
+      ? t('review.newFile')
       : snippet.type === 'write-update'
-        ? 'Full rewrite'
+        ? t('review.fullRewrite')
         : snippet.type === 'multi-edit'
-          ? 'Multi-edit'
-          : 'Edit';
+          ? t('review.multiEdit')
+          : t('review.edit');
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
@@ -134,6 +136,7 @@ const SnippetDiffView = ({
 // =============================================================================
 
 export const ReviewDiffContent = ({ file }: ReviewDiffContentProps) => {
+  const { t } = useTranslation();
   const nonErrorSnippets = useMemo(() => file.snippets.filter((s) => !s.isError), [file.snippets]);
 
   return (
@@ -148,7 +151,9 @@ export const ReviewDiffContent = ({ file }: ReviewDiffContentProps) => {
       ))}
 
       {nonErrorSnippets.length === 0 && (
-        <div className="py-8 text-center text-sm text-text-muted">No changes to display</div>
+        <div className="py-8 text-center text-sm text-text-muted">
+          {t('review.noChangesToDisplay')}
+        </div>
       )}
     </div>
   );

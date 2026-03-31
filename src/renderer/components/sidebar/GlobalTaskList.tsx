@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { confirm } from '@renderer/components/common/ConfirmDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
@@ -170,6 +171,7 @@ export const GlobalTaskList = ({
   filtersPopoverOpen: externalFiltersPopoverOpen,
   onFiltersPopoverOpenChange: externalOnFiltersPopoverOpenChange,
 }: GlobalTaskListProps = {}): React.JSX.Element => {
+  const { t } = useTranslation();
   const {
     globalTasks,
     globalTasksLoading,
@@ -267,10 +269,10 @@ export const GlobalTaskList = ({
 
   const handleDeleteTask = async (teamName: string, taskId: string): Promise<void> => {
     const confirmed = await confirm({
-      title: 'Delete task',
-      message: `Move task #${deriveTaskDisplayId(taskId)} to trash?`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      title: t('sidebar.globalTaskList.deleteTaskTitle'),
+      message: t('sidebar.globalTaskList.deleteTaskMessage', { id: deriveTaskDisplayId(taskId) }),
+      confirmLabel: t('sidebar.globalTaskList.delete'),
+      cancelLabel: t('sidebar.globalTaskList.cancel'),
       variant: 'danger',
     });
     if (confirmed) {
@@ -279,9 +281,9 @@ export const GlobalTaskList = ({
         await fetchAllTasks();
       } catch (err) {
         void confirm({
-          title: 'Failed to delete task',
-          message: err instanceof Error ? err.message : 'An unexpected error occurred',
-          confirmLabel: 'OK',
+          title: t('sidebar.globalTaskList.deleteFailedTitle'),
+          message: err instanceof Error ? err.message : t('sidebar.globalTaskList.unexpectedError'),
+          confirmLabel: t('sidebar.globalTaskList.ok'),
           variant: 'danger',
         });
       }
@@ -418,7 +420,9 @@ export const GlobalTaskList = ({
           className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5"
           style={{ borderColor: 'var(--color-border)' }}
         >
-          <span className="text-[12px] font-semibold text-text-secondary">Tasks</span>
+          <span className="text-[12px] font-semibold text-text-secondary">
+            {t('sidebar.globalTaskList.tasks')}
+          </span>
         </div>
       )}
 
@@ -431,7 +435,7 @@ export const GlobalTaskList = ({
         <input
           ref={searchInputRef}
           type="text"
-          placeholder="Search tasks..."
+          placeholder={t('sidebar.globalTaskList.searchTasks')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="min-w-0 flex-1 bg-transparent text-[12px] text-text placeholder:text-text-muted focus:outline-none"
@@ -502,7 +506,9 @@ export const GlobalTaskList = ({
         <div className="shrink-0 border-b" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex items-center gap-1 px-2 py-1">
             <Pin className="size-3 text-text-muted" />
-            <span className="text-[11px] text-text-muted">Pinned</span>
+            <span className="text-[11px] text-text-muted">
+              {t('sidebar.globalTaskList.pinned')}
+            </span>
           </div>
           {sortTasksByFreshness(pinnedTasks).map((task) => (
             <TaskContextMenu
@@ -532,10 +538,21 @@ export const GlobalTaskList = ({
 
       {/* Grouping mode — compact text toggle */}
       <div className="flex shrink-0 items-center gap-1.5 px-2 py-1">
-        <span className="shrink-0 text-[11px] text-text-muted">Group by:</span>
-        <div className="inline-flex gap-1 text-[11px]" role="group" aria-label="Group by">
+        <span className="shrink-0 text-[11px] text-text-muted">
+          {t('sidebar.globalTaskList.groupBy')}:
+        </span>
+        <div
+          className="inline-flex gap-1 text-[11px]"
+          role="group"
+          aria-label={t('sidebar.globalTaskList.groupBy')}
+        >
           {(['none', 'project', 'time'] as const).map((mode) => {
-            const label = mode === 'none' ? 'None' : mode === 'project' ? 'Project' : 'Time';
+            const label =
+              mode === 'none'
+                ? t('sidebar.globalTaskList.groupNone')
+                : mode === 'project'
+                  ? t('sidebar.globalTaskList.groupProject')
+                  : t('sidebar.globalTaskList.groupTime');
             return (
               <button
                 key={mode}
@@ -570,7 +587,9 @@ export const GlobalTaskList = ({
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                {showArchived ? 'Hide archived' : 'Show archived'}
+                {showArchived
+                  ? t('sidebar.globalTaskList.hideArchived')
+                  : t('sidebar.globalTaskList.showArchived')}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -591,7 +610,9 @@ export const GlobalTaskList = ({
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-text-muted">
             <ListTodo className="size-8 opacity-40" />
             <span className="text-[12px]">
-              {searchQuery || selectedProjectPath ? 'No matching tasks' : 'No tasks found'}
+              {searchQuery || selectedProjectPath
+                ? t('sidebar.globalTaskList.noMatchingTasks')
+                : t('sidebar.globalTaskList.noTasksFound')}
             </span>
           </div>
         )}
@@ -661,7 +682,7 @@ export const GlobalTaskList = ({
                       <div key={`${task.teamName}-${task.id}`}>
                         {showTeamHeader && (
                           <div className="px-3 pb-0.5 pt-1.5 text-[10px] font-medium text-text-muted">
-                            Team: {task.teamDisplayName}
+                            {t('sidebar.sidebarTaskItem.team')}: {task.teamDisplayName}
                           </div>
                         )}
                         <TaskContextMenu
@@ -729,7 +750,7 @@ export const GlobalTaskList = ({
                       <div key={`${task.teamName}-${task.id}`}>
                         {showTeamHeader && (
                           <div className="px-3 pb-0.5 pt-1.5 text-[10px] font-medium text-text-muted">
-                            Team: {task.teamDisplayName}
+                            {t('sidebar.sidebarTaskItem.team')}: {task.teamDisplayName}
                           </div>
                         )}
                         <TaskContextMenu

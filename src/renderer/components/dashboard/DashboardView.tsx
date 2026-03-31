@@ -8,6 +8,7 @@
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { Button } from '@renderer/components/ui/button';
@@ -54,6 +55,7 @@ interface CommandSearchProps {
 }
 
 const CommandSearch = ({ value, onChange }: Readonly<CommandSearchProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { openCommandPalette, selectedProjectId } = useStore(
@@ -107,7 +109,7 @@ const CommandSearch = ({ value, onChange }: Readonly<CommandSearchProps>): React
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Search projects..."
+          placeholder={t('dashboard.view.searchProjects')}
           className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-muted"
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
@@ -118,8 +120,8 @@ const CommandSearch = ({ value, onChange }: Readonly<CommandSearchProps>): React
           className="flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80"
           title={
             selectedProjectId
-              ? `Search in sessions (${formatShortcut('K')})`
-              : `Search projects (${formatShortcut('K')})`
+              ? t('dashboard.view.searchInSessions', { shortcut: formatShortcut('K') })
+              : t('dashboard.view.searchProjectsShortcut', { shortcut: formatShortcut('K') })
           }
         >
           <kbd className="flex h-5 items-center justify-center rounded border border-border bg-surface-overlay px-1.5 text-[10px] font-medium text-text-muted">
@@ -155,9 +157,10 @@ const RepositoryCard = ({
   tasksLoading,
   activeTeams,
 }: Readonly<RepositoryCardProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   const lastActivity = repo.mostRecentSession
     ? formatDistanceToNow(new Date(repo.mostRecentSession), { addSuffix: true })
-    : 'No recent activity';
+    : t('dashboard.view.noRecentActivity');
 
   const worktreeCount = repo.worktrees.length;
   const hasMultipleWorktrees = worktreeCount > 1;
@@ -263,7 +266,7 @@ const RepositoryCard = ({
         </h3>
         {isWorktreeProject && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[9px] font-medium text-purple-400">
-            {worktreeSourceLabel ?? 'Worktree'}
+            {worktreeSourceLabel ?? t('dashboard.view.worktree')}
           </span>
         )}
       </div>
@@ -285,7 +288,7 @@ const RepositoryCard = ({
               <FolderOpen className="size-3" />
             </div>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Open</TooltipContent>
+          <TooltipContent side="bottom">{t('dashboard.view.open')}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -327,17 +330,17 @@ const RepositoryCard = ({
               <span className="text-text-muted">·</span>
               {taskCounts.inProgress > 0 && (
                 <span className="inline-flex items-center rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                  {taskCounts.inProgress} active
+                  {taskCounts.inProgress} {t('dashboard.view.active')}
                 </span>
               )}
               {taskCounts.pending > 0 && (
                 <span className="inline-flex items-center rounded-full bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
-                  {taskCounts.pending} pending
+                  {taskCounts.pending} {t('dashboard.view.pending')}
                 </span>
               )}
               {taskCounts.completed > 0 && (
                 <span className="inline-flex items-center rounded-full bg-green-500/15 px-1.5 py-0.5 text-[10px] font-medium text-green-400">
-                  {taskCounts.completed} done
+                  {taskCounts.completed} {t('dashboard.view.done')}
                 </span>
               )}
             </>
@@ -373,7 +376,7 @@ const RepositoryCard = ({
                   aria-valuenow={completed}
                   aria-valuemin={0}
                   aria-valuemax={totalTasks}
-                  aria-label={`Tasks ${completed}/${totalTasks} completed`}
+                  aria-label={t('dashboard.view.tasksProgress', { completed, total: totalTasks })}
                 >
                   <div
                     className="h-full rounded-full bg-emerald-500 transition-all duration-200"
@@ -511,17 +514,19 @@ const NewProjectCard = (): React.JSX.Element => {
     }
   };
 
+  const { t } = useTranslation();
+
   return (
     <button
       className="hover:bg-surface/30 group relative flex min-h-[120px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-transparent p-4 transition-all duration-300 hover:border-border-emphasis"
       onClick={handleClick}
-      title="Select a project folder"
+      title={t('dashboard.view.selectProjectFolder')}
     >
       <div className="mb-2 flex size-8 items-center justify-center rounded-md border border-dashed border-border transition-colors duration-300 group-hover:border-border-emphasis">
         <FolderOpen className="size-4 text-text-muted transition-colors group-hover:text-text-secondary" />
       </div>
       <span className="text-xs text-text-muted transition-colors group-hover:text-text-secondary">
-        Select Folder
+        {t('dashboard.view.selectFolder')}
       </span>
     </button>
   );
@@ -543,6 +548,7 @@ const ProjectsGrid = ({
   searchQuery,
   maxProjects = INITIAL_RECENT_PROJECTS,
 }: Readonly<ProjectsGridProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   const {
     repositoryGroups,
     repositoryGroupsLoading,
@@ -714,14 +720,16 @@ const ProjectsGrid = ({
           <FolderGit2 className="size-6 text-text-muted" />
         </div>
         <div className="text-center">
-          <p className="mb-1 text-sm text-text-secondary">Failed to load projects</p>
+          <p className="mb-1 text-sm text-text-secondary">
+            {t('dashboard.view.failedToLoadProjects')}
+          </p>
           <p className="max-w-xl text-xs text-text-muted">{repositoryGroupsError}</p>
         </div>
         <button
           onClick={() => void fetchRepositoryGroups()}
           className="rounded-sm border border-border bg-surface-raised px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-border-emphasis hover:text-text"
         >
-          Retry
+          {t('dashboard.view.retry')}
         </button>
       </div>
     );
@@ -733,8 +741,10 @@ const ProjectsGrid = ({
         <div className="mb-4 flex size-12 items-center justify-center rounded-sm border border-border bg-surface-raised">
           <Search className="size-6 text-text-muted" />
         </div>
-        <p className="mb-1 text-sm text-text-secondary">No projects found</p>
-        <p className="text-xs text-text-muted">No matches for &quot;{searchQuery}&quot;</p>
+        <p className="mb-1 text-sm text-text-secondary">{t('dashboard.view.noProjectsFound')}</p>
+        <p className="text-xs text-text-muted">
+          {t('dashboard.view.noMatchesFor', { query: searchQuery })}
+        </p>
       </div>
     );
   }
@@ -745,7 +755,7 @@ const ProjectsGrid = ({
         <div className="mb-4 flex size-12 items-center justify-center rounded-sm border border-border bg-surface-raised">
           <FolderGit2 className="size-6 text-text-muted" />
         </div>
-        <p className="mb-1 text-sm text-text-secondary">No projects found</p>
+        <p className="mb-1 text-sm text-text-secondary">{t('dashboard.view.noProjectsFound')}</p>
         <p className="font-mono text-xs text-text-muted">~/.claude/projects/</p>
       </div>
     );
@@ -806,7 +816,7 @@ const ProjectsGrid = ({
             size="sm"
             onClick={() => setVisibleProjects((prev) => prev + LOAD_MORE_STEP)}
           >
-            Load more
+            {t('dashboard.view.loadMore')}
           </Button>
         </div>
       )}
@@ -819,6 +829,7 @@ const ProjectsGrid = ({
 // =============================================================================
 
 export const DashboardView = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const openTeamsTab = useStore((s) => s.openTeamsTab);
 
@@ -845,9 +856,9 @@ export const DashboardView = (): React.JSX.Element => {
             className="flex shrink-0 items-center gap-2 rounded-sm border border-border bg-surface-raised px-4 py-3 text-sm text-text-secondary transition-all duration-200 hover:border-zinc-500 hover:text-text"
           >
             <Users className="size-4" />
-            Select Team
+            {t('dashboard.view.selectTeam')}
           </button>
-          <span className="shrink-0 text-xs text-text-muted">or</span>
+          <span className="shrink-0 text-xs text-text-muted">{t('dashboard.view.or')}</span>
           <div className="flex-1">
             <CommandSearch value={searchQuery} onChange={setSearchQuery} />
           </div>
@@ -856,14 +867,16 @@ export const DashboardView = (): React.JSX.Element => {
         {/* Section header */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-            {searchQuery.trim() ? 'Search Results' : 'Recent Projects'}
+            {searchQuery.trim()
+              ? t('dashboard.view.searchResults')
+              : t('dashboard.view.recentProjects')}
           </h2>
           {searchQuery.trim() && (
             <button
               onClick={() => setSearchQuery('')}
               className="text-xs text-text-muted transition-colors hover:text-text-secondary"
             >
-              Clear search
+              {t('dashboard.view.clearSearch')}
             </button>
           )}
         </div>

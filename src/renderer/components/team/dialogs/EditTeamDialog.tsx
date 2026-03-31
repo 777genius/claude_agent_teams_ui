@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import {
@@ -74,6 +75,7 @@ export const EditTeamDialog = ({
   onClose,
   onSaved,
 }: EditTeamDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const { isLight } = useTheme();
   const [name, setName] = useState(currentName);
   const [description, setDescription] = useState(currentDescription);
@@ -124,8 +126,8 @@ export const EditTeamDialog = ({
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Edit Team</DialogTitle>
-          <DialogDescription>Change team name, description and color</DialogDescription>
+          <DialogTitle>{t('dialogs.editTeam.title')}</DialogTitle>
+          <DialogDescription>{t('dialogs.editTeam.description')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
@@ -134,7 +136,7 @@ export const EditTeamDialog = ({
               htmlFor="edit-team-name"
               className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]"
             >
-              Name
+              {t('dialogs.editTeam.nameLabel')}
             </label>
             <input
               id="edit-team-name"
@@ -145,7 +147,7 @@ export const EditTeamDialog = ({
                 if (e.key === 'Enter' && !saving && name.trim()) handleSave();
               }}
               className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-border-emphasis)]"
-              placeholder="Team name"
+              placeholder={t('dialogs.editTeam.namePlaceholder')}
             />
           </div>
           <div>
@@ -153,7 +155,7 @@ export const EditTeamDialog = ({
               htmlFor="edit-team-description"
               className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]"
             >
-              Description
+              {t('dialogs.editTeam.descriptionLabel')}
             </label>
             <textarea
               id="edit-team-description"
@@ -161,7 +163,7 @@ export const EditTeamDialog = ({
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               className="w-full resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-border-emphasis)]"
-              placeholder="Team description (optional)"
+              placeholder={t('dialogs.editTeam.descriptionPlaceholder')}
             />
           </div>
           <div>
@@ -178,7 +180,7 @@ export const EditTeamDialog = ({
           <div>
             {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- Color picker is a group of buttons, not a single input */}
             <label className="label-optional mb-1 block text-xs font-medium">
-              Color (optional)
+              {t('dialogs.editTeam.colorLabel')}
             </label>
             <div className="flex flex-wrap gap-2">
               {TEAM_COLOR_NAMES.map((colorName) => {
@@ -213,11 +215,11 @@ export const EditTeamDialog = ({
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('dialogs.editTeam.cancel')}
           </Button>
           <Button size="sm" onClick={handleSave} disabled={saving || !name.trim()}>
             {saving && <Loader2 size={14} className="mr-1.5 animate-spin" />}
-            Save
+            {t('dialogs.editTeam.save')}
           </Button>
         </DialogFooter>
       </DialogContent>

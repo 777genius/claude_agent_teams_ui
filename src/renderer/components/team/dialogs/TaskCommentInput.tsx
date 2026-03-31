@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { ImageLightbox } from '@renderer/components/team/attachments/ImageLightbox';
@@ -54,6 +55,7 @@ export const TaskCommentInput = ({
   replyTo,
   onClearReply,
 }: TaskCommentInputProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const addTaskComment = useStore((s) => s.addTaskComment);
   const addingComment = useStore((s) => s.addingComment);
   const projectPath = useStore((s) => s.selectedTeamData?.config.projectPath ?? null);
@@ -109,12 +111,14 @@ export const TaskCommentInput = ({
           continue;
         }
         if (file.size === 0) {
-          setAttachError(`File "${file.name}" is empty`);
+          setAttachError(t('dialogs.taskCommentInput.fileEmpty', { name: file.name }));
           continue;
         }
         if (file.size > MAX_FILE_SIZE) {
           setAttachError(
-            `File too large: ${(file.size / (1024 * 1024)).toFixed(1)} MB (max 20 MB)`
+            t('dialogs.taskCommentInput.fileTooLarge', {
+              size: (file.size / (1024 * 1024)).toFixed(1),
+            })
           );
           continue;
         }
@@ -138,7 +142,7 @@ export const TaskCommentInput = ({
         const id = crypto.randomUUID();
         setPendingAttachments((prev) => {
           if (prev.length >= MAX_ATTACHMENTS) {
-            setAttachError(`Maximum ${MAX_ATTACHMENTS} attachments per comment`);
+            setAttachError(t('dialogs.taskCommentInput.maxAttachments', { max: MAX_ATTACHMENTS }));
             return prev;
           }
           return [
@@ -245,11 +249,15 @@ export const TaskCommentInput = ({
                 <X size={12} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left">Cancel reply</TooltipContent>
+            <TooltipContent side="left">
+              {t('dialogs.taskCommentInput.cancelReplyTooltip')}
+            </TooltipContent>
           </Tooltip>
 
           <div className="mb-1 flex items-center gap-1.5">
-            <span className="text-[10px] text-blue-600/70 dark:text-blue-300/60">Replying to</span>
+            <span className="text-[10px] text-blue-600/70 dark:text-blue-300/60">
+              {t('dialogs.taskCommentInput.replyingTo')}
+            </span>
             <MemberBadge name={replyTo.author} color={colorMap.get(replyTo.author)} size="sm" />
           </div>
           <div
@@ -267,7 +275,9 @@ export const TaskCommentInput = ({
               className="mt-0.5 text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400/60 dark:hover:text-blue-300"
               onClick={() => setQuoteExpanded((v) => !v)}
             >
-              {quoteExpanded ? 'less' : 'more'}
+              {quoteExpanded
+                ? t('dialogs.taskCommentInput.less')
+                : t('dialogs.taskCommentInput.more')}
             </button>
           ) : null}
         </div>
@@ -347,7 +357,7 @@ export const TaskCommentInput = ({
         <MentionableTextarea
           id={`task-comment-${taskId}`}
           className={replyTo ? 'rounded-t-none' : undefined}
-          placeholder="Add a comment... (Enter to send)"
+          placeholder={t('dialogs.taskCommentInput.placeholder')}
           value={draft.value}
           onValueChange={draft.setValue}
           suggestions={mentionSuggestions}
@@ -375,7 +385,9 @@ export const TaskCommentInput = ({
                     <Paperclip size={14} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Attach file (or paste)</TooltipContent>
+                <TooltipContent side="top">
+                  {t('dialogs.taskCommentInput.attachTooltip')}
+                </TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -387,7 +399,9 @@ export const TaskCommentInput = ({
                     <Mic size={14} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Voice to text</TooltipContent>
+                <TooltipContent side="top">
+                  {t('dialogs.taskCommentInput.voiceTooltip')}
+                </TooltipContent>
               </Tooltip>
               <button
                 type="button"
@@ -396,7 +410,7 @@ export const TaskCommentInput = ({
                 onClick={() => void handleSubmit()}
               >
                 <Send size={12} />
-                Comment
+                {t('dialogs.taskCommentInput.comment')}
               </button>
             </div>
           }
@@ -406,11 +420,13 @@ export const TaskCommentInput = ({
                 <span
                   className={`text-[10px] ${remaining < 100 ? 'text-yellow-400' : 'text-[var(--color-text-muted)]'}`}
                 >
-                  {remaining} chars left
+                  {t('dialogs.taskCommentInput.charsLeft', { count: remaining })}
                 </span>
               ) : null}
               {draft.isSaved ? (
-                <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
+                <span className="text-[10px] text-[var(--color-text-muted)]">
+                  {t('dialogs.taskCommentInput.saved')}
+                </span>
               ) : null}
             </div>
           }

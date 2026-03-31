@@ -1,0 +1,98 @@
+{
+  "_meta": {
+    "source": "src/renderer/components/team/kanban/*.tsx",
+    "description": "Strings visibles al usuario en componentes Kanban, traducidos del ingles al espanol"
+  },
+
+  "KanbanBoard.tsx": {
+    "TODO": "POR HACER",
+    "IN PROGRESS": "EN PROGRESO",
+    "REVIEW": "REVISION",
+    "DONE": "HECHO",
+    "APPROVED": "APROBADO",
+    "Add task": "Agregar tarea",
+    "No tasks": "Sin tareas",
+    "Trash": "Papelera",
+    "Grid view": "Vista de cuadricula",
+    "Columns view": "Vista de columnas"
+  },
+
+  "KanbanColumn.tsx": {
+    "_note": "No contiene strings propios visibles; recibe title via props"
+  },
+
+  "KanbanFilterPopover.tsx": {
+    "Filter tasks": "Filtrar tareas",
+    "Session": "Sesion",
+    "All sessions": "Todas las sesiones",
+    "Teammate": "Companero",
+    "(unassigned)": "(sin asignar)",
+    "Column": "Columna",
+    "Clear all": "Limpiar todo",
+    "TODO_filter": "POR HACER",
+    "IN PROGRESS_filter": "EN PROGRESO",
+    "DONE_filter": "HECHO",
+    "REVIEW_filter": "REVISION",
+    "APPROVED_filter": "APROBADO"
+  },
+
+  "KanbanGridLayout.tsx": {
+    "_note": "No contiene strings visibles al usuario; es un componente de layout"
+  },
+
+  "KanbanSearchInput.tsx": {
+    "Search tasks... (#id or text)": "Buscar tareas... (#id o texto)",
+    "Clear search": "Limpiar busqueda",
+    "Tasks": "Tareas",
+    "created": "creado",
+    "updated": "actualizado"
+  },
+
+  "KanbanSortPopover.tsx": {
+    "Sort tasks": "Ordenar tareas",
+    "Sort by": "Ordenar por",
+    "Last updated": "Ultima actualizacion",
+    "Recently updated first": "Actualizados recientemente primero",
+    "Created": "Creado",
+    "Newest first": "Mas recientes primero",
+    "Owner": "Responsable",
+    "Alphabetically by assignee": "Alfabeticamente por asignado",
+    "Manual": "Manual",
+    "Drag-and-drop order": "Orden de arrastrar y soltar",
+    "Reset": "Restablecer"
+  },
+
+  "KanbanTaskCard.tsx": {
+    "Changes": "Cambios",
+    "No changes": "Sin cambios",
+    "Delete task": "Eliminar tarea",
+    "Cancel": "Cancelar",
+    "Move this task back to TODO and notify the team?": "Mover esta tarea de vuelta a POR HACER y notificar al equipo?",
+    "Confirm": "Confirmar",
+    "Keep": "Mantener",
+    "Start": "Iniciar",
+    "Complete": "Completar",
+    "Approve": "Aprobar",
+    "Request review": "Solicitar revision",
+    "Manual review": "Revision manual",
+    "Request changes": "Solicitar cambios",
+    "Disapprove": "Rechazar",
+    "Awaiting user": "Esperando al usuario",
+    "Awaiting lead": "Esperando al lider",
+    "Blocked by": "Bloqueado por",
+    "Blocks": "Bloquea"
+  },
+
+  "TrashDialog.tsx": {
+    "Trash_dialog_title": "Papelera",
+    "No deleted tasks": "Sin tareas eliminadas",
+    "#": "#",
+    "Subject": "Asunto",
+    "Owner_column": "Responsable",
+    "Deleted": "Eliminado",
+    "Restore": "Restaurar",
+    "Restore task": "Restaurar tarea",
+    "Close": "Cerrar",
+    "Unassigned": "Sin asignar"
+  }
+}

@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useStore } from '@renderer/store';
 import { ArrowUpCircle, X } from 'lucide-react';
@@ -15,6 +16,7 @@ import { useShallow } from 'zustand/react/shallow';
 const DISMISSED_KEY = 'update:dashboard-dismissed-version';
 
 export const DashboardUpdateBanner = (): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const { updateStatus, availableVersion, openUpdateDialog, installUpdate } = useStore(
     useShallow((s) => ({
       updateStatus: s.updateStatus,
@@ -57,7 +59,7 @@ export const DashboardUpdateBanner = (): React.JSX.Element | null => {
     >
       <ArrowUpCircle className="size-4 shrink-0 text-green-400" />
       <span className="flex-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-        New version available{' '}
+        {t('dashboard.update.newVersionAvailable')}{' '}
         {availableVersion && (
           <span className="font-medium text-green-400">v{availableVersion}</span>
         )}
@@ -70,7 +72,7 @@ export const DashboardUpdateBanner = (): React.JSX.Element | null => {
           color: '#4ade80',
         }}
       >
-        {isDownloaded ? 'Restart now' : 'View details'}
+        {isDownloaded ? t('dashboard.update.restartNow') : t('dashboard.update.viewDetails')}
       </button>
       <button
         onClick={handleDismiss}

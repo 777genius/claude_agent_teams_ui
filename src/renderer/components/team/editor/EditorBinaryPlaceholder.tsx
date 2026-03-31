@@ -5,6 +5,7 @@
 import { Button } from '@renderer/components/ui/button';
 import { useStore } from '@renderer/store';
 import { FileQuestion } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface EditorBinaryPlaceholderProps {
   filePath: string;
@@ -17,6 +18,7 @@ export const EditorBinaryPlaceholder = ({
   fileName,
   size,
 }: EditorBinaryPlaceholderProps): React.ReactElement => {
+  const { t } = useTranslation();
   const projectPath = useStore((s) => s.editorProjectPath);
   const sizeFormatted =
     size < 1024
@@ -33,9 +35,9 @@ export const EditorBinaryPlaceholder = ({
     <div className="flex h-full flex-col items-center justify-center gap-3 text-text-muted">
       <FileQuestion className="size-12 opacity-30" />
       <p className="text-sm font-medium text-text-secondary">{fileName}</p>
-      <p className="text-xs">Binary file ({sizeFormatted})</p>
+      <p className="text-xs">{t('editor.binaryPlaceholder.binaryFile', { size: sizeFormatted })}</p>
       <Button variant="outline" size="sm" className="mt-2" onClick={handleOpenExternal}>
-        Open in System Viewer
+        {t('editor.binaryPlaceholder.openInSystemViewer')}
       </Button>
     </div>
   );

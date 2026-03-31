@@ -6,6 +6,7 @@ import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
 import { getFileHunkCount } from '@renderer/store/slices/changeReviewSlice';
 import { buildTree, sortTreeNodes } from '@renderer/utils/fileTreeBuilder';
+import { useTranslation } from 'react-i18next';
 import {
   Check,
   ChevronRight,
@@ -70,14 +71,20 @@ function getFileStatus(
   return 'mixed';
 }
 
-const statusLabels: Record<FileStatus, string> = {
-  accepted: 'All changes accepted',
-  rejected: 'All changes rejected',
-  mixed: 'Partially reviewed',
-  pending: 'Pending review',
+const statusLabelKeys: Record<FileStatus, string> = {
+  accepted: 'review.fileTree.allChangesAccepted',
+  rejected: 'review.fileTree.allChangesRejected',
+  mixed: 'review.fileTree.partiallyReviewed',
+  pending: 'review.fileTree.pendingReview',
 };
 
-const FileStatusIcon = ({ status }: { status: FileStatus }): JSX.Element => {
+const FileStatusIcon = ({
+  status,
+  t,
+}: {
+  status: FileStatus;
+  t: (key: string) => string;
+}): JSX.Element => {
   const icon = (() => {
     switch (status) {
       case 'accepted':
@@ -97,7 +104,7 @@ const FileStatusIcon = ({ status }: { status: FileStatus }): JSX.Element => {
       <TooltipTrigger asChild>
         <span className="inline-flex shrink-0">{icon}</span>
       </TooltipTrigger>
-      <TooltipContent side="top">{statusLabels[status]}</TooltipContent>
+      <TooltipContent side="top">{t(statusLabelKeys[status])}</TooltipContent>
     </Tooltip>
   );
 };
@@ -115,6 +122,7 @@ const TreeItem = ({
   collapsedFolders,
   onToggleFolder,
   pathChangeLabels,
+  t,
 }: {
   node: TreeNode<FileChangeSummary>;
   selectedFilePath: string | null;
@@ -128,6 +136,7 @@ const TreeItem = ({
   collapsedFolders: Set<string>;
   onToggleFolder: (fullPath: string) => void;
   pathChangeLabels?: ReviewFileTreeProps['pathChangeLabels'];
+  t: (key: string, options?: Record<string, unknown>) => string;
 }): JSX.Element => {
   if (node.isFile && node.data) {
     const isSelected = node.data.filePath === selectedFilePath;
@@ -148,7 +157,7 @@ const TreeItem = ({
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
-        <FileStatusIcon status={status} />
+        <FileStatusIcon status={status} t={t} />
         <FileIcon fileName={node.name} className="size-3.5" />
         {viewedSet && viewedSet.has(node.data.filePath) && (
           <Tooltip>
@@ -157,7 +166,7 @@ const TreeItem = ({
                 <Eye className="size-3 shrink-0 text-blue-400" />
               </span>
             </TooltipTrigger>
-            <TooltipContent side="top">Viewed</TooltipContent>
+            <TooltipContent side="top">{t('review.fileTree.viewed')}</TooltipContent>
           </Tooltip>
         )}
         <span
@@ -205,7 +214,11 @@ const TreeItem = ({
         onClick={() => onToggleFolder(node.fullPath)}
         className="flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-xs text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        aria-label={isOpen ? `Collapse ${node.name}` : `Expand ${node.name}`}
+        aria-label={
+          isOpen
+            ? t('review.collapse', { name: node.name })
+            : t('review.expand', { name: node.name })
+        }
       >
         <ChevronRight
           size={12}
@@ -230,6 +243,7 @@ const TreeItem = ({
             collapsedFolders={collapsedFolders}
             onToggleFolder={onToggleFolder}
             pathChangeLabels={pathChangeLabels}
+            t={t}
           />
         ))}
     </div>
@@ -274,6 +288,7 @@ export const ReviewFileTree = ({
   viewedSet,
   activeFilePath,
 }: ReviewFileTreeProps): JSX.Element => {
+  const { t } = useTranslation();
   const hunkDecisions = useStore((state) => state.hunkDecisions);
   const fileDecisions = useStore((state) => state.fileDecisions);
   const fileChunkCounts = useStore((state) => state.fileChunkCounts);
@@ -374,7 +389,11 @@ export const ReviewFileTree = ({
   }, [activeFilePath]);
 
   if (files.length === 0) {
-    return <div className="p-4 text-center text-xs text-text-muted">No changed files</div>;
+    return (
+      <div className="p-4 text-center text-xs text-text-muted">
+        {t('review.fileTree.noChangedFiles')}
+      </div>
+    );
   }
 
   return (
@@ -385,7 +404,7 @@ export const ReviewFileTree = ({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search files…"
+            placeholder={t('review.fileTree.searchFilesPlaceholder')}
             className="h-8 w-full rounded border border-border bg-surface px-7 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           />
         </div>
@@ -401,7 +420,7 @@ export const ReviewFileTree = ({
                 : 'bg-surface-raised text-text-muted hover:text-text'
             )}
           >
-            Unresolved
+            {t('review.unresolved')}
           </button>
           <button
             type="button"
@@ -413,7 +432,7 @@ export const ReviewFileTree = ({
                 : 'bg-surface-raised text-text-muted hover:text-text'
             )}
           >
-            Rejected
+            {t('review.rejectedFilter')}
           </button>
           <button
             type="button"
@@ -425,7 +444,7 @@ export const ReviewFileTree = ({
                 : 'bg-surface-raised text-text-muted hover:text-text'
             )}
           >
-            New
+            {t('review.newFilter')}
           </button>
           {(filterUnresolved || filterRejected || filterNew || normalizedQuery.length > 0) && (
             <button
@@ -438,14 +457,16 @@ export const ReviewFileTree = ({
               }}
               className="ml-auto rounded px-2 py-1 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
             >
-              Clear
+              {t('review.clear')}
             </button>
           )}
         </div>
       </div>
 
       {filteredFiles.length === 0 ? (
-        <div className="flex-1 p-4 text-center text-xs text-text-muted">No matching files</div>
+        <div className="flex-1 p-4 text-center text-xs text-text-muted">
+          {t('review.fileTree.noMatchingFiles')}
+        </div>
       ) : (
         <div className="flex-1 overflow-y-auto py-1">
           {sortTreeNodes(tree).map((node) => (
@@ -463,6 +484,7 @@ export const ReviewFileTree = ({
               collapsedFolders={collapsedFolders}
               onToggleFolder={toggleFolder}
               pathChangeLabels={pathChangeLabels}
+              t={t}
             />
           ))}
         </div>

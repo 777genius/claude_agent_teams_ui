@@ -2,6 +2,8 @@
  * Formatting utility functions for display values.
  */
 
+import i18next from 'i18next';
+
 // Re-export token formatting from shared module
 export { formatTokensCompact } from '@shared/utils/tokenFormatting';
 
@@ -24,9 +26,9 @@ export function formatRelativeTime(isoString: string): string {
   const diffMin = Math.floor(diffMs / 60_000);
   const diffHours = Math.floor(diffMin / 60);
 
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffMin < 1) return i18next.t('utils.formatters.just_now');
+  if (diffMin < 60) return i18next.t('utils.formatters.minutes_ago', { n: diffMin });
+  if (diffHours < 24) return i18next.t('utils.formatters.hours_ago', { n: diffHours });
   return date.toLocaleDateString();
 }
 

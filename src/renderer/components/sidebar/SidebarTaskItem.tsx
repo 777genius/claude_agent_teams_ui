@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
@@ -77,6 +78,7 @@ export const SidebarTaskItem = ({
   onRenameCancel,
   getDisplaySubject,
 }: SidebarTaskItemProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const openGlobalTaskDetail = useStore((s) => s.openGlobalTaskDetail);
   const teamMembers = useStore((s) => s.teamByName[task.teamName]?.members);
   const unreadCount = useUnreadCommentCount(task.teamName, task.id, task.comments);
@@ -246,7 +248,7 @@ export const SidebarTaskItem = ({
               className="shrink-0 opacity-100 dark:opacity-60"
               style={ownerTextColor ? { color: ownerTextColor } : undefined}
             >
-              {task.owner ?? 'unassigned'}
+              {task.owner ?? t('sidebar.sidebarTaskItem.unassigned')}
             </span>
           </>
         )}
@@ -265,7 +267,9 @@ export const SidebarTaskItem = ({
           className="mt-0.5 flex w-full items-center gap-1.5 text-[10px] leading-tight"
           style={{ color: 'var(--color-text-muted)' }}
         >
-          <span className="shrink-0 opacity-100 dark:opacity-50">Team:</span>
+          <span className="shrink-0 opacity-100 dark:opacity-50">
+            {t('sidebar.sidebarTaskItem.team')}:
+          </span>
           <span className="shrink-0" style={teamColor ? { color: teamColor.text } : undefined}>
             {task.teamDisplayName}
           </span>
@@ -274,7 +278,7 @@ export const SidebarTaskItem = ({
             className="shrink-0 opacity-100 dark:opacity-60"
             style={ownerTextColor ? { color: ownerTextColor } : undefined}
           >
-            {task.owner ?? 'unassigned'}
+            {task.owner ?? t('sidebar.sidebarTaskItem.unassigned')}
           </span>
         </div>
       )}

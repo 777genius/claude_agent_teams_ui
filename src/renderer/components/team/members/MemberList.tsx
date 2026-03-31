@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { isLeadAgentType, isLeadMember } from '@shared/utils/leadDetection';

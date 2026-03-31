@@ -4,6 +4,8 @@
  * TabBar is now rendered in TabBarRow (above sidebar + content area).
  */
 
+import { useTranslation } from 'react-i18next';
+
 import { useDndContext } from '@dnd-kit/core';
 import { useStore } from '@renderer/store';
 import { MAX_PANES } from '@renderer/types/panes';
@@ -17,6 +19,7 @@ interface PaneViewProps {
 }
 
 export const PaneView = ({ paneId }: PaneViewProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const { pane, isFocused, paneCount, focusPane } = useStore(
     useShallow((s) => ({
       pane: s.paneLayout.panes.find((p) => p.id === paneId),
@@ -66,7 +69,7 @@ export const PaneView = ({ paneId }: PaneViewProps): React.JSX.Element => {
               color: 'var(--color-text-muted)',
             }}
           >
-            Maximum {MAX_PANES} panes reached
+            {t('layout.paneView.maxPanesReached', { count: MAX_PANES })}
           </div>
         </div>
       )}

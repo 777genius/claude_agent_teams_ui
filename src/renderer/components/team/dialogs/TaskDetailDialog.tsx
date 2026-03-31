@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
@@ -147,6 +148,7 @@ export const TaskDetailDialog = ({
   onDeleteTask,
   headerExtra,
 }: TaskDetailDialogProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const colorMap = useMemo(() => buildMemberColorMap(members), [members]);
   const { isLight } = useTheme();
   const currentTask = task ? (taskMap.get(task.id) ?? task) : null;
@@ -562,11 +564,11 @@ export const TaskDetailDialog = ({
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
         <DialogContent className="sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Loading task…</DialogTitle>
+            <DialogTitle>{t('dialogs.taskDetail.loadingTitle')}</DialogTitle>
           </DialogHeader>
           <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
             <Loader2 className="size-4 animate-spin" />
-            <span>Fetching team data</span>
+            <span>{t('dialogs.taskDetail.fetchingTeam')}</span>
           </div>
         </DialogContent>
       </Dialog>
@@ -578,7 +580,7 @@ export const TaskDetailDialog = ({
       <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
         <DialogContent className="sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Task not found</DialogTitle>
+            <DialogTitle>{t('dialogs.taskDetail.notFoundTitle')}</DialogTitle>
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -779,7 +781,9 @@ export const TaskDetailDialog = ({
                   size="md"
                 />
               ) : (
-                <span className="text-xs italic text-[var(--color-text-muted)]">Unassigned</span>
+                <span className="text-xs italic text-[var(--color-text-muted)]">
+                  {t('dialogs.taskDetail.unassigned')}
+                </span>
               )}
             </div>
             {currentTask.createdBy ? (
@@ -812,7 +816,7 @@ export const TaskDetailDialog = ({
                 }}
               >
                 <Trash2 size={12} />
-                Delete
+                {t('dialogs.taskDetail.delete')}
               </Button>
             ) : null}
           </div>
@@ -829,8 +833,8 @@ export const TaskDetailDialog = ({
               <span className="flex items-center gap-1.5">
                 <HelpCircle size={14} />
                 {currentTask.needsClarification === 'user'
-                  ? 'Awaiting clarification from you'
-                  : 'Awaiting clarification from team lead'}
+                  ? t('dialogs.taskDetail.awaitingClarificationUser')
+                  : t('dialogs.taskDetail.awaitingClarificationLead')}
               </span>
               <Button
                 variant="ghost"
@@ -841,7 +845,7 @@ export const TaskDetailDialog = ({
                   void setTaskNeedsClarification(teamName, currentTask.id, null);
                 }}
               >
-                Mark resolved
+                {t('dialogs.taskDetail.markResolved')}
               </Button>
             </div>
           ) : null}
@@ -856,14 +860,16 @@ export const TaskDetailDialog = ({
               {(relatedIds.length > 0 || relatedByIds.length > 0) && (
                 <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-muted)]">
                   <Link2 size={12} />
-                  Related tasks
+                  {t('dialogs.taskDetail.relatedTasksLabel')}
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                 {relatedIds.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs text-[var(--color-text-muted)]">Links</span>
+                    <span className="text-xs text-[var(--color-text-muted)]">
+                      {t('dialogs.taskDetail.linksLabel')}
+                    </span>
                     {relatedIds.map((id) => {
                       const depTask = taskMap.get(id);
                       const label = depTask
@@ -891,7 +897,9 @@ export const TaskDetailDialog = ({
 
                 {relatedByIds.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs text-[var(--color-text-muted)]">Linked from</span>
+                    <span className="text-xs text-[var(--color-text-muted)]">
+                      {t('dialogs.taskDetail.linkedFromLabel')}
+                    </span>
                     {relatedByIds.map((id) => {
                       const depTask = taskMap.get(id);
                       const label = depTask
@@ -921,7 +929,7 @@ export const TaskDetailDialog = ({
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-flex items-center gap-0.5 text-xs text-yellow-700 dark:text-yellow-300">
                       <ArrowLeftFromLine size={12} />
-                      Blocked by
+                      {t('dialogs.taskDetail.blockedByLabel')}
                     </span>
                     {blockedByIds.map((id) => {
                       const depTask = taskMap.get(id);
@@ -957,7 +965,7 @@ export const TaskDetailDialog = ({
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-flex items-center gap-0.5 text-xs text-blue-600 dark:text-blue-400">
                       <ArrowRightFromLine size={12} />
-                      Blocks
+                      {t('dialogs.taskDetail.blocksLabel')}
                     </span>
                     {blocksIds.map((id) => {
                       const depTask = taskMap.get(id);
@@ -996,7 +1004,7 @@ export const TaskDetailDialog = ({
           <div className="min-w-0 space-y-1">
             {/* Description */}
             <CollapsibleTeamSection
-              title="Description"
+              title={t('dialogs.taskDetail.descriptionTitle')}
               icon={<AlignLeft size={14} />}
               contentClassName="pl-2.5"
               headerClassName="-mx-6 w-[calc(100%+3rem)]"
@@ -1008,7 +1016,7 @@ export const TaskDetailDialog = ({
                   <TiptapEditor
                     content={descriptionDraft}
                     onChange={setDescriptionDraft}
-                    placeholder="Task description (supports markdown)"
+                    placeholder={t('dialogs.taskDetail.descriptionPlaceholder')}
                     autoFocus
                     minHeight="120px"
                     maxHeight="200px"
@@ -1027,7 +1035,7 @@ export const TaskDetailDialog = ({
                       ) : (
                         <Check size={12} className="mr-1" />
                       )}
-                      Save
+                      {t('dialogs.taskDetail.save')}
                     </Button>
                     <Button
                       variant="ghost"
@@ -1037,7 +1045,7 @@ export const TaskDetailDialog = ({
                       onClick={() => setEditingDescription(false)}
                     >
                       <X size={12} className="mr-1" />
-                      Cancel
+                      {t('dialogs.taskDetail.cancel')}
                     </Button>
                   </div>
                 </div>
@@ -1081,7 +1089,9 @@ export const TaskDetailDialog = ({
                         <Pencil size={12} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">Edit description</TooltipContent>
+                    <TooltipContent side="top">
+                      {t('dialogs.taskDetail.editDescriptionTooltip')}
+                    </TooltipContent>
                   </Tooltip>
                 </div>
               ) : (
@@ -1090,14 +1100,14 @@ export const TaskDetailDialog = ({
                   className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
                   onClick={startEditDescription}
                 >
-                  Click to add description...
+                  {t('dialogs.taskDetail.addDescription')}
                 </button>
               )}
             </CollapsibleTeamSection>
 
             {/* Attachments */}
             <CollapsibleTeamSection
-              title="Attachments"
+              title={t('dialogs.taskDetail.attachmentsTitle')}
               icon={<ImageIcon size={14} />}
               badge={
                 (currentTask.attachments?.length ?? 0) +
@@ -1143,7 +1153,7 @@ export const TaskDetailDialog = ({
             {variant === 'team' && canShowTaskChanges && onViewChanges ? (
               <CollapsibleTeamSection
                 key={`task-changes:${currentTask.id}`}
-                title="Changes"
+                title={t('dialogs.taskDetail.changesTitle')}
                 icon={<FileDiff size={14} />}
                 badge={taskChangesFiles ? taskChangesFiles.length : undefined}
                 headerExtra={
@@ -1158,7 +1168,7 @@ export const TaskDetailDialog = ({
                             handleRefreshChanges();
                           }}
                           disabled={taskChangesLoading}
-                          aria-label="Refresh changes"
+                          aria-label={t('dialogs.taskDetail.refreshAriaLabel')}
                         >
                           <RefreshCw
                             size={12}
@@ -1166,7 +1176,9 @@ export const TaskDetailDialog = ({
                           />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Refresh</TooltipContent>
+                      <TooltipContent side="top">
+                        {t('dialogs.taskDetail.refreshTooltip')}
+                      </TooltipContent>
                     </Tooltip>
                   ) : null
                 }
@@ -1179,7 +1191,7 @@ export const TaskDetailDialog = ({
                 {taskChangesLoading && (!taskChangesFiles || taskChangesFiles.length === 0) ? (
                   <div className="flex items-center gap-2 py-2 text-xs text-[var(--color-text-muted)]">
                     <Loader2 size={14} className="animate-spin" />
-                    Loading changes...
+                    {t('dialogs.taskDetail.loadingChanges')}
                   </div>
                 ) : taskChangesError ? (
                   <p className="text-xs text-red-400">{taskChangesError}</p>
@@ -1226,7 +1238,9 @@ export const TaskDetailDialog = ({
                                 <GitCompareArrows size={13} />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="top">Review diff</TooltipContent>
+                            <TooltipContent side="top">
+                              {t('dialogs.taskDetail.reviewDiffTooltip')}
+                            </TooltipContent>
                           </Tooltip>
                           {onOpenInEditor ? (
                             <Tooltip>
@@ -1239,7 +1253,9 @@ export const TaskDetailDialog = ({
                                   <SquarePen size={13} />
                                 </button>
                               </TooltipTrigger>
-                              <TooltipContent side="top">Open in editor</TooltipContent>
+                              <TooltipContent side="top">
+                                {t('dialogs.taskDetail.openInEditorTooltip')}
+                              </TooltipContent>
                             </Tooltip>
                           ) : null}
                         </span>
@@ -1247,7 +1263,9 @@ export const TaskDetailDialog = ({
                     ))}
                   </div>
                 ) : changesSectionOpen ? (
-                  <p className="text-xs text-[var(--color-text-muted)]">No file changes detected</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    {t('dialogs.taskDetail.noChanges')}
+                  </p>
                 ) : null}
               </CollapsibleTeamSection>
             ) : null}
@@ -1256,7 +1274,7 @@ export const TaskDetailDialog = ({
             {variant === 'team' ? (
               <CollapsibleTeamSection
                 key={`task-logs:${currentTask.id}`}
-                title="Execution Logs"
+                title={t('dialogs.taskDetail.executionLogsTitle')}
                 icon={<ScrollText size={14} />}
                 headerExtra={
                   logsRefreshing || executionPreviewOnline ? (
@@ -1264,7 +1282,7 @@ export const TaskDetailDialog = ({
                       {executionPreviewOnline ? (
                         <span
                           className="pointer-events-none relative inline-flex size-2 shrink-0"
-                          title="Online"
+                          title={t('dialogs.taskDetail.onlineTitle')}
                         >
                           <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
                           <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
@@ -1273,7 +1291,7 @@ export const TaskDetailDialog = ({
                       {logsRefreshing ? (
                         <span className="flex items-center gap-1">
                           <Loader2 size={10} className="animate-spin" />
-                          Updating...
+                          {t('dialogs.taskDetail.updating')}
                         </span>
                       ) : null}
                     </span>
@@ -1312,7 +1330,7 @@ export const TaskDetailDialog = ({
                 <div className="flex items-center gap-2">
                   {kanbanTaskState.reviewer ? (
                     <span className="text-xs text-[var(--color-text-secondary)]">
-                      Reviewer: {kanbanTaskState.reviewer}
+                      {t('dialogs.taskDetail.reviewerLabel', { name: kanbanTaskState.reviewer })}
                     </span>
                   ) : null}
                   {kanbanTaskState.errorDescription ? (
@@ -1325,7 +1343,7 @@ export const TaskDetailDialog = ({
             {/* Workflow History */}
             {currentTask.historyEvents && currentTask.historyEvents.length > 0 ? (
               <CollapsibleTeamSection
-                title="Workflow History"
+                title={t('dialogs.taskDetail.workflowHistoryTitle')}
                 icon={<History size={14} />}
                 badge={currentTask.historyEvents.length}
                 contentClassName="pl-2.5"
@@ -1339,7 +1357,7 @@ export const TaskDetailDialog = ({
 
             {/* Comments */}
             <CollapsibleTeamSection
-              title="Comments"
+              title={t('dialogs.taskDetail.commentsTitle')}
               icon={<MessageSquare size={14} />}
               badge={
                 (currentTask.comments?.length ?? 0) > 0
@@ -1408,6 +1426,7 @@ const CommentImagesGrid = ({
   teamName: string;
   taskId: string;
 }): React.JSX.Element => {
+  const { t } = useTranslation();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   return (
@@ -1415,7 +1434,7 @@ const CommentImagesGrid = ({
       <div className="flex items-center gap-1.5">
         <MessageSquare size={12} className="text-[var(--color-text-muted)]" />
         <span className="text-[11px] font-medium text-[var(--color-text-muted)]">
-          From comments
+          {t('dialogs.taskDetail.fromComments')}
         </span>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -1434,7 +1453,7 @@ const CommentImagesGrid = ({
           open
           onClose={() => setPreviewUrl(null)}
           src={previewUrl}
-          alt="Comment attachment"
+          alt={t('dialogs.taskDetail.commentAttachment')}
         />
       ) : null}
     </div>

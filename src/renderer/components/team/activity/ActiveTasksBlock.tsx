@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { CARD_BG, CARD_BORDER_STYLE, CARD_ICON_MUTED } from '@renderer/constants/cssVariables';
 import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
@@ -37,6 +38,7 @@ export const ActiveTasksBlock = ({
   onMemberClick,
   onTaskClick,
 }: ActiveTasksBlockProps): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const { isLight } = useTheme();
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const colorMap = buildMemberColorMap(members);
@@ -74,13 +76,17 @@ export const ActiveTasksBlock = ({
         type="button"
         className="flex w-full items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
         onClick={() => setCollapsed((v) => !v)}
-        aria-label={collapsed ? 'Expand in progress' : 'Collapse in progress'}
+        aria-label={
+          collapsed
+            ? t('activity.activeTasks.expandAriaLabel')
+            : t('activity.activeTasks.collapseAriaLabel')
+        }
       >
         <ChevronRight
           size={10}
           className={`shrink-0 transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
         />
-        <span>In progress</span>
+        <span>{t('activity.activeTasks.inProgress')}</span>
         {collapsed && (
           <span className="rounded-full bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums leading-none text-[var(--color-text-muted)]">
             {entries.length}
@@ -95,7 +101,10 @@ export const ActiveTasksBlock = ({
           );
           const dotPing = kind === 'reviewing' ? 'bg-amber-400' : 'bg-emerald-400';
           const dotSolid = kind === 'reviewing' ? 'bg-amber-500' : 'bg-emerald-500';
-          const activityLabel = kind === 'reviewing' ? 'reviewing' : 'working on';
+          const activityLabel =
+            kind === 'reviewing'
+              ? t('activity.activeTasks.reviewing')
+              : t('activity.activeTasks.workingOn');
 
           return (
             <article

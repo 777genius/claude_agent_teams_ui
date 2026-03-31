@@ -5,6 +5,7 @@
  */
 
 import { Fragment, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { isElectronMode } from '@renderer/api';
 import { HEADER_ROW1_HEIGHT } from '@renderer/constants/layout';
@@ -16,6 +17,7 @@ import { TabBar } from './TabBar';
 import { TabBarActions } from './TabBarActions';
 
 export const TabBarRow = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const { panes, focusedPaneId, openDashboard } = useStore(
     useShallow((s) => ({
       panes: s.paneLayout.panes,
@@ -82,7 +84,7 @@ export const TabBarRow = (): React.JSX.Element => {
               backgroundColor: newTabHover ? 'var(--color-surface-raised)' : 'transparent',
             } as React.CSSProperties
           }
-          title="New tab (Dashboard)"
+          title={t('layout.tabBarRow.newTabDashboard')}
         >
           <Plus className="size-4" />
         </button>

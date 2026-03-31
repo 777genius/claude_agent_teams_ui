@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
 import { MemberExecutionLog } from '@renderer/components/team/members/MemberExecutionLog';
@@ -107,6 +108,7 @@ export const MemberLogsTab = ({
   showLeadPreview = false,
   onPreviewOnlineChange,
 }: MemberLogsTabProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const MIN_REFRESH_VISIBLE_MS = 250;
   const intervalsKey = useMemo(
     () => (taskWorkIntervals ? JSON.stringify(taskWorkIntervals) : ''),
@@ -639,7 +641,7 @@ export const MemberLogsTab = ({
     return (
       <div className="flex items-center justify-center gap-2 py-8 text-xs text-[var(--color-text-muted)]">
         <Loader2 size={14} className="animate-spin" />
-        Searching logs...
+        {t('members.logs.searchingLogs')}
       </div>
     );
   }
@@ -657,13 +659,13 @@ export const MemberLogsTab = ({
     return (
       <div className="py-8 text-center text-xs text-[var(--color-text-muted)]">
         <FileText size={20} className="mx-auto mb-2 opacity-40" />
-        No logs found
+        {t('members.logs.noLogsFound')}
         <p className="mt-1 text-[10px] opacity-60">
           {taskId != null
             ? taskStatus === 'in_progress'
-              ? 'Task is in progress — waiting for session activity (auto-refreshing)...'
-              : 'No session activity for this task yet'
-            : 'This member has no recorded session activity yet'}
+              ? t('members.logs.taskInProgressWaiting')
+              : t('members.logs.noSessionActivityTask')
+            : t('members.logs.noSessionActivityMember')}
         </p>
       </div>
     );
@@ -708,6 +710,7 @@ const LogCard = ({
   detailLoading,
   onToggle,
 }: LogCardProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const createdAgo = formatRelativeTime(log.startTime);
   const lastActivityTime = useMemo(() => {
     const startMs = new Date(log.startTime).getTime();
@@ -757,8 +760,7 @@ const LogCard = ({
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-[240px] text-center">
-                      Full team lead session logs — useful for global orchestration context, not
-                      specific to this agent
+                      {t('members.logs.leadSessionTooltip')}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -770,7 +772,9 @@ const LogCard = ({
                       <Clock size={10} />
                       {updatedAgo}
                     </span>
-                    <span style={{ opacity: 0.4 }}>started {createdAgo}</span>
+                    <span style={{ opacity: 0.4 }}>
+                      {t('members.logs.started')} {createdAgo}
+                    </span>
                   </>
                 ) : (
                   <span className="flex items-center gap-1">
@@ -784,7 +788,9 @@ const LogCard = ({
                   {log.messageCount}
                 </span>
                 {log.isOngoing && (
-                  <span className="rounded-full bg-green-500/20 px-1.5 text-green-400">active</span>
+                  <span className="rounded-full bg-green-500/20 px-1.5 text-green-400">
+                    {t('members.logs.active')}
+                  </span>
                 )}
               </div>
               {log.lastOutputPreview && !expanded && (
@@ -798,7 +804,9 @@ const LogCard = ({
             </div>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{expanded ? 'Hide details' : 'Show details'}</TooltipContent>
+        <TooltipContent side="bottom">
+          {expanded ? t('members.logs.hideDetails') : t('members.logs.showDetails')}
+        </TooltipContent>
       </Tooltip>
 
       {expanded && (
@@ -806,12 +814,12 @@ const LogCard = ({
           {detailLoading && (
             <div className="flex items-center gap-2 py-4 text-xs text-[var(--color-text-muted)]">
               <Loader2 size={12} className="animate-spin" />
-              Loading details...
+              {t('members.logs.loadingDetails')}
             </div>
           )}
           {!detailLoading && !detailChunks && (
             <div className="py-4 text-xs text-[var(--color-text-muted)]">
-              Failed to load details
+              {t('members.logs.failedToLoadDetails')}
             </div>
           )}
           {!detailLoading && detailChunks && (

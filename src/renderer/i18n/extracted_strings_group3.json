@@ -1,0 +1,865 @@
+{
+  "chat": {
+    "compactBoundary": {
+      "toggleCompactedContent": "Toggle compacted content"
+    },
+    "contextBadge": {
+      "contextInjectionDetails": "Context injection details",
+      "userMessages": "User Messages",
+      "claudeMdFiles": "CLAUDE.md Files",
+      "mentionedFiles": "Mentioned Files",
+      "toolOutputs": "Tool Outputs",
+      "taskCoordination": "Task Coordination",
+      "thinkingPlusText": "Thinking + Text",
+      "context": "Context",
+      "totalNewTokens": "Total new tokens",
+      "thinking": "Thinking",
+      "text": "Text"
+    },
+    "displayItemList": {
+      "inputLabel": "Input"
+    },
+    "chatHistory": {
+      "scrollToBottom": "Scroll to bottom",
+      "bottom": "Bottom"
+    },
+    "chatHistoryEmptyState": {
+      "noConversationHistory": "No conversation history",
+      "noMessagesYet": "This session does not contain any messages yet."
+    },
+    "chatHistoryLoadingState": {},
+    "lastOutputDisplay": {},
+    "viewers": {
+      "markdownViewer": {
+        "largeContentRawWarning": "Large content is shown as raw to prevent UI freeze",
+        "renderMarkdown": "Render markdown",
+        "rawPreview": "Raw preview"
+      },
+      "diffViewer": {
+        "changed": "Changed"
+      },
+      "codeBlockViewer": {
+        "copyToClipboard": "Copy to clipboard"
+      },
+      "mermaidDiagram": {
+        "syntaxError": "Mermaid syntax error"
+      }
+    },
+    "items": {
+      "textItem": {
+        "outputLabel": "Output"
+      },
+      "thinkingItem": {
+        "thinkingLabel": "Thinking"
+      },
+      "slashItem": {
+        "slashOutput": "Slash Output"
+      },
+      "metricsPill": {
+        "mainContext": "Main Context",
+        "subagentContext": "Subagent Context",
+        "contextWindow": "Context Window",
+        "parentInjectionTooltip": "Left: parent injection \u00b7 Right: internal",
+        "tokensInjectedToParent": "Tokens injected to parent",
+        "internalTokenUsage": "Internal token usage"
+      },
+      "subagentItem": {
+        "subagent": "Subagent",
+        "task": "Task",
+        "type": "Type",
+        "duration": "Duration",
+        "model": "Model",
+        "id": "ID"
+      },
+      "teammateMessageItem": {
+        "message": "Message",
+        "teammateMessage": "Teammate message"
+      },
+      "linkedTool": {
+        "writeToolViewer": {
+          "createdFile": "Created file",
+          "wroteToFile": "Wrote to file",
+          "markdownPreview": "Markdown Preview"
+        },
+        "readToolViewer": {
+          "markdownPreview": "Markdown Preview"
+        },
+        "skillToolViewer": {
+          "unknownSkill": "Unknown Skill"
+        },
+        "collapsibleOutputSection": {
+          "output": "Output"
+        }
+      },
+      "executionTrace": {
+        "inputLabel": "Input"
+      }
+    },
+    "sessionContextPanel": {
+      "header": {
+        "closePanel": "Close panel",
+        "visible": "Visible: ",
+        "input": "Input: ",
+        "sessionCost": "Session Cost: "
+      },
+      "sections": {
+        "userMessages": "User Messages",
+        "mentionedFiles": "Mentioned Files",
+        "claudeMdFiles": "CLAUDE.md Files",
+        "toolOutputs": "Tool Outputs",
+        "taskCoordination": "Task Coordination",
+        "thinkingPlusText": "Thinking + Text"
+      },
+      "categoryLabels": {
+        "claudeMd": "CLAUDE.md",
+        "file": "File",
+        "tool": "Tool",
+        "thinking": "Thinking",
+        "team": "Team",
+        "user": "User"
+      },
+      "helpTooltip": {
+        "shortenClaudeMd": "Shorten large CLAUDE.md files",
+        "splitMentionedFiles": "Split large @-mentioned files",
+        "adjustMcpVerbosity": "Adjust MCP tool output verbosity"
+      },
+      "thinkingTextItem": {
+        "thinking": "Thinking",
+        "text": "Text"
+      }
+    }
+  },
+  "extensions": {
+    "extensionStoreView": {
+      "title": "Extensions",
+      "desktopOnly": "Available in the desktop app only.",
+      "refreshCatalog": "Refresh catalog",
+      "tabs": {
+        "plugins": "Plugins",
+        "pluginsDescription": "Small add-ons for Claude. They give the app extra features and integrations you can install when you need them.",
+        "mcpServers": "MCP Servers",
+        "mcpServersDescription": "Connections to outside tools and apps. They let Claude read data or do actions beyond this app.",
+        "skills": "Skills",
+        "skillsDescription": "Ready-made instructions for common jobs. They help Claude do specific tasks better and more consistently.",
+        "apiKeys": "API Keys",
+        "apiKeysDescription": "Secret keys for online services. Add them here so plugins, servers, and integrations can connect and work."
+      }
+    },
+    "plugins": {
+      "pluginsPanel": {
+        "searchPlaceholder": "Search plugins...",
+        "sortPopular": "Popular",
+        "sortNameAZ": "Name A-Z",
+        "sortNameZA": "Name Z-A",
+        "sortCategory": "Category",
+        "noPluginsMatchFilters": "No plugins match your filters",
+        "noPluginsAvailable": "No plugins available",
+        "tryAdjustingFilters": "Try adjusting your search or filter criteria",
+        "checkBackLater": "Check back later for new plugins",
+        "browseByFit": "Browse by fit"
+      },
+      "pluginDetailDialog": {
+        "scopeUserGlobal": "User (global)",
+        "scopeProject": "Project",
+        "author": "Author",
+        "category": "Category",
+        "source": "Source",
+        "version": "Version",
+        "capabilities": "Capabilities",
+        "installs": "Installs",
+        "scope": "Scope:",
+        "noReadmeAvailable": "No README available."
+      }
+    },
+    "apiKeys": {
+      "apiKeysPanel": {
+        "noApiKeysSaved": "No API keys saved"
+      },
+      "apiKeyFormDialog": {
+        "scopeUserGlobal": "User (global)",
+        "scopeProject": "Project",
+        "editApiKey": "Edit API Key",
+        "addApiKey": "Add API Key",
+        "updateDescription": "Update the key details. You must re-enter the value.",
+        "addDescription": "Store an API key for auto-filling in MCP server installations.",
+        "namePlaceholder": "e.g. OpenAI Production",
+        "envVarPlaceholder": "e.g. OPENAI_API_KEY",
+        "reEnterKeyValue": "Re-enter key value",
+        "keyValuePlaceholder": "sk-...",
+        "saving": "Saving...",
+        "update": "Update",
+        "save": "Save",
+        "scopeLabel": "Scope",
+        "nameRequired": "Name is required",
+        "envVarRequired": "Environment variable name is required",
+        "invalidEnvVar": "Invalid environment variable name",
+        "keyValueRequired": "Key value is required",
+        "failedToSave": "Failed to save",
+        "envVarFormatError": "Use letters, digits, underscores. Must start with a letter or underscore."
+      },
+      "apiKeyCard": {
+        "copied": "Copied!",
+        "copyEnvVarName": "Copy env var name",
+        "clickAgainToConfirm": "Click again to confirm",
+        "delete": "Delete",
+        "edit": "Edit"
+      }
+    },
+    "mcp": {
+      "mcpServersPanel": {
+        "searchPlaceholder": "Search MCP servers...",
+        "sortNameAZ": "Name A\u2192Z",
+        "sortNameZA": "Name Z\u2192A",
+        "sortMostTools": "Most tools",
+        "checking": "Checking...",
+        "checkStatus": "Check Status",
+        "noServersFound": "No servers found",
+        "noMcpServersAvailable": "No MCP servers available",
+        "tryDifferentSearch": "Try a different search term",
+        "checkBackLaterServers": "Check back later for new servers",
+        "mcpHealthStatus": "MCP Health Status",
+        "claudeMcpListResults": "Claude MCP List Results",
+        "waitingForResults": "Waiting for `claude mcp list` results...",
+        "claudeCliNotInstalled": "Claude CLI not installed"
+      },
+      "customMcpServerDialog": {
+        "scopeUserGlobal": "User (global)",
+        "scopeLocal": "Local",
+        "transportStreamableHttp": "Streamable HTTP",
+        "transportSse": "SSE",
+        "transportHttp": "HTTP",
+        "addCustomMcpServer": "Add Custom MCP Server",
+        "addServerDescription": "Add a server manually without the catalog.",
+        "serverNamePlaceholder": "my-server",
+        "packagePlaceholder": "@example/mcp-server",
+        "versionPlaceholder": "latest",
+        "headerNamePlaceholder": "Header-Name",
+        "headerValuePlaceholder": "value",
+        "envVarNamePlaceholder": "ENV_VAR_NAME",
+        "envVarValuePlaceholder": "value",
+        "installing": "Installing...",
+        "install": "Install",
+        "transportLabel": "Transport",
+        "transportTypeLabel": "Transport Type",
+        "headersLabel": "Headers",
+        "scopeLabel": "Scope",
+        "envVarsLabel": "Environment Variables",
+        "serverNameRequired": "Server name is required",
+        "invalidServerName": "Invalid server name. Use alphanumeric characters, dashes, underscores, dots.",
+        "serverUrlRequired": "Server URL is required",
+        "installFailed": "Install failed"
+      },
+      "mcpServerCard": {
+        "manage": "Manage",
+        "configure": "Configure",
+        "repository": "Repository",
+        "website": "Website"
+      },
+      "mcpServerDetailDialog": {
+        "scopeUserGlobal": "User (global)",
+        "scopeLocal": "Local",
+        "source": "Source",
+        "githubStars": "GitHub Stars",
+        "version": "Version",
+        "license": "License",
+        "installType": "Install Type",
+        "manualSetupRequired": "Manual setup required",
+        "manageInstallation": "Manage Installation",
+        "installServer": "Install Server",
+        "addCustom": "Add custom",
+        "add": "Add",
+        "required": "Required",
+        "author": "Author",
+        "hosting": "Hosting",
+        "published": "Published",
+        "updated": "Updated",
+        "claudeStatus": "Claude Status",
+        "launchTarget": "Launch Target",
+        "scopeLabel": "Scope",
+        "envVarsLabel": "Environment Variables",
+        "autoFilled": "Auto-filled",
+        "headersLabel": "Headers",
+        "headerNamePlaceholder": "Header-Name"
+      }
+    },
+    "common": {
+      "installButton": {
+        "removing": "Removing...",
+        "installing": "Installing...",
+        "done": "Done",
+        "retry": "Retry",
+        "uninstall": "Uninstall",
+        "claudeCliRequired": "Claude CLI required"
+      },
+      "searchInput": {
+        "defaultPlaceholder": "Search..."
+      }
+    },
+    "skills": {
+      "skillDetailDialog": {
+        "skillDetails": "Skill details",
+        "inspectDescription": "Inspect discovered skill metadata and raw instructions.",
+        "thisProjectOnly": "This project only",
+        "yourPersonalSkills": "Your personal skills",
+        "manualUseExplanation": "Claude will only use this when you explicitly ask for it.",
+        "autoUseExplanation": "Claude can pick this automatically when it matches the task.",
+        "loadingSkillDetails": "Loading skill details...",
+        "manualUse": "Manual use",
+        "autoUse": "Auto use",
+        "justTheSkillInstructions": "Just the skill instructions",
+        "deleting": "Deleting...",
+        "deleteSkill": "Delete Skill",
+        "deleteSkillConfirm": "Delete this skill and move it to Trash?",
+        "hasScripts": "Has scripts",
+        "references": "References",
+        "assets": "Assets",
+        "storedAt": "Stored at",
+        "scripts": "Scripts",
+        "deleteSkillQuestion": "Delete skill?",
+        "cancel": "Cancel",
+        "failedToDeleteSkill": "Failed to delete skill"
+      },
+      "skillImportDialog": {
+        "importSkill": "Import skill",
+        "sourceFolder": "Source folder",
+        "destinationFolderName": "Destination folder name",
+        "defaultsToSourceFolderName": "Defaults to source folder name",
+        "whoCanUseIt": "Who can use it",
+        "user": "User",
+        "whereToStoreIt": "Where to store it",
+        "projectUnavailable": "Project unavailable",
+        "preparing": "Preparing...",
+        "reviewAndImport": "Review And Import",
+        "importSkillButton": "Import Skill",
+        "reviewLabelImporting": "Importing this skill",
+        "backToImport": "Back To Import",
+        "notASkillFolder": "This folder does not look like a skill yet. It needs a SKILL.md, Skill.md, or skill.md file.",
+        "containsSymlinks": "This folder contains symbolic links. Import the real files instead of links.",
+        "invalidFolderName": "Pick a simpler destination folder name using letters, numbers, dots, dashes, or underscores."
+      },
+      "skillEditorDialog": {
+        "createSkill": "Create skill",
+        "editSkill": "Edit skill",
+        "createDescription": "Describe the workflow in plain language, review the files that will be created, then save it.",
+        "editDescription": "Update this skill, review the resulting file changes, then save it.",
+        "addSkillName": "Add a skill name so people know what this workflow is for.",
+        "addDescription": "Add a short description so it is clear what this skill helps with.",
+        "chooseFolderName": "Choose a folder name for this skill.",
+        "projectSkillsNeedProject": "Project skills need an active project.",
+        "whoCanUseIt": "Who can use it",
+        "user": "User",
+        "whereToStoreIt": "Where to store it",
+        "folderName": "Folder name",
+        "howClaudeShouldUseIt": "How Claude should use it",
+        "claudeCanUseAutomatically": "Claude can use it automatically",
+        "onlyWhenYouAskForIt": "Only when you ask for it",
+        "skillName": "Skill name",
+        "skillNamePlaceholder": "Write concise skill name",
+        "license": "License",
+        "licensePlaceholder": "MIT",
+        "description": "Description",
+        "descriptionPlaceholder": "What this skill helps with",
+        "compatibility": "Compatibility",
+        "compatibilityPlaceholder": "claude-code, cursor",
+        "whenClaudeShouldReach": "When Claude should reach for this",
+        "whenToUsePlaceholder": "Example: Use this when the task is a code review or bug triage request.",
+        "mainSteps": "Main steps Claude should follow",
+        "extraNotes": "Extra notes or guardrails",
+        "extraNotesPlaceholder": "Example: Call out missing tests, regressions, and risky assumptions.",
+        "optionalFiles": "Optional files",
+        "referencesLabel": "References",
+        "scriptsLabel": "Scripts",
+        "assetsLabel": "Assets",
+        "skillMd": "SKILL.md",
+        "customMarkdownNote": "This skill uses a custom markdown format, so edit it directly here.",
+        "skipAdvancedNote": "Most people can skip this. Open it only if you want direct control over the raw markdown file.",
+        "hideAdvancedEditor": "Hide Advanced Editor",
+        "showAdvancedEditor": "Show Advanced Editor",
+        "preparing": "Preparing...",
+        "reviewAndCreate": "Review And Create",
+        "reviewAndSave": "Review And Save",
+        "createSkillButton": "Create Skill",
+        "saveSkillButton": "Save Skill",
+        "creatingASkill": "Creating a skill",
+        "savingThisSkill": "Saving this skill",
+        "newSkill": "New Skill",
+        "describeWhatThisSkillHelpsWith": "Describe what this skill helps with.",
+        "projectUnavailable": "Project unavailable",
+        "failedToReview": "Failed to review skill changes",
+        "failedToSave": "Failed to save skill"
+      },
+      "skillReviewDialog": {
+        "reviewSkillChanges": "Review skill changes",
+        "noPreviewAvailable": "No preview available.",
+        "backToEditor": "Back To Editor",
+        "saving": "Saving..."
+      },
+      "skillsPanel": {
+        "searchPlaceholder": "Search by skill name or what it helps with...",
+        "sortSkills": "Sort skills",
+        "thisProject": "This project",
+        "personal": "Personal",
+        "onlyRunsWhenAsked": "Only runs when you explicitly ask for it",
+        "claudeUsesAutomatically": "Claude can use this automatically when it fits",
+        "needsAttention": "Needs attention before you rely on it",
+        "includesScripts": "Includes scripts, so review it carefully",
+        "readyToUse": "Ready to use",
+        "personalSkillsOnly": "You are seeing only your personal skills right now.",
+        "allSkills": "All skills",
+        "project": "Project",
+        "personalFilter": "Personal",
+        "needsAttentionFilter": "Needs attention",
+        "hasScriptsFilter": "Has scripts",
+        "noSkillsMatchSearch": "No skills match your search",
+        "noSkillsYet": "No skills yet",
+        "tryDifferentSearch": "Try a different search term or switch filters.",
+        "skillCreatedSuccessfully": "Skill created successfully.",
+        "skillSavedSuccessfully": "Skill saved successfully.",
+        "teachClaudeRepeatableWork": "Teach Claude repeatable work",
+        "projectSkills": "Project skills",
+        "personalSkills": "Personal skills"
+      }
+    }
+  },
+  "report": {
+    "sessionReportTab": {
+      "title": "Session Analysis Report"
+    },
+    "sections": {
+      "overview": {
+        "title": "Overview",
+        "duration": "Duration",
+        "messages": "Messages",
+        "contextUsage": "Context Usage",
+        "compactions": "Compactions",
+        "branch": "Branch",
+        "subagents": "Subagents",
+        "project": "Project",
+        "sessionId": "Session ID",
+        "notAvailable": "N/A"
+      },
+      "tokenUsage": {
+        "title": "Token Usage",
+        "model": "Model",
+        "apiCalls": "API Calls",
+        "input": "Input",
+        "output": "Output",
+        "cacheRead": "Cache Read",
+        "cacheCreate": "Cache Create",
+        "cost": "Cost",
+        "total": "Total",
+        "cacheEfficiency": "Cache Efficiency",
+        "rwRatio": "R/W Ratio",
+        "cacheReadPercent": "Cache Read %",
+        "coldStart": "Cold Start",
+        "yes": "Yes",
+        "no": "No"
+      },
+      "costAnalysis": {
+        "title": "Cost Analysis",
+        "input": "Input",
+        "output": "Output",
+        "cacheRead": "Cache Read",
+        "cacheWrite": "Cache Write",
+        "total": "Total",
+        "parentCost": "Parent Cost",
+        "subagentCost": "Subagent Cost",
+        "perCommit": "Per Commit",
+        "perLineChanged": "Per Line Changed",
+        "model": "Model",
+        "subagentsCombined": "Subagents (combined)"
+      },
+      "toolUsage": {
+        "title": "Tool Usage",
+        "tool": "Tool",
+        "calls": "Calls",
+        "errors": "Errors",
+        "successPercent": "Success %",
+        "health": "Health"
+      },
+      "errors": {
+        "title": "Errors"
+      },
+      "gitActivity": {
+        "title": "Git Activity",
+        "commits": "Commits",
+        "pushes": "Pushes",
+        "linesAdded": "Lines Added",
+        "linesRemoved": "Lines Removed",
+        "branchesCreated": "Branches Created"
+      },
+      "timelineActivity": {
+        "title": "Timeline & Activity",
+        "idleAnalysis": "Idle Analysis",
+        "idleGaps": "Idle Gaps",
+        "totalIdle": "Total Idle",
+        "activeTime": "Active Time",
+        "idlePercent": "Idle %",
+        "keyEvents": "Key Events"
+      },
+      "qualitySignals": {
+        "title": "Quality Signals",
+        "promptQuality": "Prompt Quality",
+        "firstMessage": "First Message",
+        "userMessages": "User Messages",
+        "corrections": "Corrections",
+        "frictionRate": "Friction Rate",
+        "startupOverhead": "Startup Overhead",
+        "messagesBeforeWork": "Messages Before Work",
+        "tokensBeforeWork": "Tokens Before Work",
+        "fileReadRedundancy": "File Read Redundancy",
+        "totalReads": "Total Reads",
+        "uniqueFiles": "Unique Files",
+        "readsPerUniqueFile": "Reads/Unique File",
+        "testProgression": "Test Progression",
+        "firstRun": "First Run",
+        "lastRun": "Last Run"
+      },
+      "frictionSignals": {
+        "title": "Friction Signals",
+        "corrections": "Corrections",
+        "thrashingSignals": "Thrashing Signals",
+        "repeatedBashCommands": "Repeated Bash Commands",
+        "reworkedFiles": "Reworked Files (3+ edits)"
+      },
+      "subagents": {
+        "title": "Subagents",
+        "count": "Count",
+        "totalTokens": "Total Tokens",
+        "totalDuration": "Total Duration",
+        "totalCost": "Total Cost",
+        "description": "Description",
+        "type": "Type",
+        "tokens": "Tokens",
+        "duration": "Duration",
+        "cost": "Cost"
+      },
+      "sessionInsights": {
+        "title": "Session Insights",
+        "bashCommands": "Bash Commands",
+        "total": "Total",
+        "unique": "Unique",
+        "repeated": "Repeated"
+      },
+      "keyTakeaways": {
+        "title": "Key Takeaways"
+      }
+    }
+  },
+  "layout": {
+    "customTitleBar": {
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "close": "Close"
+    },
+    "tabBarRow": {
+      "newTabDashboard": "New tab (Dashboard)"
+    },
+    "tabBarActions": {
+      "notifications": "Notifications",
+      "teams": "Teams",
+      "extensions": "Extensions",
+      "github": "GitHub",
+      "settings": "Settings",
+      "expandSidebar": "Expand sidebar",
+      "restartToUpdate": "Restart to update",
+      "updateApp": "Update app",
+      "updateDownloadedRestart": "Update downloaded, restart to apply",
+      "newVersionAvailable": "New version available"
+    },
+    "tabContextMenu": {
+      "closeTab": "Close Tab",
+      "closeOtherTabs": "Close Other Tabs",
+      "splitRight": "Split Right",
+      "splitLeft": "Split Left",
+      "closeAllTabs": "Close All Tabs",
+      "pinToSidebar": "Pin to Sidebar",
+      "unpinFromSidebar": "Unpin from Sidebar",
+      "hideFromSidebar": "Hide from Sidebar",
+      "unhideFromSidebar": "Unhide from Sidebar"
+    },
+    "sessionTabContent": {
+      "failedToLoadSession": "Failed to load session",
+      "loadingSession": "Loading session..."
+    },
+    "moreMenu": {
+      "moreActions": "More actions",
+      "search": "Search",
+      "schedules": "Schedules",
+      "exportAsMarkdown": "Export as Markdown",
+      "exportAsJson": "Export as JSON",
+      "exportAsPlainText": "Export as Plain Text",
+      "analyzeSession": "Analyze Session"
+    },
+    "sidebar": {
+      "collapseSidebar": "Collapse sidebar",
+      "sidebarView": "Sidebar view",
+      "resizeSidebar": "Resize sidebar"
+    },
+    "sortableTab": {
+      "openedFromSearch": "Opened from search",
+      "pinnedSession": "Pinned session",
+      "closeTab": "Close tab"
+    },
+    "tabBar": {
+      "refreshSession": "Refresh Session"
+    },
+    "teamTabSectionNav": {
+      "jumpToSection": "Jump to section",
+      "team": "Team",
+      "sessions": "Sessions",
+      "kanban": "Kanban",
+      "claudeLogs": "Claude Logs",
+      "messages": "Messages"
+    },
+    "middlePanel": {},
+    "tabbedLayout": {}
+  },
+  "dashboard": {
+    "cliStatusBanner": {
+      "claudeCliVersion": "Claude CLI v{version}",
+      "unknown": "unknown",
+      "updateToVersion": "Update to v{version}",
+      "checking": "Checking...",
+      "checkForUpdates": "Check for Updates",
+      "authenticated": "Authenticated",
+      "extensions": "Extensions",
+      "failedToCheckUpdates": "Failed to check for updates. Check your network connection and try again.",
+      "failedToCheckCliStatus": "Failed to check CLI status",
+      "retry": "Retry",
+      "cliStatusWillBeChecked": "Claude CLI status will be checked in the background.",
+      "checkNow": "Check now",
+      "downloadingClaudeCli": "Downloading Claude CLI...",
+      "checkingLatestVersion": "Checking latest version...",
+      "verifyingChecksum": "Verifying checksum...",
+      "installingClaudeCli": "Installing Claude CLI...",
+      "successfullyInstalled": "Successfully installed Claude CLI v{version}",
+      "installationFailed": "Installation failed",
+      "claudeCliIsRequired": "Claude CLI is required",
+      "cliRequiredDescription": "Claude CLI is required for team provisioning and session management. Install it to get started.",
+      "installClaudeCli": "Install Claude CLI",
+      "notLoggedIn": "Not logged in",
+      "notLoggedInDescription": "Claude CLI is installed but you are not authenticated. Login is required for team provisioning and AI features.",
+      "alreadyLoggedIn": "Already logged in?",
+      "login": "Login",
+      "verifyingAuthentication": "Verifying authentication...",
+      "troubleshootSteps": "If you're sure you're logged in, try these steps:",
+      "reCheck": "Re-check",
+      "cachedStatusNote": "sometimes the status is cached for a few seconds",
+      "terminalRunNote": "Open your terminal and run:",
+      "checkLoggedIn": "check if it shows \"Logged in\"",
+      "logoutLoginAgain": "If it says logged in but the app doesn't see it, try:",
+      "makeSureSameBinary": "in your terminal is the same binary the app uses",
+      "browsingWithoutLogin": "Browsing sessions and projects works without login. Login is only needed to run agent teams.",
+      "claudeAuthLogin": "Claude Auth Login",
+      "loginComplete": "Login complete",
+      "loginFailed": "Login failed"
+    },
+    "dashboardUpdateBanner": {
+      "restartNow": "Restart now",
+      "viewDetails": "View details"
+    },
+    "dashboardView": {
+      "searchProjectsPlaceholder": "Search projects...",
+      "selectProjectFolder": "Select a project folder",
+      "noRecentActivity": "No recent activity",
+      "searchResults": "Search Results",
+      "recentProjects": "Recent Projects",
+      "failedToLoadProjects": "Failed to load projects",
+      "noProjectsFound": "No projects found",
+      "open": "Open",
+      "worktreeSourceLabels": {
+        "vibeKanban": "Vibe",
+        "conductor": "Conductor",
+        "autoClaude": "Auto",
+        "claudeDesktop": "Desktop",
+        "claudeCode": "Worktree"
+      }
+    }
+  },
+  "sidebar": {
+    "dateGroupedSessions": {
+      "selectProject": "Select Project",
+      "searchPlaceholder": "Search...",
+      "nothingFound": "Nothing found",
+      "resetSelection": "Reset selection",
+      "pinSelectedSessions": "Pin selected sessions",
+      "hideSelectedSessions": "Hide selected sessions",
+      "unhideSelectedSessions": "Unhide selected sessions",
+      "cancelSelection": "Cancel selection",
+      "sourceLabels": {
+        "vibeKanban": "Vibe Kanban",
+        "conductor": "Conductor",
+        "autoClaude": "Auto Claude",
+        "claudeDesktop": "Claude Desktop",
+        "claudeCode": "Claude Code",
+        "git": "Git",
+        "unknown": "Other"
+      },
+      "byContext": "By Context",
+      "sessions": "Sessions",
+      "exitSelectionMode": "Exit selection mode",
+      "selectSessions": "Select sessions",
+      "hideHiddenSessions": "Hide hidden sessions",
+      "showHiddenSessions": "Show hidden sessions",
+      "sortByContextConsumption": "Sort by context consumption",
+      "sortByRecent": "Sort by recent",
+      "selectProjectToView": "Select a project to view sessions",
+      "noSessionsFound": "No sessions found",
+      "noSessionsYet": "This project has no sessions yet",
+      "loadingMoreSessions": "Loading more sessions...",
+      "scrollToLoadMore": "Scroll to load more"
+    },
+    "taskContextMenu": {
+      "unpin": "Unpin",
+      "pin": "Pin",
+      "rename": "Rename",
+      "unarchive": "Unarchive",
+      "archive": "Archive",
+      "deleteTask": "Delete task"
+    },
+    "taskFiltersPopover": {
+      "all": "All",
+      "unread": "Unread",
+      "read": "Read",
+      "allTeams": "All teams",
+      "searchTeamsPlaceholder": "Search teams...",
+      "noTeamsFound": "No teams found",
+      "allProjects": "All Projects",
+      "searchProjectsPlaceholder": "Search projects...",
+      "noProjects": "No projects",
+      "clearAll": "Clear all",
+      "selectAll": "Select all",
+      "status": "Status",
+      "teamLabel": "Team"
+    },
+    "globalTaskList": {
+      "searchPlaceholder": "Search tasks...",
+      "byTime": "By time",
+      "byUnread": "By unread",
+      "byProject": "By project",
+      "byTeam": "By team",
+      "last7Days": "Last 7 Days",
+      "earlier": "Earlier",
+      "deleteTaskTitle": "Delete task",
+      "deleteConfirmLabel": "Delete",
+      "cancelLabel": "Cancel",
+      "failedToDeleteTask": "Failed to delete task",
+      "unexpectedError": "An unexpected error occurred",
+      "okLabel": "OK",
+      "none": "None",
+      "project": "Project",
+      "time": "Time",
+      "hideArchived": "Hide archived",
+      "showArchived": "Show archived",
+      "noMatchingTasks": "No matching tasks",
+      "noTasksFound": "No tasks found",
+      "tasks": "Tasks",
+      "pinned": "Pinned",
+      "groupBy": "Group by:"
+    },
+    "sidebarTaskItem": {
+      "yesterday": "Yesterday",
+      "statusPending": "pending",
+      "statusInProgress": "in progress",
+      "statusCompleted": "completed",
+      "statusDeleted": "deleted",
+      "statusApproved": "approved",
+      "statusInReview": "in review",
+      "team": "Team:"
+    },
+    "sessionContextMenu": {
+      "openInCurrentPane": "Open in Current Pane",
+      "openInNewTab": "Open in New Tab",
+      "splitRightAndOpen": "Split Right and Open",
+      "pinSession": "Pin Session",
+      "unpinSession": "Unpin Session",
+      "hideSession": "Hide Session",
+      "unhideSession": "Unhide Session",
+      "copied": "Copied!",
+      "copySessionId": "Copy Session ID",
+      "copyResumeCommand": "Copy Resume Command"
+    }
+  },
+  "notifications": {
+    "notificationsView": {
+      "other": "Other",
+      "loadingNotifications": "Loading notifications...",
+      "markFilteredAsRead": "Mark filtered as read",
+      "markAllAsRead": "Mark all as read",
+      "markFilteredRead": "Mark filtered read",
+      "markAllRead": "Mark all read",
+      "clearFilteredNotifications": "Clear filtered notifications",
+      "clearAllNotifications": "Clear all notifications",
+      "clickToConfirm": "Click to confirm",
+      "clearFiltered": "Clear filtered",
+      "clearAll": "Clear all",
+      "noMatchingNotifications": "No matching notifications",
+      "noNotifications": "No notifications",
+      "tryDifferentFilter": "Try a different filter",
+      "allCaughtUp": "You're all caught up!"
+    },
+    "notificationRow": {
+      "markAsRead": "Mark as read",
+      "delete": "Delete",
+      "viewInSession": "View in session",
+      "unknownProject": "Unknown Project"
+    }
+  },
+  "search": {
+    "commandPalette": {
+      "noRecentActivity": "No recent activity",
+      "searchAcrossAllProjects": "Search across all projects",
+      "searchInProject": "Search in project",
+      "currentProject": "Current project",
+      "searchProjects": "Search projects",
+      "global": "Global",
+      "searchProjectsPlaceholder": "Search projects...",
+      "searchConversationsPlaceholder": "Search conversations...",
+      "noProjectsFound": "No projects found",
+      "typeToSearch": "Type to search"
+    },
+    "searchBar": {
+      "findInConversation": "Find in conversation...",
+      "previousResult": "Previous result (Shift+Enter)",
+      "nextResult": "Next result (Enter)",
+      "closeEsc": "Close (Esc)",
+      "noResults": "No results"
+    }
+  },
+  "terminal": {
+    "terminalModal": {
+      "terminal": "Terminal",
+      "completedSuccessfully": "Completed successfully",
+      "processFailed": "Process failed",
+      "close": "Close"
+    }
+  },
+  "schedules": {
+    "schedulesView": {
+      "title": "Schedules",
+      "addSchedule": "Add Schedule",
+      "searchPlaceholder": "Search schedules...",
+      "statusAll": "All",
+      "statusActive": "Active",
+      "statusPaused": "Paused",
+      "statusDisabled": "Disabled",
+      "allTeams": "All teams",
+      "runNow": "Run now",
+      "edit": "Edit",
+      "pause": "Pause",
+      "resume": "Resume",
+      "delete": "Delete",
+      "loadingRunHistory": "Loading run history...",
+      "noRunsYet": "No runs yet",
+      "loadingSchedules": "Loading schedules...",
+      "noScheduledTasks": "No scheduled tasks",
+      "noScheduledTasksDescription": "Create a schedule on any team to automate Claude task execution with cron expressions. Schedules from all teams will appear here.",
+      "createSchedule": "Create Schedule",
+      "noSchedulesMatchFilters": "No schedules match the current filters",
+      "clearFilters": "Clear filters",
+      "next": "Next:"
+    }
+  }
+}

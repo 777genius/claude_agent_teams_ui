@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api, isElectronMode } from '@renderer/api';
 import { confirm } from '@renderer/components/common/ConfirmDialog';
@@ -177,39 +178,41 @@ function resolveTeamStatus(
 }
 
 const StatusBadge = ({ status }: { status: TeamStatus }): React.JSX.Element => {
+  const { t } = useTranslation();
   switch (status) {
     case 'active':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
           <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
-          Active
+          {t('teamList.status.active')}
         </span>
       );
     case 'idle':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
           <span className="size-1.5 rounded-full bg-emerald-400" />
-          Running
+          {t('teamList.status.running')}
         </span>
       );
     case 'provisioning':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
           <span className="size-1.5 animate-pulse rounded-full bg-amber-400" />
-          Launching...
+          {t('teamList.status.launching')}
         </span>
       );
     case 'offline':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-500/15 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
           <span className="size-1.5 rounded-full bg-zinc-500" />
-          Offline
+          {t('teamList.status.offline')}
         </span>
       );
   }
 };
 
 export const TeamListView = (): React.JSX.Element => {
+  const { t } = useTranslation();
   const { isLight } = useTheme();
   const electronMode = isElectronMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -443,10 +446,10 @@ export const TeamListView = (): React.JSX.Element => {
       void (async () => {
         if (isDraft) {
           const confirmed = await confirm({
-            title: 'Delete draft',
-            message: `Delete draft team "${teamName}"? This cannot be undone.`,
-            confirmLabel: 'Delete',
-            cancelLabel: 'Cancel',
+            title: t('teamList.confirm.deleteDraftTitle'),
+            message: t('teamList.confirm.deleteDraftMessage', { teamName }),
+            confirmLabel: t('teamList.confirm.delete'),
+            cancelLabel: t('teamList.confirm.cancel'),
             variant: 'danger',
           });
           if (confirmed) {
@@ -455,10 +458,10 @@ export const TeamListView = (): React.JSX.Element => {
           return;
         }
         const confirmed = await confirm({
-          title: 'Move to trash',
-          message: `Move team "${teamName}" to trash? You can restore it later.`,
-          confirmLabel: 'Move to trash',
-          cancelLabel: 'Cancel',
+          title: t('teamList.confirm.moveToTrashTitle'),
+          message: t('teamList.confirm.moveToTrashMessage', { teamName }),
+          confirmLabel: t('teamList.confirm.moveToTrashConfirm'),
+          cancelLabel: t('teamList.confirm.cancel'),
           variant: 'danger',
         });
         if (confirmed) {
@@ -470,7 +473,7 @@ export const TeamListView = (): React.JSX.Element => {
         }
       })();
     },
-    [deleteTeam]
+    [deleteTeam, t]
   );
 
   const handleRestoreTeam = useCallback(
@@ -492,10 +495,10 @@ export const TeamListView = (): React.JSX.Element => {
       e.stopPropagation();
       void (async () => {
         const confirmed = await confirm({
-          title: 'Delete permanently',
-          message: `Delete team "${teamName}" permanently? All data will be lost.`,
-          confirmLabel: 'Delete forever',
-          cancelLabel: 'Cancel',
+          title: t('teamList.confirm.deletePermanentlyTitle'),
+          message: t('teamList.confirm.deletePermanentlyMessage', { teamName }),
+          confirmLabel: t('teamList.confirm.deletePermanentlyConfirm'),
+          cancelLabel: t('teamList.confirm.cancel'),
           variant: 'danger',
         });
         if (confirmed) {
@@ -507,7 +510,7 @@ export const TeamListView = (): React.JSX.Element => {
         }
       })();
     },
-    [permanentlyDeleteTeam]
+    [permanentlyDeleteTeam, t]
   );
 
   const handleCopyTeam = useCallback(
@@ -640,10 +643,10 @@ export const TeamListView = (): React.JSX.Element => {
       <div className="flex size-full items-center justify-center p-6">
         <div className="max-w-md text-center">
           <p className="text-sm font-medium text-[var(--color-text)]">
-            Teams is only available in Electron mode
+            {t('teamList.electronModeRequired')}
           </p>
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            In browser mode, access to local `~/.claude/teams` directories is not available.
+            {t('teamList.electronModeHint')}
           </p>
         </div>
       </div>
@@ -685,7 +688,7 @@ export const TeamListView = (): React.JSX.Element => {
   const renderHeader = (): React.JSX.Element => (
     <div className="mb-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-[var(--color-text)]">Select Team</h2>
+        <h2 className="text-base font-semibold text-[var(--color-text)]">{t('teamList.title')}</h2>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -693,13 +696,13 @@ export const TeamListView = (): React.JSX.Element => {
             disabled={!canCreate}
             onClick={() => setShowCreateDialog(true)}
           >
-            Create Team
+            {t('teamList.createTeam')}
           </Button>
         </div>
       </div>
       {!canCreate ? (
         <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-          Only available in local Electron mode.
+          {t('teamList.onlyLocalElectron')}
         </p>
       ) : null}
 
@@ -712,7 +715,7 @@ export const TeamListView = (): React.JSX.Element => {
             />
             <Input
               type="text"
-              placeholder="Search teams..."
+              placeholder={t('teamList.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-8 pl-8 text-xs"
@@ -733,7 +736,7 @@ export const TeamListView = (): React.JSX.Element => {
     if (teamsLoading) {
       return (
         <div className="flex size-full items-center justify-center text-sm text-[var(--color-text-muted)]">
-          Loading teams...
+          {t('teamList.loadingTeams')}
         </div>
       );
     }
@@ -742,7 +745,7 @@ export const TeamListView = (): React.JSX.Element => {
       return (
         <div className="flex size-full items-center justify-center p-6">
           <div className="text-center">
-            <p className="text-sm font-medium text-red-400">Failed to load teams</p>
+            <p className="text-sm font-medium text-red-400">{t('teamList.failedToLoad')}</p>
             <p className="mt-2 text-xs text-[var(--color-text-muted)]">{teamsError}</p>
             <Button
               variant="outline"
@@ -752,7 +755,7 @@ export const TeamListView = (): React.JSX.Element => {
                 void fetchTeams();
               }}
             >
-              Retry
+              {t('teamList.retry')}
             </Button>
           </div>
         </div>
@@ -767,7 +770,7 @@ export const TeamListView = (): React.JSX.Element => {
     if (filteredTeams.length === 0 && (searchQuery.trim() || hasActiveFilters)) {
       return (
         <div className="flex items-center justify-center py-12 text-sm text-[var(--color-text-muted)]">
-          No teams matching current filters
+          {t('teamList.noMatchingFilters')}
         </div>
       );
     }
@@ -845,13 +848,15 @@ export const TeamListView = (): React.JSX.Element => {
                               className="shrink-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-emerald-500/10 hover:text-emerald-300 disabled:opacity-50 group-hover:opacity-100"
                               onClick={(e) => handleLaunchTeam(team.teamName, team.projectPath, e)}
                               disabled={launchingTeamName === team.teamName}
-                              aria-label="Launch team"
+                              aria-label={t('teamList.actions.launchTeam')}
                             >
                               <Play size={14} fill="currentColor" />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="bottom">
-                            {launchingTeamName === team.teamName ? 'Launching…' : 'Launch team'}
+                            {launchingTeamName === team.teamName
+                              ? t('teamList.actions.launchingTeam')
+                              : t('teamList.actions.launchTeam')}
                           </TooltipContent>
                         </Tooltip>
                       )}
@@ -863,13 +868,15 @@ export const TeamListView = (): React.JSX.Element => {
                               className="shrink-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-amber-500/10 hover:text-amber-300 disabled:opacity-50 group-hover:opacity-100"
                               onClick={(e) => handleStopTeam(team.teamName, e)}
                               disabled={stoppingTeamName === team.teamName}
-                              aria-label="Stop team"
+                              aria-label={t('teamList.actions.stopTeam')}
                             >
                               <Square size={14} fill="currentColor" />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="bottom">
-                            {stoppingTeamName === team.teamName ? 'Stopping…' : 'Stop team'}
+                            {stoppingTeamName === team.teamName
+                              ? t('teamList.actions.stoppingTeam')
+                              : t('teamList.actions.stopTeam')}
                           </TooltipContent>
                         </Tooltip>
                       )}
@@ -884,7 +891,9 @@ export const TeamListView = (): React.JSX.Element => {
                               <Copy size={14} />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom">Copy team</TooltipContent>
+                          <TooltipContent side="bottom">
+                            {t('teamList.actions.copyTeam')}
+                          </TooltipContent>
                         </Tooltip>
                       )}
                       <Tooltip>
@@ -899,7 +908,9 @@ export const TeamListView = (): React.JSX.Element => {
                             <Trash2 size={14} />
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Delete team</TooltipContent>
+                        <TooltipContent side="bottom">
+                          {t('teamList.actions.deleteTeam')}
+                        </TooltipContent>
                       </Tooltip>
                     </div>
                   </div>
@@ -987,7 +998,7 @@ export const TeamListView = (): React.JSX.Element => {
             <div className="my-6 flex items-center gap-3">
               <div className="h-px flex-1 bg-[var(--color-border)]" />
               <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                Trash ({deletedFiltered.length})
+                {t('teamList.trash.title')} ({deletedFiltered.length})
               </span>
               <div className="h-px flex-1 bg-[var(--color-border)]" />
             </div>
@@ -1008,7 +1019,7 @@ export const TeamListView = (): React.JSX.Element => {
                           {team.displayName}
                         </h3>
                         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-500/15 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
-                          Deleted
+                          {t('teamList.trash.deleted')}
                         </span>
                       </div>
                       <div className="flex shrink-0 gap-1">
@@ -1018,12 +1029,14 @@ export const TeamListView = (): React.JSX.Element => {
                               type="button"
                               className="shrink-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-emerald-500/10 hover:text-emerald-300 group-hover:opacity-100"
                               onClick={(e) => handleRestoreTeam(team.teamName, e)}
-                              aria-label="Restore team"
+                              aria-label={t('teamList.trash.restore')}
                             >
                               <RotateCcw size={14} />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom">Restore</TooltipContent>
+                          <TooltipContent side="bottom">
+                            {t('teamList.trash.restore')}
+                          </TooltipContent>
                         </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -1031,12 +1044,14 @@ export const TeamListView = (): React.JSX.Element => {
                               type="button"
                               className="shrink-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
                               onClick={(e) => handlePermanentlyDeleteTeam(team.teamName, e)}
-                              aria-label="Delete permanently"
+                              aria-label={t('teamList.trash.deletePermanently')}
                             >
                               <Trash2 size={14} />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom">Delete forever</TooltipContent>
+                          <TooltipContent side="bottom">
+                            {t('teamList.trash.deletePermanently')}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                     </div>

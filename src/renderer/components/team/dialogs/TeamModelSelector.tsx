@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Label } from '@renderer/components/ui/label';
 import {
@@ -115,6 +116,7 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
   onValueChange,
   id,
 }) => {
+  const { t } = useTranslation();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -137,7 +139,7 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
   return (
     <div className="mb-5">
       <Label htmlFor={id} className="label-optional mb-1.5 block">
-        Model (optional)
+        {t('dialogs.modelSelector.label')}
       </Label>
       <div ref={containerRef} className="relative inline-block">
         <div className="inline-flex rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5">
@@ -185,9 +187,7 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
                       <Info className="size-3 opacity-40 transition-opacity hover:opacity-70" />
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-[240px] text-xs">
-                      Default model from Claude CLI (/model).
-                      <br />
-                      Currently Sonnet 4.6, but may change with CLI updates.
+                      {t('dialogs.modelSelector.defaultTooltip')}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -243,7 +243,7 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
                     <span className="flex-1">{provider.label}</span>
                     {provider.comingSoon && (
                       <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">
-                        Coming Soon
+                        {t('dialogs.modelSelector.comingSoon')}
                       </span>
                     )}
                     {isActive && <Check className="size-3.5 shrink-0" />}

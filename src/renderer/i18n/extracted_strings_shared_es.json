@@ -1,0 +1,110 @@
+{
+  "slashCommands": {
+    "compact": "Compactar la conversación con instrucciones de enfoque opcionales.",
+    "clear": "Limpiar el historial de conversación y liberar contexto.",
+    "cost": "Mostrar información de tokens y costos de la sesión actual.",
+    "doctor": "Verificar el estado de la instalación de Claude Code.",
+    "help": "Mostrar los comandos disponibles y consejos de uso.",
+    "init": "Inicializar un nuevo archivo CLAUDE.md en el directorio actual.",
+    "login": "Iniciar sesión o cambiar de cuenta.",
+    "logout": "Cerrar sesión de la cuenta actual.",
+    "memory": "Editar archivos de memoria CLAUDE.md.",
+    "review": "Revisar un pull request."
+  },
+
+  "agentMessageTypes": {
+    "idleNotification": "Inactivo",
+    "shutdownApproved": "Apagado confirmado",
+    "teammateTerminated": "Terminado",
+    "shutdownRequest": "Apagado solicitado",
+    "shutdownResponse": "Respuesta de apagado",
+    "message": "Mensaje",
+    "broadcast": "Difusión",
+    "permissionRequest": "Solicitud de permiso",
+    "permissionResponse": "Respuesta de permiso",
+    "structuredMessageFallback": "Mensaje estructurado"
+  },
+
+  "toolSummary": {
+    "toolSingular": "herramienta",
+    "toolPlural": "herramientas"
+  },
+
+  "reportAssessments": {
+    "explanations": {
+      "thrashing": {
+        "none": "Sin comandos repetidos ni archivos retrabajados",
+        "mild": "1–2 señales de inestabilidad detectadas",
+        "severe": "3+ señales de inestabilidad detectadas"
+      },
+      "promptQuality": {
+        "wellSpecified": "Primer mensaje claro con baja tasa de fricción",
+        "moderateFriction": "Se necesitaron algunas correcciones durante la sesión",
+        "underspecified": "Prompt inicial corto que generó muchas correcciones",
+        "verboseButUnclear": "Prompt inicial extenso pero con alta fricción"
+      },
+      "testTrajectory": {
+        "improving": "Los fallos en tests disminuyeron durante la sesión",
+        "stable": "Los resultados de tests se mantuvieron estables",
+        "regressing": "Los fallos en tests aumentaron durante la sesión",
+        "insufficientData": "No hay suficientes ejecuciones de tests para determinar la tendencia"
+      }
+    },
+    "takeaways": {
+      "highCostPerCommit": "Alto costo por commit",
+      "highCostPerCommitDetail": "total — considera sesiones más pequeñas y enfocadas",
+      "elevatedCostPerCommit": "Costo por commit elevado",
+      "elevatedCostPerCommitDetail": "El costo por commit está por encima del rango típico",
+      "lowCacheEfficiency": "Baja eficiencia de caché",
+      "lowCacheEfficiencyDetail": "tasa de aciertos de caché — la estructura del prompt puede reducir el almacenamiento en caché",
+      "toolReliabilityIssues": "Problemas de fiabilidad de herramientas",
+      "toolReliabilityIssuesDetail": "Múltiples llamadas a herramientas están fallando — revisa la sección de errores para más detalles",
+      "degradedToolHealth": "Salud degradada de herramientas",
+      "degradedToolHealthDetail": "Algunas herramientas tienen tasas de fallo elevadas",
+      "significantThrashing": "Inestabilidad significativa detectada",
+      "significantThrashingDetail": "Comandos repetidos y retrabajo de archivos sugieren falta de dirección clara",
+      "mildThrashing": "Inestabilidad leve detectada",
+      "mildThrashingDetail": "Se detectaron algunos comandos repetidos o retrabajo de archivos",
+      "highIdleTime": "Alto tiempo de inactividad",
+      "highIdleTimeDetail": "del tiempo total fue inactividad",
+      "promptQualityIssues": "Problemas de calidad del prompt",
+      "promptQualityIssuesDetail": "tasa de fricción — intenta prompts iniciales más detallados",
+      "contextWindowPressure": "Presión en la ventana de contexto",
+      "contextWindowPressureDetail": "ocurrió — la sesión puede perder contexto temprano",
+      "redundantFileReads": "Lecturas de archivos redundantes",
+      "redundantFileReadsDetail": "lecturas por archivo único",
+      "testsRegressing": "Tests en regresión",
+      "testsRegressingDetail": "Los fallos en tests aumentaron durante la sesión",
+      "sessionHealthy": "La sesión se ve saludable",
+      "sessionHealthyDetail": "No se detectaron problemas significativos en ninguna métrica"
+    },
+    "sectionTitles": {
+      "costAnalysis": "Análisis de costos",
+      "tokenUsage": "Uso de tokens",
+      "toolUsage": "Uso de herramientas",
+      "frictionSignals": "Señales de fricción",
+      "timelineActivity": "Línea de tiempo y actividad",
+      "qualitySignals": "Señales de calidad",
+      "overview": "Resumen"
+    },
+    "modelMismatch": {
+      "mechanicalRecommendation": "Considera usar Haiku para tareas mecánicas y reducir costos.",
+      "readOnlyRecommendation": "Considera usar Haiku o Sonnet para tareas de exploración de solo lectura."
+    }
+  },
+
+  "sessionAnalyzer": {
+    "contextCompaction": "Compactación/continuación de contexto",
+    "subagentsCombined": "Subagentes (combinados)",
+    "promptNotes": {
+      "underspecified": "Prompt inicial corto con múltiples correcciones sugiere que la tarea necesitaba más especificación inicial.",
+      "verboseButUnclear": "El prompt inicial era detallado pero aún requirió correcciones — considera reestructurarlo para mayor claridad.",
+      "wellSpecified": "Baja fricción — el prompt inicial comunicó la intención de forma efectiva.",
+      "moderateFriction": "Fricción moderada detectada — revisa los patrones de corrección para identificar oportunidades de mejora."
+    },
+    "compactionNotes": {
+      "compacted": "La sesión sufrió compactación, lo que puede haber causado pérdida de contexto anterior. Revisa si hubo trabajo repetido después de los eventos de compactación.",
+      "noCompaction": "No hubo compactación — la sesión se mantuvo dentro de los límites de contexto."
+    }
+  }
+}

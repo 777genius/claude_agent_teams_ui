@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { CARD_BG, CARD_BORDER_STYLE, CARD_ICON_MUTED } from '@renderer/constants/cssVariables';
 import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
@@ -32,6 +34,7 @@ export const PendingRepliesBlock = ({
   pendingCrossTeamReplies = [],
   onMemberClick,
 }: PendingRepliesBlockProps): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const { isLight } = useTheme();
   const pendingApprovals = useStore((s) => s.pendingApprovals);
   const colorMap = buildMemberColorMap(members);
@@ -68,7 +71,7 @@ export const PendingRepliesBlock = ({
   return (
     <div className="mb-3 space-y-1.5">
       <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-        Awaiting replies
+        {t('activity.pendingReplies.title')}
       </p>
       {pending.map((entry) => {
         const since = formatDistanceToNowStrict(entry.sentAtMs, { addSuffix: true });
@@ -113,7 +116,7 @@ export const PendingRepliesBlock = ({
                       border: `1px solid ${colors.border}40`,
                     }}
                     onClick={() => onMemberClick(member)}
-                    title="Open member"
+                    title={t('activity.pendingReplies.openMemberTitle')}
                   >
                     {displayMemberName(member.name)}
                   </button>
@@ -137,9 +140,9 @@ export const PendingRepliesBlock = ({
                 <span
                   className="min-w-0 flex-1 truncate text-[10px]"
                   style={{ color: CARD_ICON_MUTED }}
-                  title="Message sent, awaiting reply"
+                  title={t('activity.pendingReplies.awaitingReplyTitle')}
                 >
-                  awaiting reply
+                  {t('activity.pendingReplies.awaitingReply')}
                 </span>
                 <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
                   {since}
@@ -181,14 +184,14 @@ export const PendingRepliesBlock = ({
                   {entry.teamName}
                 </span>
                 <span className="text-[10px]" style={{ color: CARD_ICON_MUTED }}>
-                  external team
+                  {t('activity.pendingReplies.externalTeam')}
                 </span>
                 <span
                   className="min-w-0 flex-1 truncate text-[10px]"
                   style={{ color: CARD_ICON_MUTED }}
-                  title="Cross-team message sent, awaiting reply"
+                  title={t('activity.pendingReplies.crossTeamAwaitingTitle')}
                 >
-                  awaiting reply
+                  {t('activity.pendingReplies.awaitingReply')}
                 </span>
                 <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
                   {since}
@@ -225,14 +228,14 @@ export const PendingRepliesBlock = ({
                   border: '1px solid var(--color-border-emphasis)',
                 }}
               >
-                user
+                {t('activity.pendingReplies.user')}
               </span>
               <span
                 className="min-w-0 flex-1 truncate text-[10px]"
                 style={{ color: CARD_ICON_MUTED }}
-                title={`Tool approval: ${entry.toolName}`}
+                title={t('activity.pendingReplies.toolApprovalTitle', { toolName: entry.toolName })}
               >
-                awaiting approval
+                {t('activity.pendingReplies.awaitingApproval')}
               </span>
               <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
                 {since}

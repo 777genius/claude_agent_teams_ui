@@ -1,0 +1,346 @@
+{
+  "kanban": {
+    "board": {
+      "columns": {
+        "todo": "PENDIENTE",
+        "inProgress": "EN PROGRESO",
+        "review": "REVISIÓN",
+        "done": "HECHO",
+        "approved": "APROBADO"
+      },
+      "tooltips": {
+        "trash": "Papelera",
+        "gridView": "Vista de cuadrícula",
+        "columnsView": "Vista de columnas"
+      },
+      "ariaLabels": {
+        "gridView": "Vista de cuadrícula",
+        "columnsView": "Vista de columnas"
+      }
+    },
+    "filter": {
+      "ariaLabel": "Filtrar tareas",
+      "tooltip": "Filtrar tareas"
+    },
+    "search": {
+      "placeholder": "Buscar tareas... (#id o texto)",
+      "clearTooltip": "Limpiar búsqueda"
+    },
+    "sort": {
+      "ariaLabel": "Ordenar tareas",
+      "tooltip": "Ordenar tareas"
+    },
+    "taskCard": {
+      "cancelTooltip": "Cancelar",
+      "deleteLabel": "Eliminar tarea",
+      "requestReviewLabel": "Solicitar revisión",
+      "requestChangesLabel": "Solicitar cambios"
+    },
+    "trash": {
+      "headers": {
+        "subject": "Asunto",
+        "owner": "Responsable",
+        "deleted": "Eliminado"
+      },
+      "restoreAriaLabel": "Restaurar tarea",
+      "restoreTooltip": "Restaurar"
+    }
+  },
+  "dialogs": {
+    "addMember": {
+      "title": "Agregar miembros"
+    },
+    "advancedCli": {
+      "title": "Avanzado",
+      "worktreePlaceholder": "nombre-worktree",
+      "recentLabel": "Recientes",
+      "maxTurnsPlaceholder": "--max-turns 5"
+    },
+    "createTask": {
+      "title": "Crear tarea",
+      "offlineWarning": "El equipo está desconectado. La tarea se agregará a PENDIENTE — lanza el equipo para comenzar a trabajar en ella.",
+      "subjectLabel": "Asunto",
+      "subjectPlaceholder": "¿Qué se necesita hacer?",
+      "descriptionLabel": "Descripción (opcional)",
+      "descriptionPlaceholder": "Detalles de la tarea (soporta markdown)",
+      "promptPlaceholder": "Instrucciones personalizadas para el miembro del equipo...",
+      "saved": "Guardado",
+      "blockedByLabel": "Bloqueada por tareas (opcional)",
+      "blockedByPlaceholder": "Buscar tareas...",
+      "relatedLabel": "Tareas relacionadas (opcional)",
+      "relatedPlaceholder": "Buscar tareas..."
+    },
+    "createTeam": {
+      "teamNameLabel": "Nombre del equipo",
+      "optionalLaunchSettings": "Configuración de lanzamiento opcional",
+      "launchPromptPlaceholder": "Instrucciones para el líder del equipo durante el aprovisionamiento...",
+      "optionalTeamDetails": "Detalles del equipo opcionales",
+      "descriptionPlaceholder": "Breve descripción del propósito del equipo",
+      "saved": "Guardado",
+      "colorLabel": "Color (opcional)",
+      "preFlightCheck": "Verificación previa para detectar errores antes del lanzamiento"
+    },
+    "editTeam": {
+      "title": "Editar equipo",
+      "description": "Cambiar nombre, descripción y color del equipo",
+      "namePlaceholder": "Nombre del equipo",
+      "descriptionPlaceholder": "Descripción del equipo (opcional)"
+    },
+    "launchTeam": {
+      "teamLabel": "Equipo",
+      "teamPlaceholder": "Selecciona un equipo...",
+      "scheduleNamePlaceholder": "Ej: Revisión diaria de código, Tests nocturnos...",
+      "optionalLaunchSettings": "Configuración de lanzamiento opcional",
+      "launchPromptPlaceholder": "Instrucciones para el líder del equipo...",
+      "saved": "Guardado",
+      "promptLabel": "Prompt",
+      "scheduledPromptPlaceholder": "Instrucciones para que Claude ejecute en el horario programado...",
+      "noLimitPlaceholder": "Sin límite",
+      "preFlightCheck": "Verificación previa para detectar errores antes del lanzamiento"
+    },
+    "projectPath": {
+      "label": "Proyecto",
+      "ariaLabel": "Directorio de trabajo personalizado",
+      "placeholder": "/ruta/absoluta/al/proyecto"
+    },
+    "reviewChanges": {
+      "title": "Solicitar cambios",
+      "placeholder": "Describe qué necesita cambiar... (Enter para enviar)",
+      "saved": "Guardado"
+    },
+    "sendMessage": {
+      "title": "Enviar mensaje",
+      "description": "Envía un mensaje directo a un miembro del equipo.",
+      "recipientLabel": "Destinatario",
+      "recipientPlaceholder": "Seleccionar miembro...",
+      "messageLabel": "Mensaje",
+      "removeQuoteTooltip": "Eliminar cita",
+      "messagePlaceholder": "Escribe tu mensaje... (Enter para enviar)",
+      "saved": "Guardado"
+    },
+    "skipPermissions": {
+      "manualMode": "Modo manual — aprobarás o rechazarás cada llamada de herramienta en tiempo real."
+    },
+    "statusHistory": {
+      "unknownEvent": "Evento desconocido"
+    },
+    "taskCommentAwaiting": {
+      "awaitingReply": "Esperando respuesta de"
+    },
+    "taskCommentInput": {
+      "cancelReplyTooltip": "Cancelar respuesta",
+      "replyingTo": "Respondiendo a",
+      "placeholder": "Agrega un comentario... (Enter para enviar)",
+      "attachTooltip": "Adjuntar archivo (o pegar)",
+      "voiceTooltip": "Voz a texto",
+      "saved": "Guardado"
+    },
+    "taskComments": {
+      "replyTooltip": "Responder al comentario",
+      "cancelReplyTooltip": "Cancelar respuesta",
+      "placeholder": "Agrega un comentario... (Enter para enviar)",
+      "saved": "Guardado"
+    },
+    "taskDetail": {
+      "loadingTitle": "Cargando tarea…",
+      "fetchingTeam": "Obteniendo datos del equipo",
+      "notFoundTitle": "Tarea no encontrada",
+      "unassigned": "Sin asignar",
+      "linksLabel": "Enlaces",
+      "linkedFromLabel": "Enlazada desde",
+      "descriptionTitle": "Descripción",
+      "descriptionPlaceholder": "Descripción de la tarea (soporta markdown)",
+      "editDescriptionTooltip": "Editar descripción",
+      "attachmentsTitle": "Adjuntos",
+      "changesTitle": "Cambios",
+      "refreshAriaLabel": "Actualizar cambios",
+      "refreshTooltip": "Actualizar",
+      "reviewDiffTooltip": "Revisar diff",
+      "openInEditorTooltip": "Abrir en el editor",
+      "noChanges": "No se detectaron cambios en archivos",
+      "executionLogsTitle": "Logs de ejecución",
+      "onlineTitle": "En línea",
+      "workflowHistoryTitle": "Historial de flujo de trabajo",
+      "commentsTitle": "Comentarios"
+    },
+    "toolApprovalSettings": {
+      "title": "Configuración",
+      "onTimeout": "Al expirar:",
+      "waitForever": "Esperar indefinidamente",
+      "allow": "Permitir",
+      "deny": "Rechazar"
+    },
+    "removeMember": {
+      "title": "Eliminar miembro"
+    },
+    "deleteTeam": {
+      "title": "Eliminar equipo"
+    }
+  },
+  "members": {
+    "card": {
+      "connectingAriaLabel": "conectando",
+      "sendMessageTooltip": "Enviar mensaje",
+      "assignTaskTooltip": "Asignar tarea"
+    },
+    "detailHeader": {
+      "editRoleAriaLabel": "Editar rol"
+    },
+    "draftRow": {
+      "namePlaceholder": "nombre-miembro",
+      "removeTitle": "Eliminar miembro",
+      "rolePlaceholder": "Cómo debe comportarse este agente e interactuar con otros...",
+      "saved": "Guardado"
+    },
+    "stats": {
+      "toolUsageTitle": "Uso de herramientas"
+    },
+    "currentTask": {
+      "openTaskTitle": "Abrir tarea"
+    },
+    "editor": {
+      "membersLabel": "Miembros"
+    }
+  },
+  "messages": {
+    "composer": {
+      "thisTeam": "Este equipo",
+      "select": "Seleccionar...",
+      "searchPlaceholder": "Buscar...",
+      "voiceTooltip": "Voz a texto",
+      "saved": "Guardado"
+    },
+    "filter": {
+      "ariaLabel": "Filtrar mensajes",
+      "tooltip": "Filtrar mensajes",
+      "noData": "Sin datos",
+      "showStatusUpdates": "Mostrar actualizaciones de estado (inactivo/apagado)"
+    },
+    "panel": {
+      "searchPlaceholder": "Buscar...",
+      "title": "Mensajes",
+      "markAllReadTooltip": "Marcar todo como leído",
+      "moveToInlineTooltip": "Mover a en línea",
+      "moveToSidebarTooltip": "Mover a barra lateral"
+    },
+    "actionMode": {
+      "ariaLabel": "Modo de acción"
+    }
+  },
+  "activity": {
+    "activeTasks": {
+      "inProgress": "En progreso"
+    },
+    "item": {
+      "unreadTitle": "No leído",
+      "expandAriaLabel": "Expandir mensaje",
+      "replyTooltip": "Responder al mensaje",
+      "createTaskTooltip": "Crear tarea desde el mensaje"
+    },
+    "timeline": {
+      "noMessages": "Sin mensajes",
+      "noMessagesHint": "Envía un mensaje a un miembro para ver la actividad."
+    },
+    "thoughts": {
+      "expandAriaLabel": "Expandir pensamientos"
+    },
+    "messageExpand": {
+      "srDescription": "Vista de mensaje expandido"
+    },
+    "pendingReplies": {
+      "openMemberTitle": "Abrir miembro",
+      "awaitingReplyTitle": "Mensaje enviado, esperando respuesta",
+      "crossTeamAwaitingTitle": "Mensaje entre equipos enviado, esperando respuesta"
+    },
+    "replyQuote": {
+      "replyingTo": "Respondiendo a"
+    },
+    "thoughtBody": {
+      "replyTooltip": "Responder"
+    }
+  },
+  "tasks": {
+    "list": {
+      "filterByOwnerAriaLabel": "Filtrar tareas por responsable",
+      "allOwners": "Todos los responsables",
+      "filterByStatusAriaLabel": "Filtrar tareas por estado",
+      "allStatuses": "Todos los estados"
+    }
+  },
+  "team": {
+    "detailView": {
+      "notLaunched": "El equipo aún no ha sido lanzado",
+      "failedToLoad": "Error al cargar el equipo",
+      "visibleContext": "Contexto visible",
+      "closePanelAriaLabel": "Cerrar panel",
+      "stopTeamTooltip": "Detener equipo",
+      "editTeamTooltip": "Editar equipo",
+      "deleteTeamTooltip": "Eliminar equipo",
+      "openInEditorTooltip": "Abrir proyecto en el editor integrado",
+      "sections": {
+        "team": "Equipo",
+        "sessions": "Sesiones",
+        "kanban": "Kanban",
+        "schedules": "Programaciones",
+        "cliProcesses": "Procesos CLI",
+        "active": "Activo"
+      }
+    },
+    "emptyState": {
+      "noTeams": "No se encontraron equipos",
+      "createHint": "Crea un equipo en Claude Code y luego actualiza la lista."
+    },
+    "listView": {
+      "selectTeam": "Seleccionar equipo",
+      "searchPlaceholder": "Buscar equipos...",
+      "failedToLoad": "Error al cargar los equipos",
+      "launchAriaLabel": "Lanzar equipo",
+      "stopAriaLabel": "Detener equipo",
+      "copyTooltip": "Copiar equipo",
+      "deleteTooltip": "Eliminar equipo",
+      "restoreAriaLabel": "Restaurar equipo",
+      "restoreTooltip": "Restaurar",
+      "deletePermanentlyAriaLabel": "Eliminar permanentemente",
+      "deleteForeverTooltip": "Eliminar para siempre"
+    },
+    "listFilter": {
+      "ariaLabel": "Filtrar equipos",
+      "tooltip": "Filtrar equipos"
+    },
+    "provisioning": {
+      "launchFailed": "Error en el lanzamiento",
+      "launchDetails": "Detalles del lanzamiento",
+      "launchingTeam": "Lanzando equipo"
+    },
+    "sessions": {
+      "afterProvisioning": "Las sesiones aparecerán después del aprovisionamiento del equipo",
+      "openSessionTooltip": "Abrir sesión"
+    },
+    "toolApprovalPreview": {
+      "previewChanges": "Vista previa de cambios",
+      "readingFile": "Leyendo archivo...",
+      "binaryFile": "Archivo binario — no se puede previsualizar",
+      "fileTruncated": "Archivo truncado a 2MB — el diff puede estar incompleto"
+    },
+    "taskTooltip": {
+      "unassigned": "Sin asignar"
+    },
+    "logs": {
+      "sectionTitle": "Logs de Claude",
+      "searchPlaceholder": "Buscar en logs...",
+      "clearSearchAriaLabel": "Limpiar búsqueda",
+      "noMatchingLogs": "No hay logs que coincidan.",
+      "fullscreenAriaLabel": "Abrir logs en pantalla completa",
+      "fullscreenTooltip": "Pantalla completa",
+      "filterAriaLabel": "Filtrar logs de Claude",
+      "filterTooltip": "Filtrar logs"
+    },
+    "processes": {
+      "stopTitle": "Detener proceso (SIGTERM)",
+      "openInBrowserTitle": "Abrir en el navegador"
+    },
+    "roleSelect": {
+      "placeholder": "Escribe un rol personalizado..."
+    }
+  }
+}

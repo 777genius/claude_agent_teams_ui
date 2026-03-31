@@ -3,6 +3,7 @@
  * Handles error status, content match, and token threshold mode configurations.
  */
 
+import { useTranslation } from 'react-i18next';
 import {
   getCursorClass,
   SELECT_INPUT_BASE,
@@ -64,13 +65,14 @@ export const TriggerConfiguration = ({
   onTokenTypeChange,
   onColorChange,
 }: Readonly<TriggerConfigurationProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   const availableMatchFields = getAvailableMatchFields(trigger.contentType, trigger.toolName);
 
   return (
     <>
       {/* Section 1: General Info */}
       <div className="space-y-3">
-        <SectionHeader title="General Info" />
+        <SectionHeader title={t('settings.triggerSettings.generalInfo')} />
 
         {/* Scope/Tool Name */}
         {(trigger.contentType === 'tool_use' || trigger.contentType === 'tool_result') && (
@@ -79,7 +81,7 @@ export const TriggerConfiguration = ({
               htmlFor={`trigger-${trigger.id}-tool-name`}
               className="text-sm text-text-secondary"
             >
-              Scope / Tool Name
+              {t('settings.triggerSettings.scopeToolName')}
             </label>
             <select
               id={`trigger-${trigger.id}-tool-name`}
@@ -100,25 +102,25 @@ export const TriggerConfiguration = ({
 
       {/* Dot Color */}
       <div className="space-y-3">
-        <SectionHeader title="Dot Color" />
+        <SectionHeader title={t('settings.triggerSettings.dotColor')} />
         <ColorPaletteSelector value={trigger.color} onChange={onColorChange} disabled={saving} />
       </div>
 
       {/* Section 2: Trigger Condition (Mode Selector) */}
       <div className="space-y-3">
-        <SectionHeader title="Trigger Condition" />
+        <SectionHeader title={t('settings.triggerSettings.triggerCondition')} />
         <ModeSelector value={localMode} onChange={onModeChange} disabled={saving} />
       </div>
 
       {/* Section 3: Dynamic Configuration */}
       <div className="space-y-3">
-        <SectionHeader title="Configuration" />
+        <SectionHeader title={t('settings.triggerSettings.configuration')} />
 
         {/* Error Status Mode */}
         {localMode === 'error_status' && (
           <div className="py-2">
             <p className="text-sm text-text-muted">
-              Triggers when a tool execution reports an error (is_error: true).
+              {t('settings.triggerSettings.errorStatusDescription')}
             </p>
           </div>
         )}
@@ -132,7 +134,7 @@ export const TriggerConfiguration = ({
                 htmlFor={`trigger-${trigger.id}-content-type`}
                 className="text-sm text-text-secondary"
               >
-                Content Type
+                {t('settings.triggerSettings.contentType')}
               </label>
               <select
                 id={`trigger-${trigger.id}-content-type`}
@@ -206,6 +208,7 @@ const ContentMatchConfig = ({
   onPatternChange,
   onPatternBlur,
 }: Readonly<ContentMatchConfigProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   return (
     <div className="space-y-3">
       {/* Match Field */}
@@ -215,7 +218,7 @@ const ContentMatchConfig = ({
             htmlFor={`trigger-${triggerId}-match-field`}
             className="text-sm text-text-secondary"
           >
-            Match Field
+            {t('settings.triggerSettings.matchField')}
           </label>
           <select
             id={`trigger-${triggerId}-match-field`}
@@ -240,7 +243,7 @@ const ContentMatchConfig = ({
             htmlFor={`trigger-${triggerId}-match-pattern`}
             className="text-sm text-text-secondary"
           >
-            Match Pattern (Regex)
+            {t('settings.triggerSettings.matchPatternRegex')}
           </label>
         </div>
         <input
@@ -249,7 +252,7 @@ const ContentMatchConfig = ({
           value={localPattern}
           onChange={(e) => onPatternChange(e.target.value)}
           onBlur={onPatternBlur}
-          placeholder="e.g., error|failed|exception"
+          placeholder={t('settings.triggerSettings.patternPlaceholder')}
           disabled={saving}
           className={`w-full rounded border bg-transparent px-2 py-1.5 font-mono text-sm text-text placeholder:text-text-muted focus:border-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 ${patternError ? 'border-red-500' : 'border-border'} ${saving ? 'cursor-not-allowed opacity-50' : ''} `}
         />
@@ -259,9 +262,7 @@ const ContentMatchConfig = ({
             {patternError}
           </p>
         )}
-        <p className="mt-1 text-xs text-text-muted">
-          Leave empty to match all content. Uses JavaScript regex syntax.
-        </p>
+        <p className="mt-1 text-xs text-text-muted">{t('settings.triggerSettings.patternHint')}</p>
       </div>
     </div>
   );
@@ -290,11 +291,12 @@ const TokenThresholdConfig = ({
   onTokenThresholdChange,
   onTokenThresholdBlur,
 }: Readonly<TokenThresholdConfigProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between border-b border-border-subtle py-2">
         <label htmlFor={`trigger-${triggerId}-token-type`} className="text-sm text-text-secondary">
-          Token Type
+          {t('settings.triggerSettings.tokenType')}
         </label>
         <select
           id={`trigger-${triggerId}-token-type`}
@@ -304,22 +306,24 @@ const TokenThresholdConfig = ({
           className={`${SELECT_INPUT_BASE} ${getCursorClass(saving)}`}
         >
           <option value="total" className={SELECT_OPTION_BG}>
-            Total Tokens
+            {t('settings.triggerSettings.totalTokens')}
           </option>
           <option value="input" className={SELECT_OPTION_BG}>
-            Input Tokens
+            {t('settings.triggerSettings.inputTokens')}
           </option>
           <option value="output" className={SELECT_OPTION_BG}>
-            Output Tokens
+            {t('settings.triggerSettings.outputTokens')}
           </option>
         </select>
       </div>
       <div className="flex items-center justify-between border-b border-border-subtle py-2">
         <label htmlFor={`trigger-${triggerId}-threshold`} className="text-sm text-text-secondary">
-          Threshold
+          {t('settings.triggerSettings.threshold')}
         </label>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-text-muted">Alert if &gt;</span>
+          <span className="text-xs text-text-muted">
+            {t('settings.triggerSettings.alertIfGreaterThan')}
+          </span>
           <input
             id={`trigger-${triggerId}-threshold`}
             type="text"
@@ -334,7 +338,7 @@ const TokenThresholdConfig = ({
             disabled={saving}
             className={`w-20 rounded border border-border bg-transparent px-2 py-1 text-right text-sm text-text focus:border-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 ${saving ? 'cursor-not-allowed opacity-50' : ''} `}
           />
-          <span className="text-xs text-text-muted">tokens</span>
+          <span className="text-xs text-text-muted">{t('settings.triggerSettings.tokens')}</span>
         </div>
       </div>
     </div>
