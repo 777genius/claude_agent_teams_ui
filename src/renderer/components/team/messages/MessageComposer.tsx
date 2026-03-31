@@ -824,7 +824,7 @@ export const MessageComposer = ({
                       if (filtered.length === 0) {
                         return (
                           <div className="px-2 py-3 text-center text-xs text-[var(--color-text-muted)]">
-                            No results
+                            {t('messages.composer.noResults')}
                           </div>
                         );
                       }

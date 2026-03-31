@@ -683,7 +683,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
             <span className="h-3 w-px bg-blue-600/30 dark:bg-blue-400/30" />
             <button
               onClick={handleShowMore}
-              className="rounded-full px-2.5 py-0.5 text-[11px] font-medium text-[var(--color-text-secondary)] transition-all hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--color-text)]"
+              className="rounded-full px-2.5 py-0.5 text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--color-text)]"
             >
               {t('activity.timeline.showMore', {
                 count: Math.min(MESSAGES_PAGE_SIZE, hiddenCount),
@@ -694,7 +694,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
                 <span className="h-3 w-px bg-blue-600/30 dark:bg-blue-400/30" />
                 <button
                   onClick={handleShowAll}
-                  className="rounded-full px-2.5 py-0.5 text-[11px] text-[var(--color-text-muted)] transition-all hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--color-text-secondary)]"
+                  className="rounded-full px-2.5 py-0.5 text-[11px] text-[var(--color-text-muted)] transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-[var(--color-text-secondary)]"
                 >
                   {t('activity.timeline.showAll')}
                 </button>

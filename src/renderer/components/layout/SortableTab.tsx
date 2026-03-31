@@ -3,7 +3,7 @@
  * Wraps useSortable from @dnd-kit for tab reordering and cross-pane movement.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSortable } from '@dnd-kit/sortable';
@@ -78,17 +78,21 @@ export const SortableTab = ({
     )
   );
 
-  const teamColorSet = useStore((s) => {
+  const teamColorInput = useStore((s) => {
     if (tab.type !== 'team' || !tab.teamName) return null;
     const team = s.teamByName[tab.teamName];
     const explicitColor =
       team?.color ??
       (s.selectedTeamName === tab.teamName ? s.selectedTeamData?.config.color : undefined);
-    if (explicitColor) return getTeamColorSet(explicitColor);
+    if (explicitColor) return explicitColor;
     // Fallback: deterministic color derived from display name
-    const displayName = team?.displayName ?? tab.label;
-    return nameColorSet(displayName);
+    return `name:${team?.displayName ?? tab.label}`;
   });
+  const teamColorSet = useMemo(() => {
+    if (teamColorInput === null) return null;
+    if (teamColorInput.startsWith('name:')) return nameColorSet(teamColorInput.slice(5));
+    return getTeamColorSet(teamColorInput);
+  }, [teamColorInput]);
   const activeBorderColor = teamColorSet?.border ?? 'var(--color-accent, #6366f1)';
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({

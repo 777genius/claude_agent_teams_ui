@@ -584,7 +584,7 @@ export const ProjectEditorOverlay = ({
                 <X className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Close editor (Esc)</TooltipContent>
+            <TooltipContent side="bottom">{t('editor.overlay.closeEditorEsc')}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -607,7 +607,7 @@ export const ProjectEditorOverlay = ({
           <div className="flex w-60 shrink-0 flex-col border-r border-border bg-surface-sidebar">
             <div className="flex items-center justify-between border-b border-border px-2 py-1">
               <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
-                Explorer
+                {t('editor.overlay.explorer')}
               </span>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -616,13 +616,13 @@ export const ProjectEditorOverlay = ({
                     size="icon"
                     className="size-6 text-text-muted"
                     onClick={toggleSidebar}
-                    aria-label="Hide sidebar"
+                    aria-label={t('editor.overlay.hideSidebar')}
                   >
                     <PanelLeftClose className="size-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  Hide sidebar ({shortcutLabel('⌘ B', 'Ctrl+B')})
+                  {t('editor.overlay.hideSidebar')} ({shortcutLabel('⌘ B', 'Ctrl+B')})
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -655,13 +655,13 @@ export const ProjectEditorOverlay = ({
                 variant="ghost"
                 className="flex h-full w-6 shrink-0 items-start justify-center rounded-none border-r border-border bg-surface-sidebar pt-2 text-text-muted"
                 onClick={toggleSidebar}
-                aria-label="Show sidebar"
+                aria-label={t('editor.overlay.showSidebar')}
               >
                 <PanelLeftOpen className="size-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              Show sidebar ({shortcutLabel('⌘ B', 'Ctrl+B')})
+              {t('editor.overlay.showSidebar')} ({shortcutLabel('⌘ B', 'Ctrl+B')})
             </TooltipContent>
           </Tooltip>
         )}
@@ -690,14 +690,14 @@ export const ProjectEditorOverlay = ({
               }}
             >
               <RotateCcw className="size-3.5 shrink-0" />
-              <span>Recovered unsaved changes from a previous session.</span>
+              <span>{t('editor.overlay.recoveredUnsavedChanges')}</span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="ml-auto h-auto px-2 py-0.5"
                 onClick={handleDismissDraftBanner}
               >
-                Keep
+                {t('editor.overlay.keep')}
               </Button>
               <Button
                 variant="destructive"
@@ -705,7 +705,7 @@ export const ProjectEditorOverlay = ({
                 className="h-auto px-2 py-0.5"
                 onClick={handleDiscardDraft}
               >
-                Discard
+                {t('editor.overlay.discard')}
               </Button>
             </div>
           )}
@@ -714,14 +714,16 @@ export const ProjectEditorOverlay = ({
           {activeSaveError && (
             <div className="flex shrink-0 items-center gap-2 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
               <AlertTriangle className="size-3.5 shrink-0" />
-              <span className="truncate">Save failed: {activeSaveError}</span>
+              <span className="truncate">
+                {t('editor.overlay.saveFailed')} {activeSaveError}
+              </span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="ml-auto h-auto shrink-0 px-2 py-0.5"
                 onClick={() => activeTabId && void saveFile(activeTabId)}
               >
-                Retry
+                {t('editor.overlay.retry')}
               </Button>
             </div>
           )}
@@ -732,8 +734,8 @@ export const ProjectEditorOverlay = ({
               <RefreshCw className="size-3.5 shrink-0" />
               <span>
                 {externalChanges[activeTabId] === 'delete'
-                  ? 'File no longer exists on disk.'
-                  : 'File changed on disk.'}
+                  ? t('editor.overlay.fileNoLongerExists')
+                  : t('editor.overlay.fileChangedOnDisk')}
               </span>
               {externalChanges[activeTabId] === 'delete' ? (
                 <Button
@@ -742,7 +744,7 @@ export const ProjectEditorOverlay = ({
                   className="ml-auto h-auto px-2 py-0.5"
                   onClick={() => closeEditorTab(activeTabId)}
                 >
-                  Close tab
+                  {t('editor.overlay.closeTab')}
                 </Button>
               ) : (
                 <>
@@ -752,7 +754,7 @@ export const ProjectEditorOverlay = ({
                     className="ml-auto h-auto px-2 py-0.5"
                     onClick={handleReloadExternalChange}
                   >
-                    Reload
+                    {t('editor.overlay.reload')}
                   </Button>
                   <Button
                     variant="ghost"
@@ -760,7 +762,7 @@ export const ProjectEditorOverlay = ({
                     className="h-auto px-2 py-0.5"
                     onClick={handleKeepMine}
                   >
-                    Keep mine
+                    {t('editor.overlay.keepMine')}
                   </Button>
                 </>
               )}
@@ -866,20 +868,18 @@ export const ProjectEditorOverlay = ({
       <Dialog open={showConfirmClose} onOpenChange={(open) => !open && handleCancelClose()}>
         <DialogContent className="w-96 max-w-96">
           <DialogHeader>
-            <DialogTitle className="text-sm">Unsaved Changes</DialogTitle>
-            <DialogDescription>
-              You have unsaved changes. What would you like to do?
-            </DialogDescription>
+            <DialogTitle className="text-sm">{t('editor.overlay.unsavedChangesTitle')}</DialogTitle>
+            <DialogDescription>{t('editor.overlay.youHaveUnsavedChanges')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={handleCancelClose}>
-              Cancel
+              {t('editor.overlay.cancel')}
             </Button>
             <Button variant="destructive" size="sm" onClick={handleDiscardAndClose}>
-              Discard & Close
+              {t('editor.overlay.discardAndClose')}
             </Button>
             <Button size="sm" onClick={() => void handleSaveAndClose()}>
-              Save All & Close
+              {t('editor.overlay.saveAllAndClose')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -889,18 +889,15 @@ export const ProjectEditorOverlay = ({
       <Dialog open={!!conflictFile} onOpenChange={(open) => !open && handleCancelConflict()}>
         <DialogContent className="w-96 max-w-96">
           <DialogHeader>
-            <DialogTitle className="text-sm">Save Conflict</DialogTitle>
-            <DialogDescription>
-              The file has been modified externally since you opened it. Overwrite with your
-              changes?
-            </DialogDescription>
+            <DialogTitle className="text-sm">{t('editor.overlay.saveConflictTitle')}</DialogTitle>
+            <DialogDescription>{t('editor.overlay.saveConflictDescription')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={handleCancelConflict}>
-              Cancel
+              {t('editor.overlay.cancel')}
             </Button>
             <Button variant="destructive" size="sm" onClick={handleForceOverwrite}>
-              Overwrite
+              {t('editor.overlay.overwrite')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -910,20 +907,18 @@ export const ProjectEditorOverlay = ({
       <Dialog open={!!confirmCloseTabId} onOpenChange={(open) => !open && handleCancelCloseTab()}>
         <DialogContent className="w-96 max-w-96">
           <DialogHeader>
-            <DialogTitle className="text-sm">Unsaved Changes</DialogTitle>
-            <DialogDescription>
-              This file has unsaved changes. What would you like to do?
-            </DialogDescription>
+            <DialogTitle className="text-sm">{t('editor.overlay.unsavedChangesTitle')}</DialogTitle>
+            <DialogDescription>{t('editor.overlay.thisFileHasUnsavedChanges')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={handleCancelCloseTab}>
-              Cancel
+              {t('editor.overlay.cancel')}
             </Button>
             <Button variant="destructive" size="sm" onClick={handleDiscardAndCloseTab}>
-              Discard
+              {t('editor.overlay.discard')}
             </Button>
             <Button size="sm" onClick={() => void handleSaveAndCloseTab()}>
-              Save
+              {t('editor.overlay.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

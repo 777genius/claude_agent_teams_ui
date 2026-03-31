@@ -3,7 +3,7 @@
  * Compact, high-density layout with hover actions.
  */
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { getTriggerColorDef } from '@shared/constants/triggerColors';
@@ -27,12 +27,12 @@ function truncateMessage(message: string, maxLength: number = 100): string {
   return message.slice(0, maxLength).trim() + '...';
 }
 
-export const NotificationRow = ({
+export const NotificationRow = memo(function NotificationRow({
   error,
   onRowClick,
   onArchive,
   onDelete,
-}: Readonly<NotificationRowProps>): React.JSX.Element => {
+}: Readonly<NotificationRowProps>): React.JSX.Element {
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const isUnread = !error.isRead;
@@ -158,7 +158,7 @@ export const NotificationRow = ({
       </div>
     </div>
   );
-};
+});
 
 /**
  * HoverActions - Action buttons shown on hover.

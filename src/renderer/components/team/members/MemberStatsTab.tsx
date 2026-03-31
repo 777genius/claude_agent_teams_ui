@@ -177,6 +177,7 @@ const ToolUsageBars = ({
 }: {
   toolUsage: Record<string, number>;
 }): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const entries = Object.entries(toolUsage).sort(([, a], [, b]) => b - a);
   if (entries.length === 0) return null;
 
@@ -184,7 +185,9 @@ const ToolUsageBars = ({
 
   return (
     <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-      <p className="mb-2 text-[11px] font-medium text-[var(--color-text-secondary)]">Tool Usage</p>
+      <p className="mb-2 text-[11px] font-medium text-[var(--color-text-secondary)]">
+        {t('members.stats.toolUsageTitle')}
+      </p>
       <div className="space-y-1.5">
         {entries.map(([name, count]) => (
           <div key={name} className="flex items-center gap-2 text-[11px]">
@@ -230,6 +233,7 @@ const FilesTouchedSection = ({
   onFileClick?: (filePath: string) => void;
   onShowAll?: () => void;
 }): React.JSX.Element | null => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   const validFiles = files.filter((f) => !isInvalidPath(f));
@@ -243,11 +247,11 @@ const FilesTouchedSection = ({
     <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[11px] font-medium text-[var(--color-text-secondary)]">
-          Files Touched ({validFiles.length})
+          {t('members.stats.filesTouched', { count: validFiles.length })}
         </p>
         {onShowAll && (
           <button className="text-[10px] text-blue-400 hover:text-blue-300" onClick={onShowAll}>
-            View All Changes
+            {t('members.stats.viewAllChanges')}
           </button>
         )}
       </div>
@@ -286,7 +290,9 @@ const FilesTouchedSection = ({
           onClick={() => setExpanded(!expanded)}
         >
           {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-          {expanded ? 'Show less' : `+${hiddenCount} more`}
+          {expanded
+            ? t('members.stats.showLess')
+            : t('members.stats.moreFiles', { count: hiddenCount })}
         </button>
       )}
     </div>
@@ -294,11 +300,14 @@ const FilesTouchedSection = ({
 };
 
 const StatsFooter = ({ stats }: { stats: MemberFullStats }): React.JSX.Element => {
+  const { t } = useTranslation();
   const computedAgo = formatRelativeTime(stats.computedAt);
 
   return (
     <div className="text-center text-[10px] text-[var(--color-text-muted)]">
-      {stats.sessionCount} session{stats.sessionCount !== 1 ? 's' : ''} · computed {computedAgo}
+      {stats.sessionCount !== 1
+        ? t('members.stats.sessionsFooter', { count: stats.sessionCount, time: computedAgo })
+        : t('members.stats.sessionFooter', { count: stats.sessionCount, time: computedAgo })}
     </div>
   );
 };

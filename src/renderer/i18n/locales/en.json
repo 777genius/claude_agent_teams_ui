@@ -123,13 +123,21 @@
   },
   "dialogs": {
     "addMember": {
-      "title": "Add Members"
+      "title": "Add Members",
+      "description": "Add new members to {{teamName}}",
+      "cancel": "Cancel",
+      "addOne": "Add member",
+      "addCount": "Add {{count}} members"
     },
     "advancedCli": {
       "title": "Advanced",
+      "useWorktree": "Use worktree",
       "worktreePlaceholder": "worktree-name",
       "recentLabel": "Recent",
-      "maxTurnsPlaceholder": "--max-turns 5"
+      "commandPreview": "Command preview",
+      "customArguments": "Custom arguments",
+      "maxTurnsPlaceholder": "--max-turns 5",
+      "validate": "Validate"
     },
     "effortLevel": {
       "label": "Effort level (optional)",
@@ -248,7 +256,12 @@
       "title": "Edit Team",
       "description": "Change team name, description and color",
       "namePlaceholder": "Team name",
-      "descriptionPlaceholder": "Team description (optional)"
+      "descriptionPlaceholder": "Team description (optional)",
+      "nameLabel": "Name",
+      "descriptionLabel": "Description",
+      "colorLabel": "Color (optional)",
+      "cancel": "Cancel",
+      "save": "Save"
     },
     "launchTeam": {
       "teamLabel": "Team",
@@ -331,12 +344,16 @@
     "projectPath": {
       "label": "Project",
       "ariaLabel": "Custom working directory",
-      "placeholder": "/absolute/path/to/project"
+      "placeholder": "/absolute/path/to/project",
+      "fromProjectList": "From project list",
+      "customPath": "Custom path",
+      "browse": "Browse"
     },
     "reviewChanges": {
       "title": "Request Changes",
       "placeholder": "Describe what needs to change... (Enter to submit)",
-      "saved": "Saved"
+      "saved": "Saved",
+      "submit": "Submit"
     },
     "sendMessage": {
       "title": "Send Message",
@@ -357,10 +374,16 @@
       "teamOfflineAttach": "Team must be online to attach files",
       "maxAttachments": "Maximum attachments reached",
       "filesOnlyToLead": "Files can only be sent to the team lead",
-      "attachDisabledHint": "File attachments are only supported when sending to the team lead while the team is online. Remove attachments or switch recipient."
+      "attachDisabledHint": "File attachments are only supported when sending to the team lead while the team is online. Remove attachments or switch recipient.",
+      "teamMustBeOnline": "Team must be online to attach files",
+      "maxAttachmentsReached": "Maximum attachments reached",
+      "attachFilesTooltip": "Attach files (paste or drag & drop)",
+      "attachmentsDisabledHint": "File attachments are only supported when sending to the team lead while the team is online. Remove attachments or switch recipient."
     },
     "skipPermissions": {
-      "manualMode": "Manual mode — you'll approve or deny each tool call in real-time."
+      "manualMode": "Manual mode — you'll approve or deny each tool call in real-time.",
+      "autoApprove": "Auto-approve all tools",
+      "autonomousMode": "Unleash Claude's full power - no interruptions asking for permission. Autonomous mode - all tools execute without confirmation. Be cautious with untrusted code."
     },
     "statusHistory": {
       "unknownEvent": "Unknown event",
@@ -688,7 +711,10 @@
       "showAll": "Show all"
     },
     "thoughts": {
+      "label": "thoughts",
       "expandAriaLabel": "Expand thoughts",
+      "showMore": "Show more",
+      "showLess": "Show less",
       "toolCallSingular": "tool call",
       "toolCallPlural": "tool calls",
       "toolCallCount": "{{count}} tool call",
@@ -1007,6 +1033,61 @@
     "searchInFiles": {
       "matchSummary": "{{matches}} matches in {{files}} files",
       "truncated": "truncated"
+    },
+    "logs": {
+      "sectionTitle": "Claude logs",
+      "searchPlaceholder": "Search logs...",
+      "clearSearchAriaLabel": "Clear search",
+      "noMatchingLogs": "No matching logs.",
+      "fullscreenAriaLabel": "Open fullscreen logs",
+      "fullscreenTooltip": "Fullscreen",
+      "filterAriaLabel": "Filter Claude logs",
+      "filterTooltip": "Filter logs"
+    },
+    "logsFilter": {
+      "stream": "Stream",
+      "content": "Content",
+      "output": "Output",
+      "thinking": "Thinking",
+      "toolCalls": "Tool calls",
+      "reset": "Reset",
+      "save": "Save"
+    },
+    "logsPanel": {
+      "noLogsYet": "No logs yet.",
+      "teamNotRunning": "Team is not running.",
+      "loading": "Loading…",
+      "showMore": "Show more",
+      "noLogsCaptured": "No logs captured."
+    },
+    "logsSection": {
+      "viewingFullscreen": "Viewing in fullscreen mode"
+    },
+    "provisioningProgress": {
+      "cancel": "Cancel",
+      "liveOutput": "Live output",
+      "noOutputYet": "No output captured yet.",
+      "cliLogs": "CLI logs"
+    },
+    "sessions": {
+      "afterProvisioning": "Sessions will appear after team provisioning",
+      "openSessionTooltip": "Open session"
+    },
+    "sessionsSection": {
+      "noProjectPath": "No project path linked",
+      "projectNotFound": "Project not found",
+      "loadingSessions": "Loading sessions...",
+      "noSessionsFound": "No sessions found",
+      "showForAllSessions": "Show for all sessions",
+      "removeFilter": "Remove filter",
+      "filterBySession": "Filter by this session"
+    },
+    "toolApprovalPreview": {
+      "previewChanges": "Preview changes",
+      "readingFile": "Reading file...",
+      "binaryFile": "Binary file — cannot preview",
+      "fileTruncated": "File truncated at 2MB — diff may be incomplete",
+      "newFile": "New file"
     }
   },
   "chat": {
@@ -1482,7 +1563,7 @@
       "taskCompletionNotifications": "Task Completion Notifications",
       "ignoredRepositories": "Ignored Repositories",
       "selectRepositoryToIgnore": "Select repository to ignore...",
-      "devModeDescription": "Notifications may not work in development mode. macOS identifies the app as \"Electron\" (bundle ID com.github.Electron) instead of the production app name. Check System Settings \u2192 Notifications \u2192 Electron to verify permissions.",
+      "devModeDescription": "Notifications may not work in development mode. macOS identifies the app as \"Electron\" (bundle ID com.github.Electron) instead of the production app name. Check System Settings → Notifications → Electron to verify permissions.",
       "snoozedUntil": "Snoozed until {{time}}",
       "clearSnooze": "Clear Snooze",
       "onlyInSoloMode": "Only in Solo mode",
@@ -1491,7 +1572,7 @@
       "notifyOnStatusesDescription": "Which target statuses trigger a notification",
       "ignoredReposDescription": "Notifications from these repositories will be ignored",
       "noRepositoriesIgnored": "No repositories ignored",
-      "taskCompletionDescription": "Get native OS notifications when Claude finishes tasks \u2014 sounds, banners, and Dock/taskbar badges. Works on macOS, Linux, and Windows.",
+      "taskCompletionDescription": "Get native OS notifications when Claude finishes tasks — sounds, banners, and Dock/taskbar badges. Works on macOS, Linux, and Windows.",
       "installPlugin": "Install claude-notifications-go plugin",
       "unknownError": "Unknown error",
       "failedToSendTest": "Failed to send test notification",
@@ -1653,7 +1734,9 @@
       "builtInTriggersDescription": "Default triggers that come with the application. You can enable/disable them and customize their patterns.",
       "customTriggers": "Custom Triggers",
       "customTriggersDescription": "Create your own triggers to get notified for specific patterns or tool outputs.",
-      "noCustomTriggersYet": "No custom triggers configured yet."
+      "noCustomTriggersYet": "No custom triggers configured yet.",
+      "addTrigger": "Add Trigger",
+      "cancel": "Cancel"
     }
   },
   "common": {
@@ -2123,22 +2206,15 @@
         "backToEditor": "Back To Editor",
         "saving": "Saving...",
         "fileChanges": "{{count}} file changes",
-        "new": "{{count}} new",
-        "updated": "{{count}} updated",
-        "removed": "{{count}} removed",
-        "binary": "{{count}} binary",
-        "reviewDiffBelow": "Review the diff below, then use",
-        "toApplyChanges": "to apply these changes.",
-        "noFileChangesDetected": "No file changes detected yet.",
-        "binaryFilePreviewNotShown": "Binary file preview is not shown. The file will be copied as-is.",
-        "previewsChanges": "previews the filesystem changes first. Nothing is written until you confirm below.",
         "newCount": "{{count}} new",
         "updatedCount": "{{count}} updated",
         "removedCount": "{{count}} removed",
         "binaryCount": "{{count}} binary",
+        "binary": "binary",
         "reviewDiffInstruction": "Review the diff below, then use {{confirmLabel}} to apply these changes.",
         "noFileChanges": "No file changes detected yet.",
-        "binaryFileNote": "Binary file preview is not shown. The file will be copied as-is."
+        "binaryFileNote": "Binary file preview is not shown. The file will be copied as-is.",
+        "previewsChanges": "previews the filesystem changes first. Nothing is written until you confirm below."
       },
       "skillsPanel": {
         "searchPlaceholder": "Search by skill name or what it helps with...",
@@ -2280,7 +2356,13 @@
         "perCommit": "Per Commit",
         "perLineChanged": "Per Line Changed",
         "model": "Model",
-        "subagentsCombined": "Subagents (combined)"
+        "subagentsCombined": "Subagents (combined)",
+        "costBreakdown": "Cost Breakdown",
+        "totalCostDivided": "total cost",
+        "commitCount": "{{count}} commit(s)",
+        "noCommits": "no commits",
+        "lineCount": "{{count}} line(s)",
+        "noLinesChanged": "no lines changed"
       },
       "toolUsage": {
         "title": "Tool Usage",
@@ -2288,7 +2370,8 @@
         "calls": "Calls",
         "errors": "Errors",
         "successPercent": "Success %",
-        "health": "Health"
+        "health": "Health",
+        "totalCallsSummary": "{{totalCalls}} total calls across {{toolCount}} tools"
       },
       "errors": {
         "title": "Errors"
@@ -2308,7 +2391,9 @@
         "totalIdle": "Total Idle",
         "activeTime": "Active Time",
         "idlePercent": "Idle %",
-        "keyEvents": "Key Events"
+        "keyEvents": "Key Events",
+        "modelSwitches": "Model Switches",
+        "msgNumber": "msg #{{number}}"
       },
       "qualitySignals": {
         "title": "Quality Signals",
@@ -2326,14 +2411,20 @@
         "readsPerUniqueFile": "Reads/Unique File",
         "testProgression": "Test Progression",
         "firstRun": "First Run",
-        "lastRun": "Last Run"
+        "lastRun": "Last Run",
+        "percentOfTotal": "% of Total",
+        "passed": "passed",
+        "failed": "failed",
+        "charsCount": "{{count}} chars",
+        "snapshotCount": "{{count}} snapshot(s)"
       },
       "frictionSignals": {
         "title": "Friction Signals",
         "corrections": "Corrections",
         "thrashingSignals": "Thrashing Signals",
         "repeatedBashCommands": "Repeated Bash Commands",
-        "reworkedFiles": "Reworked Files (3+ edits)"
+        "reworkedFiles": "Reworked Files (3+ edits)",
+        "correctionCount": "{{count}} correction(s)"
       },
       "subagents": {
         "title": "Subagents",
@@ -2352,7 +2443,16 @@
         "bashCommands": "Bash Commands",
         "total": "Total",
         "unique": "Unique",
-        "repeated": "Repeated"
+        "repeated": "Repeated",
+        "skillsInvoked": "Skills Invoked ({{count}})",
+        "taskDispatches": "Task Dispatches ({{count}})",
+        "background": "background",
+        "tasksCreated": "Tasks Created ({{count}})",
+        "questionsAsked": "Questions Asked ({{count}})",
+        "agentTree": "Agent Tree ({{count}} agent(s))",
+        "teamMode": "Team Mode",
+        "teams": "Teams",
+        "outOfScopeFindings": "Out-of-Scope Findings ({{count}})"
       },
       "keyTakeaways": {
         "title": "Key Takeaways"
@@ -2394,6 +2494,12 @@
       "maximize": "Maximize",
       "restore": "Restore",
       "close": "Close"
+    },
+    "sessionTabContent": {
+      "failedToLoadSession": "Failed to load session",
+      "retry": "Retry",
+      "closeTab": "Close tab",
+      "loadingSession": "Loading session..."
     }
   },
   "dashboard": {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '@renderer/api';
@@ -23,8 +23,11 @@ import {
 import { SearchInput } from '../common/SearchInput';
 
 import { SkillDetailDialog } from './SkillDetailDialog';
-import { SkillEditorDialog } from './SkillEditorDialog';
 import { SkillImportDialog } from './SkillImportDialog';
+
+const SkillEditorDialog = lazy(() =>
+  import('./SkillEditorDialog').then((m) => ({ default: m.SkillEditorDialog }))
+);
 
 import type { SkillsSortState } from '@renderer/hooks/useExtensionsTabState';
 import type { SkillCatalogItem, SkillDetail } from '@shared/types/extensions';
@@ -573,38 +576,46 @@ export const SkillsPanel = ({
         onDeleted={() => setSelectedSkillId(null)}
       />
 
-      <SkillEditorDialog
-        open={createOpen}
-        mode="create"
-        projectPath={projectPath}
-        projectLabel={projectLabel}
-        detail={null}
-        onClose={() => setCreateOpen(false)}
-        onSaved={(skillId) => {
-          setCreateOpen(false);
-          setSuccessMessage(t('extensions.skills.panel.skillCreated'));
-          setHighlightedSkillId(skillId);
-          setSelectedSkillId(null);
-        }}
-      />
+      {createOpen && (
+        <Suspense fallback={null}>
+          <SkillEditorDialog
+            open={createOpen}
+            mode="create"
+            projectPath={projectPath}
+            projectLabel={projectLabel}
+            detail={null}
+            onClose={() => setCreateOpen(false)}
+            onSaved={(skillId) => {
+              setCreateOpen(false);
+              setSuccessMessage(t('extensions.skills.panel.skillCreated'));
+              setHighlightedSkillId(skillId);
+              setSelectedSkillId(null);
+            }}
+          />
+        </Suspense>
+      )}
 
-      <SkillEditorDialog
-        open={editOpen}
-        mode="edit"
-        projectPath={projectPath}
-        projectLabel={projectLabel}
-        detail={editingDetail}
-        onClose={() => {
-          setEditOpen(false);
-          setEditingDetail(null);
-        }}
-        onSaved={(skillId) => {
-          setEditOpen(false);
-          setEditingDetail(null);
-          setSuccessMessage(t('extensions.skills.panel.skillSaved'));
-          setSelectedSkillId(skillId);
-        }}
-      />
+      {editOpen && (
+        <Suspense fallback={null}>
+          <SkillEditorDialog
+            open={editOpen}
+            mode="edit"
+            projectPath={projectPath}
+            projectLabel={projectLabel}
+            detail={editingDetail}
+            onClose={() => {
+              setEditOpen(false);
+              setEditingDetail(null);
+            }}
+            onSaved={(skillId) => {
+              setEditOpen(false);
+              setEditingDetail(null);
+              setSuccessMessage(t('extensions.skills.panel.skillSaved'));
+              setSelectedSkillId(skillId);
+            }}
+          />
+        </Suspense>
+      )}
 
       <SkillImportDialog
         open={importOpen}

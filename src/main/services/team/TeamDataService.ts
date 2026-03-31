@@ -82,7 +82,7 @@ const logger = createLogger('Service:TeamDataService');
 
 const MIN_TEXT_LENGTH = 30;
 const MAX_LEAD_TEXTS = 150;
-const PROCESS_HEALTH_INTERVAL_MS = 2_000;
+const PROCESS_HEALTH_INTERVAL_MS = 5_000;
 const TASK_MAP_YIELD_EVERY = 250;
 const TASK_COMMENT_NOTIFICATION_SOURCE = 'system_notification';
 

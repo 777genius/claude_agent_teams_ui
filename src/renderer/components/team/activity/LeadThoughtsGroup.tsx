@@ -822,7 +822,7 @@ const LeadThoughtsGroupRowComponent = ({
           ) : null}
           <MemberBadge name={leadName} color={memberColor} hideAvatar />
           <span className="text-[10px]" style={{ color: CARD_ICON_MUTED }}>
-            {thoughts.length} thoughts
+            {thoughts.length} {t('activity.thoughts.label')}
           </span>
           {!isBodyVisible && headerTextPreview ? (
             <Tooltip>
@@ -940,7 +940,7 @@ const LeadThoughtsGroupRowComponent = ({
             }}
           >
             <ChevronDown size={12} />
-            Show more
+            {t('activity.thoughts.showMore')}
           </button>
         </div>
       ) : null}
@@ -955,7 +955,7 @@ const LeadThoughtsGroupRowComponent = ({
             }}
           >
             <ChevronUp size={12} />
-            Show less
+            {t('activity.thoughts.showLess')}
           </button>
         </div>
       ) : null}

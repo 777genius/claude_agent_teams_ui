@@ -21,10 +21,8 @@ export const ConnectionStatusBadge = ({
   contextId,
   className,
 }: Readonly<ConnectionStatusBadgeProps>): React.JSX.Element => {
-  const { connectionState, connectedHost } = useStore((s) => ({
-    connectionState: s.connectionState,
-    connectedHost: s.connectedHost,
-  }));
+  const connectionState = useStore((s) => s.connectionState);
+  const connectedHost = useStore((s) => s.connectedHost);
 
   // Local context always shows Monitor icon
   if (contextId === 'local') {

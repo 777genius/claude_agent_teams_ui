@@ -134,7 +134,7 @@ export const AddTriggerForm = ({
         <div className="flex items-center gap-2">
           <Plus className="size-4 text-indigo-400" />
           <span className="text-sm font-medium text-text">
-            {t('settings.triggers.addCustomTrigger')}
+            {t('settings.triggerSettings.addCustomTrigger')}
           </span>
         </div>
         {isExpanded ? (
@@ -158,13 +158,13 @@ export const AddTriggerForm = ({
 
           {/* Dot Color */}
           <div className="space-y-3">
-            <SectionHeader title={t('settings.triggers.dotColor')} />
+            <SectionHeader title={t('settings.triggerSettings.dotColor')} />
             <ColorPaletteSelector value={color} onChange={setColor} disabled={saving} />
           </div>
 
           {/* Section 2: Trigger Condition */}
           <div className="space-y-3">
-            <SectionHeader title={t('settings.triggers.triggerCondition')} />
+            <SectionHeader title={t('settings.triggerSettings.triggerCondition')} />
             <ModeSelector value={mode} onChange={handlers.handleModeChange} disabled={saving} />
           </div>
 
@@ -219,7 +219,7 @@ export const AddTriggerForm = ({
               disabled={saving}
               className={`rounded bg-surface-raised px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-overlay ${saving ? 'cursor-not-allowed opacity-50' : ''} `}
             >
-              {t('settings.triggers.cancel')}
+              {t('settings.triggerSettings.cancel')}
             </button>
             <button
               type="submit"
@@ -227,7 +227,7 @@ export const AddTriggerForm = ({
               className={`flex items-center gap-2 rounded bg-indigo-500 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-[#141416] ${saving || !name.trim() || !!patternError ? 'cursor-not-allowed opacity-50' : ''} `}
             >
               {saving && <Loader2 className="size-4 animate-spin" />}
-              {t('settings.triggers.addTrigger')}
+              {t('settings.triggerSettings.addTrigger')}
             </button>
           </div>
         </form>

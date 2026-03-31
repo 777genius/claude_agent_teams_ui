@@ -13,6 +13,9 @@ import type { KanbanColumnId, TeamTask, TeamTaskWithKanban } from '@shared/types
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+const EMPTY_TASKS: TeamTask[] = [];
+const EMPTY_MEMBERS: readonly never[] = [];
+
 interface GraphTaskCardProps {
   node: GraphNode;
   teamName: string;
@@ -85,8 +88,8 @@ export const GraphTaskCard = ({
   const taskId = node.domainRef.kind === 'task' ? node.domainRef.taskId : '';
 
   const task = useStore((s) => s.selectedTeamData?.tasks.find((t) => t.id === taskId));
-  const tasks = useStore((s) => s.selectedTeamData?.tasks ?? []);
-  const members = useStore((s) => s.selectedTeamData?.members ?? []);
+  const tasks = useStore((s) => s.selectedTeamData?.tasks ?? EMPTY_TASKS);
+  const members = useStore((s) => s.selectedTeamData?.members ?? EMPTY_MEMBERS);
 
   const taskMap = useMemo(() => {
     const map = new Map<string, TeamTask>();

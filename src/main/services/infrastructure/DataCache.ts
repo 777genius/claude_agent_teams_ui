@@ -32,7 +32,7 @@ export class DataCache {
   private disposed = false; // Flag to prevent reuse after disposal
   private static readonly CURRENT_VERSION = 2; // Increment when cache structure changes
 
-  constructor(maxSize: number = 50, ttlMinutes: number = 10, enabled: boolean = true) {
+  constructor(maxSize: number = 100, ttlMinutes: number = 10, enabled: boolean = true) {
     this.cache = new Map();
     this.maxSize = maxSize;
     this.ttl = ttlMinutes * 60 * 1000;

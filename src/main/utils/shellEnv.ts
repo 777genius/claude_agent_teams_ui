@@ -15,7 +15,7 @@ import { spawn } from 'child_process';
 
 const logger = createLogger('Utils:shellEnv');
 
-const SHELL_ENV_TIMEOUT_MS = 12_000;
+const SHELL_ENV_TIMEOUT_MS = 5_000;
 
 let cachedInteractiveShellEnv: NodeJS.ProcessEnv | null = null;
 let shellEnvResolvePromise: Promise<NodeJS.ProcessEnv> | null = null;

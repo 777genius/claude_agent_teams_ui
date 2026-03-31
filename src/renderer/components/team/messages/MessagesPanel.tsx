@@ -646,7 +646,7 @@ export const MessagesPanel = memo(function MessagesPanel({
                 <CheckCheck size={12} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Mark all as read</TooltipContent>
+            <TooltipContent side="bottom">{t('messages.panel.markAllReadTooltip')}</TooltipContent>
           </Tooltip>
         ) : undefined
       }

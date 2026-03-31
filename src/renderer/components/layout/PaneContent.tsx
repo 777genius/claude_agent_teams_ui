@@ -3,14 +3,19 @@
  * Uses CSS display-toggle to keep all tabs mounted (preserving state).
  */
 
+import { lazy, Suspense } from 'react';
+
 import { TabUIProvider } from '@renderer/contexts/TabUIContext';
 import { TeamGraphTab } from '@renderer/features/agent-graph/ui/TeamGraphTab';
 
 import { DashboardView } from '../dashboard/DashboardView';
 import { ExtensionStoreView } from '../extensions/ExtensionStoreView';
 import { NotificationsView } from '../notifications/NotificationsView';
-import { SessionReportTab } from '../report/SessionReportTab';
 import { SchedulesView } from '../schedules/SchedulesView';
+
+const SessionReportTab = lazy(() =>
+  import('../report/SessionReportTab').then((m) => ({ default: m.SessionReportTab }))
+);
 import { SettingsView } from '../settings/SettingsView';
 import { TeamDetailView } from '../team/TeamDetailView';
 import { TeamListView } from '../team/TeamListView';
@@ -60,7 +65,11 @@ export const PaneContent = ({ pane, isPaneFocused }: PaneContentProps): React.JS
                 <SessionTabContent tab={tab} isActive={isActive} />
               </TabUIProvider>
             )}
-            {tab.type === 'report' && <SessionReportTab tab={tab} />}
+            {tab.type === 'report' && (
+              <Suspense fallback={null}>
+                <SessionReportTab tab={tab} />
+              </Suspense>
+            )}
             {tab.type === 'extensions' && (
               <TabUIProvider tabId={tab.id}>
                 <ExtensionStoreView />

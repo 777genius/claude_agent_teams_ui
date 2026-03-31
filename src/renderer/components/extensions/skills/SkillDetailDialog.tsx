@@ -77,13 +77,15 @@ export const SkillDetailDialog = ({
   }
 
   function formatScopeLabel(scope: 'user' | 'project'): string {
-    return scope === 'project' ? 'This project only' : 'Your personal skills';
+    return scope === 'project'
+      ? t('extensions.skills.This project only')
+      : t('extensions.skills.Your personal skills');
   }
 
   function formatInvocationLabel(invocationMode: 'auto' | 'manual-only'): string {
     return invocationMode === 'manual-only'
-      ? 'Claude will only use this when you explicitly ask for it.'
-      : 'Claude can pick this automatically when it matches the task.';
+      ? t('extensions.skills.Claude will only use this when you explicitly ask for it.')
+      : t('extensions.skills.Claude can pick this automatically when it matches the task.');
   }
 
   async function handleDelete(): Promise<void> {
@@ -98,7 +100,9 @@ export const SkillDetailDialog = ({
       setDeleteConfirmOpen(false);
       onDeleted();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Failed to delete skill');
+      setDeleteError(
+        error instanceof Error ? error.message : t('extensions.skills.Failed to delete skill')
+      );
     } finally {
       setDeleteLoading(false);
     }
@@ -108,9 +112,10 @@ export const SkillDetailDialog = ({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-4xl">
         <DialogHeader>
-          <DialogTitle>{item?.name ?? 'Skill details'}</DialogTitle>
+          <DialogTitle>{item?.name ?? t('extensions.skills.Skill details')}</DialogTitle>
           <DialogDescription>
-            {item?.description ?? 'Inspect discovered skill metadata and raw instructions.'}
+            {item?.description ??
+              t('extensions.skills.Inspect discovered skill metadata and raw instructions.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -131,7 +136,7 @@ export const SkillDetailDialog = ({
                   void fetchSkillDetail(skillId, projectPath ?? undefined).catch(() => undefined);
                 }}
               >
-                Retry
+                {t('extensions.skills.Retry')}
               </Button>
             )}
           </div>
@@ -139,7 +144,7 @@ export const SkillDetailDialog = ({
 
         {!loading && !detailError && detail === null && (
           <div className="rounded-md border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-400">
-            Unable to load this skill.
+            {t('extensions.skills.Unable to load this skill.')}
           </div>
         )}
 
@@ -195,28 +200,28 @@ export const SkillDetailDialog = ({
             <div className="grid gap-3 rounded-lg border border-border p-4 md:grid-cols-3">
               <div className="space-y-1">
                 <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                  Who can use it
+                  {t('extensions.skills.Who can use it')}
                 </p>
                 <p className="text-sm text-text">{formatScopeLabel(item.scope)}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                  How Claude uses it
+                  {t('extensions.skills.How Claude uses it')}
                 </p>
                 <p className="text-sm text-text">{formatInvocationLabel(item.invocationMode)}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                  What comes with it
+                  {t('extensions.skills.What comes with it')}
                 </p>
                 <p className="text-sm text-text">
                   {[
-                    item.flags.hasReferences ? 'references' : null,
-                    item.flags.hasScripts ? 'scripts' : null,
-                    item.flags.hasAssets ? 'assets' : null,
+                    item.flags.hasReferences ? t('extensions.skills.references') : null,
+                    item.flags.hasScripts ? t('extensions.skills.scripts') : null,
+                    item.flags.hasAssets ? t('extensions.skills.assets') : null,
                   ]
                     .filter(Boolean)
-                    .join(', ') || 'Just the skill instructions'}
+                    .join(', ') || t('extensions.skills.Just the skill instructions')}
                 </p>
               </div>
             </div>
@@ -224,7 +229,7 @@ export const SkillDetailDialog = ({
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" onClick={onEdit}>
                 <Pencil className="mr-1.5 size-3.5" />
-                Edit Skill
+                {t('extensions.skills.Edit Skill')}
               </Button>
               <Button
                 variant="outline"
@@ -233,7 +238,7 @@ export const SkillDetailDialog = ({
                 disabled={deleteLoading}
               >
                 <Trash2 className="mr-1.5 size-3.5" />
-                {deleteLoading ? 'Deleting...' : 'Delete'}
+                {deleteLoading ? t('extensions.skills.Deleting...') : t('extensions.skills.Delete')}
               </Button>
             </div>
 
@@ -298,7 +303,7 @@ export const SkillDetailDialog = ({
 
                 <details className="rounded-lg border border-border p-3 text-sm text-text-secondary">
                   <summary className="cursor-pointer font-medium text-text">
-                    Advanced file details
+                    {t('extensions.skills.Advanced file details')}
                   </summary>
                   <div className="mt-3 space-y-3">
                     <div className="flex flex-wrap gap-2">
@@ -308,7 +313,7 @@ export const SkillDetailDialog = ({
                         onClick={() => void api.showInFolder(item.skillFile)}
                       >
                         <FolderOpen className="mr-1.5 size-3.5" />
-                        Open Folder
+                        {t('extensions.skills.Open Folder')}
                       </Button>
                       <Button
                         variant="outline"
@@ -316,7 +321,7 @@ export const SkillDetailDialog = ({
                         onClick={() => void api.openPath(item.skillFile, projectPath ?? undefined)}
                       >
                         <ExternalLink className="mr-1.5 size-3.5" />
-                        Open SKILL.md
+                        {t('extensions.skills.Open SKILL.md')}
                       </Button>
                     </div>
                     <CodeBlockViewer

@@ -62,7 +62,7 @@ export const StatusBlock = ({
   // Only run the 1-second timer when the block actually has content to show.
   useEffect(() => {
     if (!hasItems) return;
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    const id = window.setInterval(() => setNowMs(Date.now()), 5000);
     return () => window.clearInterval(id);
   }, [hasItems]);
 

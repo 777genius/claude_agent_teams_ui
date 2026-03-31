@@ -53,6 +53,7 @@ function omitKey<V>(record: Record<string, V>, key: string): Record<string, V> {
  */
 const recentSaveTimestamps = new Map<string, number>();
 const SAVE_COOLDOWN_MS = 2000;
+const TIMESTAMP_MAP_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Throttle timers for watcher-driven updates.
@@ -138,6 +139,24 @@ let editorOpenSeq = 0;
  */
 const recentMoveTimestamps = new Map<string, number>();
 const MOVE_COOLDOWN_MS = 2000;
+const MAX_EXPANDED_DIRS = 500;
+
+/** Prune stale entries from timestamp Maps to prevent unbounded growth. */
+function pruneStaleTimestamps(): void {
+  const now = Date.now();
+  for (const [key, ts] of recentSaveTimestamps) {
+    if (now - ts > TIMESTAMP_MAP_STALE_MS) recentSaveTimestamps.delete(key);
+  }
+  for (const [key, ts] of recentMoveTimestamps) {
+    if (now - ts > TIMESTAMP_MAP_STALE_MS) recentMoveTimestamps.delete(key);
+  }
+}
+// Run cleanup every 5 minutes
+const _timestampPruneInterval = setInterval(pruneStaleTimestamps, TIMESTAMP_MAP_STALE_MS);
+// Prevent the interval from keeping the process alive during shutdown
+if (typeof _timestampPruneInterval === 'object' && 'unref' in _timestampPruneInterval) {
+  _timestampPruneInterval.unref();
+}
 
 function scheduleIdleWork(cb: () => void): void {
   // Prefer requestIdleCallback when available; fall back to a short timeout.
@@ -574,9 +593,15 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     // Skip set() if already expanded — prevents unnecessary re-render
     const wasExpanded = !!editorExpandedDirs[dirPath];
     if (!wasExpanded) {
-      set({
-        editorExpandedDirs: { ...editorExpandedDirs, [dirPath]: true },
-      });
+      let nextDirs = { ...editorExpandedDirs, [dirPath]: true };
+      // Cap expanded dirs to prevent unbounded memory growth
+      const keys = Object.keys(nextDirs);
+      if (keys.length > MAX_EXPANDED_DIRS) {
+        nextDirs = Object.fromEntries(
+          keys.slice(keys.length - MAX_EXPANDED_DIRS).map((k) => [k, true])
+        );
+      }
+      set({ editorExpandedDirs: nextDirs });
       scheduleSyncWatchedDirs(get);
     }
 

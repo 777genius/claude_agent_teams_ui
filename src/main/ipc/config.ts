@@ -738,13 +738,10 @@ async function handleSelectClaudeRootFolder(
     const selectedPath = path.resolve(path.normalize(result.filePaths[0]));
     const folderName = path.basename(selectedPath);
     const projectsDir = path.join(selectedPath, 'projects');
-    const hasProjectsDir = (() => {
-      try {
-        return fs.existsSync(projectsDir) && fs.statSync(projectsDir).isDirectory();
-      } catch {
-        return false;
-      }
-    })();
+    const hasProjectsDir = await fs.promises
+      .stat(projectsDir)
+      .then((s) => s.isDirectory())
+      .catch(() => false);
 
     return {
       success: true,
@@ -1012,13 +1009,10 @@ async function handleFindWslClaudeRoots(
       seen.add(key);
 
       const projectsPath = path.join(claudeUncPath, 'projects');
-      const hasProjectsDir = (() => {
-        try {
-          return fs.existsSync(projectsPath) && fs.statSync(projectsPath).isDirectory();
-        } catch {
-          return false;
-        }
-      })();
+      const hasProjectsDir = await fs.promises
+        .stat(projectsPath)
+        .then((s) => s.isDirectory())
+        .catch(() => false);
 
       candidates.push({
         distro,

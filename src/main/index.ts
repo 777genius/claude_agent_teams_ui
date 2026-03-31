@@ -1153,6 +1153,8 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       backgroundThrottling: false,
+      v8CacheOptions: 'bypassHeatCheck',
+      spellcheck: false,
       // In development, use a persistent partition so that renderer-side storage
       // (localStorage, IndexedDB — used by comment read state, etc.) survives
       // app restarts. A fixed name is used instead of per-PID to keep data stable.

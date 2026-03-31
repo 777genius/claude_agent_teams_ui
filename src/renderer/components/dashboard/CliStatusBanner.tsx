@@ -7,12 +7,15 @@
  * Only rendered in Electron mode.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api, isElectronMode } from '@renderer/api';
 import { TerminalLogPanel } from '@renderer/components/terminal/TerminalLogPanel';
-import { TerminalModal } from '@renderer/components/terminal/TerminalModal';
+
+const TerminalModal = lazy(() =>
+  import('@renderer/components/terminal/TerminalModal').then((m) => ({ default: m.TerminalModal }))
+);
 import { useCliInstaller } from '@renderer/hooks/useCliInstaller';
 import { useStore } from '@renderer/store';
 import { formatBytes } from '@renderer/utils/formatters';
@@ -690,37 +693,39 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
           )}
         </div>
         {showLoginTerminal && cliStatus.binaryPath && (
-          <TerminalModal
-            title={t('dashboard.cli.authLoginTitle')}
-            command={cliStatus.binaryPath}
-            args={['auth', 'login']}
-            onClose={() => {
-              setShowLoginTerminal(false);
-              setIsVerifyingAuth(true);
-              void (async () => {
-                try {
-                  await invalidateCliStatus();
-                  await fetchCliStatus();
-                } finally {
-                  setIsVerifyingAuth(false);
-                }
-              })();
-            }}
-            onExit={() => {
-              setIsVerifyingAuth(true);
-              void (async () => {
-                try {
-                  await invalidateCliStatus();
-                  await fetchCliStatus();
-                } finally {
-                  setIsVerifyingAuth(false);
-                }
-              })();
-            }}
-            autoCloseOnSuccessMs={4000}
-            successMessage={t('dashboard.cli.loginComplete')}
-            failureMessage={t('dashboard.cli.loginFailed')}
-          />
+          <Suspense fallback={null}>
+            <TerminalModal
+              title={t('dashboard.cli.authLoginTitle')}
+              command={cliStatus.binaryPath}
+              args={['auth', 'login']}
+              onClose={() => {
+                setShowLoginTerminal(false);
+                setIsVerifyingAuth(true);
+                void (async () => {
+                  try {
+                    await invalidateCliStatus();
+                    await fetchCliStatus();
+                  } finally {
+                    setIsVerifyingAuth(false);
+                  }
+                })();
+              }}
+              onExit={() => {
+                setIsVerifyingAuth(true);
+                void (async () => {
+                  try {
+                    await invalidateCliStatus();
+                    await fetchCliStatus();
+                  } finally {
+                    setIsVerifyingAuth(false);
+                  }
+                })();
+              }}
+              autoCloseOnSuccessMs={4000}
+              successMessage={t('dashboard.cli.loginComplete')}
+              failureMessage={t('dashboard.cli.loginFailed')}
+            />
+          </Suspense>
         )}
       </>
     );

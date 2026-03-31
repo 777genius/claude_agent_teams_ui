@@ -97,13 +97,7 @@ export const FullDiffLoadingBanner = ({
         </div>
       </div>
 
-      <style>{`
-        @keyframes full-diff-loader-slide {
-          0% { transform: translateX(-110%); }
-          50% { transform: translateX(110%); }
-          100% { transform: translateX(320%); }
-        }
-      `}</style>
+      {/* Keyframes moved to index.css for performance */}
     </div>
   );
 };

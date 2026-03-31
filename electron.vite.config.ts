@@ -136,6 +136,16 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html')
+        },
+        output: {
+          manualChunks(id) {
+            if (id.includes('@codemirror/') || id.includes('codemirror')) return 'vendor-codemirror'
+            if (id.includes('mermaid')) return 'vendor-mermaid'
+            if (id.includes('@xterm/')) return 'vendor-xterm'
+            if (id.includes('@tiptap/')) return 'vendor-tiptap'
+            if (id.includes('react-markdown') || id.includes('rehype') || id.includes('remark')) return 'vendor-markdown'
+            if (id.includes('highlight.js')) return 'vendor-hljs'
+          }
         }
       }
     }

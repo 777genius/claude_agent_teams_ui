@@ -33,10 +33,8 @@ export const TeamSidebarHost = ({
 }: TeamSidebarHostProps): React.JSX.Element => {
   const hostId = useId();
   const [element, setElement] = useState<HTMLDivElement | null>(null);
-  const { messagesPanelMode, messagesPanelWidth } = useStore((s) => ({
-    messagesPanelMode: s.messagesPanelMode,
-    messagesPanelWidth: s.messagesPanelWidth,
-  }));
+  const messagesPanelMode = useStore((s) => s.messagesPanelMode);
+  const messagesPanelWidth = useStore((s) => s.messagesPanelWidth);
   const snapshot = useTeamSidebarPortalSnapshot();
   const isVisible = messagesPanelMode === 'sidebar';
   const isOwner = isVisible && snapshot.activeHostIdByTeam[teamName] === hostId;

@@ -279,7 +279,7 @@ export const ToolApprovalSheet: React.FC = () => {
 
       <div
         ref={containerRef}
-        className={`fixed bottom-4 left-1/2 z-[55] w-full -translate-x-1/2 rounded-lg border shadow-xl outline-none transition-all duration-200 animate-in fade-in slide-in-from-bottom-4 ${diffExpanded ? 'max-w-screen-sm' : 'max-w-[480px]'}`}
+        className={`fixed bottom-4 left-1/2 z-[55] w-full -translate-x-1/2 rounded-lg border shadow-xl outline-none transition-[max-width] duration-200 animate-in fade-in slide-in-from-bottom-4 ${diffExpanded ? 'max-w-screen-sm' : 'max-w-[480px]'}`}
         style={{
           backgroundColor: 'var(--color-surface-overlay)',
           borderColor: 'var(--color-border-emphasis)',
@@ -625,7 +625,7 @@ const TimeoutProgress = ({ receivedAt }: { receivedAt: string }): React.JSX.Elem
         style={{ backgroundColor: 'var(--color-surface)' }}
       >
         <div
-          className="h-full rounded-full transition-all duration-1000 ease-linear"
+          className="h-full rounded-full transition-[width] duration-1000 ease-linear"
           style={{
             width: `${progress * 100}%`,
             backgroundColor: color,

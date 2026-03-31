@@ -61,6 +61,8 @@ import type {
   UpdateSchedulePatch,
 } from '@shared/types';
 
+const EMPTY_MEMBERS: ResolvedTeamMember[] = [];
+
 // =============================================================================
 // Props — discriminated union
 // =============================================================================
@@ -492,7 +494,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   // Mention suggestions (shared — from props in launch, from store in schedule)
   // ---------------------------------------------------------------------------
 
-  const storeMembers = useStore((s) => s.selectedTeamData?.members ?? []);
+  const storeMembers = useStore((s) => s.selectedTeamData?.members ?? EMPTY_MEMBERS);
   const members = isLaunch ? props.members : storeMembers;
 
   const colorMap = useMemo(() => buildMemberColorMap(members), [members]);

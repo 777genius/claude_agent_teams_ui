@@ -279,7 +279,7 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
         {phases.map((p, i) => (
           <div
             key={i}
-            className={`flex size-6 items-center justify-center rounded-full border transition-all duration-500 ${
+            className={`flex size-6 items-center justify-center rounded-full border transition-[transform,border-color,background-color,opacity] duration-500 ${
               i === phaseIdx
                 ? 'scale-110 border-[var(--color-text-secondary)] bg-[var(--color-surface-raised)]'
                 : i < phaseIdx
@@ -301,7 +301,7 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
       {/* ── Bottom text ────────────────────────────────────────── */}
       <div className="flex flex-col items-center gap-1">
         <p
-          className="duration-400 text-xs font-medium tracking-wide text-[var(--color-text-secondary)] transition-all"
+          className="duration-400 text-xs font-medium tracking-wide text-[var(--color-text-secondary)] transition-[opacity,transform]"
           style={{
             opacity: phaseFading ? 0 : 1,
             transform: phaseFading ? 'translateY(4px)' : 'none',
@@ -315,91 +315,7 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
         </p>
       </div>
 
-      {/* ── Keyframes ──────────────────────────────────────────── */}
-      <style>{`
-        .clda-orbit-ring {
-          animation: cldaRingSpin 25s linear infinite;
-        }
-        .clda-glow {
-          animation: cldaGlow 3s ease-in-out infinite;
-        }
-        .clda-center-card {
-          animation: cldaCardFloat 5s ease-in-out infinite;
-        }
-        .clda-cursor {
-          animation: cldaBlink 1s step-end infinite;
-        }
-
-        .clda-spark {
-          animation: cldaSparkLife 1.8s ease-out forwards;
-        }
-
-        .clda-scan-h {
-          animation: cldaScanH 4s ease-in-out infinite;
-        }
-
-        .clda-line-in {
-          animation: cldaLineIn 0.3s ease-out;
-        }
-
-        @keyframes cldaRingSpin {
-          to { transform: rotate(360deg); }
-        }
-
-        @keyframes cldaOrbit {
-          from {
-            transform: translate(-50%,-50%) rotate(var(--o-a)) translateX(var(--o-r)) rotate(calc(-1 * var(--o-a)));
-          }
-          to {
-            transform: translate(-50%,-50%) rotate(calc(var(--o-a) + 360deg)) translateX(var(--o-r)) rotate(calc(-1 * var(--o-a) - 360deg));
-          }
-        }
-
-        @keyframes cldaOrbitCounter {
-          from { transform: rotate(var(--o-a)); }
-          to { transform: rotate(calc(var(--o-a) + 360deg)); }
-        }
-
-        @keyframes cldaGlow {
-          0%, 100% { transform: scale(1); opacity: 0.05; }
-          50% { transform: scale(1.3); opacity: 0.1; }
-        }
-
-        @keyframes cldaCardFloat {
-          0%, 100% { transform: translateY(0px); }
-          30% { transform: translateY(-3px); }
-          70% { transform: translateY(2px); }
-        }
-
-        @keyframes cldaBlink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0; }
-        }
-
-        @keyframes cldaSparkLife {
-          0% {
-            transform: translate(-50%,-50%) translate(0, 0) scale(1);
-            opacity: 0.8;
-          }
-          100% {
-            transform: translate(-50%,-50%) translate(var(--sx), var(--sy)) scale(0);
-            opacity: 0;
-          }
-        }
-
-        @keyframes cldaScanH {
-          0%   { top: -2px; opacity: 0; }
-          10%  { opacity: 0.5; }
-          50%  { top: 100%; opacity: 0.3; }
-          90%  { opacity: 0; }
-          100% { top: 100%; opacity: 0; }
-        }
-
-        @keyframes cldaLineIn {
-          from { opacity: 0; transform: translateX(-8px); }
-          to   { opacity: 1; transform: translateX(0); }
-        }
-      `}</style>
+      {/* Keyframes moved to index.css for performance (avoid re-injecting <style> on every render) */}
     </div>
   );
 };

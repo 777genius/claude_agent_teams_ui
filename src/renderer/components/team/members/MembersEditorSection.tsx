@@ -92,6 +92,7 @@ export const MembersEditorSection = ({
   hideContent = false,
   existingMembers,
 }: MembersEditorSectionProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const [jsonEditorOpen, setJsonEditorOpen] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -175,16 +176,16 @@ export const MembersEditorSection = ({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <Label>Members</Label>
+        <Label>{t('members.editor.membersLabel')}</Label>
         {!hideContent && (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={addMember}>
               <Plus className="size-3.5" />
-              Add member
+              {t('members.editor.addMember')}
             </Button>
             {showJsonEditor && !jsonEditorOpen ? (
               <Button variant="ghost" size="sm" onClick={toggleJsonEditor}>
-                Edit as JSON
+                {t('members.editor.editAsJson')}
               </Button>
             ) : null}
           </div>
@@ -226,7 +227,7 @@ export const MembersEditorSection = ({
           </div>
           {hasDuplicates ? (
             <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
-              Member names must be unique
+              {t('members.editor.duplicateNames')}
             </p>
           ) : fieldError ? (
             <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>

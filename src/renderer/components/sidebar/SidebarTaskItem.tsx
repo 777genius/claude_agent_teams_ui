@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
@@ -69,7 +69,7 @@ interface SidebarTaskItemProps {
   getDisplaySubject?: (task: GlobalTask) => string | undefined;
 }
 
-export const SidebarTaskItem = ({
+export const SidebarTaskItem = memo(function SidebarTaskItem({
   task,
   hideTeamName,
   showTeamName,
@@ -77,7 +77,7 @@ export const SidebarTaskItem = ({
   onRenameComplete,
   onRenameCancel,
   getDisplaySubject,
-}: SidebarTaskItemProps): React.JSX.Element => {
+}: SidebarTaskItemProps): React.JSX.Element {
   const { t } = useTranslation();
   const openGlobalTaskDetail = useStore((s) => s.openGlobalTaskDetail);
   const teamMembers = useStore((s) => s.teamByName[task.teamName]?.members);
@@ -284,4 +284,4 @@ export const SidebarTaskItem = ({
       )}
     </button>
   );
-};
+});

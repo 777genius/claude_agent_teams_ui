@@ -1,0 +1,46 @@
+{
+  "_description": "Gap translations for report sections and extensions - Spanish",
+  "_note": "These keys were identified as missing during i18n integration of report/sections/ and settings/NotificationTriggerSettings/ components",
+
+  "report.sections.costAnalysis.costBreakdown": "Desglose de costos",
+  "report.sections.costAnalysis.total": "Total",
+  "report.sections.costAnalysis.totalCostDivided": "costo total",
+  "report.sections.costAnalysis.commitCount": "{{count}} commit(s)",
+  "report.sections.costAnalysis.noCommits": "sin commits",
+  "report.sections.costAnalysis.lineCount": "{{count}} linea(s)",
+  "report.sections.costAnalysis.noLinesChanged": "sin lineas modificadas",
+
+  "report.sections.toolUsage.totalCallsSummary": "{{totalCalls}} llamadas totales en {{toolCount}} herramientas",
+
+  "report.sections.timelineActivity.modelSwitches": "Cambios de modelo",
+  "report.sections.timelineActivity.msgNumber": "msg #{{number}}",
+
+  "report.sections.qualitySignals.percentOfTotal": "% del total",
+  "report.sections.qualitySignals.passed": "aprobadas",
+  "report.sections.qualitySignals.failed": "fallidas",
+  "report.sections.qualitySignals.charsCount": "{{count}} caracteres",
+  "report.sections.qualitySignals.snapshotCount": "{{count}} captura(s)",
+
+  "report.sections.frictionSignals.frictionRate": "Tasa de friccion",
+  "report.sections.frictionSignals.correctionCount": "{{count}} correccion(es)",
+
+  "report.sections.sessionInsights.skillsInvoked": "Skills invocados ({{count}})",
+  "report.sections.sessionInsights.taskDispatches": "Despachos de tareas ({{count}})",
+  "report.sections.sessionInsights.background": "segundo plano",
+  "report.sections.sessionInsights.tasksCreated": "Tareas creadas ({{count}})",
+  "report.sections.sessionInsights.questionsAsked": "Preguntas realizadas ({{count}})",
+  "report.sections.sessionInsights.agentTree": "Arbol de agentes ({{count}} agente(s))",
+  "report.sections.sessionInsights.teamMode": "Modo equipo",
+  "report.sections.sessionInsights.teams": "Equipos",
+  "report.sections.sessionInsights.outOfScopeFindings": "Hallazgos fuera de alcance ({{count}})",
+
+  "settings.triggerSettings.addTrigger": "Agregar activador",
+  "settings.triggerSettings.cancel": "Cancelar",
+  "settings.triggerSettings.customHexColor": "Color hexadecimal personalizado",
+  "settings.triggerSettings.invalidHex": "Hexadecimal invalido",
+
+  "layout.sessionTabContent.failedToLoadSession": "Error al cargar la sesion",
+  "layout.sessionTabContent.retry": "Reintentar",
+  "layout.sessionTabContent.closeTab": "Cerrar pestana",
+  "layout.sessionTabContent.loadingSession": "Cargando sesion..."
+}

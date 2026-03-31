@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@renderer/components/ui/button';
@@ -210,7 +210,11 @@ const ScheduleRow = ({
 
 export const ScheduleSection = ({ teamName }: ScheduleSectionProps): React.JSX.Element => {
   const { t } = useTranslation();
-  const schedules = useStore((s) => s.schedules.filter((sch) => sch.teamName === teamName));
+  const allSchedules = useStore((s) => s.schedules);
+  const schedules = useMemo(
+    () => allSchedules.filter((sch) => sch.teamName === teamName),
+    [allSchedules, teamName]
+  );
   const pauseSchedule = useStore((s) => s.pauseSchedule);
   const resumeSchedule = useStore((s) => s.resumeSchedule);
   const deleteSchedule = useStore((s) => s.deleteSchedule);

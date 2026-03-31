@@ -1308,3 +1308,145 @@ body {
     opacity: 0;
   }
 }
+
+/* ── ChangesLoadingAnimation keyframes ─────────────────────────────── */
+
+.clda-orbit-ring {
+  animation: cldaRingSpin 25s linear infinite;
+}
+.clda-glow {
+  animation: cldaGlow 3s ease-in-out infinite;
+}
+.clda-center-card {
+  animation: cldaCardFloat 5s ease-in-out infinite;
+}
+.clda-cursor {
+  animation: cldaBlink 1s step-end infinite;
+}
+.clda-spark {
+  animation: cldaSparkLife 1.8s ease-out forwards;
+}
+.clda-scan-h {
+  animation: cldaScanH 4s ease-in-out infinite;
+}
+.clda-line-in {
+  animation: cldaLineIn 0.3s ease-out;
+}
+
+@keyframes cldaRingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes cldaOrbit {
+  from {
+    transform: translate(-50%, -50%) rotate(var(--o-a)) translateX(var(--o-r))
+      rotate(calc(-1 * var(--o-a)));
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(calc(var(--o-a) + 360deg)) translateX(var(--o-r))
+      rotate(calc(-1 * var(--o-a) - 360deg));
+  }
+}
+
+@keyframes cldaOrbitCounter {
+  from {
+    transform: rotate(var(--o-a));
+  }
+  to {
+    transform: rotate(calc(var(--o-a) + 360deg));
+  }
+}
+
+@keyframes cldaGlow {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.05;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.1;
+  }
+}
+
+@keyframes cldaCardFloat {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  30% {
+    transform: translateY(-3px);
+  }
+  70% {
+    transform: translateY(2px);
+  }
+}
+
+@keyframes cldaBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes cldaSparkLife {
+  0% {
+    transform: translate(-50%, -50%) translate(0, 0) scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(-50%, -50%) translate(var(--sx), var(--sy)) scale(0);
+    opacity: 0;
+  }
+}
+
+@keyframes cldaScanH {
+  0% {
+    top: -2px;
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.5;
+  }
+  50% {
+    top: 100%;
+    opacity: 0.3;
+  }
+  90% {
+    opacity: 0;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes cldaLineIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── FullDiffLoadingBanner keyframes ───────────────────────────────── */
+
+@keyframes full-diff-loader-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  50% {
+    transform: translateX(110%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}

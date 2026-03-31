@@ -29,6 +29,7 @@ export const ColorPaletteSelector = ({
   onChange,
   disabled,
 }: Readonly<ColorPaletteSelectorProps>): React.JSX.Element => {
+  const { t } = useTranslation();
   const isCustom = !!value && !isPresetColorKey(value);
   const [hexInput, setHexInput] = useState(isCustom ? value : '');
   const [showHexInput, setShowHexInput] = useState(isCustom);
@@ -105,7 +106,7 @@ export const ColorPaletteSelector = ({
         {/* Custom hex toggle */}
         <button
           type="button"
-          title="Custom hex color"
+          title={t('settings.triggerSettings.customHexColor')}
           onClick={handleCustomClick}
           disabled={disabled}
           className={`flex size-5 items-center justify-center rounded-full border text-[9px] font-bold leading-none transition-all ${
@@ -136,7 +137,7 @@ export const ColorPaletteSelector = ({
             }`}
           />
           {hexInput && !HEX_RE.test(hexInput) && (
-            <span className="text-xs text-red-400">Invalid hex</span>
+            <span className="text-xs text-red-400">{t('settings.triggerSettings.invalidHex')}</span>
           )}
         </div>
       )}

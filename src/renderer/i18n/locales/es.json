@@ -395,7 +395,10 @@
       "showAll": "Mostrar todo"
     },
     "thoughts": {
+      "label": "pensamientos",
       "expandAriaLabel": "Expandir pensamientos",
+      "showMore": "Mostrar más",
+      "showLess": "Mostrar menos",
       "toolCallSingular": "llamada de herramienta",
       "toolCallPlural": "llamadas de herramientas",
       "toolCallCount": "{{count}} llamada de herramienta",
@@ -579,6 +582,92 @@
     }
   },
   "editor": {
+    "contextMenu": {
+      "newFile": "Nuevo archivo",
+      "newFolder": "Nueva carpeta",
+      "rename": "Renombrar",
+      "delete": "Eliminar",
+      "copyPath": "Copiar ruta",
+      "copyRelativePath": "Copiar ruta relativa",
+      "revealInFinder": "Mostrar en Finder",
+      "writeTeammate": "Escribir a companero",
+      "createTask": "Crear tarea"
+    },
+    "searchPanel": {
+      "toggleReplace": "Alternar reemplazo",
+      "searchPlaceholder": "Buscar",
+      "matchCase": "Coincidir mayusculas",
+      "matchWholeWord": "Palabra completa",
+      "useRegularExpression": "Usar expresion regular",
+      "noResults": "Sin resultados",
+      "found": "{{count}} encontrados",
+      "previousMatch": "Coincidencia anterior",
+      "nextMatch": "Siguiente coincidencia",
+      "close": "Cerrar",
+      "replacePlaceholder": "Reemplazar",
+      "replace": "Reemplazar",
+      "replaceNext": "Reemplazar siguiente",
+      "all": "Todos",
+      "replaceAll": "Reemplazar todos"
+    },
+    "shortcuts": {
+      "dialogTitle": "Atajos de teclado",
+      "fileOperations": "Operaciones de archivo",
+      "quickOpen": "Apertura rapida",
+      "save": "Guardar",
+      "saveAll": "Guardar todo",
+      "closeTab": "Cerrar pestana",
+      "search": "Buscar",
+      "findInFile": "Buscar en archivo",
+      "searchInFiles": "Buscar en archivos",
+      "goToLine": "Ir a linea",
+      "navigation": "Navegacion",
+      "nextTab": "Pestana siguiente",
+      "previousTab": "Pestana anterior",
+      "cycleTabs": "Ciclar pestanas",
+      "toggleSidebar": "Alternar barra lateral",
+      "editing": "Edicion",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "selectNextMatch": "Seleccionar siguiente coincidencia",
+      "toggleComment": "Alternar comentario",
+      "markdown": "Markdown",
+      "splitPreview": "Vista previa dividida",
+      "fullPreview": "Vista previa completa",
+      "general": "General",
+      "closeEditor": "Cerrar editor"
+    },
+    "overlay": {
+      "projectEditor": "Editor de proyecto",
+      "refresh": "Actualizar (F5)",
+      "refreshGitStatus": "Actualizar estado git (F5)",
+      "keyboardShortcuts": "Atajos de teclado",
+      "closeEditor": "Cerrar editor",
+      "closeEditorEsc": "Cerrar editor (Esc)",
+      "explorer": "Explorador",
+      "hideSidebar": "Ocultar barra lateral",
+      "showSidebar": "Mostrar barra lateral",
+      "recoveredUnsavedChanges": "Se recuperaron cambios sin guardar de una sesion anterior.",
+      "keep": "Mantener",
+      "discard": "Descartar",
+      "retry": "Reintentar",
+      "saveFailed": "Error al guardar:",
+      "fileNoLongerExists": "El archivo ya no existe en disco.",
+      "fileChangedOnDisk": "El archivo cambio en disco.",
+      "closeTab": "Cerrar pestana",
+      "reload": "Recargar",
+      "keepMine": "Mantener mio",
+      "unsavedChangesTitle": "Cambios sin guardar",
+      "youHaveUnsavedChanges": "Tienes cambios sin guardar. Que deseas hacer?",
+      "thisFileHasUnsavedChanges": "Este archivo tiene cambios sin guardar. Que deseas hacer?",
+      "cancel": "Cancelar",
+      "discardAndClose": "Descartar y cerrar",
+      "saveAllAndClose": "Guardar todo y cerrar",
+      "save": "Guardar",
+      "saveConflictTitle": "Conflicto al guardar",
+      "saveConflictDescription": "El archivo ha sido modificado externamente desde que lo abriste. Sobrescribir con tus cambios?",
+      "overwrite": "Sobrescribir"
+    },
     "imagePreview": {
       "loading": "Cargando vista previa…",
       "openFullSize": "Abrir vista previa completa",
@@ -706,13 +795,21 @@
   },
   "dialogs": {
     "addMember": {
-      "title": "Agregar miembros"
+      "title": "Agregar miembros",
+      "description": "Agregar nuevos miembros a {{teamName}}",
+      "cancel": "Cancelar",
+      "addOne": "Agregar miembro",
+      "addCount": "Agregar {{count}} miembros"
     },
     "advancedCli": {
       "title": "Avanzado",
       "worktreePlaceholder": "nombre-worktree",
       "recentLabel": "Recientes",
-      "maxTurnsPlaceholder": "--max-turns 5"
+      "maxTurnsPlaceholder": "--max-turns 5",
+      "useWorktree": "Usar worktree",
+      "commandPreview": "Vista previa del comando",
+      "customArguments": "Argumentos personalizados",
+      "validate": "Validar"
     },
     "effortLevel": {
       "label": "Nivel de esfuerzo (opcional)",
@@ -831,7 +928,12 @@
       "title": "Editar equipo",
       "description": "Cambiar nombre, descripción y color del equipo",
       "namePlaceholder": "Nombre del equipo",
-      "descriptionPlaceholder": "Descripción del equipo (opcional)"
+      "descriptionPlaceholder": "Descripción del equipo (opcional)",
+      "nameLabel": "Nombre",
+      "descriptionLabel": "Descripcion",
+      "colorLabel": "Color (opcional)",
+      "cancel": "Cancelar",
+      "save": "Guardar"
     },
     "launchTeam": {
       "teamLabel": "Equipo",
@@ -914,12 +1016,16 @@
     "projectPath": {
       "label": "Proyecto",
       "ariaLabel": "Directorio de trabajo personalizado",
-      "placeholder": "/ruta/absoluta/al/proyecto"
+      "placeholder": "/ruta/absoluta/al/proyecto",
+      "fromProjectList": "Desde lista de proyectos",
+      "customPath": "Ruta personalizada",
+      "browse": "Explorar"
     },
     "reviewChanges": {
       "title": "Solicitar cambios",
       "placeholder": "Describe qué necesita cambiar... (Enter para enviar)",
-      "saved": "Guardado"
+      "saved": "Guardado",
+      "submit": "Enviar"
     },
     "sendMessage": {
       "title": "Enviar mensaje",
@@ -930,20 +1036,26 @@
       "removeQuoteTooltip": "Eliminar cita",
       "replyingTo": "Respondiendo a",
       "less": "menos",
-      "more": "más",
+      "more": "mas",
       "messagePlaceholder": "Escribe tu mensaje... (Enter para enviar)",
       "sending": "Enviando...",
       "send": "Enviar",
       "charsLeft": "{{count}} caracteres restantes",
       "saved": "Guardado",
       "attachTooltip": "Adjuntar archivos (pegar o arrastrar y soltar)",
-      "teamOfflineAttach": "El equipo debe estar en línea para adjuntar archivos",
-      "maxAttachments": "Máximo de adjuntos alcanzado",
+      "teamOfflineAttach": "El equipo debe estar en linea para adjuntar archivos",
+      "maxAttachments": "Maximo de adjuntos alcanzado",
       "filesOnlyToLead": "Solo se pueden enviar archivos al líder del equipo",
-      "attachDisabledHint": "Los archivos adjuntos solo se admiten al enviar al líder del equipo mientras el equipo está en línea. Elimina los adjuntos o cambia el destinatario."
+      "attachDisabledHint": "Los archivos adjuntos solo son compatibles al enviar al lider del equipo mientras el equipo esta en linea. Elimina los adjuntos o cambia de destinatario.",
+      "teamMustBeOnline": "El equipo debe estar en linea para adjuntar archivos",
+      "maxAttachmentsReached": "Maximo de adjuntos alcanzado",
+      "attachFilesTooltip": "Adjuntar archivos (pegar o arrastrar y soltar)",
+      "attachmentsDisabledHint": "Los archivos adjuntos solo son compatibles al enviar al lider del equipo mientras el equipo esta en linea. Elimina los adjuntos o cambia de destinatario."
     },
     "skipPermissions": {
-      "manualMode": "Modo manual — aprobarás o rechazarás cada llamada de herramienta en tiempo real."
+      "manualMode": "Modo manual — aprobarás o rechazarás cada llamada de herramienta en tiempo real.",
+      "autoApprove": "Auto-aprobar todas las herramientas",
+      "autonomousMode": "Libera todo el poder de Claude — sin interrupciones pidiendo permiso. Modo autonomo — todas las herramientas se ejecutan sin confirmacion. Ten cuidado con codigo no confiable."
     },
     "statusHistory": {
       "unknownEvent": "Evento desconocido",
@@ -1213,6 +1325,61 @@
     "searchInFiles": {
       "matchSummary": "{{matches}} coincidencias en {{files}} archivos",
       "truncated": "truncado"
+    },
+    "logs": {
+      "sectionTitle": "Logs de Claude",
+      "searchPlaceholder": "Buscar en logs...",
+      "clearSearchAriaLabel": "Limpiar búsqueda",
+      "noMatchingLogs": "No hay logs que coincidan.",
+      "fullscreenAriaLabel": "Abrir logs en pantalla completa",
+      "fullscreenTooltip": "Pantalla completa",
+      "filterAriaLabel": "Filtrar logs de Claude",
+      "filterTooltip": "Filtrar logs"
+    },
+    "logsFilter": {
+      "stream": "Flujo",
+      "content": "Contenido",
+      "output": "Salida",
+      "thinking": "Pensamiento",
+      "toolCalls": "Llamadas a herramientas",
+      "reset": "Restablecer",
+      "save": "Guardar"
+    },
+    "logsPanel": {
+      "noLogsYet": "Aún no hay logs.",
+      "teamNotRunning": "El equipo no está en ejecución.",
+      "loading": "Cargando…",
+      "showMore": "Mostrar más",
+      "noLogsCaptured": "No se capturaron logs."
+    },
+    "logsSection": {
+      "viewingFullscreen": "Viendo en modo pantalla completa"
+    },
+    "provisioningProgress": {
+      "cancel": "Cancelar",
+      "liveOutput": "Salida en vivo",
+      "noOutputYet": "Aún no se ha capturado salida.",
+      "cliLogs": "Logs de CLI"
+    },
+    "sessions": {
+      "afterProvisioning": "Las sesiones aparecerán después del aprovisionamiento del equipo",
+      "openSessionTooltip": "Abrir sesión"
+    },
+    "sessionsSection": {
+      "noProjectPath": "No hay ruta de proyecto vinculada",
+      "projectNotFound": "Proyecto no encontrado",
+      "loadingSessions": "Cargando sesiones...",
+      "noSessionsFound": "No se encontraron sesiones",
+      "showForAllSessions": "Mostrar para todas las sesiones",
+      "removeFilter": "Quitar filtro",
+      "filterBySession": "Filtrar por esta sesión"
+    },
+    "toolApprovalPreview": {
+      "previewChanges": "Vista previa de cambios",
+      "readingFile": "Leyendo archivo...",
+      "binaryFile": "Archivo binario — no se puede previsualizar",
+      "fileTruncated": "Archivo truncado a 2MB — el diff puede estar incompleto",
+      "newFile": "Archivo nuevo"
     }
   },
   "schedule": {
@@ -1482,28 +1649,28 @@
       "taskCompletionNotifications": "Notificaciones de finalizacion de tareas",
       "ignoredRepositories": "Repositorios ignorados",
       "selectRepositoryToIgnore": "Seleccionar repositorio a ignorar...",
-      "devModeDescription": "Las notificaciones pueden no funcionar en modo desarrollo. macOS identifica la app como \"Electron\" (bundle ID com.github.Electron) en lugar del nombre de la app en producci\u00f3n. Revisa Configuraci\u00f3n del Sistema \u2192 Notificaciones \u2192 Electron para verificar permisos.",
+      "devModeDescription": "Las notificaciones pueden no funcionar en modo desarrollo. macOS identifica la app como \"Electron\" (bundle ID com.github.Electron) en lugar del nombre de la app en producción. Revisa Configuración del Sistema → Notificaciones → Electron para verificar permisos.",
       "snoozedUntil": "Silenciadas hasta {{time}}",
       "clearSnooze": "Quitar silencio",
       "onlyInSoloMode": "Solo en modo individual",
-      "onlyInSoloModeDescription": "Notificar solo cuando el equipo no tiene compa\u00f1eros",
+      "onlyInSoloModeDescription": "Notificar solo cuando el equipo no tiene compañeros",
       "notifyOnStatuses": "Notificar en estos estados",
-      "notifyOnStatusesDescription": "Qu\u00e9 estados objetivo activan una notificaci\u00f3n",
-      "ignoredReposDescription": "Las notificaciones de estos repositorios ser\u00e1n ignoradas",
-      "noRepositoriesIgnored": "Ning\u00fan repositorio ignorado",
-      "taskCompletionDescription": "Recibe notificaciones nativas del SO cuando Claude termina tareas \u2014 sonidos, banners e insignias en Dock/barra de tareas. Funciona en macOS, Linux y Windows.",
+      "notifyOnStatusesDescription": "Qué estados objetivo activan una notificación",
+      "ignoredReposDescription": "Las notificaciones de estos repositorios serán ignoradas",
+      "noRepositoriesIgnored": "Ningún repositorio ignorado",
+      "taskCompletionDescription": "Recibe notificaciones nativas del SO cuando Claude termina tareas — sonidos, banners e insignias en Dock/barra de tareas. Funciona en macOS, Linux y Windows.",
       "installPlugin": "Instalar plugin claude-notifications-go",
       "unknownError": "Error desconocido",
-      "failedToSendTest": "Error al enviar notificaci\u00f3n de prueba",
+      "failedToSendTest": "Error al enviar notificación de prueba",
       "snooze15min": "15 minutos",
       "snooze30min": "30 minutos",
       "snooze1hr": "1 hora",
       "snooze2hr": "2 horas",
       "snooze4hr": "4 horas",
-      "snoozeUntilTomorrow": "Hasta ma\u00f1ana",
+      "snoozeUntilTomorrow": "Hasta mañana",
       "statusStarted": "Iniciada",
       "statusCompleted": "Completada",
-      "statusReview": "Revisi\u00f3n",
+      "statusReview": "Revisión",
       "statusNeedsFixes": "Necesita correcciones",
       "statusApproved": "Aprobada",
       "statusPending": "Pendiente",
@@ -1653,7 +1820,9 @@
       "builtInTriggersDescription": "Activadores predeterminados incluidos con la aplicacion. Puedes habilitarlos/deshabilitarlos y personalizar sus patrones.",
       "customTriggers": "Activadores personalizados",
       "customTriggersDescription": "Crea tus propios activadores para recibir notificaciones de patrones especificos o salidas de herramientas.",
-      "noCustomTriggersYet": "Aun no hay activadores personalizados configurados."
+      "noCustomTriggersYet": "Aun no hay activadores personalizados configurados.",
+      "addTrigger": "Agregar activador",
+      "cancel": "Cancelar"
     }
   },
   "common": {
@@ -2123,22 +2292,15 @@
         "backToEditor": "Volver al editor",
         "saving": "Guardando...",
         "fileChanges": "{{count}} cambios de archivo",
-        "new": "{{count}} nuevos",
-        "updated": "{{count}} actualizados",
-        "removed": "{{count}} eliminados",
-        "binary": "{{count}} binarios",
-        "reviewDiffBelow": "Revisa el diff a continuacion, luego usa",
-        "toApplyChanges": "para aplicar estos cambios.",
-        "noFileChangesDetected": "Aun no se detectaron cambios de archivo.",
-        "binaryFilePreviewNotShown": "La vista previa del archivo binario no se muestra. El archivo se copiara tal cual.",
-        "previewsChanges": "previsualiza los cambios del sistema de archivos primero. No se escribe nada hasta que confirmes abajo.",
         "newCount": "{{count}} nuevos",
         "updatedCount": "{{count}} actualizados",
         "removedCount": "{{count}} eliminados",
         "binaryCount": "{{count}} binarios",
+        "binary": "binario",
         "reviewDiffInstruction": "Revisa el diff a continuacion, luego usa {{confirmLabel}} para aplicar estos cambios.",
         "noFileChanges": "Aun no se detectaron cambios de archivo.",
-        "binaryFileNote": "La vista previa del archivo binario no se muestra. El archivo se copiara tal cual."
+        "binaryFileNote": "La vista previa del archivo binario no se muestra. El archivo se copiara tal cual.",
+        "previewsChanges": "previsualiza los cambios del sistema de archivos primero. No se escribe nada hasta que confirmes abajo."
       },
       "skillsPanel": {
         "searchPlaceholder": "Buscar por nombre de habilidad o con que ayuda...",
@@ -2185,6 +2347,7 @@
         "createFirstSkill": "Crea tu primera habilidad para ensenar a Claude un flujo de trabajo repetible, o importa una que ya uses.",
         "skillImportedSuccessfully": "Habilidad importada exitosamente."
       },
+      "_skillsPanel_is_unused_duplicate_of_panel_below": true,
       "panel": {
         "title": "Enseña a Claude trabajo repetible",
         "searchPlaceholder": "Buscar por nombre de habilidad o en qué ayuda...",
@@ -2280,7 +2443,13 @@
         "perCommit": "Por commit",
         "perLineChanged": "Por linea modificada",
         "model": "Modelo",
-        "subagentsCombined": "Subagentes (combinados)"
+        "subagentsCombined": "Subagentes (combinados)",
+        "costBreakdown": "Desglose de costos",
+        "totalCostDivided": "costo total",
+        "commitCount": "{{count}} commit(s)",
+        "noCommits": "sin commits",
+        "lineCount": "{{count}} linea(s)",
+        "noLinesChanged": "sin lineas modificadas"
       },
       "toolUsage": {
         "title": "Uso de herramientas",
@@ -2288,7 +2457,8 @@
         "calls": "Llamadas",
         "errors": "Errores",
         "successPercent": "% de exito",
-        "health": "Estado"
+        "health": "Estado",
+        "totalCallsSummary": "{{totalCalls}} llamadas totales en {{toolCount}} herramientas"
       },
       "errors": {
         "title": "Errores"
@@ -2308,7 +2478,9 @@
         "totalIdle": "Total inactivo",
         "activeTime": "Tiempo activo",
         "idlePercent": "% inactivo",
-        "keyEvents": "Eventos clave"
+        "keyEvents": "Eventos clave",
+        "modelSwitches": "Cambios de modelo",
+        "msgNumber": "msg #{{number}}"
       },
       "qualitySignals": {
         "title": "Senales de calidad",
@@ -2326,14 +2498,20 @@
         "readsPerUniqueFile": "Lecturas/Archivo unico",
         "testProgression": "Progresion de pruebas",
         "firstRun": "Primera ejecucion",
-        "lastRun": "Ultima ejecucion"
+        "lastRun": "Ultima ejecucion",
+        "percentOfTotal": "% del total",
+        "passed": "aprobadas",
+        "failed": "fallidas",
+        "charsCount": "{{count}} caracteres",
+        "snapshotCount": "{{count}} captura(s)"
       },
       "frictionSignals": {
         "title": "Senales de friccion",
         "corrections": "Correcciones",
         "thrashingSignals": "Senales de trabajo repetitivo",
         "repeatedBashCommands": "Comandos Bash repetidos",
-        "reworkedFiles": "Archivos retrabajados (3+ ediciones)"
+        "reworkedFiles": "Archivos retrabajados (3+ ediciones)",
+        "correctionCount": "{{count}} correccion(es)"
       },
       "subagents": {
         "title": "Subagentes",
@@ -2352,7 +2530,16 @@
         "bashCommands": "Comandos Bash",
         "total": "Total",
         "unique": "Unicos",
-        "repeated": "Repetidos"
+        "repeated": "Repetidos",
+        "skillsInvoked": "Skills invocados ({{count}})",
+        "taskDispatches": "Despachos de tareas ({{count}})",
+        "background": "segundo plano",
+        "tasksCreated": "Tareas creadas ({{count}})",
+        "questionsAsked": "Preguntas realizadas ({{count}})",
+        "agentTree": "Arbol de agentes ({{count}} agente(s))",
+        "teamMode": "Modo equipo",
+        "teams": "Equipos",
+        "outOfScopeFindings": "Hallazgos fuera de alcance ({{count}})"
       },
       "keyTakeaways": {
         "title": "Conclusiones clave"
@@ -2394,6 +2581,12 @@
       "maximize": "Maximizar",
       "restore": "Restaurar",
       "close": "Cerrar"
+    },
+    "sessionTabContent": {
+      "failedToLoadSession": "Error al cargar la sesion",
+      "retry": "Reintentar",
+      "closeTab": "Cerrar pestana",
+      "loadingSession": "Cargando sesion..."
     }
   },
   "dashboard": {

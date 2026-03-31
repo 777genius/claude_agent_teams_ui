@@ -10,7 +10,9 @@ import { useStore } from '@renderer/store';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { Filter } from 'lucide-react';
 
-import type { InboxMessage } from '@shared/types';
+import type { InboxMessage, ResolvedTeamMember } from '@shared/types';
+
+const EMPTY_MEMBERS: ResolvedTeamMember[] = [];
 
 export interface MessagesFilterState {
   from: Set<string>;
@@ -69,7 +71,7 @@ export const MessagesFilterPopover = ({
     }
   }, [open, filter.from, filter.to, filter.showNoise]);
 
-  const members = useStore((s) => s.selectedTeamData?.members ?? []);
+  const members = useStore((s) => s.selectedTeamData?.members ?? EMPTY_MEMBERS);
   const colorMap = useMemo(() => buildMemberColorMap(members), [members]);
 
   const fromOptions = useMemo(() => collectFromOptions(messages), [messages]);

@@ -48,6 +48,7 @@ export const MemberList = ({
   onAssignTask,
   onOpenTask,
 }: MemberListProps): React.JSX.Element => {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isWide, setIsWide] = useState(false);
 
@@ -81,7 +82,7 @@ export const MemberList = ({
   if (members.length === 0) {
     return (
       <div className="rounded-md border border-[var(--color-border)] p-4 text-sm text-[var(--color-text-muted)]">
-        Solo team — lead only
+        {t('members.list.soloTeam')}
       </div>
     );
   }
@@ -129,7 +130,7 @@ export const MemberList = ({
       {removedMembers.length > 0 && (
         <>
           <div className="mt-2 text-[10px] text-[var(--color-text-muted)]">
-            Removed ({removedMembers.length})
+            {t('members.list.removed', { count: removedMembers.length })}
           </div>
           <div className={gridClass}>
             {removedMembers.map((member) => renderCard(member, true))}

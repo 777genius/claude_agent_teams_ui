@@ -5,7 +5,84 @@
  * Outputs HTML strings with `hljs-*` CSS classes (already styled in index.css).
  */
 
-import hljs from 'highlight.js';
+import hljs from 'highlight.js/lib/core';
+
+// Import only the languages we actually use (tree-shake ~800 KB vs full highlight.js)
+import langBash from 'highlight.js/lib/languages/bash';
+import langC from 'highlight.js/lib/languages/c';
+import langCMake from 'highlight.js/lib/languages/cmake';
+import langCpp from 'highlight.js/lib/languages/cpp';
+import langCSharp from 'highlight.js/lib/languages/csharp';
+import langCss from 'highlight.js/lib/languages/css';
+import langDart from 'highlight.js/lib/languages/dart';
+import langDockerfile from 'highlight.js/lib/languages/dockerfile';
+import langElixir from 'highlight.js/lib/languages/elixir';
+import langErlang from 'highlight.js/lib/languages/erlang';
+import langGo from 'highlight.js/lib/languages/go';
+import langGraphQL from 'highlight.js/lib/languages/graphql';
+import langHaskell from 'highlight.js/lib/languages/haskell';
+import langIni from 'highlight.js/lib/languages/ini';
+import langJava from 'highlight.js/lib/languages/java';
+import langJavaScript from 'highlight.js/lib/languages/javascript';
+import langJson from 'highlight.js/lib/languages/json';
+import langKotlin from 'highlight.js/lib/languages/kotlin';
+import langLess from 'highlight.js/lib/languages/less';
+import langLua from 'highlight.js/lib/languages/lua';
+import langMakefile from 'highlight.js/lib/languages/makefile';
+import langMarkdown from 'highlight.js/lib/languages/markdown';
+import langObjectiveC from 'highlight.js/lib/languages/objectivec';
+import langPerl from 'highlight.js/lib/languages/perl';
+import langPhp from 'highlight.js/lib/languages/php';
+import langProtobuf from 'highlight.js/lib/languages/protobuf';
+import langPython from 'highlight.js/lib/languages/python';
+import langR from 'highlight.js/lib/languages/r';
+import langRuby from 'highlight.js/lib/languages/ruby';
+import langRust from 'highlight.js/lib/languages/rust';
+import langScala from 'highlight.js/lib/languages/scala';
+import langScss from 'highlight.js/lib/languages/scss';
+import langSql from 'highlight.js/lib/languages/sql';
+import langSwift from 'highlight.js/lib/languages/swift';
+import langTypeScript from 'highlight.js/lib/languages/typescript';
+import langXml from 'highlight.js/lib/languages/xml';
+import langYaml from 'highlight.js/lib/languages/yaml';
+
+hljs.registerLanguage('bash', langBash);
+hljs.registerLanguage('c', langC);
+hljs.registerLanguage('cmake', langCMake);
+hljs.registerLanguage('cpp', langCpp);
+hljs.registerLanguage('csharp', langCSharp);
+hljs.registerLanguage('css', langCss);
+hljs.registerLanguage('dart', langDart);
+hljs.registerLanguage('dockerfile', langDockerfile);
+hljs.registerLanguage('elixir', langElixir);
+hljs.registerLanguage('erlang', langErlang);
+hljs.registerLanguage('go', langGo);
+hljs.registerLanguage('graphql', langGraphQL);
+hljs.registerLanguage('haskell', langHaskell);
+hljs.registerLanguage('ini', langIni);
+hljs.registerLanguage('java', langJava);
+hljs.registerLanguage('javascript', langJavaScript);
+hljs.registerLanguage('json', langJson);
+hljs.registerLanguage('kotlin', langKotlin);
+hljs.registerLanguage('less', langLess);
+hljs.registerLanguage('lua', langLua);
+hljs.registerLanguage('makefile', langMakefile);
+hljs.registerLanguage('markdown', langMarkdown);
+hljs.registerLanguage('objectivec', langObjectiveC);
+hljs.registerLanguage('perl', langPerl);
+hljs.registerLanguage('php', langPhp);
+hljs.registerLanguage('protobuf', langProtobuf);
+hljs.registerLanguage('python', langPython);
+hljs.registerLanguage('r', langR);
+hljs.registerLanguage('ruby', langRuby);
+hljs.registerLanguage('rust', langRust);
+hljs.registerLanguage('scala', langScala);
+hljs.registerLanguage('scss', langScss);
+hljs.registerLanguage('sql', langSql);
+hljs.registerLanguage('swift', langSwift);
+hljs.registerLanguage('typescript', langTypeScript);
+hljs.registerLanguage('xml', langXml);
+hljs.registerLanguage('yaml', langYaml);
 
 // =============================================================================
 // File extension → highlight.js language mapping
@@ -63,7 +140,7 @@ const EXT_TO_LANG: Record<string, string> = {
   '.makefile': 'makefile',
   '.cmake': 'cmake',
   '.dockerfile': 'dockerfile',
-  '.tf': 'hcl',
+  '.tf': 'ini',
   '.proto': 'protobuf',
   '.graphql': 'graphql',
   '.gql': 'graphql',

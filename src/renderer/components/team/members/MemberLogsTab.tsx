@@ -429,23 +429,38 @@ export const MemberLogsTab = ({
     setDetailLoading(false);
   }, [expandedId, expandedLogSummary]);
 
+  const fetchDetailForLog = useCallback(
+    async (
+      log: MemberLogSummary,
+      options?: { bypassCache?: boolean }
+    ): Promise<EnhancedChunk[] | null> => {
+      if (log.kind === 'subagent') {
+        const d = await api.getSubagentDetail(
+          log.projectId,
+          log.sessionId,
+          log.subagentId,
+          options
+        );
+        return d?.chunks ?? null;
+      }
+      const d = await api.getSessionDetail(log.projectId, log.sessionId, options);
+      return d ? asEnhancedChunkArray(d.chunks) : null;
+    },
+    []
+  );
+
+  // ---- Initial data loads (non-polling) ----
+
   useEffect(() => {
     let cancelled = false;
-    const shouldAutoRefresh = taskId != null && taskStatus === 'in_progress';
 
     const load = async (): Promise<void> => {
-      let didBeginRefreshing = false;
       try {
         if (taskId == null && !memberName) {
           if (!cancelled) setLogs([]);
           return;
         }
-        if (!hasLoadedRef.current) {
-          setLoading(true);
-        } else {
-          beginRefreshing();
-          didBeginRefreshing = true;
-        }
+        setLoading(true);
         setError(null);
 
         const result =
@@ -470,41 +485,17 @@ export const MemberLogsTab = ({
       } finally {
         if (!cancelled) {
           setLoading(false);
-          if (didBeginRefreshing) endRefreshing();
         }
       }
     };
 
     void load();
 
-    const interval = shouldAutoRefresh ? setInterval(() => void load(), 5000) : null;
-
     return () => {
       cancelled = true;
-      if (interval) clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intervalsKey + taskSince drive refresh; deps intentionally minimal to avoid refetch loops
   }, [teamName, memberName, taskId, taskOwner, taskStatus, intervalsKey, taskSince]);
-
-  const fetchDetailForLog = useCallback(
-    async (
-      log: MemberLogSummary,
-      options?: { bypassCache?: boolean }
-    ): Promise<EnhancedChunk[] | null> => {
-      if (log.kind === 'subagent') {
-        const d = await api.getSubagentDetail(
-          log.projectId,
-          log.sessionId,
-          log.subagentId,
-          options
-        );
-        return d?.chunks ?? null;
-      }
-      const d = await api.getSessionDetail(log.projectId, log.sessionId, options);
-      return d ? asEnhancedChunkArray(d.chunks) : null;
-    },
-    []
-  );
 
   useEffect(() => {
     if (!shouldShowPreview) {
@@ -535,64 +526,112 @@ export const MemberLogsTab = ({
   }, [fetchDetailForLog, previewLog, shouldShowPreview, intervalsKey]);
 
   useEffect(() => {
-    if (!shouldShowPreview) return;
-    if (!previewLog) return;
-
-    const shouldAutoRefreshPreview = taskStatus === 'in_progress' || previewLog.isOngoing;
-    if (!shouldAutoRefreshPreview) return;
-
-    let cancelled = false;
-    const interval = setInterval(async () => {
-      beginRefreshing();
-      try {
-        const next = await fetchDetailForLog(previewLog, { bypassCache: true });
-        if (cancelled) return;
-        const filtered = taskId ? filterChunksByWorkIntervals(next, taskWorkIntervals) : next;
-        setPreviewChunks(filtered ? [...filtered] : null);
-      } catch {
-        // keep last successful preview
-      } finally {
-        endRefreshing();
-      }
-    }, 5000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [
-    beginRefreshing,
-    endRefreshing,
-    fetchDetailForLog,
-    previewLog,
-    shouldShowPreview,
-    taskStatus,
-    intervalsKey,
-  ]);
-
-  useEffect(() => {
-    const shouldAutoRefreshSummary = taskId != null && taskStatus === 'in_progress';
     if (!expandedLogSummary) return;
+    const shouldAutoRefreshSummary = taskId != null && taskStatus === 'in_progress';
     if (!shouldAutoRefreshSummary && !expandedLogSummary.isOngoing) return;
 
     let cancelled = false;
-
-    const refreshDetail = async (): Promise<void> => {
-      beginRefreshing();
+    const loadDetail = async (): Promise<void> => {
       try {
         const next = await fetchDetailForLog(expandedLogSummary, { bypassCache: true });
         if (cancelled) return;
         const filtered = taskId ? filterChunksByWorkIntervals(next, taskWorkIntervals) : next;
         setDetailChunks(filtered ? [...filtered] : null);
       } catch {
-        // Keep last successful data; avoid flicker during transient errors.
+        // Keep last successful data
+      }
+    };
+    void loadDetail();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only, polling handled by consolidated interval
+  }, [expandedLogSummary, fetchDetailForLog, taskId, taskStatus, intervalsKey]);
+
+  // ---- Consolidated polling interval: logs + preview + detail in ONE timer ----
+
+  useEffect(() => {
+    const shouldAutoRefreshLogs = taskId != null && taskStatus === 'in_progress';
+    const shouldAutoRefreshPreview =
+      shouldShowPreview && previewLog && (taskStatus === 'in_progress' || previewLog.isOngoing);
+    const shouldAutoRefreshDetail =
+      expandedLogSummary && (shouldAutoRefreshLogs || expandedLogSummary.isOngoing);
+
+    if (!shouldAutoRefreshLogs && !shouldAutoRefreshPreview && !shouldAutoRefreshDetail) return;
+
+    let cancelled = false;
+
+    const refreshAll = async (): Promise<void> => {
+      beginRefreshing();
+      try {
+        const promises: Promise<void>[] = [];
+
+        if (shouldAutoRefreshLogs) {
+          promises.push(
+            (async () => {
+              try {
+                const result =
+                  taskId != null
+                    ? await api.teams.getLogsForTask(teamName, taskId, {
+                        owner: taskOwner,
+                        status: taskStatus,
+                        intervals: taskWorkIntervals,
+                        since: taskSince,
+                      })
+                    : await api.teams.getMemberLogs(teamName, memberName!);
+                if (!cancelled) {
+                  setLogs(Array.isArray(result) ? [...result] : []);
+                }
+              } catch {
+                // keep last successful logs
+              }
+            })()
+          );
+        }
+
+        if (shouldAutoRefreshPreview && previewLog) {
+          promises.push(
+            (async () => {
+              try {
+                const next = await fetchDetailForLog(previewLog, { bypassCache: true });
+                if (!cancelled) {
+                  const filtered = taskId
+                    ? filterChunksByWorkIntervals(next, taskWorkIntervals)
+                    : next;
+                  setPreviewChunks(filtered ? [...filtered] : null);
+                }
+              } catch {
+                // keep last successful preview
+              }
+            })()
+          );
+        }
+
+        if (shouldAutoRefreshDetail && expandedLogSummary) {
+          promises.push(
+            (async () => {
+              try {
+                const next = await fetchDetailForLog(expandedLogSummary, { bypassCache: true });
+                if (!cancelled) {
+                  const filtered = taskId
+                    ? filterChunksByWorkIntervals(next, taskWorkIntervals)
+                    : next;
+                  setDetailChunks(filtered ? [...filtered] : null);
+                }
+              } catch {
+                // keep last successful detail
+              }
+            })()
+          );
+        }
+
+        await Promise.all(promises);
       } finally {
-        endRefreshing();
+        if (!cancelled) endRefreshing();
       }
     };
 
-    void refreshDetail();
-    const interval = setInterval(() => void refreshDetail(), 5000);
+    const interval = setInterval(() => void refreshAll(), 5000);
 
     return () => {
       cancelled = true;
@@ -603,8 +642,15 @@ export const MemberLogsTab = ({
     endRefreshing,
     expandedLogSummary,
     fetchDetailForLog,
+    memberName,
+    previewLog,
+    shouldShowPreview,
     taskId,
+    taskOwner,
+    taskSince,
     taskStatus,
+    taskWorkIntervals,
+    teamName,
     intervalsKey,
   ]);
 

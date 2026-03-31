@@ -80,8 +80,11 @@ const TeamGraphOverlay = lazy(() =>
 );
 import { MemberList } from './members/MemberList';
 import { MessagesPanel } from './messages/MessagesPanel';
-import { ChangeReviewDialog } from './review/ChangeReviewDialog';
 import { ScheduleSection } from './schedule/ScheduleSection';
+
+const ChangeReviewDialog = lazy(() =>
+  import('./review/ChangeReviewDialog').then((m) => ({ default: m.ChangeReviewDialog }))
+);
 import { TeamSidebarHost } from './sidebar/TeamSidebarHost';
 import { TeamSidebarPortalSource } from './sidebar/TeamSidebarPortalSource';
 import { TeamSidebarRail } from './sidebar/TeamSidebarRail';
@@ -372,7 +375,8 @@ export const TeamDetailView = ({
       window.removeEventListener('graph:move-back-to-done', onMoveBackToDoneTask);
       window.removeEventListener('graph:delete-task', onDeleteTaskGraph);
     };
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamName]);
 
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -740,7 +744,7 @@ export const TeamDetailView = ({
 
     const id = window.setInterval(() => {
       void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
-    }, 10_000);
+    }, 30_000);
     return () => window.clearInterval(id);
   }, [isThisTabActive, tabId, projectId, leadSessionId, data?.isAlive, fetchSessionDetail]);
 
@@ -2181,26 +2185,30 @@ export const TeamDetailView = ({
             }}
           />
 
-          <ChangeReviewDialog
-            open={reviewDialogState.open}
-            onOpenChange={(open) =>
-              setReviewDialogState((prev) => ({
-                ...prev,
-                open,
-                ...(open
-                  ? {}
-                  : { initialFilePath: undefined, taskChangeRequestOptions: undefined }),
-              }))
-            }
-            teamName={teamName}
-            mode={reviewDialogState.mode}
-            memberName={reviewDialogState.memberName}
-            taskId={reviewDialogState.taskId}
-            initialFilePath={reviewDialogState.initialFilePath}
-            taskChangeRequestOptions={reviewDialogState.taskChangeRequestOptions}
-            projectPath={data.config.projectPath}
-            onEditorAction={handleEditorAction}
-          />
+          {reviewDialogState.open && (
+            <Suspense fallback={null}>
+              <ChangeReviewDialog
+                open={reviewDialogState.open}
+                onOpenChange={(open) =>
+                  setReviewDialogState((prev) => ({
+                    ...prev,
+                    open,
+                    ...(open
+                      ? {}
+                      : { initialFilePath: undefined, taskChangeRequestOptions: undefined }),
+                  }))
+                }
+                teamName={teamName}
+                mode={reviewDialogState.mode}
+                memberName={reviewDialogState.memberName}
+                taskId={reviewDialogState.taskId}
+                initialFilePath={reviewDialogState.initialFilePath}
+                taskChangeRequestOptions={reviewDialogState.taskChangeRequestOptions}
+                projectPath={data.config.projectPath}
+                onEditorAction={handleEditorAction}
+              />
+            </Suspense>
+          )}
         </div>
       </div>
 

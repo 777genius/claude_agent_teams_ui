@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge } from '@renderer/components/ui/badge';
@@ -45,7 +46,7 @@ interface MemberCardProps {
   onAssignTask?: () => void;
 }
 
-export const MemberCard = ({
+export const MemberCard = memo(function MemberCard({
   member,
   memberColor,
   taskCounts,
@@ -63,7 +64,7 @@ export const MemberCard = ({
   onClick,
   onSendMessage,
   onAssignTask,
-}: MemberCardProps): React.JSX.Element => {
+}: MemberCardProps): React.JSX.Element {
   const { t } = useTranslation();
   // NOTE: lead context display disabled — usage formula is inaccurate
   // const teamName = useStore((s) => s.selectedTeamName);
@@ -231,7 +232,7 @@ export const MemberCard = ({
             {totalTasks > 0 && (
               <div className="mx-0.5 mt-0.5 h-[2px] rounded-full bg-[var(--color-border)]">
                 <div
-                  className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-500"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -278,4 +279,4 @@ export const MemberCard = ({
       </div>
     </div>
   );
-};
+});

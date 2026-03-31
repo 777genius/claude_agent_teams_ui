@@ -6,6 +6,7 @@ const LEGACY_IDB_KEY = 'comment-read-state';
 const LEGACY_LS_KEY = 'comment-read-state';
 const SAVE_DEBOUNCE_MS = 300;
 const STALE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const MAX_READ_IDS_PER_TASK = 100;
 
 /**
  * Per-task read state: tracks individual comment IDs that have been seen.
@@ -128,10 +129,17 @@ export function markCommentsRead(teamName: string, taskId: string, commentIds: s
     }
   }
   if (!changed) return;
+  // Cap readIds to prevent unbounded growth on tasks with many comments.
+  // Keep the most recent IDs (last added) when exceeding the limit.
+  const allIds = Array.from(prevSet);
+  const cappedIds =
+    allIds.length > MAX_READ_IDS_PER_TASK
+      ? allIds.slice(allIds.length - MAX_READ_IDS_PER_TASK)
+      : allIds;
   cache = {
     ...cache,
     [key]: {
-      readIds: Array.from(prevSet),
+      readIds: cappedIds,
       lastUpdated: Date.now(),
     },
   };
