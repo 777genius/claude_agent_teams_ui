@@ -1,5 +1,9 @@
 # Release Guide
 
+## Published: v1.2.0 (2026-03-31)
+
+Agent Graph, per-team tool approval, interactive AskUserQuestion, task comment notifications, cross-team ghost nodes. Major graph improvements: force-directed visualization with kanban task layout, fullscreen/tab mode, animated particles, member hexagons with avatars, popover actions. Permission system overhaul with proper Write/Edit/NotebookEdit seeding and MCP tool catalog integration. Full list: [CHANGELOG.md](./CHANGELOG.md).
+
 ## Published: v1.1.0 (2026-03-26)
 
 Minor release: React 19 + Electron 40 migration, start-task-by-user, auth troubleshooting guide, syntax highlighting for R/Ruby/PHP/SQL, search performance improvements, cost tracking accuracy, WSL/Windows path fixes. Full list: [CHANGELOG.md](./CHANGELOG.md).
