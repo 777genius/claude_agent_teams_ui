@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -219,7 +219,7 @@ interface SortableKanbanTaskCardProps {
   onDeleteTask?: (taskId: string) => void;
 }
 
-const SortableKanbanTaskCard = ({
+const SortableKanbanTaskCard = memo(function SortableKanbanTaskCard({
   task,
   columnId,
   teamName,
@@ -238,7 +238,7 @@ const SortableKanbanTaskCard = ({
   onTaskClick,
   onViewChanges,
   onDeleteTask,
-}: SortableKanbanTaskCardProps): React.JSX.Element => {
+}: SortableKanbanTaskCardProps): React.JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { type: 'kanban-task', columnId, taskId: task.id },
@@ -276,9 +276,9 @@ const SortableKanbanTaskCard = ({
       />
     </div>
   );
-};
+});
 
-export const KanbanBoard = ({
+export const KanbanBoard = memo(function KanbanBoard({
   tasks,
   teamName,
   kanbanState,
@@ -305,7 +305,7 @@ export const KanbanBoard = ({
   onDeleteTask,
   deletedTaskCount,
   onOpenTrash,
-}: KanbanBoardProps): React.JSX.Element => {
+}: KanbanBoardProps): React.JSX.Element {
   const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<KanbanViewMode>('grid');
 
@@ -637,4 +637,4 @@ export const KanbanBoard = ({
   }
 
   return boardContent;
-};
+});
