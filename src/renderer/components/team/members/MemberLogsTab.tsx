@@ -488,6 +488,14 @@ export const MemberLogsTab = ({
     return () => {
       cancelled = true;
       if (interval) clearInterval(interval);
+      // Reset refresh state so the indicator doesn't stay latched
+      // when the effect tears down mid-refresh (e.g. tab switch).
+      refreshCountRef.current = 0;
+      if (refreshHideTimeoutRef.current) {
+        clearTimeout(refreshHideTimeoutRef.current);
+        refreshHideTimeoutRef.current = null;
+      }
+      setRefreshing(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intervalsKey + taskSince drive refresh; deps intentionally minimal to avoid refetch loops
   }, [teamName, memberName, taskId, taskOwner, taskStatus, intervalsKey, taskSince, isTabActive]);

@@ -18,6 +18,8 @@ import type { TeamDataWorkerRequest, TeamDataWorkerResponse } from './teamDataWo
 
 const logger = createLogger('Service:TeamDataWorkerClient');
 const WORKER_CALL_TIMEOUT_MS = 30_000;
+const SAFE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+const SAFE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,63}$/;
 
 function makeId(): string {
   return `${Date.now()}-${crypto.randomUUID().slice(0, 12)}`;
@@ -68,9 +70,10 @@ export class TeamDataWorkerClient {
     if (!this.workerPath) throw new Error('Worker not available');
     if (this.worker) return this.worker;
 
-    this.worker = new Worker(this.workerPath);
+    const w = new Worker(this.workerPath);
+    this.worker = w;
 
-    this.worker.on('message', (msg: TeamDataWorkerResponse) => {
+    w.on('message', (msg: TeamDataWorkerResponse) => {
       const entry = this.pending.get(msg.id);
       if (!entry) return;
       this.pending.delete(msg.id);
@@ -81,7 +84,11 @@ export class TeamDataWorkerClient {
       }
     });
 
-    this.worker.on('error', (err) => {
+    // Scope error/exit handlers to this specific worker instance.
+    // Without this guard, a stale worker's exit event can reject
+    // pending requests that belong to a newer replacement worker.
+    w.on('error', (err) => {
+      if (this.worker !== w) return;
       logger.error('Worker error', err);
       for (const [, entry] of this.pending) {
         entry.reject(err instanceof Error ? err : new Error(String(err)));
@@ -90,7 +97,8 @@ export class TeamDataWorkerClient {
       this.worker = null;
     });
 
-    this.worker.on('exit', (code) => {
+    w.on('exit', (code) => {
+      if (this.worker !== w) return;
       if (code !== 0) logger.warn(`Worker exited with code ${code}`);
       for (const [, entry] of this.pending) {
         entry.reject(new Error(`Worker exited with code ${code}`));
@@ -99,7 +107,7 @@ export class TeamDataWorkerClient {
       this.worker = null;
     });
 
-    return this.worker;
+    return w;
   }
 
   private call(
@@ -133,6 +141,7 @@ export class TeamDataWorkerClient {
   }
 
   async getTeamData(teamName: string): Promise<TeamData> {
+    if (!SAFE_NAME_RE.test(teamName)) throw new Error('Invalid teamName');
     return this.call('getTeamData', { teamName }) as Promise<TeamData>;
   }
 
@@ -146,6 +155,8 @@ export class TeamDataWorkerClient {
       since?: string;
     }
   ): Promise<MemberLogSummary[]> {
+    if (!SAFE_NAME_RE.test(teamName)) throw new Error('Invalid teamName');
+    if (!SAFE_ID_RE.test(taskId)) throw new Error('Invalid taskId');
     return this.call('findLogsForTask', { teamName, taskId, options }) as Promise<
       MemberLogSummary[]
     >;

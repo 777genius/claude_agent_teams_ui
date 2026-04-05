@@ -44,7 +44,7 @@ parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
       }
       case 'findLogsForTask': {
         const { teamName, taskId, options } = msg.payload;
-        const cacheKey = `${teamName}:${taskId}:${options?.owner ?? ''}`;
+        const cacheKey = `${teamName}:${taskId}:${options?.owner ?? ''}:${options?.status ?? ''}:${options?.since ?? ''}:${options?.intervals?.length ?? 0}`;
 
         // Check result cache
         const cached = logsResultCache.get(cacheKey);
@@ -56,16 +56,20 @@ parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
         // Dedup concurrent calls
         let promise = logsInFlight.get(cacheKey) as Promise<MemberLogSummary[]> | undefined;
         if (!promise) {
-          promise = logsFinder.findLogsForTask(teamName, taskId, options).then((result) => {
-            logsInFlight.delete(cacheKey);
-            logsResultCache.set(cacheKey, { result, cachedAt: Date.now() });
-            // Cap cache
-            if (logsResultCache.size > 100) {
-              const firstKey = logsResultCache.keys().next().value;
-              if (firstKey !== undefined) logsResultCache.delete(firstKey);
-            }
-            return result;
-          });
+          promise = logsFinder
+            .findLogsForTask(teamName, taskId, options)
+            .then((result) => {
+              logsResultCache.set(cacheKey, { result, cachedAt: Date.now() });
+              // Cap cache
+              if (logsResultCache.size > 100) {
+                const firstKey = logsResultCache.keys().next().value;
+                if (firstKey !== undefined) logsResultCache.delete(firstKey);
+              }
+              return result;
+            })
+            .finally(() => {
+              logsInFlight.delete(cacheKey);
+            });
           logsInFlight.set(cacheKey, promise);
         }
         const result = await promise;

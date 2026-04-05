@@ -2153,13 +2153,14 @@ async function handleGetLogsForTask(
             : undefined,
         }
       : undefined;
-  // Prefer worker thread to keep main event loop responsive
+  // Prefer worker thread to keep main event loop responsive.
+  // Call worker directly (not via wrapTeamHandler) so that failures
+  // propagate to the catch block and trigger the main-thread fallback.
   const worker = getTeamDataWorkerClient();
   if (worker.isAvailable()) {
     try {
-      return await wrapTeamHandler('getLogsForTask', () =>
-        worker.findLogsForTask(vTeam.value!, vTask.value!, opts)
-      );
+      const result = await worker.findLogsForTask(vTeam.value!, vTask.value!, opts);
+      return { success: true, data: result };
     } catch (workerErr) {
       logger.warn(
         `[teams:getLogsForTask] worker failed, falling back: ${workerErr instanceof Error ? workerErr.message : workerErr}`
