@@ -38,6 +38,7 @@ import { TeamInboxReader } from './TeamInboxReader';
 import { TeamInboxWriter } from './TeamInboxWriter';
 import { TeamKanbanManager } from './TeamKanbanManager';
 import { TeamMemberResolver } from './TeamMemberResolver';
+import { TeamMemberRuntimeAdvisoryService } from './TeamMemberRuntimeAdvisoryService';
 import { TeamMembersMetaStore } from './TeamMembersMetaStore';
 import { TeamMetaStore } from './TeamMetaStore';
 import { TeamSentMessagesStore } from './TeamSentMessagesStore';
@@ -131,11 +132,16 @@ export class TeamDataService {
         claudeDir: getClaudeBasePath(),
       }),
     private readonly taskCommentNotificationJournal: TeamTaskCommentNotificationJournal = new TeamTaskCommentNotificationJournal(),
-    private readonly teamMetaStore: TeamMetaStore = new TeamMetaStore()
+    private readonly teamMetaStore: TeamMetaStore = new TeamMetaStore(),
+    private memberRuntimeAdvisoryService: TeamMemberRuntimeAdvisoryService = new TeamMemberRuntimeAdvisoryService()
   ) {}
 
   private getController(teamName: string): AgentTeamsController {
     return this.controllerFactory(teamName);
+  }
+
+  setMemberRuntimeAdvisoryService(service: TeamMemberRuntimeAdvisoryService): void {
+    this.memberRuntimeAdvisoryService = service;
   }
 
   private getTaskLabel(task: Pick<TeamTask, 'id' | 'displayId'>): string {
@@ -754,6 +760,22 @@ export class TeamDataService {
     );
     mark('resolveMembers');
 
+    try {
+      const runtimeAdvisories = await this.memberRuntimeAdvisoryService.getMemberAdvisories(
+        teamName,
+        members
+      );
+      for (const member of members) {
+        const advisory = runtimeAdvisories.get(member.name);
+        if (advisory) {
+          member.runtimeAdvisory = advisory;
+        }
+      }
+    } catch {
+      warnings.push('Member runtime advisories failed to load');
+    }
+    mark('runtimeAdvisories');
+
     // Enrich members with git branch when it differs from lead's branch
     await this.enrichMemberBranches(members, config);
     mark('enrichBranches');
@@ -777,7 +799,9 @@ export class TeamDataService {
           'sentMessages'
         )} membersMeta=${msSince('metaMembers')} kanban=${msSince('kanbanState')} kanbanGc=${msSince(
           'kanbanGc'
-        )} resolveMembers=${msSince('resolveMembers')} enrichBranches=${msSince(
+        )} resolveMembers=${msSince('resolveMembers')} runtimeAdvisories=${msSince(
+          'runtimeAdvisories'
+        )} enrichBranches=${msSince(
           'enrichBranches'
         )} syncComments=${msSince('syncComments')} processes=${msSince('processes')}`
       );

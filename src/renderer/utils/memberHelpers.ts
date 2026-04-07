@@ -8,6 +8,7 @@ import { isLeadMember } from '@shared/utils/leadDetection';
 import type {
   LeadActivityState,
   MemberLaunchState,
+  MemberRuntimeAdvisory,
   MemberSpawnLivenessSource,
   MemberSpawnStatus,
   MemberStatus,
@@ -100,7 +101,7 @@ export const SPAWN_DOT_COLORS: Record<MemberSpawnStatus, string> = {
 
 export const SPAWN_PRESENCE_LABELS: Record<MemberSpawnStatus, string> = {
   offline: 'offline',
-  waiting: 'bootstrap pending',
+  waiting: 'check-in pending',
   spawning: 'starting',
   online: 'ready',
   error: 'spawn failed',
@@ -159,13 +160,13 @@ export function getSpawnAwarePresenceLabel(
     return 'waiting for Agent';
   }
   if (spawnLaunchState === 'runtime_pending_bootstrap' && runtimeAlive) {
-    return 'bootstrap pending';
+    return 'check-in pending';
   }
   if (spawnStatus === 'waiting') {
     return SPAWN_PRESENCE_LABELS.waiting;
   }
   if (spawnStatus === 'online' && livenessSource === 'process') {
-    return 'bootstrap pending';
+    return 'check-in pending';
   }
   if (spawnStatus && isTeamProvisioning) {
     return SPAWN_PRESENCE_LABELS[spawnStatus];
@@ -192,6 +193,43 @@ export function getSpawnCardClass(spawnStatus: MemberSpawnStatus | undefined): s
     default:
       return '';
   }
+}
+
+function formatRetryCountdown(ms: number): string {
+  const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+export function getMemberRuntimeAdvisoryLabel(
+  advisory: MemberRuntimeAdvisory | undefined,
+  nowMs = Date.now()
+): string | null {
+  if (!advisory || advisory.kind !== 'sdk_retrying') {
+    return null;
+  }
+  const retryUntilMs = Date.parse(advisory.retryUntil);
+  if (!Number.isFinite(retryUntilMs)) {
+    return 'SDK retrying';
+  }
+  const remainingMs = retryUntilMs - nowMs;
+  if (remainingMs <= 0) {
+    return 'SDK retrying';
+  }
+  return `SDK retrying · ${formatRetryCountdown(remainingMs)}`;
+}
+
+export function getMemberRuntimeAdvisoryTitle(
+  advisory: MemberRuntimeAdvisory | undefined
+): string | undefined {
+  if (!advisory || advisory.kind !== 'sdk_retrying') {
+    return undefined;
+  }
+  return advisory.message?.trim() || 'The SDK is retrying after a provider error.';
 }
 
 export const TASK_STATUS_STYLES: Record<TeamTaskStatus, { bg: string; text: string }> = {

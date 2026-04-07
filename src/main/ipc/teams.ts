@@ -1478,6 +1478,14 @@ function buildMessageDeliveryText(
         'Do NOT answer only with normal assistant text because that will not appear in the UI message thread.',
         `Please reply back to recipient "${replyRecipient}" with a short, human-readable answer.`,
         'If you cannot respond now, reply with a brief status (e.g. "Busy, will reply later").',
+        ...(replyRecipient === 'user'
+          ? [
+              'CRITICAL: If the user asks you to check with the lead or another teammate before you can fully answer, FIRST send a short acknowledgement to "user" so the human sees you started (for example: "Принял, сейчас уточню и вернусь с ответом.").',
+              'Only after that first acknowledgement may you message the lead or another teammate.',
+              'After you get the needed information, send the final answer back to "user".',
+              'Do NOT stay silent while you go ask someone else.',
+            ]
+          : []),
         AGENT_BLOCK_CLOSE,
       ].join('\n')
     );

@@ -52,7 +52,8 @@ function buildDiagnostics(
   if (member.agentToolAccepted) diagnostics.push('spawn accepted');
   if (member.runtimeAlive) diagnostics.push('runtime alive');
   if (member.bootstrapConfirmed) diagnostics.push('late heartbeat received');
-  if (member.runtimeAlive && !member.bootstrapConfirmed) diagnostics.push('waiting for bootstrap');
+  if (member.runtimeAlive && !member.bootstrapConfirmed)
+    diagnostics.push('waiting for teammate check-in');
   if (member.hardFailureReason)
     diagnostics.push(`hard failure reason: ${member.hardFailureReason}`);
   if (member.sources?.duplicateRespawnBlocked) diagnostics.push('respawn blocked as duplicate');

@@ -6,6 +6,8 @@ import { formatAgentRole } from '@renderer/utils/formatAgentRole';
 import {
   agentAvatarUrl,
   displayMemberName,
+  getMemberRuntimeAdvisoryLabel,
+  getMemberRuntimeAdvisoryTitle,
   getSpawnAwareDotClass,
   getSpawnAwarePresenceLabel,
   getSpawnCardClass,
@@ -85,6 +87,8 @@ export const MemberCard = ({
     isTeamProvisioning,
     leadActivity
   );
+  const runtimeAdvisoryLabel = getMemberRuntimeAdvisoryLabel(member.runtimeAdvisory);
+  const runtimeAdvisoryTitle = getMemberRuntimeAdvisoryTitle(member.runtimeAdvisory);
   const presenceLabel = getSpawnAwarePresenceLabel(
     member,
     spawnStatus,
@@ -178,8 +182,11 @@ export const MemberCard = ({
                     className="size-3 shrink-0 animate-spin"
                     style={{ color: colors.border }}
                   />
-                  <span className="shrink-0 text-[10px] text-[var(--color-text-muted)]">
-                    awaiting reply
+                  <span
+                    className="shrink-0 text-[10px] text-[var(--color-text-muted)]"
+                    title={runtimeAdvisoryTitle ?? 'Message sent, awaiting reply'}
+                  >
+                    {runtimeAdvisoryLabel ?? 'awaiting reply'}
                   </span>
                 </>
               ) : null}

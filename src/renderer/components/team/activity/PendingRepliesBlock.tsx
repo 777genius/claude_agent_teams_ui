@@ -7,6 +7,8 @@ import {
   agentAvatarUrl,
   buildMemberColorMap,
   displayMemberName,
+  getMemberRuntimeAdvisoryLabel,
+  getMemberRuntimeAdvisoryTitle,
 } from '@renderer/utils/memberHelpers';
 import { nameColorSet } from '@renderer/utils/projectColor';
 import { formatDistanceToNowStrict } from 'date-fns';
@@ -79,6 +81,8 @@ export const PendingRepliesBlock = ({
           const roleLabel = formatAgentRole(
             member.role ?? (member.agentType !== 'general-purpose' ? member.agentType : undefined)
           );
+          const advisoryLabel = getMemberRuntimeAdvisoryLabel(member.runtimeAdvisory);
+          const advisoryTitle = getMemberRuntimeAdvisoryTitle(member.runtimeAdvisory);
 
           return (
             <article
@@ -137,9 +141,9 @@ export const PendingRepliesBlock = ({
                 <span
                   className="min-w-0 flex-1 truncate text-[10px]"
                   style={{ color: CARD_ICON_MUTED }}
-                  title="Message sent, awaiting reply"
+                  title={advisoryTitle ?? 'Message sent, awaiting reply'}
                 >
-                  awaiting reply
+                  {advisoryLabel ?? 'awaiting reply'}
                 </span>
                 <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
                   {since}

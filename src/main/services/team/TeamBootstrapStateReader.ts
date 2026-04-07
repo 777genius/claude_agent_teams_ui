@@ -382,7 +382,7 @@ function normalizeBootstrapMemberState(
       : runtimeAlive
         ? bootstrapConfirmed
           ? ['late heartbeat received']
-          : ['runtime alive', 'waiting for bootstrap']
+          : ['runtime alive', 'waiting for teammate check-in']
         : agentToolAccepted
           ? ['spawn accepted']
           : undefined,

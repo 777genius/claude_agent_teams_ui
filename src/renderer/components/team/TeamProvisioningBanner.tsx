@@ -152,12 +152,12 @@ export const TeamProvisioningBanner = ({
         : fallbackTeammateCount === 0
           ? 'Team provisioned — lead online'
           : allTeammatesConfirmedAlive
-            ? `Team provisioned — all ${fallbackTeammateCount} teammates confirmed alive`
+            ? `Team provisioned — all ${fallbackTeammateCount} teammates checked in`
             : allPendingRuntimesStarted
-              ? 'Team provisioned — teammate runtimes started, waiting for bootstrap confirmation'
+              ? 'Team provisioned — teammate runtimes online, waiting for check-ins'
               : processOnlyAliveCount > 0 || pendingSpawnCount > 0
-                ? `Team provisioned — ${heartbeatConfirmedCount}/${fallbackTeammateCount} teammates confirmed alive${processOnlyAliveCount > 0 ? `, ${processOnlyAliveCount} runtime${processOnlyAliveCount === 1 ? '' : 's'} alive but bootstrap still pending` : ''}${pendingSpawnCount > 0 ? `${processOnlyAliveCount > 0 ? ', ' : ', '}${pendingSpawnCount} still starting` : ''}`
-                : 'Team provisioned — teammate liveness is still being confirmed';
+                ? `Team provisioned — ${heartbeatConfirmedCount}/${fallbackTeammateCount} teammates checked in${processOnlyAliveCount > 0 ? `, ${processOnlyAliveCount} runtime${processOnlyAliveCount === 1 ? '' : 's'} online and waiting for check-in` : ''}${pendingSpawnCount > 0 ? `${processOnlyAliveCount > 0 ? ', ' : ', '}${pendingSpawnCount} still starting` : ''}`
+                : 'Team provisioned — teammate check-ins are still coming in';
     const readyDetailSeverity =
       failedSpawnCount > 0 || processOnlyAliveCount > 0 || pendingSpawnCount > 0
         ? 'warning'
@@ -168,12 +168,12 @@ export const TeamProvisioningBanner = ({
         : fallbackTeammateCount === 0
           ? 'Team launched — lead online'
           : allTeammatesConfirmedAlive
-            ? `Team launched — all ${fallbackTeammateCount} teammates confirmed alive`
+            ? `Team launched — all ${fallbackTeammateCount} teammates checked in`
             : allPendingRuntimesStarted
-              ? 'Team launched — teammate runtimes started, waiting for bootstrap confirmation'
+              ? 'Team launched — teammate runtimes online, waiting for check-ins'
               : processOnlyAliveCount > 0 || pendingSpawnCount > 0
-                ? `Team launched — ${heartbeatConfirmedCount}/${fallbackTeammateCount} teammates confirmed alive${processOnlyAliveCount > 0 ? `, ${processOnlyAliveCount} runtime${processOnlyAliveCount === 1 ? '' : 's'} alive but bootstrap still pending` : ''}${pendingSpawnCount > 0 ? `${processOnlyAliveCount > 0 ? ', ' : ', '}${pendingSpawnCount} still starting` : ''}`
-                : 'Team launched — teammate liveness is still being confirmed';
+                ? `Team launched — ${heartbeatConfirmedCount}/${fallbackTeammateCount} teammates checked in${processOnlyAliveCount > 0 ? `, ${processOnlyAliveCount} runtime${processOnlyAliveCount === 1 ? '' : 's'} online and waiting for check-in` : ''}${pendingSpawnCount > 0 ? `${processOnlyAliveCount > 0 ? ', ' : ', '}${pendingSpawnCount} still starting` : ''}`
+                : 'Team launched — teammate check-ins are still coming in';
 
     return (
       <div className="mb-3">

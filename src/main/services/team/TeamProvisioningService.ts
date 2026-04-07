@@ -1747,9 +1747,9 @@ function buildGeminiPostLaunchHydrationPrompt(
               : status?.launchState === 'confirmed_alive'
                 ? 'bootstrap confirmed'
                 : status?.runtimeAlive
-                  ? 'runtime started, bootstrap pending'
+                  ? 'runtime started, check-in pending'
                   : status?.launchState === 'runtime_pending_bootstrap'
-                    ? 'spawn accepted, bootstrap pending'
+                    ? 'spawn accepted, check-in pending'
                     : status?.status === 'spawning'
                       ? 'spawn in progress'
                       : 'runtime state unclear';
@@ -3004,7 +3004,7 @@ export class TeamProvisioningService {
           const detail =
             parsedStatus.reason === 'already_running'
               ? 'duplicate spawn skipped - already running'
-              : 'duplicate spawn skipped - bootstrap pending';
+              : 'duplicate spawn skipped - check-in pending';
           this.appendMemberBootstrapDiagnostic(run, spawnedMemberName, detail);
           return;
         }
@@ -3156,7 +3156,7 @@ export class TeamProvisioningService {
       this.appendMemberBootstrapDiagnostic(
         run,
         memberName,
-        'spawn accepted, waiting for bootstrap'
+        'spawn accepted, waiting for teammate check-in'
       );
     } else if (status === 'online' && livenessSource === 'heartbeat' && !prev.bootstrapConfirmed) {
       this.appendMemberBootstrapDiagnostic(
@@ -3168,7 +3168,7 @@ export class TeamProvisioningService {
       this.appendMemberBootstrapDiagnostic(
         run,
         memberName,
-        'runtime process is alive, bootstrap not yet confirmed'
+        'runtime process is alive, teammate check-in not yet received'
       );
     } else if (status === 'error') {
       this.appendMemberBootstrapDiagnostic(
@@ -6097,7 +6097,7 @@ export class TeamProvisioningService {
         this.appendMemberBootstrapDiagnostic(
           run,
           memberName,
-          'respawn blocked as duplicate — teammate already alive or bootstrap pending'
+          'respawn blocked as duplicate — teammate already alive or check-in pending'
         );
         continue;
       }
@@ -6369,13 +6369,13 @@ export class TeamProvisioningService {
         launchSummary.runtimeAlivePendingCount > 0 &&
         launchSummary.runtimeAlivePendingCount === run.expectedMembers.length;
       return allRuntimeAlive
-        ? `${prefix} — teammate runtimes started, waiting for bootstrap confirmation`
+        ? `${prefix} — teammate runtimes online, waiting for check-ins`
         : launchSummary.runtimeAlivePendingCount > 0
-          ? `${prefix} — ${launchSummary.runtimeAlivePendingCount}/${run.expectedMembers.length} teammate runtime${launchSummary.runtimeAlivePendingCount === 1 ? '' : 's'} started${stillStartingCount > 0 ? `, ${stillStartingCount} still starting` : ''}, waiting for bootstrap confirmation`
-          : `${prefix} — teammates are still starting, waiting for bootstrap confirmation`;
+          ? `${prefix} — ${launchSummary.runtimeAlivePendingCount}/${run.expectedMembers.length} teammate runtime${launchSummary.runtimeAlivePendingCount === 1 ? '' : 's'} online${stillStartingCount > 0 ? `, ${stillStartingCount} still starting` : ''}, waiting for check-ins`
+          : `${prefix} — teammates are still starting, waiting for check-ins`;
     }
 
-    return `${prefix} — ${launchSummary.confirmedCount}/${run.expectedMembers.length} teammates confirmed alive${launchSummary.runtimeAlivePendingCount > 0 ? `, ${launchSummary.runtimeAlivePendingCount} runtime${launchSummary.runtimeAlivePendingCount === 1 ? '' : 's'} waiting for bootstrap confirmation` : ''}${stillStartingCount > 0 ? `${launchSummary.runtimeAlivePendingCount > 0 ? ', ' : ', '}${stillStartingCount} still joining` : ''}`;
+    return `${prefix} — ${launchSummary.confirmedCount}/${run.expectedMembers.length} teammates checked in${launchSummary.runtimeAlivePendingCount > 0 ? `, ${launchSummary.runtimeAlivePendingCount} runtime${launchSummary.runtimeAlivePendingCount === 1 ? '' : 's'} waiting for check-in` : ''}${stillStartingCount > 0 ? `${launchSummary.runtimeAlivePendingCount > 0 ? ', ' : ', '}${stillStartingCount} still joining` : ''}`;
   }
 
   private buildRuntimeSpawnStatusRecord(

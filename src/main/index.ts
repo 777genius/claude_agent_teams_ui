@@ -85,6 +85,7 @@ import {
   writeTeamControlApiState,
 } from './services/team/TeamControlApiState';
 import { TeamInboxReader } from './services/team/TeamInboxReader';
+import { TeamMemberRuntimeAdvisoryService } from './services/team/TeamMemberRuntimeAdvisoryService';
 import { TeamSentMessagesStore } from './services/team/TeamSentMessagesStore';
 import { getAppIconPath } from './utils/appIcon';
 import { getProjectsBasePath, getTeamsBasePath, getTodosBasePath } from './utils/pathDecoder';
@@ -756,7 +757,12 @@ async function initializeServices(): Promise<void> {
   updaterService = new UpdaterService();
   cliInstallerService = new CliInstallerService();
   ptyTerminalService = new PtyTerminalService();
+  const teamMemberLogsFinder = new TeamMemberLogsFinder();
+  const teamMemberRuntimeAdvisoryService = new TeamMemberRuntimeAdvisoryService(
+    teamMemberLogsFinder
+  );
   teamDataService = new TeamDataService();
+  teamDataService.setMemberRuntimeAdvisoryService(teamMemberRuntimeAdvisoryService);
   teamProvisioningService = new TeamProvisioningService();
   // Startup GC: remove stale MCP config files from previous sessions (best-effort)
   void new TeamMcpConfigBuilder().gcStaleConfigs();
@@ -786,7 +792,6 @@ async function initializeServices(): Promise<void> {
   );
   teamProvisioningService.setCrossTeamSender((request) => crossTeamService.send(request));
 
-  const teamMemberLogsFinder = new TeamMemberLogsFinder();
   const taskChangePresenceRepository = new JsonTaskChangePresenceRepository();
   const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
   let teammateToolTracker: TeammateToolTracker | null = null;

@@ -497,7 +497,16 @@ export interface ResolvedTeamMember {
   cwd?: string;
   /** Set only when member's git branch differs from the lead's branch. */
   gitBranch?: string;
+  runtimeAdvisory?: MemberRuntimeAdvisory;
   removedAt?: number;
+}
+
+export interface MemberRuntimeAdvisory {
+  kind: 'sdk_retrying';
+  observedAt: string;
+  retryUntil: string;
+  retryDelayMs: number;
+  message?: string;
 }
 
 export interface TeamProcess {
