@@ -118,9 +118,14 @@ function buildRuntimeSummary(
           (normalizedModel.startsWith('codex') || normalizedModel.startsWith('gpt'))) ||
         (providerId === 'gemini' && normalizedModel.startsWith('gemini')));
 
+    const providerActsAsBackendOnly =
+      providerId !== 'anthropic' && modelLabel !== 'Default' && !modelAlreadyCarriesProviderBrand;
+
     const parts = modelAlreadyCarriesProviderBrand
       ? [modelLabel, effortLabel]
-      : [providerLabel, modelLabel, effortLabel];
+      : providerActsAsBackendOnly
+        ? [modelLabel, `via ${providerLabel}`, effortLabel]
+        : [providerLabel, modelLabel, effortLabel];
     return parts.filter(Boolean).join(' · ');
   }
 
