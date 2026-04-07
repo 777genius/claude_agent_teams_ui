@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   isInboxNoiseMessage,
+  isMeaningfulBootstrapCheckInMessage,
   isOnlyTeammateMessageBlocks,
   isThoughtProtocolNoise,
   stripTeammateMessageBlocks,
@@ -122,5 +123,23 @@ describe('isInboxNoiseMessage', () => {
 
   it('does not flag plain text', () => {
     expect(isInboxNoiseMessage('Hello world')).toBe(false);
+  });
+});
+
+describe('isMeaningfulBootstrapCheckInMessage', () => {
+  it('rejects idle_notification noise', () => {
+    expect(
+      isMeaningfulBootstrapCheckInMessage(
+        '{"type":"idle_notification","from":"alice","idleReason":"available"}'
+      )
+    ).toBe(false);
+  });
+
+  it('accepts normal plain-text teammate replies', () => {
+    expect(isMeaningfulBootstrapCheckInMessage('Я на месте и готов продолжать.')).toBe(true);
+  });
+
+  it('rejects blank text', () => {
+    expect(isMeaningfulBootstrapCheckInMessage('   ')).toBe(false);
   });
 });

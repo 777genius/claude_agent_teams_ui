@@ -180,7 +180,7 @@ export const TeamProvisioningBanner = ({
         <ProvisioningProgressBlock
           key={progress.runId}
           title="Launch details"
-          message={readyDetailMessage}
+          message={failedSpawnCount > 0 ? readyDetailMessage : null}
           messageSeverity={readyDetailSeverity}
           currentStepIndex={progressStepIndex >= 0 ? progressStepIndex : -1}
           startedAt={progress.startedAt}

@@ -35,6 +35,7 @@ import { resolveLanguageName } from '@shared/utils/agentLanguage';
 import { parseCliArgs } from '@shared/utils/cliArgsParser';
 import {
   isInboxNoiseMessage,
+  isMeaningfulBootstrapCheckInMessage,
   type ParsedPermissionRequest,
   parsePermissionRequest,
 } from '@shared/utils/inboxNoise';
@@ -2593,7 +2594,10 @@ export class TeamProvisioningService {
     // runtime produced a real post-spawn message, unlike writes to inboxes/<member>.json
     // which may simply be user/lead messages addressed TO the teammate.
     const sameTeamBlocks = blocks.filter((block) => !parseCrossTeamPrefix(block.content));
-    for (const block of sameTeamBlocks) {
+    const meaningfulSameTeamBlocks = sameTeamBlocks.filter((block) =>
+      isMeaningfulBootstrapCheckInMessage(block.content)
+    );
+    for (const block of meaningfulSameTeamBlocks) {
       this.setMemberSpawnStatus(run, block.teammateId, 'online', undefined, 'heartbeat');
     }
     for (const block of sameTeamBlocks) {
@@ -6491,7 +6495,12 @@ export class TeamProvisioningService {
         matchedRuntimeNames.some((runtimeName) => liveAgentNames.has(runtimeName));
       const heartbeatMessage = leadInboxMessages.find((message) => {
         if (typeof message.from !== 'string' || message.from.trim() !== expected) return false;
-        if (typeof message.text !== 'string' || message.text.trim().length === 0) return false;
+        if (
+          typeof message.text !== 'string' ||
+          !isMeaningfulBootstrapCheckInMessage(message.text)
+        ) {
+          return false;
+        }
         const firstAcceptedAt = current.firstSpawnAcceptedAt
           ? Date.parse(current.firstSpawnAcceptedAt)
           : NaN;
