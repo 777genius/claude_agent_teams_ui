@@ -282,6 +282,11 @@ describe('ipc teams handlers', () => {
       expect.stringContaining('TURN ACTION MODE: ASK'),
       undefined
     );
+    expect(provisioningService.sendMessageToTeam).toHaveBeenCalledWith(
+      'my-team',
+      expect.stringContaining('FORBIDDEN: editing files, changing code, changing task/board state, delegating work, launching Agent/subagents'),
+      undefined
+    );
     expect(service.sendDirectToLead).toHaveBeenCalledWith(
       'my-team',
       'team-lead',

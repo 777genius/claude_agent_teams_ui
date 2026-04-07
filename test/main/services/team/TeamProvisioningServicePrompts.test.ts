@@ -126,6 +126,9 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     expect(prompt).toContain('TURN ACTION MODE PROTOCOL (HIGHEST PRIORITY FOR EACH USER TURN):');
     expect(prompt).toContain('ASK: Strict read-only conversation mode.');
     expect(prompt).toContain('DELEGATE: Strict orchestration mode for leads.');
+    expect(prompt).toContain(
+      'Built-in Agent usage rule: the built-in Agent tool is allowed only for normal Claude Code-style subagents WITHOUT team_name, and only on turns whose action mode is DO.'
+    );
     expect(prompt).toContain(`AGENT_BLOCK_OPEN is exactly: ${AGENT_BLOCK_OPEN}`);
     expect(prompt).toContain(`AGENT_BLOCK_CLOSE is exactly: ${AGENT_BLOCK_CLOSE}`);
     expect(prompt).not.toContain('teamctl.js');
@@ -134,6 +137,10 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     const launchArgs = vi.mocked(spawnCli).mock.calls[0]?.[1] as string[];
     expect(launchArgs).toContain('--mcp-config');
     expect(launchArgs).not.toContain('--strict-mcp-config');
+    expect(launchArgs).toContain('--disallowedTools');
+    const disallowed = launchArgs[launchArgs.indexOf('--disallowedTools') + 1] ?? '';
+    expect(disallowed).not.toContain('Agent');
+    expect(disallowed).toContain('mcp__agent-teams__team_launch');
 
     await svc.cancelProvisioning(runId);
   });
@@ -236,6 +243,9 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     expect(prompt).toContain('TURN ACTION MODE PROTOCOL (HIGHEST PRIORITY FOR EACH USER TURN):');
     expect(prompt).toContain('DO: Full execution mode.');
     expect(prompt).toContain('DELEGATE: Strict orchestration mode for leads.');
+    expect(prompt).toContain(
+      'Built-in Agent usage rule: the built-in Agent tool is allowed only for normal Claude Code-style subagents WITHOUT team_name, and only on turns whose action mode is DO.'
+    );
     expect(prompt).toContain('Your FIRST action: call MCP tool member_briefing');
     expect(prompt).toContain('Do NOT start work, claim tasks, or improvise workflow/task/process rules');
     expect(prompt).toContain('If member_briefing fails, send a short message to your team lead');
