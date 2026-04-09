@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
 import { SessionContextPanel } from '@renderer/components/chat/SessionContextPanel/index';
@@ -201,6 +201,69 @@ function filterKanbanTasks(tasks: TeamTaskWithKanban[], query: string): TeamTask
       (t.owner?.toLowerCase().includes(lower) ?? false)
   );
 }
+
+const TeamOfflineStatusBanner = memo(function TeamOfflineStatusBanner({
+  teamName,
+  onLaunch,
+}: {
+  teamName: string;
+  onLaunch: () => void;
+}): React.JSX.Element {
+  const summary = useStore(
+    useShallow((s) => {
+      const team = s.teamByName[teamName];
+      if (!team) {
+        return null;
+      }
+
+      return {
+        memberCount: team.memberCount,
+        expectedMemberCount: team.expectedMemberCount,
+        confirmedCount: team.confirmedCount,
+        runtimeAlivePendingCount: team.runtimeAlivePendingCount,
+        teamLaunchState: team.teamLaunchState,
+        partialLaunchFailure: team.partialLaunchFailure,
+        missingMemberCount: team.missingMembers?.length ?? 0,
+      };
+    })
+  );
+
+  const message =
+    summary?.teamLaunchState === 'partial_pending'
+      ? summary.runtimeAlivePendingCount != null && summary.runtimeAlivePendingCount > 0
+        ? `Last launch is still reconciling - ${summary.confirmedCount ?? 0}/${summary.expectedMemberCount ?? summary.memberCount} teammates confirmed alive, ${summary.runtimeAlivePendingCount} runtime${summary.runtimeAlivePendingCount === 1 ? '' : 's'} pending bootstrap`
+        : 'Last launch is still reconciling'
+      : summary?.partialLaunchFailure
+        ? summary.missingMemberCount > 0
+          ? `Last launch failed partway - ${summary.missingMemberCount}/${summary.expectedMemberCount ?? summary.missingMemberCount} teammates did not join`
+          : 'Last launch failed partway'
+        : 'Team is offline';
+
+  return (
+    <div
+      className="mb-3 flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+      style={{
+        backgroundColor: 'var(--warning-bg)',
+        borderColor: 'var(--warning-border)',
+        color: 'var(--warning-text)',
+      }}
+    >
+      <span className="flex items-center gap-1.5 text-xs">
+        <AlertTriangle size={14} className="shrink-0" />
+        {message}
+      </span>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 shrink-0 gap-1 px-2 text-xs text-[var(--step-done-text)] hover:bg-[var(--step-done-bg)]"
+        onClick={onLaunch}
+      >
+        <Play size={12} />
+        Launch
+      </Button>
+    </div>
+  );
+});
 
 export const TeamDetailView = ({
   teamName,
@@ -729,24 +792,6 @@ export const TeamDetailView = ({
       clearKanbanFilter();
     }
   }, [kanbanFilterQuery, clearKanbanFilter]);
-
-  const currentTeamSummary = useStore(
-    useShallow((s) => {
-      const team = teamName ? s.teamByName[teamName] : undefined;
-      if (!team) return null;
-      return {
-        displayName: team.displayName,
-        projectPath: team.projectPath,
-        memberCount: team.memberCount,
-        expectedMemberCount: team.expectedMemberCount,
-        confirmedCount: team.confirmedCount,
-        runtimeAlivePendingCount: team.runtimeAlivePendingCount,
-        teamLaunchState: team.teamLaunchState,
-        partialLaunchFailure: team.partialLaunchFailure,
-        missingMemberCount: team.missingMembers?.length ?? 0,
-      };
-    })
-  );
 
   // Load sessions for the team's project
   const projectId = useMemo(
@@ -1397,6 +1442,10 @@ export const TeamDetailView = ({
   }
 
   if (error === 'TEAM_DRAFT') {
+    const draftTeamSummary = useStore.getState().teamByName[teamName];
+    const draftDisplayName = draftTeamSummary?.displayName || teamName;
+    const draftMemberCount = draftTeamSummary?.memberCount ?? 0;
+
     return (
       <>
         <div className="size-full overflow-auto p-6">
@@ -1407,11 +1456,10 @@ export const TeamDetailView = ({
             <div className="max-w-md text-center">
               <p className="text-sm font-medium text-text">Team not launched yet</p>
               <p className="mt-2 text-xs text-text-secondary">
-                This is a draft team —{' '}
-                <strong>{currentTeamSummary?.displayName || teamName}</strong> has been configured
-                with {currentTeamSummary?.memberCount ?? 0} member
-                {currentTeamSummary?.memberCount === 1 ? '' : 's'} but hasn&apos;t been provisioned
-                by CLI yet. Click Launch to select a model and start the team.
+                This is a draft team - <strong>{draftDisplayName}</strong> has been configured with{' '}
+                {draftMemberCount} member
+                {draftMemberCount === 1 ? '' : 's'} but hasn&apos;t been provisioned by CLI yet.
+                Click Launch to select a model and start the team.
               </p>
               <div className="mt-4 flex justify-center gap-2">
                 <button
@@ -1437,7 +1485,7 @@ export const TeamDetailView = ({
           open={launchDialogOpen}
           teamName={teamName}
           members={[]}
-          defaultProjectPath={currentTeamSummary?.projectPath}
+          defaultProjectPath={draftTeamSummary?.projectPath}
           provisioningError={provisioningError}
           clearProvisioningError={clearProvisioningError}
           onClose={() => setLaunchDialogOpen(false)}
@@ -1757,37 +1805,10 @@ export const TeamDetailView = ({
           </div>
 
           {!data.isAlive && !isTeamProvisioning ? (
-            <div
-              className="mb-3 flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-              style={{
-                backgroundColor: 'var(--warning-bg)',
-                borderColor: 'var(--warning-border)',
-                color: 'var(--warning-text)',
-              }}
-            >
-              <span className="flex items-center gap-1.5 text-xs">
-                <AlertTriangle size={14} className="shrink-0" />
-                {currentTeamSummary?.teamLaunchState === 'partial_pending'
-                  ? currentTeamSummary.runtimeAlivePendingCount &&
-                    currentTeamSummary.runtimeAlivePendingCount > 0
-                    ? `Last launch is still reconciling — ${currentTeamSummary.confirmedCount ?? 0}/${currentTeamSummary.expectedMemberCount ?? currentTeamSummary.memberCount} teammates confirmed alive, ${currentTeamSummary.runtimeAlivePendingCount} runtime${currentTeamSummary.runtimeAlivePendingCount === 1 ? '' : 's'} pending bootstrap`
-                    : 'Last launch is still reconciling'
-                  : currentTeamSummary?.partialLaunchFailure
-                    ? currentTeamSummary.missingMemberCount > 0
-                      ? `Last launch failed partway — ${currentTeamSummary.missingMemberCount}/${currentTeamSummary.expectedMemberCount ?? currentTeamSummary.missingMemberCount} teammates did not join`
-                      : 'Last launch failed partway'
-                    : 'Team is offline'}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 gap-1 px-2 text-xs text-[var(--step-done-text)] hover:bg-[var(--step-done-bg)]"
-                onClick={() => setLaunchDialogOpen(true)}
-              >
-                <Play size={12} />
-                Launch
-              </Button>
-            </div>
+            <TeamOfflineStatusBanner
+              teamName={teamName}
+              onLaunch={() => setLaunchDialogOpen(true)}
+            />
           ) : null}
 
           <div ref={provisioningBannerRef}>
