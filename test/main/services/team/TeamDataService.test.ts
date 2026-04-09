@@ -2518,6 +2518,268 @@ describe('TeamDataService', () => {
     });
   });
 
+  function createPassiveUserSummaryLinkService(options: {
+    inboxMessages?: InboxMessage[];
+    sentMessages?: InboxMessage[];
+  }): TeamDataService {
+    const { inboxMessages = [], sentMessages = [] } = options;
+    return new TeamDataService(
+      {
+        listTeams: vi.fn(),
+        getConfig: vi.fn(async () => ({
+          name: 'My team',
+          members: [{ name: 'team-lead', role: 'Lead' }],
+          leadSessionId: 'lead-1',
+        })),
+      } as never,
+      {
+        getTasks: vi.fn(async () => []),
+      } as never,
+      {
+        listInboxNames: vi.fn(async () => []),
+        getMessages: vi.fn(async () => inboxMessages),
+      } as never,
+      {} as never,
+      {} as never,
+      {
+        resolveMembers: vi.fn(() => []),
+      } as never,
+      {
+        getState: vi.fn(async () => ({ teamName: 'my-team', reviewers: [], tasks: {} })),
+      } as never,
+      {} as never,
+      {} as never,
+      {
+        readMessages: vi.fn(async () => sentMessages),
+      } as never
+    );
+  }
+
+  it('links passive [to user] acknowledgement summaries to the canonical user reply transiently', async () => {
+    const passiveSummaryRow: InboxMessage = {
+      from: 'alice',
+      text: JSON.stringify({
+        type: 'idle_notification',
+        idleReason: 'available',
+        summary: '[to user] acknowledgement',
+      }),
+      timestamp: '2026-04-08T10:00:05.000Z',
+      read: true,
+      messageId: 'passive-user-summary-1',
+    };
+    const userReplyRow: InboxMessage = {
+      from: 'alice',
+      to: 'user',
+      text: 'Да, я здесь. Готова к работе и жду задач для ревью.',
+      timestamp: '2026-04-08T10:00:00.000Z',
+      read: true,
+      summary: 'acknowledgement',
+      messageId: 'user-reply-1',
+      source: 'user_sent',
+    };
+    const service = createPassiveUserSummaryLinkService({
+      inboxMessages: [passiveSummaryRow],
+      sentMessages: [userReplyRow],
+    });
+
+    const data = await service.getTeamData('my-team');
+    const linked = data.messages.find((message) => message.messageId === 'passive-user-summary-1');
+
+    expect(linked?.relayOfMessageId).toBe('user-reply-1');
+    expect(passiveSummaryRow.relayOfMessageId).toBeUndefined();
+  });
+
+  it('links passive [to user] summaries when the summary body is contained in the user reply text', async () => {
+    const service = createPassiveUserSummaryLinkService({
+      inboxMessages: [
+        {
+          from: 'alice',
+          text: JSON.stringify({
+            type: 'idle_notification',
+            idleReason: 'available',
+            summary: '[to user] Я здесь.',
+          }),
+          timestamp: '2026-04-08T10:00:05.000Z',
+          read: true,
+          messageId: 'passive-user-summary-contains-1',
+        },
+      ],
+      sentMessages: [
+        {
+          from: 'alice',
+          to: 'user',
+          text: 'Да, я здесь. Готова к работе и жду задач для ревью.',
+          timestamp: '2026-04-08T10:00:00.000Z',
+          read: true,
+          summary: 'presence ack',
+          messageId: 'user-reply-contains-1',
+          source: 'user_sent',
+        },
+      ],
+    });
+
+    const data = await service.getTeamData('my-team');
+    const linked = data.messages.find(
+      (message) => message.messageId === 'passive-user-summary-contains-1'
+    );
+
+    expect(linked?.relayOfMessageId).toBe('user-reply-contains-1');
+  });
+
+  it('does not link passive [to user] summaries outside the 15s correlation window', async () => {
+    const service = createPassiveUserSummaryLinkService({
+      inboxMessages: [
+        {
+          from: 'alice',
+          text: JSON.stringify({
+            type: 'idle_notification',
+            idleReason: 'available',
+            summary: '[to user] acknowledgement',
+          }),
+          timestamp: '2026-04-08T10:00:16.000Z',
+          read: true,
+          messageId: 'passive-user-summary-old-1',
+        },
+      ],
+      sentMessages: [
+        {
+          from: 'alice',
+          to: 'user',
+          text: 'Да, я здесь. Готова к работе и жду задач для ревью.',
+          timestamp: '2026-04-08T10:00:00.000Z',
+          read: true,
+          summary: 'acknowledgement',
+          messageId: 'user-reply-old-1',
+          source: 'user_sent',
+        },
+      ],
+    });
+
+    const data = await service.getTeamData('my-team');
+    const linked = data.messages.find((message) => message.messageId === 'passive-user-summary-old-1');
+
+    expect(linked?.relayOfMessageId).toBeUndefined();
+  });
+
+  it('does not link passive peer summaries for recipients other than user', async () => {
+    const service = createPassiveUserSummaryLinkService({
+      inboxMessages: [
+        {
+          from: 'alice',
+          text: JSON.stringify({
+            type: 'idle_notification',
+            idleReason: 'available',
+            summary: '[to bob] aligned on rollout order',
+          }),
+          timestamp: '2026-04-08T10:00:05.000Z',
+          read: true,
+          messageId: 'passive-bob-summary-1',
+        },
+      ],
+      sentMessages: [
+        {
+          from: 'alice',
+          to: 'user',
+          text: 'aligned on rollout order',
+          timestamp: '2026-04-08T10:00:00.000Z',
+          read: true,
+          summary: 'aligned on rollout order',
+          messageId: 'user-reply-bob-summary-1',
+          source: 'user_sent',
+        },
+      ],
+    });
+
+    const data = await service.getTeamData('my-team');
+    const linked = data.messages.find((message) => message.messageId === 'passive-bob-summary-1');
+
+    expect(linked?.relayOfMessageId).toBeUndefined();
+  });
+
+  it('does not link passive [to user] summaries when the sender differs', async () => {
+    const service = createPassiveUserSummaryLinkService({
+      inboxMessages: [
+        {
+          from: 'alice',
+          text: JSON.stringify({
+            type: 'idle_notification',
+            idleReason: 'available',
+            summary: '[to user] acknowledgement',
+          }),
+          timestamp: '2026-04-08T10:00:05.000Z',
+          read: true,
+          messageId: 'passive-user-summary-sender-1',
+        },
+      ],
+      sentMessages: [
+        {
+          from: 'bob',
+          to: 'user',
+          text: 'Да, я здесь.',
+          timestamp: '2026-04-08T10:00:00.000Z',
+          read: true,
+          summary: 'acknowledgement',
+          messageId: 'user-reply-sender-1',
+          source: 'user_sent',
+        },
+      ],
+    });
+
+    const data = await service.getTeamData('my-team');
+    const linked = data.messages.find(
+      (message) => message.messageId === 'passive-user-summary-sender-1'
+    );
+
+    expect(linked?.relayOfMessageId).toBeUndefined();
+  });
+
+  it('does not link passive [to user] summaries when multiple plausible user replies exist', async () => {
+    const service = createPassiveUserSummaryLinkService({
+      inboxMessages: [
+        {
+          from: 'alice',
+          text: JSON.stringify({
+            type: 'idle_notification',
+            idleReason: 'available',
+            summary: '[to user] acknowledgement',
+          }),
+          timestamp: '2026-04-08T10:00:05.000Z',
+          read: true,
+          messageId: 'passive-user-summary-ambiguous-1',
+        },
+      ],
+      sentMessages: [
+        {
+          from: 'alice',
+          to: 'user',
+          text: 'Да, я здесь.',
+          timestamp: '2026-04-08T10:00:00.000Z',
+          read: true,
+          summary: 'acknowledgement',
+          messageId: 'user-reply-ambiguous-1',
+          source: 'user_sent',
+        },
+        {
+          from: 'alice',
+          to: 'user',
+          text: 'Да, на месте.',
+          timestamp: '2026-04-08T10:00:01.000Z',
+          read: true,
+          summary: 'acknowledgement',
+          messageId: 'user-reply-ambiguous-2',
+          source: 'user_sent',
+        },
+      ],
+    });
+
+    const data = await service.getTeamData('my-team');
+    const linked = data.messages.find(
+      (message) => message.messageId === 'passive-user-summary-ambiguous-1'
+    );
+
+    expect(linked?.relayOfMessageId).toBeUndefined();
+  });
+
   it('caches unchanged lead-session extraction results and returns defensive clones', async () => {
     const service = createLeadSessionCachingService();
     const jsonlPath = await createTempJsonl([

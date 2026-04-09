@@ -108,6 +108,18 @@ function getCommandOutputSummary(text: string): string {
   return firstLine.length > 120 ? `${firstLine.slice(0, 120)}…` : firstLine;
 }
 
+function parseIdlePeerSummaryRoute(summary: string): { recipient: string | null; body: string } {
+  const trimmed = summary.trim();
+  const match = trimmed.match(/^\[to\s+([^\]]+)\]\s*(.*)$/i);
+  if (!match) {
+    return { recipient: null, body: trimmed };
+  }
+
+  const recipient = match[1]?.trim() || null;
+  const body = match[2]?.trim() || trimmed;
+  return { recipient, body };
+}
+
 export function isQualifiedExternalRecipient(
   value: string | undefined,
   teamName: string,
@@ -304,6 +316,59 @@ const NoiseRow = ({
     {icon}
   </div>
 );
+
+const PassiveIdlePeerSummaryRow = ({
+  teamName,
+  senderName,
+  senderColor,
+  summary,
+  timestamp,
+  onMemberNameClick,
+}: {
+  teamName: string;
+  senderName: string;
+  senderColor?: string;
+  summary: string;
+  timestamp: string;
+  onMemberNameClick?: (memberName: string) => void;
+}): React.JSX.Element => {
+  const { recipient, body } = parseIdlePeerSummaryRoute(summary);
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5" style={{ opacity: 0.78 }}>
+      <span className="bg-sky-500/12 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-300">
+        update
+      </span>
+      <MemberBadge
+        name={senderName}
+        color={senderColor}
+        teamName={teamName}
+        hideAvatar={false}
+        onClick={onMemberNameClick}
+      />
+      {recipient ? (
+        <>
+          <MoveRight size={10} style={{ color: CARD_ICON_MUTED }} className="shrink-0" />
+          <span
+            className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide"
+            style={{
+              backgroundColor: 'rgba(148, 163, 184, 0.12)',
+              color: CARD_TEXT_LIGHT,
+            }}
+          >
+            {recipient}
+          </span>
+        </>
+      ) : null}
+      <span className="min-w-0 flex-1 truncate text-xs" style={{ color: CARD_TEXT_LIGHT }}>
+        {body}
+      </span>
+      <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+        {timestamp}
+      </span>
+    </div>
+  );
+};
 
 const BootstrapSystemRow = ({
   teamName,
@@ -748,6 +813,19 @@ export const ActivityItem = memo(
     if (noiseLabel) {
       return (
         <NoiseRow name={message.from} label={noiseLabel} colors={colors} icon={permissionIcon} />
+      );
+    }
+
+    if (idleSemantic?.uiPresentation === 'peer_summary' && idleSemantic.peerSummary) {
+      return (
+        <PassiveIdlePeerSummaryRow
+          teamName={teamName}
+          senderName={senderName}
+          senderColor={senderColor}
+          summary={idleSemantic.peerSummary}
+          timestamp={timestamp}
+          onMemberNameClick={onMemberNameClick}
+        />
       );
     }
 

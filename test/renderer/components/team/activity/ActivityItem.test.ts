@@ -193,8 +193,52 @@ describe('ActivityItem legacy system message fallback', () => {
       await Promise.resolve();
     });
 
-    expect(host.textContent).toContain('[to bob] aligned on rollout order');
+    expect(host.textContent).toContain('update');
+    expect(host.textContent).toContain('alice');
+    expect(host.textContent).toContain('bob');
+    expect(host.textContent).toContain('aligned on rollout order');
+    expect(host.textContent).not.toContain('[to bob]');
+    expect(host.textContent).not.toContain('idle');
     expect(host.textContent).not.toContain('Idle (available)');
+    expect(host.textContent).not.toContain('Raw JSON');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('renders user-directed peer-summary rows as passive updates instead of pseudo messages', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    const message: InboxMessage = {
+      from: 'alice',
+      text: JSON.stringify({
+        type: 'idle_notification',
+        from: 'alice',
+        timestamp: '2026-04-08T12:02:00.000Z',
+        idleReason: 'available',
+        summary: '[to user] Я здесь.',
+      }),
+      timestamp: new Date('2026-04-08T12:02:00.000Z').toISOString(),
+      read: true,
+      source: 'inbox',
+    };
+
+    await act(async () => {
+      root.render(React.createElement(ActivityItem, { message, teamName: 'my-team' }));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('update');
+    expect(host.textContent).toContain('alice');
+    expect(host.textContent).toContain('user');
+    expect(host.textContent).toContain('Я здесь.');
+    expect(host.textContent).not.toContain('[to user]');
+    expect(host.textContent).not.toContain('idle');
 
     await act(async () => {
       root.unmount();
