@@ -763,6 +763,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--color-surface);
   color: var(--color-text);
+}
+
+body.theme-transitioning {
   transition:
     background-color 0.2s ease,
     color 0.2s ease;

@@ -443,7 +443,7 @@ export const CommandPalette = (): React.JSX.Element | null => {
   return (
     <div
       role="presentation"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]"
       onClick={handleBackdropClick}
     >
       <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">

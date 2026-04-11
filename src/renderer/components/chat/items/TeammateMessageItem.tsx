@@ -145,7 +145,7 @@ export const TeammateMessageItem: React.FC<TeammateMessageItemProps> = ({
 
   return (
     <div
-      className={`overflow-hidden rounded-md transition-all duration-300 ${highlightClasses}`}
+      className={`overflow-hidden rounded-md transition-[background-color,box-shadow] duration-300 ${highlightClasses}`}
       style={{
         backgroundColor: CARD_BG,
         border: CARD_BORDER_STYLE,

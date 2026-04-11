@@ -100,7 +100,7 @@ export const BaseItem: React.FC<BaseItemProps> = ({
 }) => {
   return (
     <div
-      className={`rounded transition-all duration-300 ${highlightClasses}`}
+      className={`rounded transition-[background-color,box-shadow] duration-300 ${highlightClasses}`}
       style={highlightStyle}
     >
       {/* Clickable Header */}

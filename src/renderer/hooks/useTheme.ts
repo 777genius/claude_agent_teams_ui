@@ -89,12 +89,24 @@ export function useTheme(): {
   // Apply theme class to document root
   useEffect(() => {
     const root = document.documentElement;
+    const body = document.body;
+
+    body.classList.add('theme-transitioning');
 
     // Remove existing theme classes
     root.classList.remove('dark', 'light');
 
     // Add new theme class
     root.classList.add(resolvedTheme);
+
+    const timer = window.setTimeout(() => {
+      body.classList.remove('theme-transitioning');
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      body.classList.remove('theme-transitioning');
+    };
   }, [resolvedTheme]);
 
   return {
