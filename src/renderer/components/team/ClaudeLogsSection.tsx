@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
@@ -29,6 +29,8 @@ const PREVIEW_ICONS = {
 interface ClaudeLogsSectionProps {
   teamName: string;
   position?: 'sidebar' | 'inline';
+  sidebarViewerMaxHeight?: number;
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 /**
@@ -67,10 +69,12 @@ const LogPreviewInline = ({ preview }: { preview: LastLogPreview }): React.JSX.E
 // Main component
 // =============================================================================
 
-export const ClaudeLogsSection = ({
+export const ClaudeLogsSection = memo(function ClaudeLogsSection({
   teamName,
   position = 'inline',
-}: ClaudeLogsSectionProps): React.JSX.Element => {
+  sidebarViewerMaxHeight,
+  onOpenChange,
+}: ClaudeLogsSectionProps): React.JSX.Element {
   const ctrl = useClaudeLogsController(teamName);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -95,7 +99,7 @@ export const ClaudeLogsSection = ({
     <>
       <CollapsibleTeamSection
         sectionId="claude-logs"
-        title="Claude logs"
+        title="Logs"
         icon={null}
         badge={ctrl.badge}
         afterBadge={
@@ -119,9 +123,13 @@ export const ClaudeLogsSection = ({
             </Tooltip>
           ) : undefined
         }
+        headerClassName={isSidebar ? '-mx-3 w-[calc(100%+1.5rem)] py-0' : undefined}
+        headerSurfaceClassName={isSidebar ? '!rounded-none' : undefined}
         headerContentClassName={isSidebar ? 'flex-wrap items-center gap-y-1 py-1 pr-1' : 'pr-1'}
         headerExtra={sectionHeaderExtra}
         defaultOpen={false}
+        onOpenChange={onOpenChange}
+        contentWrapperClassName={isSidebar ? 'mt-0 pb-0' : undefined}
         contentClassName="pt-0 [overflow-anchor:none]"
       >
         {/* When dialog is open, hide the compact log viewer to avoid two competing scroll containers */}
@@ -131,11 +139,16 @@ export const ClaudeLogsSection = ({
             Viewing in fullscreen mode
           </div>
         ) : (
-          <ClaudeLogsPanel ctrl={ctrl} viewerClassName="max-h-[213px]" />
+          <ClaudeLogsPanel
+            ctrl={ctrl}
+            viewerClassName={cn('max-h-[213px]', isSidebar && 'cli-logs-sidebar')}
+            viewerMaxHeight={isSidebar ? sidebarViewerMaxHeight : undefined}
+            compactMetaInTooltip={isSidebar}
+          />
         )}
       </CollapsibleTeamSection>
 
       <ClaudeLogsDialog open={dialogOpen} onOpenChange={setDialogOpen} ctrl={ctrl} />
     </>
   );
-};
+});

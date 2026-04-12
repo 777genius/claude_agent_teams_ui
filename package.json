@@ -18,7 +18,7 @@
   },
   "main": "dist-electron/main/index.cjs",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node ./scripts/dev-with-runtime.mjs",
     "dev:kill": "node bin/kill-dev.js",
     "prebuild": "tsx scripts/fetch-pricing-data.ts && pnpm --filter agent-teams-controller build && pnpm --filter agent-teams-mcp build",
     "build": "electron-vite build",
@@ -54,7 +54,7 @@
     "standalone:build": "electron-vite build && vite build --config docker/vite.standalone.config.ts",
     "standalone:start": "node dist-standalone/index.cjs",
     "prepare": "husky",
-    "postinstall": "electron-rebuild -f -o node-pty || echo 'node-pty rebuild failed (terminal will be disabled)'"
+    "postinstall": "electron-rebuild -f -o node-pty,ssh2,cpu-features || echo 'native Electron rebuild failed (terminal/ssh features may be degraded)'"
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx}": [
@@ -231,6 +231,10 @@
         "to": "pricing.json"
       },
       {
+        "from": "resources/runtime",
+        "to": "runtime"
+      },
+      {
         "from": "mcp-server/dist/index.js",
         "to": "mcp-server/index.js"
       },
@@ -240,6 +244,7 @@
       }
     ],
     "npmRebuild": false,
+    "afterPack": "scripts/electron-builder/afterPack.cjs",
     "extraMetadata": {
       "main": "dist-electron/main/index.cjs"
     },
@@ -330,5 +335,11 @@
     "ignoreBinaries": [
       "pkg"
     ]
-  }
+  },
+  "workspaces": [
+    "agent-teams-controller",
+    "mcp-server",
+    "landing",
+    "packages/agent-graph"
+  ]
 }

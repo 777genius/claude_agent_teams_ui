@@ -24,7 +24,17 @@ import {
   parseMessageReply,
   parseStructuredAgentMessage,
 } from '@renderer/utils/agentMessageFormatting';
+import {
+  getBootstrapAcknowledgementDisplay,
+  getBootstrapPromptDisplay,
+  getSanitizedInboxMessageSummary,
+  getSanitizedInboxMessageText,
+} from '@renderer/utils/bootstrapPromptSanitizer';
 import { formatAgentRole } from '@renderer/utils/formatAgentRole';
+import {
+  classifyIdleNotification,
+  getIdleNoiseLabel,
+} from '@renderer/utils/idleNotificationSemantics';
 import { linkifyAllMentionsInMarkdown } from '@renderer/utils/mentionLinkify';
 import {
   areInboxMessagesEquivalentForRender,
@@ -97,6 +107,18 @@ function getCommandOutputSummary(text: string): string {
 
   if (!firstLine) return '';
   return firstLine.length > 120 ? `${firstLine.slice(0, 120)}…` : firstLine;
+}
+
+function parseIdlePeerSummaryRoute(summary: string): { recipient: string | null; body: string } {
+  const trimmed = summary.trim();
+  const match = trimmed.match(/^\[to\s+([^\]]+)\]\s*(.*)$/i);
+  if (!match) {
+    return { recipient: null, body: trimmed };
+  }
+
+  const recipient = match[1]?.trim() || null;
+  const body = match[2]?.trim() || trimmed;
+  return { recipient, body };
 }
 
 export function isQualifiedExternalRecipient(
@@ -218,16 +240,20 @@ function getStringField(obj: StructuredMessage, key: string): string | null {
 
 /** Check if a message renders as a compact noise row (idle, shutdown, etc.). */
 export function isNoiseMessage(text: string): boolean {
-  const parsed = parseStructuredAgentMessage(text);
-  return parsed !== null && getNoiseLabel(parsed) !== null;
+  return (
+    getIdleNoiseLabel(text) !== null ||
+    ((): boolean => {
+      const parsed = parseStructuredAgentMessage(text);
+      return parsed !== null && getNoiseLabel(parsed) !== null;
+    })()
+  );
 }
 
 function getNoiseLabel(parsed: StructuredMessage): string | null {
   const type = getStringField(parsed, 'type');
 
   if (type === 'idle_notification') {
-    const reason = getStringField(parsed, 'idleReason');
-    return reason ? `Idle (${reason})` : 'Idle';
+    return getIdleNoiseLabel(parsed);
   }
 
   if (type === 'shutdown_response') {
@@ -289,6 +315,151 @@ const NoiseRow = ({
       {label}
     </span>
     {icon}
+  </div>
+);
+
+const PassiveIdlePeerSummaryRow = ({
+  teamName,
+  senderName,
+  senderColor,
+  summary,
+  timestamp,
+  onMemberNameClick,
+}: {
+  teamName: string;
+  senderName: string;
+  senderColor?: string;
+  summary: string;
+  timestamp: string;
+  onMemberNameClick?: (memberName: string) => void;
+}): React.JSX.Element => {
+  const { recipient, body } = parseIdlePeerSummaryRoute(summary);
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5" style={{ opacity: 0.78 }}>
+      <span className="bg-sky-500/12 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-300">
+        update
+      </span>
+      <MemberBadge
+        name={senderName}
+        color={senderColor}
+        teamName={teamName}
+        hideAvatar={false}
+        onClick={onMemberNameClick}
+      />
+      {recipient ? (
+        <>
+          <MoveRight size={10} style={{ color: CARD_ICON_MUTED }} className="shrink-0" />
+          <span
+            className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide"
+            style={{
+              backgroundColor: 'rgba(148, 163, 184, 0.12)',
+              color: CARD_TEXT_LIGHT,
+            }}
+          >
+            {recipient}
+          </span>
+        </>
+      ) : null}
+      <span className="min-w-0 flex-1 truncate text-xs" style={{ color: CARD_TEXT_LIGHT }}>
+        {body}
+      </span>
+      <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+        {timestamp}
+      </span>
+    </div>
+  );
+};
+
+const BootstrapSystemRow = ({
+  teamName,
+  senderName,
+  recipientName,
+  runtime,
+  senderColor,
+  recipientColor,
+  timestamp,
+  onMemberNameClick,
+}: {
+  teamName: string;
+  senderName: string;
+  recipientName: string;
+  runtime?: string;
+  senderColor?: string;
+  recipientColor?: string;
+  timestamp: string;
+  onMemberNameClick?: (memberName: string) => void;
+}): React.JSX.Element => (
+  <div className="flex items-center gap-2 px-3 py-2" style={{ opacity: 0.82 }}>
+    <span className="bg-sky-500/12 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-300">
+      start
+    </span>
+    <MemberBadge
+      name={senderName}
+      color={senderColor}
+      teamName={teamName}
+      hideAvatar
+      onClick={onMemberNameClick}
+    />
+    <MoveRight size={10} style={{ color: CARD_ICON_MUTED }} className="shrink-0" />
+    <MemberBadge
+      name={recipientName}
+      color={recipientColor}
+      teamName={teamName}
+      hideAvatar
+      onClick={onMemberNameClick}
+    />
+    <span className="min-w-0 flex-1 truncate text-[11px]" style={{ color: CARD_ICON_MUTED }}>
+      {runtime || 'Starting teammate'}
+    </span>
+    <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+      {timestamp}
+    </span>
+  </div>
+);
+
+const BootstrapAcknowledgementRow = ({
+  teamName,
+  senderName,
+  recipientName,
+  senderColor,
+  recipientColor,
+  timestamp,
+  onMemberNameClick,
+}: {
+  teamName: string;
+  senderName: string;
+  recipientName: string;
+  senderColor?: string;
+  recipientColor?: string;
+  timestamp: string;
+  onMemberNameClick?: (memberName: string) => void;
+}): React.JSX.Element => (
+  <div className="flex items-center gap-2 px-3 py-2" style={{ opacity: 0.72 }}>
+    <span className="bg-emerald-500/12 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+      bootstrap
+    </span>
+    <MemberBadge
+      name={senderName}
+      color={senderColor}
+      teamName={teamName}
+      hideAvatar
+      onClick={onMemberNameClick}
+    />
+    <MoveRight size={10} style={{ color: CARD_ICON_MUTED }} className="shrink-0" />
+    <MemberBadge
+      name={recipientName}
+      color={recipientColor}
+      teamName={teamName}
+      hideAvatar
+      onClick={onMemberNameClick}
+    />
+    <span className="min-w-0 flex-1 truncate text-[11px]" style={{ color: CARD_ICON_MUTED }}>
+      Bootstrap acknowledged
+    </span>
+    <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+      {timestamp}
+    </span>
   </div>
 );
 
@@ -453,6 +624,11 @@ export const ActivityItem = memo(
     }, [message.timestamp]);
 
     const structured = parseStructuredAgentMessage(message.text);
+    const bootstrapDisplay = useMemo(() => getBootstrapPromptDisplay(message), [message]);
+    const bootstrapAcknowledgement = useMemo(
+      () => getBootstrapAcknowledgementDisplay(message),
+      [message]
+    );
     // Only flag agent messages as rate-limited, not user's own quotes
     const rateLimited = message.from !== 'user' && isRateLimitMessage(message.text);
     // Highlight messages containing API errors
@@ -461,6 +637,7 @@ export const ActivityItem = memo(
     const isAuthError = isApiError && AUTH_ERROR_PATTERNS.some((p) => p.test(message.text));
     // Never collapse rate limit messages as noise — they must be visible
     const noiseLabel = structured && !rateLimited ? getNoiseLabel(structured) : null;
+    const idleSemantic = useMemo(() => classifyIdleNotification(message), [message]);
 
     const systemLabel = !structured && !rateLimited ? getSystemMessageLabel(message.text) : null;
     const isManaged = collapseMode === 'managed';
@@ -511,7 +688,10 @@ export const ActivityItem = memo(
     // Strip agent-only blocks + normalize escape sequences (before linkification)
     const strippedText = useMemo(() => {
       if (structured) return null;
-      let stripped = stripAgentBlocks(message.text).trim();
+      let stripped = getSanitizedInboxMessageText(message).trim();
+      if (!bootstrapDisplay) {
+        stripped = stripAgentBlocks(stripped).trim();
+      }
       if (!stripped) return null; // All content was agent-only blocks → show summary instead
       // Strip cross-team metadata tag (e.g. `<cross-team from="team.lead" depth="0" />\n`)
       // — kept in stored text for CLI agents / durable artifacts.
@@ -520,7 +700,7 @@ export const ActivityItem = memo(
       }
       // Normalize literal \n from historical CLI-produced text to real newlines
       return stripped.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
-    }, [structured, message.text, isCrossTeamAny]);
+    }, [structured, message, bootstrapDisplay, isCrossTeamAny]);
     const standaloneSlashCommand = useMemo(
       () => (strippedText ? parseStandaloneSlashCommand(strippedText) : null),
       [strippedText]
@@ -569,6 +749,9 @@ export const ActivityItem = memo(
     }, [isCrossTeamAny, strippedText]);
 
     const rawSummary = useMemo(() => {
+      if (idleSemantic?.hasPeerSummary && idleSemantic.peerSummary) {
+        return idleSemantic.peerSummary;
+      }
       if (isSlashCommandResult && message.commandOutput) {
         return message.summary || getCommandOutputSummary(message.text);
       }
@@ -581,10 +764,12 @@ export const ActivityItem = memo(
       }
       if (crossTeamPreview) return crossTeamPreview;
       const s =
-        message.summary || (structured ? getStructuredMessageSummary(structured) : '') || '';
+        getSanitizedInboxMessageSummary(message) ||
+        (structured ? getStructuredMessageSummary(structured) : '') ||
+        '';
       if (s) return s;
       // Fallback: use the beginning of message text as preview for plain-text messages
-      const plain = stripAgentBlocks(message.text).trim();
+      const plain = getSanitizedInboxMessageText(message).trim();
       if (!plain) return '';
       const oneLine = plain.replace(/\n+/g, ' ');
       return oneLine.length > 80 ? oneLine.slice(0, 80) + '…' : oneLine;
@@ -593,10 +778,9 @@ export const ActivityItem = memo(
       isSlashCommandMessage,
       isSlashCommandResult,
       message.commandOutput,
-      message.summary,
-      message.text,
+      message,
+      idleSemantic,
       slashCommandMeta,
-      standaloneSlashCommand,
       structured,
     ]);
     const summaryText = useMemo(() => extractMarkdownPlainText(rawSummary), [rawSummary]);
@@ -633,6 +817,48 @@ export const ActivityItem = memo(
       );
     }
 
+    if (idleSemantic?.uiPresentation === 'peer_summary' && idleSemantic.peerSummary) {
+      return (
+        <PassiveIdlePeerSummaryRow
+          teamName={teamName}
+          senderName={senderName}
+          senderColor={senderColor}
+          summary={idleSemantic.peerSummary}
+          timestamp={timestamp}
+          onMemberNameClick={onMemberNameClick}
+        />
+      );
+    }
+
+    if (bootstrapDisplay) {
+      return (
+        <BootstrapSystemRow
+          teamName={teamName}
+          senderName={senderName}
+          recipientName={bootstrapDisplay.teammateName ?? message.to ?? 'teammate'}
+          runtime={bootstrapDisplay.runtime}
+          senderColor={senderColor}
+          recipientColor={recipientColor}
+          timestamp={timestamp}
+          onMemberNameClick={onMemberNameClick}
+        />
+      );
+    }
+
+    if (bootstrapAcknowledgement) {
+      return (
+        <BootstrapAcknowledgementRow
+          teamName={teamName}
+          senderName={senderName}
+          recipientName={message.to ?? 'lead'}
+          senderColor={senderColor}
+          recipientColor={recipientColor}
+          timestamp={timestamp}
+          onMemberNameClick={onMemberNameClick}
+        />
+      );
+    }
+
     const messageType =
       structured && typeof structured.type === 'string'
         ? getMessageTypeLabel(structured.type)
@@ -643,18 +869,10 @@ export const ActivityItem = memo(
       const subject = message.summary || autoSummary || `Task from ${message.from}`;
       const plainText = structured
         ? JSON.stringify(structured, null, 2)
-        : stripAgentBlocks(message.text);
+        : getSanitizedInboxMessageText(message);
       const description = `From: ${message.from}\nAt: ${timestamp}\n\n${plainText}`.slice(0, 2000);
       onCreateTask?.(subject, description);
-    }, [
-      autoSummary,
-      message.from,
-      message.summary,
-      message.text,
-      onCreateTask,
-      structured,
-      timestamp,
-    ]);
+    }, [autoSummary, message.from, message.summary, message, onCreateTask, structured, timestamp]);
 
     const isHeaderClickable = isManaged && canToggleCollapse;
     const showChevron = isHeaderClickable && !compactHeader;
@@ -756,6 +974,7 @@ export const ActivityItem = memo(
             <MemberBadge
               name={senderName}
               color={senderColor}
+              teamName={teamName}
               hideAvatar={senderHideAvatar || compactHeader}
               onClick={onMemberNameClick}
               disableHoverCard={crossTeamOrigin != null}
@@ -843,6 +1062,7 @@ export const ActivityItem = memo(
                 <MemberBadge
                   name={crossTeamSentMemberName ?? qualifiedRecipient?.memberName ?? message.to}
                   color={crossTeamTarget ? undefined : recipientColor}
+                  teamName={crossTeamTarget ? undefined : teamName}
                   hideAvatar={
                     compactHeader ||
                     (crossTeamSentMemberName ?? qualifiedRecipient?.memberName ?? message.to) ===

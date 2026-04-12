@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { cn } from '@renderer/lib/utils';
-import { CheckCircle2, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Loader2,
+  X,
+} from 'lucide-react';
 
 import { MarkdownViewer } from '../chat/viewers/MarkdownViewer';
 
@@ -24,7 +32,7 @@ export interface ProvisioningProgressBlockProps {
   /** Optional status message */
   message?: string | null;
   /** Visual severity for the message subtitle */
-  messageSeverity?: 'error' | 'warning';
+  messageSeverity?: 'error' | 'warning' | 'info';
   /** Visual tone (e.g. highlight errors) */
   tone?: 'default' | 'error';
   /** Whether Live output is expanded by default */
@@ -39,6 +47,8 @@ export interface ProvisioningProgressBlockProps {
   onCancel?: (() => void) | null;
   /** Success message shown inside the block header (e.g. "Team launched — all N teammates online") */
   successMessage?: string | null;
+  /** Visual tone for the status banner above the block. */
+  successMessageSeverity?: 'success' | 'warning' | 'info';
   /** Dismiss handler — renders an X button in the block header top-right */
   onDismiss?: (() => void) | null;
   /** ISO timestamp when provisioning started */
@@ -49,6 +59,8 @@ export interface ProvisioningProgressBlockProps {
   cliLogsTail?: string;
   /** Accumulated assistant text output for live preview */
   assistantOutput?: string;
+  /** Visual surface chrome for the outer block */
+  surface?: 'raised' | 'flat';
   className?: string;
 }
 
@@ -132,11 +144,13 @@ export const ProvisioningProgressBlock = ({
   loading = false,
   onCancel,
   successMessage,
+  successMessageSeverity = 'success',
   onDismiss,
   startedAt,
   pid,
   cliLogsTail,
   assistantOutput,
+  surface = 'raised',
   className,
 }: ProvisioningProgressBlockProps): React.JSX.Element => {
   const elapsed = useElapsedTimer(startedAt, loading);
@@ -192,15 +206,34 @@ export const ProvisioningProgressBlock = ({
   return (
     <div
       className={cn(
-        'rounded-md border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3 py-2',
+        surface === 'flat'
+          ? 'rounded-none border-0 bg-transparent px-0 py-0'
+          : 'rounded-md border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3 py-2',
         isError && 'border-red-500/40 bg-red-500/10',
         className
       )}
     >
       {successMessage ? (
         <div className="mb-1.5 flex items-center gap-2">
-          <CheckCircle2 size={14} className="shrink-0 text-[var(--step-done-text)]" />
-          <p className="flex-1 text-xs text-[var(--step-success-text)]">{successMessage}</p>
+          {successMessageSeverity === 'warning' ? (
+            <AlertTriangle size={14} className="shrink-0 text-amber-400" />
+          ) : successMessageSeverity === 'info' ? (
+            <Info size={14} className="shrink-0 text-sky-400" />
+          ) : (
+            <CheckCircle2 size={14} className="shrink-0 text-[var(--step-done-text)]" />
+          )}
+          <p
+            className={cn(
+              'flex-1 text-xs',
+              successMessageSeverity === 'warning'
+                ? 'text-amber-400'
+                : successMessageSeverity === 'info'
+                  ? 'text-sky-400'
+                  : 'text-[var(--step-success-text)]'
+            )}
+          >
+            {successMessage}
+          </p>
           {onDismiss ? (
             <Button
               variant="ghost"
@@ -258,7 +291,9 @@ export const ProvisioningProgressBlock = ({
               ? 'text-red-400'
               : messageSeverity === 'warning'
                 ? 'text-amber-400'
-                : 'text-[var(--color-text-muted)]'
+                : messageSeverity === 'info'
+                  ? 'text-sky-400'
+                  : 'text-[var(--color-text-muted)]'
           )}
         >
           {message}

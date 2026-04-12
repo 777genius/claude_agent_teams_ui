@@ -69,6 +69,13 @@ function getSourceServerEntry(): string {
   return path.join(getWorkspaceMcpServerDir(), 'src', 'index.ts');
 }
 
+function getWorkspaceTsxBinCandidates(): string[] {
+  return [
+    path.join(getWorkspaceMcpServerDir(), 'node_modules', '.bin', 'tsx'),
+    path.join(getWorkspaceRoot(), 'node_modules', '.bin', 'tsx'),
+  ];
+}
+
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.promises.access(targetPath, fs.constants.F_OK);
@@ -211,17 +218,7 @@ async function resolveMcpLaunchSpec(): Promise<McpLaunchSpec> {
     logger.warn(`Packaged MCP entry not found at ${packagedEntry}, falling back to workspace`);
   }
 
-  // 2. Dev mode — prefer source for hot changes
-  const sourceEntry = getSourceServerEntry();
-  checked.push(sourceEntry);
-  if (await pathExists(sourceEntry)) {
-    return {
-      command: 'pnpm',
-      args: ['--dir', getWorkspaceMcpServerDir(), 'exec', 'tsx', sourceEntry],
-    };
-  }
-
-  // 3. Dev mode — built dist
+  // 2. Dev mode — prefer built dist for reliable direct execution
   const builtEntry = getBuiltServerEntry();
   checked.push(builtEntry);
   if (await pathExists(builtEntry)) {
@@ -229,6 +226,21 @@ async function resolveMcpLaunchSpec(): Promise<McpLaunchSpec> {
       command: await resolveNodePath(),
       args: [builtEntry],
     };
+  }
+
+  // 3. Dev mode fallback — run source directly through a local tsx binary
+  const sourceEntry = getSourceServerEntry();
+  checked.push(sourceEntry);
+  if (await pathExists(sourceEntry)) {
+    for (const tsxBin of getWorkspaceTsxBinCandidates()) {
+      checked.push(tsxBin);
+      if (await pathExists(tsxBin)) {
+        return {
+          command: tsxBin,
+          args: [sourceEntry],
+        };
+      }
+    }
   }
 
   throw new Error(

@@ -21,6 +21,77 @@ export type CliPlatform =
   | 'win32-x64'
   | 'win32-arm64';
 
+export type CliFlavor = 'claude' | 'agent_teams_orchestrator';
+
+export type CliProviderId = 'anthropic' | 'codex' | 'gemini';
+export type CliProviderAuthMode = 'auto' | 'oauth' | 'api_key';
+
+export interface CliProviderConnectionInfo {
+  supportsOAuth: boolean;
+  supportsApiKey: boolean;
+  configurableAuthModes: CliProviderAuthMode[];
+  configuredAuthMode: CliProviderAuthMode | null;
+  apiKeyBetaAvailable?: boolean;
+  apiKeyBetaEnabled?: boolean;
+  apiKeyConfigured: boolean;
+  apiKeySource: 'stored' | 'environment' | null;
+  apiKeySourceLabel?: string | null;
+}
+
+export interface CliProviderBackendOption {
+  id: string;
+  label: string;
+  description: string;
+  selectable: boolean;
+  recommended: boolean;
+  available: boolean;
+  statusMessage?: string | null;
+  detailMessage?: string | null;
+}
+
+export interface CliExternalRuntimeDiagnostic {
+  id: string;
+  label: string;
+  detected: boolean;
+  statusMessage?: string | null;
+  detailMessage?: string | null;
+}
+
+export interface CliProviderStatus {
+  providerId: CliProviderId;
+  displayName: string;
+  supported: boolean;
+  authenticated: boolean;
+  authMethod: string | null;
+  verificationState: 'verified' | 'unknown' | 'offline' | 'error';
+  statusMessage?: string | null;
+  models: string[];
+  canLoginFromUi: boolean;
+  capabilities: {
+    teamLaunch: boolean;
+    oneShot: boolean;
+  };
+  selectedBackendId?: string | null;
+  resolvedBackendId?: string | null;
+  availableBackends?: CliProviderBackendOption[];
+  externalRuntimeDiagnostics?: CliExternalRuntimeDiagnostic[];
+  backend?: {
+    kind: string;
+    label: string;
+    endpointLabel?: string | null;
+    projectId?: string | null;
+    authMethodDetail?: string | null;
+  } | null;
+  connection?: CliProviderConnectionInfo | null;
+}
+
+export interface CliFlavorUiOptions {
+  displayName: string;
+  supportsSelfUpdate: boolean;
+  showVersionDetails: boolean;
+  showBinaryPath: boolean;
+}
+
 // =============================================================================
 // Installation Status
 // =============================================================================
@@ -29,20 +100,36 @@ export type CliPlatform =
  * Current CLI installation status returned by getStatus().
  */
 export interface CliInstallationStatus {
-  /** Whether CLI binary is found on the system */
+  /** Selected CLI runtime flavor */
+  flavor: CliFlavor;
+  /** Display label for the configured runtime */
+  displayName: string;
+  /** Whether this runtime should expose self-update/install actions in the UI */
+  supportsSelfUpdate: boolean;
+  /** Whether version text should be shown in the UI */
+  showVersionDetails: boolean;
+  /** Whether binary path should be shown in the UI */
+  showBinaryPath: boolean;
+  /** Whether the CLI was found and passed the startup health check (`--version`) */
   installed: boolean;
-  /** Installed version string (e.g. "2.1.59"), null if not installed */
+  /** Installed version string (e.g. "2.1.59"), null if unavailable or not installed */
   installedVersion: string | null;
-  /** Absolute path to the resolved binary, null if not found */
+  /** Absolute path to the resolved binary candidate, null if not found */
   binaryPath: string | null;
+  /** Probe failure when a binary was found but could not be started */
+  launchError?: string | null;
   /** Latest available version from GCS, null if check failed */
   latestVersion: string | null;
   /** True when installed version < latest version */
   updateAvailable: boolean;
   /** Whether user is logged in (claude auth status) */
   authLoggedIn: boolean;
+  /** Whether runtime authentication status is still being checked */
+  authStatusChecking: boolean;
   /** Auth method if logged in (e.g. "oauth_token", "api_key"), null otherwise */
   authMethod: string | null;
+  /** Provider-level runtime status when supported by the configured runtime */
+  providers: CliProviderStatus[];
 }
 
 // =============================================================================
@@ -54,7 +141,7 @@ export interface CliInstallationStatus {
  */
 export interface CliInstallerProgress {
   /** Current phase of the installation process */
-  type: 'checking' | 'downloading' | 'verifying' | 'installing' | 'completed' | 'error';
+  type: 'checking' | 'downloading' | 'verifying' | 'installing' | 'completed' | 'error' | 'status';
   /** Download progress 0-100, only present for 'downloading' */
   percent?: number;
   /** Bytes downloaded so far */
@@ -69,6 +156,8 @@ export interface CliInstallerProgress {
   detail?: string;
   /** Raw terminal output chunk (with ANSI codes), only for 'installing' */
   rawChunk?: string;
+  /** Partial or full CLI status snapshot during status gathering. */
+  status?: CliInstallationStatus;
 }
 
 // =============================================================================
@@ -81,6 +170,8 @@ export interface CliInstallerProgress {
 export interface CliInstallerAPI {
   /** Get current CLI installation status */
   getStatus: () => Promise<CliInstallationStatus>;
+  /** Get current runtime/auth status for a single provider */
+  getProviderStatus: (providerId: CliProviderId) => Promise<CliProviderStatus | null>;
   /** Start install/update flow. Progress sent via onProgress events. */
   install: () => Promise<void>;
   /** Invalidate cached status (forces fresh check on next getStatus) */

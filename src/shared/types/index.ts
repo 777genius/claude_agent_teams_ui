@@ -44,3 +44,6 @@ export type * from './editor';
 
 // Re-export Extension Store types (inferCapabilities is re-exported from extensionNormalizers)
 export type * from './extensions';
+
+// Re-export tmux runtime status types
+export type * from './tmux';

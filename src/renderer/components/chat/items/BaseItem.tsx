@@ -30,6 +30,10 @@ interface BaseItemProps {
   durationMs?: number;
   /** Timestamp to display (compact HH:mm:ss) */
   timestamp?: Date;
+  /** Optional date-fns format for the timestamp. Defaults to HH:mm:ss. */
+  timestampFormat?: string;
+  /** Optional tooltip text for the header row. */
+  titleText?: string;
   /** Click handler for toggling */
   onClick: () => void;
   /** Whether the item is expanded */
@@ -56,7 +60,7 @@ interface BaseItemProps {
 export const StatusDot: React.FC<{ status: ItemStatus }> = ({ status }) => {
   return (
     <span
-      className="inline-block size-1.5 shrink-0 rounded-full"
+      className="base-item-status-dot inline-block size-1.5 shrink-0 rounded-full"
       style={{ backgroundColor: getStatusDotColor(status) }}
     />
   );
@@ -84,6 +88,8 @@ export const BaseItem: React.FC<BaseItemProps> = ({
   status,
   durationMs,
   timestamp,
+  timestampFormat = 'HH:mm:ss',
+  titleText,
   onClick,
   isExpanded,
   hasExpandableContent = true,
@@ -94,13 +100,14 @@ export const BaseItem: React.FC<BaseItemProps> = ({
 }) => {
   return (
     <div
-      className={`rounded transition-all duration-300 ${highlightClasses}`}
+      className={`rounded transition-[background-color,box-shadow] duration-300 ${highlightClasses}`}
       style={highlightStyle}
     >
       {/* Clickable Header */}
       <div
         role="button"
         tabIndex={0}
+        title={titleText}
         onClick={onClick}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -145,7 +152,7 @@ export const BaseItem: React.FC<BaseItemProps> = ({
         {/* Token count badge */}
         {tokenCount != null && tokenCount > 0 && (
           <span
-            className="shrink-0 rounded px-1.5 py-0.5 text-xs"
+            className="base-item-tokens shrink-0 rounded px-1.5 py-0.5 text-xs"
             style={{
               color: TOOL_ITEM_MUTED,
               backgroundColor: 'var(--tool-item-badge-bg)',
@@ -161,7 +168,7 @@ export const BaseItem: React.FC<BaseItemProps> = ({
         {/* Notification dot (replaces status dot when present) */}
         {notificationDotColor && (
           <span
-            className="inline-block size-1.5 shrink-0 rounded-full"
+            className="base-item-notification-dot inline-block size-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: getTriggerColorDef(notificationDotColor).hex }}
           />
         )}
@@ -179,7 +186,7 @@ export const BaseItem: React.FC<BaseItemProps> = ({
             className="base-item-timestamp shrink-0 text-[11px] tabular-nums"
             style={{ color: TOOL_ITEM_MUTED }}
           >
-            {format(timestamp, 'HH:mm:ss')}
+            {format(timestamp, timestampFormat)}
           </span>
         )}
 

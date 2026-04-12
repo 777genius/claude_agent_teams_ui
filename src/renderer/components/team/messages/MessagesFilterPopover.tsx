@@ -10,7 +10,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { Filter } from 'lucide-react';
 
-import type { InboxMessage } from '@shared/types';
+import type { InboxMessage, ResolvedTeamMember } from '@shared/types';
 
 export interface MessagesFilterState {
   from: Set<string>;
@@ -20,6 +20,8 @@ export interface MessagesFilterState {
 }
 
 interface MessagesFilterPopoverProps {
+  teamName: string;
+  members: ResolvedTeamMember[];
   filter: MessagesFilterState;
   messages: InboxMessage[];
   open: boolean;
@@ -44,6 +46,8 @@ function collectToOptions(messages: InboxMessage[]): string[] {
 }
 
 export const MessagesFilterPopover = ({
+  teamName,
+  members,
   filter,
   messages,
   open,
@@ -68,7 +72,6 @@ export const MessagesFilterPopover = ({
     }
   }, [open, filter.from, filter.to, filter.showNoise]);
 
-  const members = useStore(useShallow((s) => s.selectedTeamData?.members ?? []));
   const colorMap = useMemo(() => buildMemberColorMap(members), [members]);
 
   const fromOptions = useMemo(() => collectFromOptions(messages), [messages]);
@@ -152,6 +155,7 @@ export const MessagesFilterPopover = ({
                     <MemberBadge
                       name={name}
                       color={colorMap.get(name)}
+                      teamName={teamName}
                       size="sm"
                       hideAvatar={name === 'user'}
                     />
@@ -178,6 +182,7 @@ export const MessagesFilterPopover = ({
                     <MemberBadge
                       name={name}
                       color={colorMap.get(name)}
+                      teamName={teamName}
                       size="sm"
                       hideAvatar={name === 'user'}
                     />

@@ -106,6 +106,38 @@ describe('filterTeamMessages', () => {
     expect(result[0].messageId).toBe('msg-2');
   });
 
+  it('can preserve passive peer-summary idle rows in the activity sink while keeping pure heartbeat hidden even after read', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'heartbeat-hidden',
+        text: '{"type":"idle_notification","idleReason":"available"}',
+      }),
+      makeMessage({
+        messageId: 'peer-summary-visible',
+        read: true,
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+      }),
+      makeMessage({
+        messageId: 'row-summary-only-hidden',
+        summary: 'Preview only',
+        text: '{"type":"idle_notification","idleReason":"available"}',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      includePassiveIdlePeerSummariesWhenNoiseHidden: true,
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: false },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['peer-summary-visible']);
+  });
+
   it('hides task comment notifications by semantic kind instead of text matching', () => {
     const messages = [
       makeMessage({

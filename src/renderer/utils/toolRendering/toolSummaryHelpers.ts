@@ -5,6 +5,7 @@
  */
 
 import { getBaseName } from '@renderer/utils/pathUtils';
+import { summarizeAgentToolInput } from '@shared/utils/toolSummary';
 
 /**
  * Truncates a string to a maximum length with ellipsis.
@@ -249,8 +250,7 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return 'Delete team';
 
     case 'Agent': {
-      const desc = input.description ?? input.prompt;
-      return typeof desc === 'string' ? truncate(desc, 60) : 'Subagent';
+      return summarizeAgentToolInput(input, 60);
     }
 
     default: {

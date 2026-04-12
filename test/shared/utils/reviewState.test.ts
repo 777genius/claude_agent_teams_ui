@@ -34,4 +34,29 @@ describe('reviewState utils', () => {
       })
     ).toBe('review');
   });
+
+  it('resets derived review state after work resumes following requested changes', () => {
+    expect(
+      getReviewStateFromTask({
+        historyEvents: [
+          {
+            id: '1',
+            timestamp: '2026-01-01T00:00:00Z',
+            type: 'review_changes_requested',
+            from: 'review',
+            to: 'needsFix',
+            actor: 'reviewer',
+          },
+          {
+            id: '2',
+            timestamp: '2026-01-01T00:01:00Z',
+            type: 'status_changed',
+            from: 'pending',
+            to: 'in_progress',
+            actor: 'owner',
+          },
+        ],
+      })
+    ).toBe('none');
+  });
 });

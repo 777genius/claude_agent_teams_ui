@@ -208,3 +208,32 @@ export function getThemedText(colorSet: TeamColorSet, isLight: boolean): string 
 export function getThemedBorder(colorSet: TeamColorSet, isLight: boolean): string {
   return isLight && colorSet.borderLight ? colorSet.borderLight : colorSet.border;
 }
+
+export function scaleColorAlpha(color: string, factor: number): string {
+  const safeFactor = Math.max(0, factor);
+  const rgbaMatch = color.match(
+    /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*\)$/i
+  );
+  if (rgbaMatch) {
+    const [, r, g, b, alpha] = rgbaMatch;
+    return `rgba(${r}, ${g}, ${b}, ${Number(alpha) * safeFactor})`;
+  }
+
+  const hslaMatch = color.match(
+    /^hsla\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([0-9]*\.?[0-9]+)\s*\)$/i
+  );
+  if (hslaMatch) {
+    const [, hue, saturation, lightness, alpha] = hslaMatch;
+    return `hsla(${hue}, ${saturation}, ${lightness}, ${Number(alpha) * safeFactor})`;
+  }
+
+  const hexAlphaMatch = color.match(/^#([\da-f]{6})([\da-f]{2})$/i);
+  if (hexAlphaMatch) {
+    const [, hex, alphaHex] = hexAlphaMatch;
+    const alpha = parseInt(alphaHex, 16) / 255;
+    const scaledAlpha = Math.max(0, Math.min(255, Math.round(alpha * safeFactor * 255)));
+    return `#${hex}${scaledAlpha.toString(16).padStart(2, '0')}`;
+  }
+
+  return color;
+}

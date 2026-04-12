@@ -12,7 +12,8 @@ const toolContextSchema = {
 export function registerProcessTools(server: Pick<FastMCP, 'addTool'>) {
   server.addTool({
     name: 'process_register',
-    description: 'Register a running process for a team member',
+    description:
+      'Register a background service started by a teammate, such as a dev server, watcher, or database. This is not for teammate-agent liveness.',
     parameters: z.object({
       ...toolContextSchema,
       pid: z.number().int().positive(),
@@ -51,7 +52,8 @@ export function registerProcessTools(server: Pick<FastMCP, 'addTool'>) {
 
   server.addTool({
     name: 'process_list',
-    description: 'List registered team processes',
+    description:
+      'List registered background services for the team, such as dev servers, watchers, or databases. This does not show teammate-agent liveness.',
     parameters: z.object({
       ...toolContextSchema,
     }),
@@ -63,7 +65,8 @@ export function registerProcessTools(server: Pick<FastMCP, 'addTool'>) {
 
   server.addTool({
     name: 'process_unregister',
-    description: 'Unregister a previously registered process',
+    description:
+      'Unregister a previously registered background service while keeping teammate-agent state separate.',
     parameters: z.object({
       ...toolContextSchema,
       pid: z.number().int().positive(),
@@ -76,7 +79,8 @@ export function registerProcessTools(server: Pick<FastMCP, 'addTool'>) {
 
   server.addTool({
     name: 'process_stop',
-    description: 'Mark a registered process as stopped while preserving history',
+    description:
+      'Mark a registered background service as stopped while preserving history. This is not for stopping teammate agents.',
     parameters: z.object({
       ...toolContextSchema,
       pid: z.number().int().positive(),

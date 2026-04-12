@@ -17,6 +17,8 @@ const logger = createLogger('Extensions:SkillParser');
 const ALLOWED_FRONTMATTER_KEYS = new Set([
   'name',
   'description',
+  // Third-party skills often include a semantic version in frontmatter.
+  'version',
   'license',
   'compatibility',
   'metadata',

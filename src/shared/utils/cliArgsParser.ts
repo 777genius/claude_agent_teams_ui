@@ -24,6 +24,13 @@ export const PROTECTED_CLI_FLAGS = new Set([
   '--mcp-config',
   '--disallowedTools',
   '--verbose',
+  '--model',
+  '--effort',
+  '--teammate-mode',
+  '--resume',
+  '--permission-mode',
+  '--permission-prompt-tool',
+  '--dangerously-skip-permissions',
 ]);
 
 /**

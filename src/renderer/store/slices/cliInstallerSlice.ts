@@ -6,13 +6,56 @@ import { api } from '@renderer/api';
 import { createLogger } from '@shared/utils/logger';
 
 import type { AppState } from '../types';
-import type { CliInstallationStatus } from '@shared/types';
+import type { CliInstallationStatus, CliProviderId, CliProviderStatus } from '@shared/types';
 import type { StateCreator } from 'zustand';
 
 const logger = createLogger('Store:cliInstaller');
 
 /** Max log lines to keep in UI (reserved for future use) */
 const _MAX_LOG_LINES = 50;
+export const MULTIMODEL_PROVIDER_IDS: CliProviderId[] = ['anthropic', 'codex', 'gemini'];
+
+export function createLoadingMultimodelCliStatus(): CliInstallationStatus {
+  const providers: CliProviderStatus[] = (
+    [
+      { providerId: 'anthropic', displayName: 'Anthropic' },
+      { providerId: 'codex', displayName: 'Codex' },
+      { providerId: 'gemini', displayName: 'Gemini' },
+    ] as const
+  ).map((provider) => ({
+    ...provider,
+    supported: false,
+    authenticated: false,
+    authMethod: null,
+    verificationState: 'unknown' as const,
+    statusMessage: 'Checking...',
+    models: [],
+    canLoginFromUi: true,
+    capabilities: {
+      teamLaunch: false,
+      oneShot: false,
+    },
+    backend: null,
+  }));
+
+  return {
+    flavor: 'agent_teams_orchestrator',
+    displayName: 'agent_teams_orchestrator',
+    supportsSelfUpdate: false,
+    showVersionDetails: false,
+    showBinaryPath: false,
+    installed: true,
+    installedVersion: null,
+    binaryPath: null,
+    launchError: null,
+    latestVersion: null,
+    updateAvailable: false,
+    authLoggedIn: false,
+    authStatusChecking: true,
+    authMethod: null,
+    providers,
+  };
+}
 
 // =============================================================================
 // Slice Interface
@@ -22,6 +65,7 @@ export interface CliInstallerSlice {
   // State
   cliStatus: CliInstallationStatus | null;
   cliStatusLoading: boolean;
+  cliProviderStatusLoading: Partial<Record<CliProviderId, boolean>>;
   cliStatusError: string | null;
   cliInstallerState:
     | 'idle'
@@ -41,23 +85,33 @@ export interface CliInstallerSlice {
   cliCompletedVersion: string | null;
 
   // Actions
+  bootstrapCliStatus: (options?: { multimodelEnabled?: boolean }) => Promise<void>;
   fetchCliStatus: () => Promise<void>;
+  fetchCliProviderStatus: (
+    providerId: CliProviderId,
+    options?: { silent?: boolean; epoch?: number }
+  ) => Promise<void>;
   invalidateCliStatus: () => Promise<void>;
   installCli: () => void;
 }
 
 let cliStatusInFlight: Promise<void> | null = null;
+const cliProviderStatusInFlight = new Map<CliProviderId, Promise<void>>();
+let cliStatusEpoch = 0;
+const cliProviderStatusSeq = new Map<CliProviderId, number>();
 
 // =============================================================================
 // Slice Creator
 // =============================================================================
 
 export const createCliInstallerSlice: StateCreator<AppState, [], [], CliInstallerSlice> = (
-  set
+  set,
+  get
 ) => ({
   // Initial state
   cliStatus: null,
   cliStatusLoading: false,
+  cliProviderStatusLoading: {},
   cliStatusError: null,
   cliInstallerState: 'idle',
   cliDownloadProgress: 0,
@@ -69,15 +123,122 @@ export const createCliInstallerSlice: StateCreator<AppState, [], [], CliInstalle
   cliInstallerRawChunks: [],
   cliCompletedVersion: null,
 
+  bootstrapCliStatus: async (options) => {
+    if (!api.cliInstaller) return;
+    const multimodelEnabled = options?.multimodelEnabled ?? true;
+    if (!multimodelEnabled) {
+      return get().fetchCliStatus();
+    }
+
+    const epoch = ++cliStatusEpoch;
+    const providerLoading = Object.fromEntries(
+      MULTIMODEL_PROVIDER_IDS.map((providerId) => [providerId, true])
+    ) as Partial<Record<CliProviderId, boolean>>;
+
+    set({
+      cliStatus: createLoadingMultimodelCliStatus(),
+      cliStatusLoading: true,
+      cliProviderStatusLoading: providerLoading,
+      cliStatusError: null,
+    });
+
+    try {
+      const metadata = await api.cliInstaller.getStatus();
+      if (metadata.flavor !== 'agent_teams_orchestrator') {
+        set((state) => {
+          if (epoch !== cliStatusEpoch) {
+            return {};
+          }
+
+          return {
+            cliStatus: metadata,
+            cliStatusLoading: false,
+            cliProviderStatusLoading: {},
+            cliStatusError: state.cliStatusError,
+          };
+        });
+        return;
+      }
+
+      set((state) => {
+        if (epoch !== cliStatusEpoch || !state.cliStatus) {
+          return {};
+        }
+
+        return {
+          cliStatus: {
+            ...state.cliStatus,
+            flavor: metadata.flavor,
+            displayName: metadata.displayName,
+            supportsSelfUpdate: metadata.supportsSelfUpdate,
+            showVersionDetails: metadata.showVersionDetails,
+            showBinaryPath: metadata.showBinaryPath,
+            installed: metadata.installed,
+            installedVersion: metadata.installedVersion,
+            binaryPath: metadata.binaryPath,
+            launchError: metadata.launchError ?? null,
+            latestVersion: metadata.latestVersion,
+            updateAvailable: metadata.updateAvailable,
+            authStatusChecking:
+              metadata.installed &&
+              state.cliStatus.providers.some(
+                (provider) => provider.statusMessage === 'Checking...'
+              ),
+            providers: metadata.installed ? state.cliStatus.providers : metadata.providers,
+          },
+        };
+      });
+
+      if (!metadata.installed) {
+        if (epoch === cliStatusEpoch) {
+          set({
+            cliStatusLoading: false,
+            cliProviderStatusLoading: {},
+          });
+        }
+        return;
+      }
+    } catch (error) {
+      logger.warn('Failed to hydrate CLI metadata during provider-first bootstrap:', error);
+    }
+
+    try {
+      await Promise.allSettled(
+        MULTIMODEL_PROVIDER_IDS.map((providerId) =>
+          get().fetchCliProviderStatus(providerId, {
+            silent: false,
+            epoch,
+          })
+        )
+      );
+    } finally {
+      if (epoch === cliStatusEpoch) {
+        set({ cliStatusLoading: false });
+      }
+    }
+  },
+
   fetchCliStatus: async () => {
     if (!api.cliInstaller) return;
     if (cliStatusInFlight) return cliStatusInFlight;
 
+    const epoch = ++cliStatusEpoch;
     cliStatusInFlight = (async () => {
       set({ cliStatusLoading: true, cliStatusError: null });
       try {
         const status = await api.cliInstaller.getStatus();
-        set({ cliStatus: status });
+        if (epoch !== cliStatusEpoch) {
+          return;
+        }
+        set({ cliStatus: status, cliProviderStatusLoading: {} });
+        if (status.installed) {
+          for (const provider of status.providers) {
+            void get().fetchCliProviderStatus(provider.providerId, {
+              silent: true,
+              epoch,
+            });
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to check CLI status';
         logger.error('Failed to fetch CLI status:', error);
@@ -89,6 +250,105 @@ export const createCliInstallerSlice: StateCreator<AppState, [], [], CliInstalle
     })();
 
     return cliStatusInFlight;
+  },
+
+  fetchCliProviderStatus: async (providerId, options) => {
+    if (!api.cliInstaller) return;
+    if (get().cliStatus && !get().cliStatus?.installed) {
+      return;
+    }
+    const inFlight = cliProviderStatusInFlight.get(providerId);
+    if (inFlight) return inFlight;
+
+    const requestEpoch = options?.epoch ?? cliStatusEpoch;
+    const requestSeq = (cliProviderStatusSeq.get(providerId) ?? 0) + 1;
+    const silent = options?.silent === true;
+    cliProviderStatusSeq.set(providerId, requestSeq);
+
+    const request = (async () => {
+      if (!silent) {
+        set((state) => ({
+          cliStatusError: null,
+          cliProviderStatusLoading: {
+            ...state.cliProviderStatusLoading,
+            [providerId]: true,
+          },
+        }));
+      }
+
+      try {
+        const providerStatus = await api.cliInstaller.getProviderStatus(providerId);
+        set((state) => {
+          const nextLoading = silent
+            ? state.cliProviderStatusLoading
+            : {
+                ...state.cliProviderStatusLoading,
+                [providerId]: false,
+              };
+
+          if (
+            requestEpoch !== cliStatusEpoch ||
+            cliProviderStatusSeq.get(providerId) !== requestSeq
+          ) {
+            return { cliProviderStatusLoading: nextLoading };
+          }
+
+          if (!providerStatus || !state.cliStatus) {
+            return { cliProviderStatusLoading: nextLoading };
+          }
+
+          const hasProvider = state.cliStatus.providers.some(
+            (provider) => provider.providerId === providerId
+          );
+          const nextProviders = hasProvider
+            ? state.cliStatus.providers.map((provider) =>
+                provider.providerId === providerId ? providerStatus : provider
+              )
+            : [...state.cliStatus.providers, providerStatus];
+          const authenticatedProvider =
+            nextProviders.find((provider) => provider.authenticated) ?? null;
+
+          return {
+            cliStatus: {
+              ...state.cliStatus,
+              providers: nextProviders,
+              authLoggedIn: nextProviders.some((provider) => provider.authenticated),
+              authMethod: authenticatedProvider?.authMethod ?? null,
+            },
+            cliProviderStatusLoading: nextLoading,
+          };
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : `Failed to refresh ${providerId} status`;
+        logger.error(`Failed to fetch ${providerId} CLI status:`, error);
+        set((state) => {
+          const nextLoading = silent
+            ? state.cliProviderStatusLoading
+            : {
+                ...state.cliProviderStatusLoading,
+                [providerId]: false,
+              };
+
+          if (
+            requestEpoch !== cliStatusEpoch ||
+            cliProviderStatusSeq.get(providerId) !== requestSeq
+          ) {
+            return { cliProviderStatusLoading: nextLoading };
+          }
+
+          return {
+            cliStatusError: message,
+            cliProviderStatusLoading: nextLoading,
+          };
+        });
+      } finally {
+        cliProviderStatusInFlight.delete(providerId);
+      }
+    })();
+
+    cliProviderStatusInFlight.set(providerId, request);
+    return request;
   },
 
   invalidateCliStatus: async () => {

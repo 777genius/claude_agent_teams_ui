@@ -6,7 +6,13 @@
 
 import type { GraphNode } from '../ports/types';
 import { COLORS, getStateColor, alphaHex } from '../constants/colors';
-import { NODE, AGENT_DRAW, CONTEXT_RING, ANIM, MIN_VISIBLE_OPACITY } from '../constants/canvas-constants';
+import {
+  NODE,
+  AGENT_DRAW,
+  CONTEXT_RING,
+  ANIM,
+  MIN_VISIBLE_OPACITY,
+} from '../constants/canvas-constants';
 import { drawHexagon } from './draw-misc';
 import { getAgentGlowSprite, ensureHex, hexWithAlpha } from './render-cache';
 
@@ -18,7 +24,7 @@ export function drawAgents(
   nodes: GraphNode[],
   time: number,
   selectedId: string | null,
-  hoveredId: string | null,
+  hoveredId: string | null
 ): void {
   for (const node of nodes) {
     if (node.kind !== 'member' && node.kind !== 'lead') continue;
@@ -48,7 +54,7 @@ export function drawAgents(
     drawAvatar(ctx, x, y, r, node.label, color, node.kind === 'lead', node.avatarUrl);
 
     // Breathing animation + spawn/waiting effects
-    drawBreathing(ctx, x, y, r, node.state, time, node.spawnStatus);
+    drawBreathing(ctx, x, y, r, node.state, time, node.spawnStatus, node.runtimeLabel);
 
     // Pending approval indicator: pulsing amber ring
     if (node.pendingApproval) {
@@ -72,7 +78,10 @@ export function drawAgents(
     }
 
     // Working indicator: subtle spinning arc when member has active task
-    if (node.currentTaskId && (node.state === 'active' || node.state === 'thinking' || node.state === 'tool_calling')) {
+    if (
+      node.currentTaskId &&
+      (node.state === 'active' || node.state === 'thinking' || node.state === 'tool_calling')
+    ) {
       const ringR = r + 4;
       const rotation = time * 1.5;
       ctx.beginPath();
@@ -88,7 +97,7 @@ export function drawAgents(
 
     // Name + role label (single line: "jack · developer")
     const labelText = node.role ? `${node.label} · ${node.role}` : node.label;
-    drawLabel(ctx, x, y, r, labelText, color);
+    drawLabel(ctx, x, y, r, labelText, color, node.runtimeLabel);
 
     // TODO: Context ring disabled — LeadContextUsage.percent is unreliable
     // (jumps due to cache_read variance, contextWindow mismatch with actual model).
@@ -114,7 +123,7 @@ export function drawCrossTeamNodes(
   nodes: GraphNode[],
   time: number,
   selectedId: string | null,
-  hoveredId: string | null,
+  hoveredId: string | null
 ): void {
   for (const node of nodes) {
     if (node.kind !== 'crossteam') continue;
@@ -191,7 +200,13 @@ function drawDepthShadow(ctx: CanvasRenderingContext2D, x: number, y: number, r:
   ctx.restore();
 }
 
-function drawGlow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void {
+function drawGlow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string
+): void {
   const outerR = r + AGENT_DRAW.glowPadding;
   const sprite = getAgentGlowSprite(color, r * 0.5, outerR);
   ctx.drawImage(sprite, x - outerR, y - outerR);
@@ -206,19 +221,18 @@ function drawHexBody(
   state: string,
   time: number,
   isSelected: boolean,
-  isHovered: boolean,
+  isHovered: boolean
 ): void {
   // Interior fill
   drawHexagon(ctx, x, y, r);
-  ctx.fillStyle = isSelected
-    ? 'rgba(100, 200, 255, 0.15)'
-    : COLORS.nodeInterior;
+  ctx.fillStyle = isSelected ? 'rgba(100, 200, 255, 0.15)' : COLORS.nodeInterior;
   ctx.fill();
 
   // Scanline effect
-  const scanSpeed = state === 'active' || state === 'thinking' || state === 'tool_calling'
-    ? ANIM.scanline.active
-    : ANIM.scanline.normal;
+  const scanSpeed =
+    state === 'active' || state === 'thinking' || state === 'tool_calling'
+      ? ANIM.scanline.active
+      : ANIM.scanline.normal;
   const scanY = ((time * scanSpeed) % (r * 2)) - r;
   ctx.save();
   drawHexagon(ctx, x, y, r);
@@ -227,7 +241,7 @@ function drawHexBody(
     x,
     y + scanY - AGENT_DRAW.scanlineHalfH,
     x,
-    y + scanY + AGENT_DRAW.scanlineHalfH,
+    y + scanY + AGENT_DRAW.scanlineHalfH
   );
   grad.addColorStop(0, hexWithAlpha(color, 0));
   grad.addColorStop(0.5, hexWithAlpha(color, 0.13));
@@ -243,11 +257,7 @@ function drawHexBody(
   ctx.stroke();
 }
 
-function truncateCardText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-): string {
+function truncateCardText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
   let out = text;
   while (out.length > 1 && ctx.measureText(`${out}...`).width > maxWidth) {
@@ -262,7 +272,7 @@ function drawToolCard(
   y: number,
   r: number,
   tool: NonNullable<GraphNode['activeTool']>,
-  time: number,
+  time: number
 ): void {
   const labelBase = tool.preview ? `${tool.name}: ${tool.preview}` : tool.name;
   const labelText =
@@ -300,13 +310,7 @@ function drawToolCard(
 
   if (tool.state === 'running') {
     ctx.beginPath();
-    ctx.arc(
-      indicatorX,
-      indicatorY,
-      4.5,
-      time * 3,
-      time * 3 + Math.PI * 1.2,
-    );
+    ctx.arc(indicatorX, indicatorY, 4.5, time * 3, time * 3 + Math.PI * 1.2);
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1.4;
     ctx.stroke();
@@ -332,7 +336,11 @@ function drawBreathing(
   state: string,
   time: number,
   spawnStatus?: GraphNode['spawnStatus'],
+  runtimeLabel?: string
 ): void {
+  const hasRuntimeLabel = Boolean(runtimeLabel?.trim());
+  const serviceLabelY = y + r + AGENT_DRAW.labelYOffset + (hasRuntimeLabel ? 24 : 14);
+
   // Spawning: bright animated double ring + radial glow
   if (spawnStatus === 'spawning') {
     const ringR = r + AGENT_DRAW.orbitParticleOffset;
@@ -370,7 +378,7 @@ function drawBreathing(
     ctx.font = '7px monospace';
     ctx.textAlign = 'center';
     ctx.fillStyle = hexWithAlpha(COLORS.holoBase, 0.5 + 0.3 * Math.sin(time * 2));
-    ctx.fillText('connecting...', x, y + r + AGENT_DRAW.labelYOffset + 14);
+    ctx.fillText('connecting...', x, serviceLabelY);
     return;
   }
 
@@ -397,7 +405,7 @@ function drawBreathing(
     ctx.font = '7px monospace';
     ctx.textAlign = 'center';
     ctx.fillStyle = hexWithAlpha(COLORS.waiting, 0.4 + 0.2 * Math.sin(time * 1.5));
-    ctx.fillText('waiting...', x, y + r + AGENT_DRAW.labelYOffset + 14);
+    ctx.fillText('waiting...', x, serviceLabelY);
     return;
   }
 
@@ -473,7 +481,7 @@ function drawAvatar(
   name: string,
   color: string,
   isLead: boolean,
-  avatarUrl?: string,
+  avatarUrl?: string
 ): void {
   const avatarR = r * 0.6;
 
@@ -509,6 +517,7 @@ function drawLabel(
   r: number,
   label: string,
   color: string,
+  runtimeLabel?: string
 ): void {
   const labelY = y + r + AGENT_DRAW.labelYOffset;
   ctx.font = '9px monospace';
@@ -516,6 +525,26 @@ function drawLabel(
   ctx.textBaseline = 'top';
   ctx.fillStyle = color;
   ctx.fillText(label, x, labelY);
+
+  const trimmedRuntimeLabel = runtimeLabel?.trim();
+  if (!trimmedRuntimeLabel) {
+    return;
+  }
+
+  ctx.font = '8px monospace';
+  ctx.fillStyle = hexWithAlpha(ensureHex(color), 0.72);
+  ctx.fillText(truncateRuntimeLabel(ctx, trimmedRuntimeLabel, r), x, labelY + 10);
+}
+
+function truncateRuntimeLabel(ctx: CanvasRenderingContext2D, label: string, r: number): string {
+  const maxWidth = Math.max(132, r * AGENT_DRAW.labelWidthMultiplier * 2);
+  if (ctx.measureText(label).width <= maxWidth) return label;
+
+  let out = label;
+  while (out.length > 1 && ctx.measureText(`${out}…`).width > maxWidth) {
+    out = out.slice(0, -1);
+  }
+  return `${out}…`;
 }
 
 /**
@@ -527,7 +556,7 @@ export function drawContextRing(
   y: number,
   r: number,
   usage: number,
-  time: number,
+  time: number
 ): void {
   const ringR = r + CONTEXT_RING.ringOffset;
   const startAngle = -Math.PI / 2;
@@ -576,7 +605,7 @@ function drawSelectionRing(
   x: number,
   y: number,
   r: number,
-  color: string,
+  color: string
 ): void {
   drawHexagon(ctx, x, y, r + 4);
   ctx.strokeStyle = hexWithAlpha(color, 0.67);

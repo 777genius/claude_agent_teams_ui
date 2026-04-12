@@ -1,7 +1,11 @@
 import { buildMergedCliPath } from '@main/utils/cliPathMerge';
+import { getClaudeBasePath } from '@main/utils/pathDecoder';
 import { getShellPreferredHome, resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import * as fs from 'fs';
 import * as path from 'path';
+
+import { getDoctorInvokedCandidates } from './ClaudeDoctorProbe';
+import { getConfiguredCliFlavor } from './cliFlavor';
 
 async function isExecutable(filePath: string): Promise<boolean> {
   if (process.platform === 'win32') {
@@ -165,6 +169,40 @@ async function resolveFromExplicitPath(inputPath: string): Promise<string | null
   return null;
 }
 
+async function resolveFromCandidateList(candidates: string[]): Promise<string | null> {
+  for (const candidate of candidates) {
+    if (await isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function resolveFromDoctorFallback(commandName: string): Promise<string | null> {
+  const candidates = await getDoctorInvokedCandidates(commandName);
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index];
+    if (!candidate) {
+      continue;
+    }
+    const resolved = await resolveFromExplicitPath(candidate);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
+async function resolveBundledOrchestratorBinary(): Promise<string | null> {
+  const resourcesPath = process.resourcesPath?.trim();
+  if (!resourcesPath) {
+    return null;
+  }
+
+  const binaryName = process.platform === 'win32' ? 'claude-multimodel.exe' : 'claude-multimodel';
+  return resolveFromCandidateList([path.join(resourcesPath, 'runtime', binaryName)]);
+}
+
 let cachedPath: string | null | undefined;
 
 /** Timestamp of last successful cache verification (ms). */
@@ -213,8 +251,13 @@ export class ClaudeBinaryResolver {
   private static async runResolve(): Promise<string | null> {
     await resolveInteractiveShellEnv();
     const enrichedPath = buildMergedCliPath(null);
+    const flavor = getConfiguredCliFlavor();
 
-    const overrideRaw = process.env.CLAUDE_CLI_PATH?.trim();
+    const overrideRaw =
+      flavor === 'agent_teams_orchestrator'
+        ? (process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() ??
+          process.env.CLAUDE_CLI_PATH?.trim())
+        : process.env.CLAUDE_CLI_PATH?.trim();
     if (overrideRaw) {
       const looksLikePath =
         path.isAbsolute(overrideRaw) || overrideRaw.includes('\\') || overrideRaw.includes('/');
@@ -229,6 +272,39 @@ export class ClaudeBinaryResolver {
       }
     }
 
+    if (flavor === 'agent_teams_orchestrator') {
+      const bundledBinary = await resolveBundledOrchestratorBinary();
+      if (bundledBinary) {
+        cachedPath = bundledBinary;
+        cacheVerifiedAt = Date.now();
+        return cachedPath;
+      }
+
+      // Keep agent_teams_orchestrator resolution generic. Dev flows should
+      // inject an explicit CLI path, while non-dev setups can expose
+      // claude-multimodel on PATH without making this resolver guess a sibling
+      // repo name or folder.
+      const orchestratorBinaryName = 'claude-multimodel';
+      const fromPath = await resolveFromPathEnv(orchestratorBinaryName, enrichedPath);
+      if (fromPath) {
+        cachedPath = fromPath;
+        cacheVerifiedAt = Date.now();
+        return cachedPath;
+      }
+
+      const fromDoctor = await resolveFromDoctorFallback(orchestratorBinaryName);
+      if (fromDoctor) {
+        cachedPath = fromDoctor;
+        cacheVerifiedAt = Date.now();
+        return cachedPath;
+      }
+
+      // agent_teams_orchestrator mode is explicit. If the configured local
+      // runtime is missing, fail closed instead of silently falling back to a
+      // different CLI.
+      return null;
+    }
+
     const baseBinaryName = 'claude';
     const fromPath = await resolveFromPathEnv(baseBinaryName, enrichedPath);
     if (fromPath) {
@@ -241,9 +317,12 @@ export class ClaudeBinaryResolver {
       process.platform === 'win32' ? expandWindowsBinaryNames(baseBinaryName) : [baseBinaryName];
 
     const home = getShellPreferredHome();
+    const vendorBinDir = path.join(getClaudeBasePath(), 'local', 'node_modules', '.bin');
     const candidateDirs: string[] =
       process.platform === 'win32'
         ? [
+            // Windows: Claude npm-local vendor install
+            vendorBinDir,
             // Windows: npm global install
             path.join(home, 'AppData', 'Roaming', 'npm'),
             // Windows: scoop, chocolatey, and other package managers
@@ -256,6 +335,8 @@ export class ClaudeBinaryResolver {
             ...(process.env.ProgramFiles ? [path.join(process.env.ProgramFiles, 'claude')] : []),
           ]
         : [
+            // Unix: Claude npm-local vendor install
+            vendorBinDir,
             // Unix: native binary installation path (claude install)
             path.join(home, '.local', 'bin'),
             path.join(home, '.npm-global', 'bin'),
@@ -282,6 +363,13 @@ export class ClaudeBinaryResolver {
     const found = results.find((r) => r.ok);
     if (found) {
       cachedPath = found.path;
+      cacheVerifiedAt = Date.now();
+      return cachedPath;
+    }
+
+    const fromDoctor = await resolveFromDoctorFallback(baseBinaryName);
+    if (fromDoctor) {
+      cachedPath = fromDoctor;
       cacheVerifiedAt = Date.now();
       return cachedPath;
     }

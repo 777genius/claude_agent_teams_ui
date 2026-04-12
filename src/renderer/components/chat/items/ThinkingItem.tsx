@@ -17,6 +17,7 @@ interface ThinkingItemProps {
   isExpanded: boolean;
   /** Timestamp for display */
   timestamp?: Date;
+  timestampFormat?: string;
   /** Optional local search query for inline highlighting */
   searchQueryOverride?: string;
   /** Optional stable item id for search highlighting */
@@ -27,6 +28,7 @@ interface ThinkingItemProps {
   highlightStyle?: React.CSSProperties;
   /** Notification dot color for custom triggers */
   notificationDotColor?: TriggerColor;
+  titleText?: string;
 }
 
 export const ThinkingItem: React.FC<ThinkingItemProps> = ({
@@ -35,11 +37,13 @@ export const ThinkingItem: React.FC<ThinkingItemProps> = ({
   onClick,
   isExpanded,
   timestamp,
+  timestampFormat,
   searchQueryOverride,
   markdownItemId,
   highlightClasses,
   highlightStyle,
   notificationDotColor,
+  titleText,
 }) => {
   const fullContent = step.content.thinkingText ?? preview;
   const summary = searchQueryOverride
@@ -58,6 +62,8 @@ export const ThinkingItem: React.FC<ThinkingItemProps> = ({
       summary={summary}
       tokenCount={tokenCount}
       timestamp={timestamp}
+      timestampFormat={timestampFormat}
+      titleText={titleText}
       onClick={onClick}
       isExpanded={isExpanded}
       highlightClasses={highlightClasses}

@@ -89,6 +89,16 @@ function assertOptionalEffort(value: unknown): EffortLevel | undefined {
 
 function parseLaunchRequest(teamName: string, body: unknown): TeamLaunchRequest {
   const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const providerId =
+    payload.providerId === 'codex'
+      ? 'codex'
+      : payload.providerId === 'gemini'
+        ? 'gemini'
+        : payload.providerId == null || payload.providerId === 'anthropic'
+          ? 'anthropic'
+          : (() => {
+              throw new HttpBadRequestError('providerId must be anthropic, codex, or gemini');
+            })();
   const prompt = assertOptionalString(payload.prompt, 'prompt');
   const model = assertOptionalString(payload.model, 'model');
   const effort = assertOptionalEffort(payload.effort);
@@ -100,6 +110,7 @@ function parseLaunchRequest(teamName: string, body: unknown): TeamLaunchRequest 
   return {
     teamName,
     cwd: assertAbsoluteCwd(payload.cwd),
+    providerId,
     ...(prompt && {
       prompt,
     }),
@@ -164,7 +175,7 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
 
         const teamProvisioningService = getTeamProvisioningService(services);
         teamProvisioningService.stopTeam(validatedTeamName.value!);
-        return reply.send(teamProvisioningService.getRuntimeState(validatedTeamName.value!));
+        return reply.send(await teamProvisioningService.getRuntimeState(validatedTeamName.value!));
       } catch (error) {
         if (shouldLogError(error)) {
           logger.error(
@@ -187,7 +198,7 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
         }
 
         return reply.send(
-          getTeamProvisioningService(services).getRuntimeState(validatedTeamName.value!)
+          await getTeamProvisioningService(services).getRuntimeState(validatedTeamName.value!)
         );
       } catch (error) {
         if (shouldLogError(error)) {
@@ -225,9 +236,11 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
   app.get('/api/teams/runtime/alive', async (_request, reply) => {
     try {
       const teamProvisioningService = getTeamProvisioningService(services);
-      const runtimeStates = teamProvisioningService
-        .getAliveTeams()
-        .map((teamName) => teamProvisioningService.getRuntimeState(teamName));
+      const runtimeStates = await Promise.all(
+        teamProvisioningService
+          .getAliveTeams()
+          .map((teamName) => teamProvisioningService.getRuntimeState(teamName))
+      );
       return reply.send(runtimeStates);
     } catch (error) {
       if (shouldLogError(error)) {

@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { getSubagentTypeColorSet, getTeamColorSet, TeamColorSet } from '@renderer/constants/teamColors';
+import {
+  getSubagentTypeColorSet,
+  getTeamColorSet,
+  scaleColorAlpha,
+  TeamColorSet,
+} from '@renderer/constants/teamColors';
 
 function isValidColorSet(cs: TeamColorSet): boolean {
-  return typeof cs.border === 'string' && typeof cs.badge === 'string' && typeof cs.text === 'string';
+  return (
+    typeof cs.border === 'string' && typeof cs.badge === 'string' && typeof cs.text === 'string'
+  );
 }
 
 // =============================================================================
@@ -71,8 +78,16 @@ describe('getSubagentTypeColorSet', () => {
 
   it('different types can produce different colors', () => {
     const results = new Set(
-      ['Explore', 'Plan', 'test-agent', 'quality-fixer', 'claude-md-auditor', 'Bash', 'general-purpose', 'statusline-setup']
-        .map((t) => getSubagentTypeColorSet(t).border)
+      [
+        'Explore',
+        'Plan',
+        'test-agent',
+        'quality-fixer',
+        'claude-md-auditor',
+        'Bash',
+        'general-purpose',
+        'statusline-setup',
+      ].map((t) => getSubagentTypeColorSet(t).border)
     );
     expect(results.size).toBeGreaterThan(1);
   });
@@ -122,5 +137,19 @@ describe('getSubagentTypeColorSet', () => {
     getSubagentTypeColorSet('green', configs);
     // Team API remains unaffected
     expect(getTeamColorSet('green').border).toBe('#22c55e');
+  });
+});
+
+describe('scaleColorAlpha', () => {
+  it('halves rgba badge opacity', () => {
+    expect(scaleColorAlpha('rgba(59, 130, 246, 0.15)', 0.5)).toBe('rgba(59, 130, 246, 0.075)');
+  });
+
+  it('halves hsla badge opacity', () => {
+    expect(scaleColorAlpha('hsla(220, 80%, 50%, 0.12)', 0.5)).toBe('hsla(220, 80%, 50%, 0.06)');
+  });
+
+  it('halves hex alpha badge opacity', () => {
+    expect(scaleColorAlpha('#ff550026', 0.5)).toBe('#ff550013');
   });
 });

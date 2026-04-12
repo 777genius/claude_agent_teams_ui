@@ -13,6 +13,7 @@ import {
   DIFF_REMOVED_TEXT,
 } from '@renderer/constants/cssVariables';
 import { highlightLines } from '@renderer/utils/syntaxHighlighter';
+import { getAgentToolDisplayDetails } from '@shared/utils/toolSummary';
 
 /**
  * Renders the input section based on tool type with theme-aware styling.
@@ -95,6 +96,71 @@ export function renderInput(toolName: string, input: Record<string, unknown>): R
             {limit !== undefined && `limit: ${limit}`}
           </div>
         )}
+      </div>
+    );
+  }
+
+  // Special rendering for Agent tool - do not leak full bootstrap prompts in UI logs.
+  if (toolName === 'Agent') {
+    const details = getAgentToolDisplayDetails(input);
+
+    return (
+      <div className="space-y-3" style={{ color: COLOR_TEXT }}>
+        <div className="space-y-2">
+          <div>
+            <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+              action
+            </div>
+            <div className="whitespace-pre-wrap break-all">{details.action}</div>
+          </div>
+
+          {details.teammateName && (
+            <div>
+              <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+                teammate
+              </div>
+              <div>{details.teammateName}</div>
+            </div>
+          )}
+
+          {details.teamName && (
+            <div>
+              <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+                team
+              </div>
+              <div>{details.teamName}</div>
+            </div>
+          )}
+
+          {details.runtime && (
+            <div>
+              <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+                runtime
+              </div>
+              <div>{details.runtime}</div>
+            </div>
+          )}
+
+          {details.subagentType && (
+            <div>
+              <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+                type
+              </div>
+              <div>{details.subagentType}</div>
+            </div>
+          )}
+        </div>
+
+        <div
+          className="rounded px-3 py-2 text-[11px]"
+          style={{
+            backgroundColor: 'rgba(250, 204, 21, 0.08)',
+            border: '1px solid rgba(250, 204, 21, 0.22)',
+            color: COLOR_TEXT_MUTED,
+          }}
+        >
+          Startup instructions are hidden in the UI.
+        </div>
       </div>
     );
   }

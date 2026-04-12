@@ -141,11 +141,9 @@ describe('TeamInboxReader', () => {
 
     const messages = await reader.getMessagesFor('my-team', 'alice');
     expect(messages).toHaveLength(2);
-    // Legacy row gets a deterministic hash-based messageId
     const legacy = messages.find((m) => m.text === 'legacy');
     expect(legacy).toBeDefined();
-    expect(legacy!.messageId).toMatch(/^inbox-[a-f0-9]{16}$/);
-    // Explicit messageId is preserved
+    expect(legacy!.messageId).toBe('inbox-3d4d01c54fc0dc52');
     const supported = messages.find((m) => m.text === 'supported');
     expect(supported).toBeDefined();
     expect(supported!.messageId).toBe('m-1');

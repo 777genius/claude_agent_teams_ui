@@ -9,6 +9,7 @@ import {
   TOOL_CALL_TEXT,
 } from '@renderer/constants/cssVariables';
 import { formatTokensCompact } from '@renderer/utils/formatters';
+import { getToolContextTokens } from '@renderer/utils/toolRendering';
 import { format } from 'date-fns';
 import { ChevronRight, Layers, MailOpen } from 'lucide-react';
 
@@ -43,6 +44,25 @@ interface DisplayItemListProps {
   registerToolRef?: (toolId: string, el: HTMLDivElement | null) => void;
   /** Max characters for preview text in item headers (default: 150 for thinking/output, 80 for input) */
   previewMaxLength?: number;
+  /** Optional timestamp format override for all items in this list. */
+  timestampFormat?: string;
+  /** Whether to include compact item metadata in a hover tooltip. */
+  showItemMetaTooltip?: boolean;
+}
+
+function buildItemMetaTooltip(
+  timestamp: Date | undefined,
+  tokenCount: number | undefined,
+  tokenLabel = 'tokens'
+): string | undefined {
+  const parts: string[] = [];
+  if (timestamp) {
+    parts.push(`Time: ${format(timestamp, 'HH:mm')}`);
+  }
+  if (tokenCount != null && tokenCount > 0) {
+    parts.push(`Tokens: ~${formatTokensCompact(tokenCount)} ${tokenLabel}`);
+  }
+  return parts.length > 0 ? parts.join(' • ') : undefined;
 }
 
 /**
@@ -79,6 +99,8 @@ export const DisplayItemList = ({
   notificationColorMap,
   registerToolRef,
   previewMaxLength,
+  timestampFormat,
+  showItemMetaTooltip = false,
 }: Readonly<DisplayItemListProps>): React.JSX.Element => {
   // Reply-link highlight: when hovering a reply badge, dim everything except the linked pair
   const [replyLinkToolId, setReplyLinkToolId] = useState<string | null>(null);
@@ -134,6 +156,12 @@ export const DisplayItemList = ({
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
                 timestamp={item.timestamp}
+                timestampFormat={timestampFormat}
+                titleText={
+                  showItemMetaTooltip
+                    ? buildItemMetaTooltip(item.timestamp, item.tokenCount, 'tokens')
+                    : undefined
+                }
                 markdownItemId={searchQueryOverride ? `${aiGroupId}:${itemKey}` : undefined}
                 searchQueryOverride={searchQueryOverride}
               />
@@ -160,6 +188,12 @@ export const DisplayItemList = ({
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
                 timestamp={item.timestamp}
+                timestampFormat={timestampFormat}
+                titleText={
+                  showItemMetaTooltip
+                    ? buildItemMetaTooltip(item.timestamp, item.tokenCount, 'tokens')
+                    : undefined
+                }
                 markdownItemId={searchQueryOverride ? `${aiGroupId}:${itemKey}` : undefined}
                 searchQueryOverride={searchQueryOverride}
               />
@@ -175,6 +209,16 @@ export const DisplayItemList = ({
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
                 timestamp={item.tool.startTime}
+                timestampFormat={timestampFormat}
+                titleText={
+                  showItemMetaTooltip
+                    ? buildItemMetaTooltip(
+                        item.tool.startTime,
+                        getToolContextTokens(item.tool),
+                        'tokens'
+                      )
+                    : undefined
+                }
                 searchQueryOverride={searchQueryOverride}
                 isHighlighted={highlightToolUseId === item.tool.id}
                 highlightColor={highlightColor}
@@ -226,6 +270,16 @@ export const DisplayItemList = ({
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
                 timestamp={item.slash.timestamp}
+                timestampFormat={timestampFormat}
+                titleText={
+                  showItemMetaTooltip
+                    ? buildItemMetaTooltip(
+                        item.slash.timestamp,
+                        item.slash.instructionsTokenCount,
+                        'tokens'
+                      )
+                    : undefined
+                }
               />
             );
             break;
@@ -255,6 +309,12 @@ export const DisplayItemList = ({
                 summary={truncateText(inputContent, previewMaxLength ?? 80)}
                 tokenCount={inputTokenCount}
                 timestamp={item.timestamp}
+                timestampFormat={timestampFormat}
+                titleText={
+                  showItemMetaTooltip
+                    ? buildItemMetaTooltip(item.timestamp, inputTokenCount, 'tokens')
+                    : undefined
+                }
                 onClick={() => onItemClick(itemKey)}
                 isExpanded={expandedItemIds.has(itemKey)}
               >

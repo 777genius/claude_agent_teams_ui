@@ -205,4 +205,36 @@ describe('configValidation', () => {
       });
     }
   });
+
+  it('accepts Codex provider connection beta updates', () => {
+    const result = validateConfigUpdatePayload('providerConnections', {
+      codex: {
+        apiKeyBetaEnabled: true,
+        authMode: 'api_key',
+      },
+    });
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.data).toEqual({
+        codex: {
+          apiKeyBetaEnabled: true,
+          authMode: 'api_key',
+        },
+      });
+    }
+  });
+
+  it('rejects invalid Codex auth modes in providerConnections', () => {
+    const result = validateConfigUpdatePayload('providerConnections', {
+      codex: {
+        authMode: 'auto',
+      },
+    });
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('providerConnections.codex.authMode');
+    }
+  });
 });

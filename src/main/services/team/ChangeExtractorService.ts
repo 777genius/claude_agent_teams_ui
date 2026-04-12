@@ -174,7 +174,8 @@ export class ChangeExtractorService {
       teamName,
       taskId,
       effectiveOptions,
-      effectiveStateBucket
+      effectiveStateBucket,
+      version
     );
 
     if (options?.forceFresh !== true) {
@@ -407,9 +408,10 @@ export class ChangeExtractorService {
     teamName: string,
     taskId: string,
     options: TaskChangeEffectiveOptions,
-    stateBucket: TaskChangeStateBucket
+    stateBucket: TaskChangeStateBucket,
+    version: number
   ): string {
-    return `${teamName}:${taskId}:${this.buildTaskSignature(options, stateBucket)}`;
+    return `${teamName}:${taskId}:v${version}:${this.buildTaskSignature(options, stateBucket)}`;
   }
 
   private normalizeFilePathKey(filePath: string): string {

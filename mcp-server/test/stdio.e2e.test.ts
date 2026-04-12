@@ -1,12 +1,39 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 function parseJsonToolResult(result: unknown) {
-  const text = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text;
+  const response = result as {
+    content?: Array<{ text?: string }>;
+    isError?: boolean;
+  };
+  const text = response.content?.[0]?.text;
+  if (response.isError) {
+    throw new Error(text ?? 'Tool returned an unspecified error');
+  }
   return JSON.parse(text ?? 'null');
+}
+
+async function writeTeamConfig(claudeDir: string, teamName: string) {
+  const teamDir = path.join(claudeDir, 'teams', teamName);
+  await mkdir(teamDir, { recursive: true });
+  await writeFile(
+    path.join(teamDir, 'config.json'),
+    JSON.stringify(
+      {
+        name: teamName,
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'alice', agentType: 'teammate', role: 'developer' },
+        ],
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
 }
 
 class McpStdIoClient {
@@ -102,6 +129,7 @@ describe('agent-teams-mcp stdio e2e', () => {
   });
 
   it('boots over stdio, lists task tools, and executes task lifecycle calls', async () => {
+    await writeTeamConfig(claudeDir, 'e2e-team');
     const client = new McpStdIoClient(serverPath, workspaceRoot);
 
     try {

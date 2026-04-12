@@ -30,7 +30,10 @@ import { createLogger } from '@shared/utils/logger';
 
 import { GitHubStarsService } from '../services/extensions/catalog/GitHubStarsService';
 
-import type { ApiKeyService } from '../services/extensions/apikeys/ApiKeyService';
+import {
+  RUNTIME_MANAGED_API_KEY_ENV_VARS,
+  type ApiKeyService,
+} from '../services/extensions/apikeys/ApiKeyService';
 import type { ExtensionFacadeService } from '../services/extensions/ExtensionFacadeService';
 import type { McpInstallService } from '../services/extensions/install/McpInstallService';
 import type { PluginInstallService } from '../services/extensions/install/PluginInstallService';
@@ -388,7 +391,12 @@ async function handleApiKeysSave(
 ): Promise<IpcResult<ApiKeyEntry>> {
   return wrapHandler('apiKeysSave', () => {
     if (!request) throw new Error('Request is required');
-    return getApiKeyService().save(request);
+    return getApiKeyService()
+      .save(request)
+      .then(async (entry) => {
+        await getApiKeyService().syncProcessEnv(RUNTIME_MANAGED_API_KEY_ENV_VARS);
+        return entry;
+      });
   });
 }
 
@@ -398,7 +406,11 @@ async function handleApiKeysDelete(
 ): Promise<IpcResult<void>> {
   return wrapHandler('apiKeysDelete', () => {
     if (typeof id !== 'string' || !id) throw new Error('Key ID is required');
-    return getApiKeyService().delete(id);
+    return getApiKeyService()
+      .delete(id)
+      .then(async () => {
+        await getApiKeyService().syncProcessEnv(RUNTIME_MANAGED_API_KEY_ENV_VARS);
+      });
   });
 }
 

@@ -50,6 +50,7 @@ interface LinkedToolItemProps {
   isExpanded: boolean;
   /** Timestamp for display */
   timestamp?: Date;
+  timestampFormat?: string;
   /** Optional local search query override for inline highlighting */
   searchQueryOverride?: string;
   /** Whether this item should be highlighted for error deep linking */
@@ -60,6 +61,7 @@ interface LinkedToolItemProps {
   notificationDotColor?: TriggerColor;
   /** Optional ref registration callback for external scroll control */
   registerRef?: (el: HTMLDivElement | null) => void;
+  titleText?: string;
 }
 
 export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
@@ -67,11 +69,13 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
   onClick,
   isExpanded,
   timestamp,
+  timestampFormat,
   searchQueryOverride,
   isHighlighted,
   highlightColor,
   notificationDotColor,
   registerRef,
+  titleText,
 }) => {
   const status = getToolStatus(linkedTool);
   const { isLight } = useTheme();
@@ -181,6 +185,8 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
         status={status}
         durationMs={linkedTool.durationMs}
         timestamp={timestamp}
+        timestampFormat={timestampFormat}
+        titleText={titleText}
         onClick={onClick}
         isExpanded={isExpanded}
         highlightClasses={highlightClasses}

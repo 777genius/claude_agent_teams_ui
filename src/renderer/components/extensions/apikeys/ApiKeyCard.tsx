@@ -27,19 +27,19 @@ export const ApiKeyCard = ({ apiKey, onEdit }: ApiKeyCardProps): React.JSX.Eleme
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const handleCopyEnvVar = async () => {
+  const handleCopyEnvVar = async (): Promise<void> => {
     await navigator.clipboard.writeText(apiKey.envVarName);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const handleDelete = () => {
+  const handleDelete = (): void => {
     if (!confirmDelete) {
       setConfirmDelete(true);
       setTimeout(() => setConfirmDelete(false), 3000);
       return;
     }
-    void deleteApiKey(apiKey.id);
+    void deleteApiKey(apiKey.id).catch(() => undefined);
     setConfirmDelete(false);
   };
 

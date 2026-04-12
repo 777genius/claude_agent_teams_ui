@@ -247,17 +247,23 @@ describe('FileWatcher', () => {
 
       // Simulate having previously processed the file by directly setting tracking state
       const watcherAny = watcher as unknown as {
+        isWatching: boolean;
         lastProcessedLineCount: Map<string, number>;
         lastProcessedSize: Map<string, number>;
-        activeSessionFiles: Map<string, { projectId: string; sessionId: string }>;
+        activeSessionFiles: Map<
+          string,
+          { projectId: string; sessionId: string; lastObservedAt: number }
+        >;
         runCatchUpScan: () => Promise<void>;
       };
       const initialSize = fs.statSync(filePath).size;
+      watcherAny.isWatching = true;
       watcherAny.lastProcessedLineCount.set(filePath, 1);
       watcherAny.lastProcessedSize.set(filePath, initialSize);
       watcherAny.activeSessionFiles.set(filePath, {
         projectId: 'test-project',
         sessionId: 'session-1',
+        lastObservedAt: Date.now(),
       });
 
       // Append new data WITHOUT triggering fs.watch (simulating a missed event)
@@ -301,17 +307,23 @@ describe('FileWatcher', () => {
       watcher.setNotificationManager(notificationManager);
 
       const watcherAny = watcher as unknown as {
+        isWatching: boolean;
         lastProcessedLineCount: Map<string, number>;
         lastProcessedSize: Map<string, number>;
-        activeSessionFiles: Map<string, { projectId: string; sessionId: string }>;
+        activeSessionFiles: Map<
+          string,
+          { projectId: string; sessionId: string; lastObservedAt: number }
+        >;
         runCatchUpScan: () => Promise<void>;
       };
       const currentSize = fs.statSync(filePath).size;
+      watcherAny.isWatching = true;
       watcherAny.lastProcessedLineCount.set(filePath, 1);
       watcherAny.lastProcessedSize.set(filePath, currentSize);
       watcherAny.activeSessionFiles.set(filePath, {
         projectId: 'test-project',
         sessionId: 'session-1',
+        lastObservedAt: Date.now(),
       });
 
       vi.mocked(errorDetector.detectErrors).mockClear();
@@ -348,13 +360,19 @@ describe('FileWatcher', () => {
       watcher.setNotificationManager(notificationManager);
 
       const watcherAny = watcher as unknown as {
-        activeSessionFiles: Map<string, { projectId: string; sessionId: string }>;
+        isWatching: boolean;
+        activeSessionFiles: Map<
+          string,
+          { projectId: string; sessionId: string; lastObservedAt: number }
+        >;
         lastProcessedSize: Map<string, number>;
         runCatchUpScan: () => Promise<void>;
       };
+      watcherAny.isWatching = true;
       watcherAny.activeSessionFiles.set(filePath, {
         projectId: 'test-project',
         sessionId: 'old-session',
+        lastObservedAt: Date.now(),
       });
       watcherAny.lastProcessedSize.set(filePath, 0);
 
@@ -378,14 +396,20 @@ describe('FileWatcher', () => {
       const filePath = '/tmp/projects/test-project/nonexistent.jsonl';
 
       const watcherAny = watcher as unknown as {
-        activeSessionFiles: Map<string, { projectId: string; sessionId: string }>;
+        isWatching: boolean;
+        activeSessionFiles: Map<
+          string,
+          { projectId: string; sessionId: string; lastObservedAt: number }
+        >;
         lastProcessedSize: Map<string, number>;
         lastProcessedLineCount: Map<string, number>;
         runCatchUpScan: () => Promise<void>;
       };
+      watcherAny.isWatching = true;
       watcherAny.activeSessionFiles.set(filePath, {
         projectId: 'test-project',
         sessionId: 'nonexistent',
+        lastObservedAt: Date.now(),
       });
       watcherAny.lastProcessedSize.set(filePath, 100);
       watcherAny.lastProcessedLineCount.set(filePath, 5);

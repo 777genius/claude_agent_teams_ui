@@ -144,9 +144,9 @@ describe('PROTECTED_CLI_FLAGS', () => {
     expect(PROTECTED_CLI_FLAGS.has('--verbose')).toBe(true);
   });
 
-  it('does not contain user-facing flags', () => {
-    expect(PROTECTED_CLI_FLAGS.has('--model')).toBe(false);
-    expect(PROTECTED_CLI_FLAGS.has('--effort')).toBe(false);
+  it('contains app-managed launch flags but not unrelated user flags', () => {
+    expect(PROTECTED_CLI_FLAGS.has('--model')).toBe(true);
+    expect(PROTECTED_CLI_FLAGS.has('--effort')).toBe(true);
     expect(PROTECTED_CLI_FLAGS.has('--worktree')).toBe(false);
   });
 });

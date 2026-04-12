@@ -166,7 +166,11 @@ export const TaskTooltip = ({
 
           {/* Owner */}
           {task.owner && members.length > 0 ? (
-            <MemberBadge name={task.owner} color={colorMap.get(task.owner)} />
+            <MemberBadge
+              name={task.owner}
+              color={colorMap.get(task.owner)}
+              teamName={resolvedTeamName}
+            />
           ) : task.owner ? (
             <span className="text-[10px] text-[var(--color-text-secondary)]">{task.owner}</span>
           ) : (

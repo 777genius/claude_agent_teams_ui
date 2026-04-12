@@ -865,7 +865,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
                 onClick={() => setContextPanelVisible(!isContextPanelVisible)}
                 onMouseEnter={() => setIsContextButtonHovered(true)}
                 onMouseLeave={() => setIsContextButtonHovered(false)}
-                className="pointer-events-auto flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-md transition-colors"
+                className="pointer-events-auto flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg transition-colors"
                 style={{
                   backgroundColor: isContextPanelVisible
                     ? 'var(--context-btn-active-bg)'
@@ -997,7 +997,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
               scrollToBottom('smooth');
               setShowScrollButton(false);
             }}
-            className="absolute bottom-5 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-lg backdrop-blur-md transition-all"
+            className="absolute bottom-5 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-lg transition-colors"
             style={{
               right: '1rem',
               backgroundColor: 'var(--context-btn-bg)',

@@ -82,6 +82,7 @@ import type {
   UpdateKanbanPatch,
 } from './team';
 import type { TerminalAPI } from './terminal';
+import type { TmuxAPI } from './tmux';
 import type { WaterfallData } from './visualization';
 import type {
   ConversationGroup,
@@ -428,7 +429,11 @@ export interface TeamsAPI {
   permanentlyDeleteTeam: (teamName: string) => Promise<void>;
   getSavedRequest: (teamName: string) => Promise<TeamCreateRequest | null>;
   deleteDraft: (teamName: string) => Promise<void>;
-  prepareProvisioning: (cwd?: string) => Promise<TeamProvisioningPrepareResult>;
+  prepareProvisioning: (
+    cwd?: string,
+    providerId?: TeamLaunchRequest['providerId'],
+    providerIds?: TeamLaunchRequest['providerId'][]
+  ) => Promise<TeamProvisioningPrepareResult>;
   createTeam: (request: TeamCreateRequest) => Promise<TeamCreateResponse>;
   getProvisioningStatus: (runId: string) => Promise<TeamProvisioningProgress>;
   cancelProvisioning: (runId: string) => Promise<void>;
@@ -823,6 +828,9 @@ export interface ElectronAPI {
 
   // CLI Installer API
   cliInstaller: CliInstallerAPI;
+
+  // tmux runtime diagnostics API
+  tmux: TmuxAPI;
 
   // Embedded Terminal API (xterm.js + node-pty)
   terminal: TerminalAPI;

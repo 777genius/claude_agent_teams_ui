@@ -45,6 +45,12 @@ const WATCHER_RETRY_MS = 2000;
 const CATCH_UP_INTERVAL_MS = 30_000;
 /** Only catch-up scan files modified within this window */
 const CATCH_UP_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+/** Retire quiet top-level sessions from best-effort catch-up after this long. */
+const CATCH_UP_SESSION_RETENTION_MS = 20 * 60 * 1000; // 20 minutes
+/** Subagent logs are much noisier; retire them sooner from catch-up tracking. */
+const CATCH_UP_SUBAGENT_RETENTION_MS = 5 * 60 * 1000; // 5 minutes
+/** Bound best-effort catch-up work per tick so it cannot monopolize the event loop. */
+const CATCH_UP_SCAN_BUDGET = 24;
 
 interface AppendedParseResult {
   messages: ParsedMessage[];
@@ -56,6 +62,7 @@ interface ActiveSessionFile {
   projectId: string;
   sessionId: string;
   subagentId?: string;
+  lastObservedAt: number;
 }
 
 export class FileWatcher extends EventEmitter {
@@ -81,6 +88,10 @@ export class FileWatcher extends EventEmitter {
   private activeSessionFiles = new Map<string, ActiveSessionFile>();
   /** Timer for periodic catch-up scan */
   private catchUpTimer: NodeJS.Timeout | null = null;
+  /** Prevent overlapping catch-up scans when a previous pass is still running. */
+  private catchUpInProgress = false;
+  /** Round-robin cursor so catch-up work is spread across tracked files. */
+  private catchUpCursor = 0;
   /** Timer for SSH polling mode (replaces fs.watch) */
   private pollingTimer: NodeJS.Timeout | null = null;
   /** Polling interval for SSH mode */
@@ -167,6 +178,8 @@ export class FileWatcher extends EventEmitter {
    */
   stop(): void {
     this.isWatching = false;
+    this.catchUpInProgress = false;
+    this.catchUpCursor = 0;
 
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
@@ -702,7 +715,7 @@ export class FileWatcher extends EventEmitter {
           if (config.notifications.includeSubagentErrors) {
             const subagentFilename = path.basename(parts[3], '.jsonl');
             const subagentId = subagentFilename.replace(/^agent-/, '');
-            this.activeSessionFiles.set(fullPath, { projectId, sessionId, subagentId });
+            this.rememberActiveSessionFile(fullPath, { projectId, sessionId, subagentId });
             this.detectErrorsInSessionFile(projectId, sessionId, fullPath, subagentId).catch(
               (err) => {
                 logger.error('Error detecting errors in subagent file:', err);
@@ -710,7 +723,7 @@ export class FileWatcher extends EventEmitter {
             );
           }
         } else {
-          this.activeSessionFiles.set(fullPath, { projectId, sessionId });
+          this.rememberActiveSessionFile(fullPath, { projectId, sessionId });
           this.detectErrorsInSessionFile(projectId, sessionId, fullPath).catch((err) => {
             logger.error('Error detecting errors in session file:', err);
           });
@@ -857,6 +870,22 @@ export class FileWatcher extends EventEmitter {
     this.lastProcessedLineCount.clear();
     this.lastProcessedSize.clear();
     this.activeSessionFiles.clear();
+    this.catchUpCursor = 0;
+    this.catchUpInProgress = false;
+  }
+
+  private rememberActiveSessionFile(
+    filePath: string,
+    info: Omit<ActiveSessionFile, 'lastObservedAt'>
+  ): void {
+    this.activeSessionFiles.set(filePath, {
+      ...info,
+      lastObservedAt: Date.now(),
+    });
+  }
+
+  private getCatchUpRetentionMs(info: ActiveSessionFile): number {
+    return info.subagentId ? CATCH_UP_SUBAGENT_RETENTION_MS : CATCH_UP_SESSION_RETENTION_MS;
   }
 
   /**
@@ -1084,41 +1113,71 @@ export class FileWatcher extends EventEmitter {
    * Only checks files modified within the last hour.
    */
   private async runCatchUpScan(): Promise<void> {
-    if (!this.notificationManager || this.activeSessionFiles.size === 0) {
+    if (!this.notificationManager || this.activeSessionFiles.size === 0 || this.catchUpInProgress) {
       return;
     }
 
-    const now = Date.now();
+    this.catchUpInProgress = true;
+    try {
+      const now = Date.now();
+      const entries = [...this.activeSessionFiles.entries()];
+      if (entries.length === 0) {
+        return;
+      }
 
-    for (const [filePath, info] of this.activeSessionFiles) {
-      try {
-        const stats = await this.fsProvider.stat(filePath);
+      const budget = Math.min(CATCH_UP_SCAN_BUDGET, entries.length);
+      const startIndex = this.catchUpCursor % entries.length;
 
-        // Skip files not modified recently
-        if (now - stats.mtimeMs > CATCH_UP_MAX_AGE_MS) {
-          this.activeSessionFiles.delete(filePath);
+      for (let offset = 0; offset < budget; offset += 1) {
+        if (!this.isWatching) {
+          break;
+        }
+        const [filePath] = entries[(startIndex + offset) % entries.length];
+        const info = this.activeSessionFiles.get(filePath);
+        if (!info) {
           continue;
         }
+        try {
+          if (now - info.lastObservedAt > this.getCatchUpRetentionMs(info)) {
+            this.clearErrorTracking(filePath);
+            continue;
+          }
 
-        const lastSize = this.lastProcessedSize.get(filePath) ?? 0;
-        if (stats.size > lastSize) {
-          logger.info(`FileWatcher: Catch-up scan detected growth in ${filePath}`);
-          await this.detectErrorsInSessionFile(
-            info.projectId,
-            info.sessionId,
-            filePath,
-            info.subagentId
-          );
-        }
-      } catch (err) {
-        // File may have been deleted between iterations
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          this.activeSessionFiles.delete(filePath);
-          this.clearErrorTracking(filePath);
-        } else {
-          logger.error(`FileWatcher: Error during catch-up stat for ${filePath}:`, err);
+          const stats = await this.fsProvider.stat(filePath);
+
+          // Skip files not modified recently
+          if (now - stats.mtimeMs > CATCH_UP_MAX_AGE_MS) {
+            this.clearErrorTracking(filePath);
+            continue;
+          }
+
+          const lastSize = this.lastProcessedSize.get(filePath) ?? 0;
+          if (stats.size > lastSize) {
+            logger.info(`FileWatcher: Catch-up scan detected growth in ${filePath}`);
+            this.rememberActiveSessionFile(filePath, {
+              projectId: info.projectId,
+              sessionId: info.sessionId,
+              ...(info.subagentId ? { subagentId: info.subagentId } : {}),
+            });
+            await this.detectErrorsInSessionFile(
+              info.projectId,
+              info.sessionId,
+              filePath,
+              info.subagentId
+            );
+          }
+        } catch (err) {
+          // File may have been deleted between iterations
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            this.clearErrorTracking(filePath);
+          } else {
+            logger.error(`FileWatcher: Error during catch-up stat for ${filePath}:`, err);
+          }
         }
       }
+      this.catchUpCursor = (startIndex + budget) % Math.max(entries.length, 1);
+    } finally {
+      this.catchUpInProgress = false;
     }
   }
 

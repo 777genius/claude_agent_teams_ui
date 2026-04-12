@@ -9,7 +9,7 @@
  * - Handle JSON parse errors gracefully
  */
 
-import { getHomeDir, setClaudeBasePathOverride } from '@main/utils/pathDecoder';
+import { getClaudeBasePath, setClaudeBasePathOverride } from '@main/utils/pathDecoder';
 import { validateRegexPattern } from '@main/utils/regexValidation';
 import { createLogger } from '@shared/utils/logger';
 import * as fs from 'fs';
@@ -23,9 +23,11 @@ import type { SshConnectionProfile } from '@shared/types/api';
 
 const logger = createLogger('Service:ConfigManager');
 
-const CONFIG_DIR = path.join(getHomeDir(), '.claude');
 const CONFIG_FILENAME = 'claude-devtools-config.json';
-const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, CONFIG_FILENAME);
+
+function getDefaultConfigPath(): string {
+  return path.join(getClaudeBasePath(), CONFIG_FILENAME);
+}
 
 // ===========================================================================
 // Types
@@ -204,6 +206,7 @@ export interface GeneralConfig {
   showDockIcon: boolean;
   theme: 'dark' | 'light' | 'system';
   defaultTab: 'dashboard' | 'last-session';
+  multimodelEnabled: boolean;
   claudeRootPath: string | null;
   agentLanguage: string;
   autoExpandAIGroups: boolean;
@@ -212,6 +215,26 @@ export interface GeneralConfig {
   customProjectPaths: string[];
   /** Send anonymous crash & performance telemetry (requires SENTRY_DSN at build time) */
   telemetryEnabled: boolean;
+}
+
+export interface RuntimeConfig {
+  providerBackends: {
+    gemini: 'auto' | 'api' | 'cli-sdk';
+    codex: 'auto' | 'adapter';
+  };
+}
+
+export type ProviderConnectionAuthMode = 'auto' | 'oauth' | 'api_key';
+export type CodexProviderConnectionAuthMode = Exclude<ProviderConnectionAuthMode, 'auto'>;
+
+export interface ProviderConnectionsConfig {
+  anthropic: {
+    authMode: ProviderConnectionAuthMode;
+  };
+  codex: {
+    apiKeyBetaEnabled: boolean;
+    authMode: CodexProviderConnectionAuthMode;
+  };
 }
 
 export interface DisplayConfig {
@@ -246,6 +269,8 @@ export interface HttpServerConfig {
 export interface AppConfig {
   notifications: NotificationConfig;
   general: GeneralConfig;
+  providerConnections: ProviderConnectionsConfig;
+  runtime: RuntimeConfig;
   display: DisplayConfig;
   sessions: SessionsConfig;
   ssh: SshPersistConfig;
@@ -290,12 +315,28 @@ const DEFAULT_CONFIG: AppConfig = {
     showDockIcon: true,
     theme: 'dark',
     defaultTab: 'dashboard',
+    multimodelEnabled: true,
     claudeRootPath: null,
     agentLanguage: 'system',
     autoExpandAIGroups: false,
     useNativeTitleBar: false,
     customProjectPaths: [],
     telemetryEnabled: true,
+  },
+  providerConnections: {
+    anthropic: {
+      authMode: 'auto',
+    },
+    codex: {
+      apiKeyBetaEnabled: false,
+      authMode: 'oauth',
+    },
+  },
+  runtime: {
+    providerBackends: {
+      gemini: 'auto',
+      codex: 'auto',
+    },
   },
   display: {
     showTimestamps: true,
@@ -361,7 +402,7 @@ export class ConfigManager {
   private triggerManager: TriggerManager;
 
   constructor(configPath?: string) {
-    this.configPath = configPath ?? DEFAULT_CONFIG_PATH;
+    this.configPath = configPath ?? getDefaultConfigPath();
     this.config = this.loadConfig();
     setClaudeBasePathOverride(this.config.general.claudeRootPath);
     this.triggerManager = new TriggerManager(this.config.notifications.triggers, () =>
@@ -466,6 +507,22 @@ export class ConfigManager {
         triggers: mergedTriggers,
       },
       general: mergedGeneral,
+      providerConnections: {
+        anthropic: {
+          ...DEFAULT_CONFIG.providerConnections.anthropic,
+          ...(loaded.providerConnections?.anthropic ?? {}),
+        },
+        codex: {
+          ...DEFAULT_CONFIG.providerConnections.codex,
+          ...(loaded.providerConnections?.codex ?? {}),
+        },
+      },
+      runtime: {
+        providerBackends: {
+          ...DEFAULT_CONFIG.runtime.providerBackends,
+          ...(loaded.runtime?.providerBackends ?? {}),
+        },
+      },
       display: {
         ...DEFAULT_CONFIG.display,
         ...(loaded.display ?? {}),
@@ -538,8 +595,34 @@ export class ConfigManager {
     section: K,
     data: Partial<AppConfig[K]>
   ): Partial<AppConfig[K]> {
-    if (section !== 'general') {
+    if (section !== 'general' && section !== 'runtime' && section !== 'providerConnections') {
       return data;
+    }
+
+    if (section === 'runtime') {
+      const runtimeUpdate = data as Partial<RuntimeConfig>;
+      return {
+        ...runtimeUpdate,
+        providerBackends: {
+          ...this.config.runtime.providerBackends,
+          ...runtimeUpdate.providerBackends,
+        },
+      } as unknown as Partial<AppConfig[K]>;
+    }
+
+    if (section === 'providerConnections') {
+      const connectionUpdate = data as Partial<ProviderConnectionsConfig>;
+      return {
+        ...connectionUpdate,
+        anthropic: {
+          ...this.config.providerConnections.anthropic,
+          ...(connectionUpdate.anthropic ?? {}),
+        },
+        codex: {
+          ...this.config.providerConnections.codex,
+          ...(connectionUpdate.codex ?? {}),
+        },
+      } as unknown as Partial<AppConfig[K]>;
     }
 
     if (!Object.prototype.hasOwnProperty.call(data, 'claudeRootPath')) {

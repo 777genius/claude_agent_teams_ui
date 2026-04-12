@@ -255,6 +255,43 @@ function resolveTeamMembers(paths) {
   };
 }
 
+function getCurrentRuntimeMemberIdentity() {
+  const args = Array.isArray(process.argv) ? process.argv.slice(2) : [];
+  let agentName = '';
+  let agentId = '';
+  let teamName = '';
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = typeof args[i] === 'string' ? args[i] : '';
+    const next = typeof args[i + 1] === 'string' ? args[i + 1].trim() : '';
+    if (!next) continue;
+    if (arg === '--agent-name') {
+      agentName = next;
+      continue;
+    }
+    if (arg === '--agent-id') {
+      agentId = next;
+      continue;
+    }
+    if (arg === '--team-name') {
+      teamName = next;
+    }
+  }
+
+  const normalizedAgentName = typeof agentName === 'string' ? agentName.trim() : '';
+  const normalizedAgentId = typeof agentId === 'string' ? agentId.trim() : '';
+  const normalizedTeamName = typeof teamName === 'string' ? teamName.trim() : '';
+  if (!normalizedAgentName && !normalizedAgentId) {
+    return null;
+  }
+
+  return {
+    agentName: normalizedAgentName,
+    agentId: normalizedAgentId,
+    teamName: normalizedTeamName,
+  };
+}
+
 function resolveLeadSessionId(paths) {
   const config = readTeamConfig(paths);
   return config && typeof config.leadSessionId === 'string' && config.leadSessionId.trim()
@@ -459,6 +496,7 @@ module.exports = {
   readMembersMeta,
   readTeamConfig,
   resolveTeamMembers,
+  getCurrentRuntimeMemberIdentity,
   resolveLeadSessionId,
   saveTaskAttachmentFile,
 };

@@ -19,6 +19,7 @@ describe('SkillMetadataParser', () => {
       rawContent: `---
 name: demo-skill
 description: Test skill
+version: 1.2.3
 allowed-tools:
   - Read
 compatibility: Requires network and API key
@@ -40,6 +41,12 @@ unknown-key: true
         'allowed-tools-advisory',
         'compatibility-advisory',
       ])
+    );
+    expect(item.issues).not.toContainEqual(
+      expect.objectContaining({
+        code: 'unknown-frontmatter-keys',
+        message: expect.stringContaining('version'),
+      })
     );
   });
 

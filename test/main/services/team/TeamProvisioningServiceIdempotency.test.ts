@@ -5,6 +5,13 @@ import { EventEmitter } from 'events';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const hoisted = vi.hoisted(() => ({
+  paths: {
+    claudeRoot: '',
+    teamsBase: '',
+  },
+}));
+
 let tempClaudeRoot = '';
 let tempTeamsBase = '';
 
@@ -12,9 +19,9 @@ vi.mock('@main/utils/pathDecoder', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@main/utils/pathDecoder')>();
   return {
     ...actual,
-    getAutoDetectedClaudeBasePath: () => tempClaudeRoot,
-    getClaudeBasePath: () => tempClaudeRoot,
-    getTeamsBasePath: () => tempTeamsBase,
+    getAutoDetectedClaudeBasePath: () => hoisted.paths.claudeRoot,
+    getClaudeBasePath: () => hoisted.paths.claudeRoot,
+    getTeamsBasePath: () => hoisted.paths.teamsBase,
   };
 });
 
@@ -25,11 +32,15 @@ describe('TeamProvisioningService idempotent launch guards', () => {
     vi.clearAllMocks();
     tempClaudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-team-launch-'));
     tempTeamsBase = path.join(tempClaudeRoot, 'teams');
+    hoisted.paths.claudeRoot = tempClaudeRoot;
+    hoisted.paths.teamsBase = tempTeamsBase;
     fs.mkdirSync(tempTeamsBase, { recursive: true });
   });
 
   afterEach(() => {
     fs.rmSync(tempClaudeRoot, { recursive: true, force: true });
+    hoisted.paths.claudeRoot = '';
+    hoisted.paths.teamsBase = '';
   });
 
   it('reuses the alive run instead of spawning a duplicate launch', async () => {

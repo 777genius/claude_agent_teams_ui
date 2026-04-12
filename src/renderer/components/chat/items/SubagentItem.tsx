@@ -265,7 +265,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
   return (
     <div
       ref={outerCardRef}
-      className={`overflow-hidden rounded-md transition-all duration-300 ${outerHighlight.className}`}
+      className={`overflow-hidden rounded-md transition-[background-color,box-shadow] duration-300 ${outerHighlight.className}`}
       style={{
         backgroundColor: CARD_BG,
         border: CARD_BORDER_STYLE,

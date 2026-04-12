@@ -7,21 +7,33 @@ import { formatAgentRole } from '@renderer/utils/formatAgentRole';
 import {
   agentAvatarUrl,
   displayMemberName,
-  getMemberDotClass,
-  getPresenceLabel,
+  getLaunchAwarePresenceLabel,
+  getMemberRuntimeAdvisoryTitle,
+  getSpawnAwareDotClass,
 } from '@renderer/utils/memberHelpers';
-import { isLeadAgentType, isLeadMember } from '@shared/utils/leadDetection';
+import { isLeadMember } from '@shared/utils/leadDetection';
 import { Pencil } from 'lucide-react';
 
 import { MemberRoleEditor } from './MemberRoleEditor';
 
-import type { LeadActivityState, ResolvedTeamMember } from '@shared/types';
+import type {
+  LeadActivityState,
+  MemberLaunchState,
+  MemberSpawnLivenessSource,
+  MemberSpawnStatus,
+  ResolvedTeamMember,
+} from '@shared/types';
 
 interface MemberDetailHeaderProps {
   member: ResolvedTeamMember;
   isTeamAlive?: boolean;
   isTeamProvisioning?: boolean;
   leadActivity?: LeadActivityState;
+  spawnStatus?: MemberSpawnStatus;
+  spawnLaunchState?: MemberLaunchState;
+  spawnLivenessSource?: MemberSpawnLivenessSource;
+  spawnRuntimeAlive?: boolean;
+  isLaunchSettling?: boolean;
   onUpdateRole?: (newRole: string | undefined) => Promise<void> | void;
   updatingRole?: boolean;
 }
@@ -31,6 +43,11 @@ export const MemberDetailHeader = ({
   isTeamAlive,
   isTeamProvisioning,
   leadActivity,
+  spawnStatus,
+  spawnLaunchState,
+  spawnLivenessSource,
+  spawnRuntimeAlive,
+  isLaunchSettling,
   onUpdateRole,
   updatingRole,
 }: MemberDetailHeaderProps): React.JSX.Element => {
@@ -44,8 +61,32 @@ export const MemberDetailHeader = ({
 
   const colors = getTeamColorSet(member.color ?? '');
   const role = member.role || formatAgentRole(member.agentType);
-  const presenceLabel = getPresenceLabel(member, isTeamAlive, isTeamProvisioning, leadActivity);
-  const dotClass = getMemberDotClass(member, isTeamAlive, isTeamProvisioning, leadActivity);
+  const presenceLabel = getLaunchAwarePresenceLabel(
+    member,
+    spawnStatus,
+    spawnLaunchState,
+    spawnLivenessSource,
+    spawnRuntimeAlive,
+    member.runtimeAdvisory,
+    isLaunchSettling,
+    isTeamAlive,
+    isTeamProvisioning,
+    leadActivity
+  );
+  const dotClass = getSpawnAwareDotClass(
+    member,
+    spawnStatus,
+    spawnLaunchState,
+    spawnRuntimeAlive,
+    isLaunchSettling,
+    isTeamAlive,
+    isTeamProvisioning,
+    leadActivity
+  );
+  const runtimeAdvisoryTitle = getMemberRuntimeAdvisoryTitle(
+    member.runtimeAdvisory,
+    member.providerId
+  );
 
   const canEditRole =
     !isLeadMember(member) && !member.removedAt && !isTeamProvisioning && !!onUpdateRole;
@@ -104,6 +145,7 @@ export const MemberDetailHeader = ({
                 <Badge
                   variant="secondary"
                   className="px-1.5 py-0.5 text-[10px] font-normal leading-none text-[var(--color-text-muted)]"
+                  title={runtimeAdvisoryTitle}
                 >
                   {presenceLabel}
                 </Badge>

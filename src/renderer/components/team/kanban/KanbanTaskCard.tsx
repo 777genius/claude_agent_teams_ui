@@ -250,7 +250,8 @@ export const KanbanTaskCard = memo(
       [taskChangeRequestOptions, onViewChanges]
     );
 
-    const isReviewManual = columnId === 'review' && !hasReviewers && !kanbanTaskState?.reviewer;
+    const effectiveReviewer = (kanbanTaskState?.reviewer ?? task.reviewer ?? '').trim();
+    const isReviewManual = columnId === 'review' && !hasReviewers && effectiveReviewer.length === 0;
     const metaActions = (
       <>
         {canDisplay && task.changePresence === 'has_changes' ? (

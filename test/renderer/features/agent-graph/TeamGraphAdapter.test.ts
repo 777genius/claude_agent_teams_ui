@@ -210,6 +210,36 @@ describe('TeamGraphAdapter particles', () => {
     expect(graph.particles.every((particle) => particle.kind === 'inbox_message')).toBe(true);
   });
 
+  it('uses peer-summary text for idle particles instead of generic idle', () => {
+    const adapter = TeamGraphAdapter.create();
+    adapter.adapt(createBaseTeamData(), 'my-team');
+
+    const next = createBaseTeamData({
+      messages: [
+        {
+          from: 'alice',
+          to: 'team-lead',
+          text: JSON.stringify({
+            type: 'idle_notification',
+            idleReason: 'available',
+            summary: '[to bob] aligned on rollout order',
+          }),
+          timestamp: '2026-04-08T19:00:01.000Z',
+          read: true,
+          messageId: 'idle-summary-1',
+        },
+      ],
+    });
+
+    const graph = adapter.adapt(next, 'my-team');
+
+    expect(graph.particles).toHaveLength(1);
+    expect(graph.particles[0]).toMatchObject({
+      kind: 'inbox_message',
+      label: '[to bob] aligned on rollout order',
+    });
+  });
+
   it('creates particles for each newly appended task comment, not only the latest one', () => {
     const adapter = TeamGraphAdapter.create();
     const baseline = createBaseTeamData({
@@ -470,5 +500,56 @@ describe('TeamGraphAdapter particles', () => {
 
     const alice = graph.nodes.find((node) => node.id === 'member:my-team:alice');
     expect(alice?.state).toBe('idle');
+  });
+
+  it('adds compact runtime labels for lead and members and refreshes when runtime changes', () => {
+    const adapter = TeamGraphAdapter.create();
+    adapter.adapt(createBaseTeamData(), 'my-team');
+
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+            providerId: 'codex',
+            model: 'gpt-5.4-mini',
+            effort: 'medium',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            providerId: 'anthropic',
+            model: 'sonnet',
+            effort: 'high',
+          },
+          {
+            name: 'bob',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+        ],
+      }),
+      'my-team'
+    );
+
+    expect(graph.nodes.find((node) => node.id === 'lead:my-team')?.runtimeLabel).toBe(
+      'GPT-5.4 Mini · Medium'
+    );
+    expect(graph.nodes.find((node) => node.id === 'member:my-team:alice')?.runtimeLabel).toBe(
+      'Anthropic · Sonnet 4.6 · High'
+    );
   });
 });

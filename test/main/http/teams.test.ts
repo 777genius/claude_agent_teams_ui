@@ -15,7 +15,7 @@ describe('HTTP team runtime routes', () => {
     const launchTeam = vi.fn<
       (request: TeamLaunchRequest, onProgress: (progress: TeamProvisioningProgress) => void) => Promise<TeamLaunchResponse>
     >();
-    const getRuntimeState = vi.fn<(teamName: string) => TeamRuntimeState>();
+    const getRuntimeState = vi.fn<(teamName: string) => Promise<TeamRuntimeState>>();
     const getProvisioningStatus = vi.fn<(runId: string) => Promise<TeamProvisioningProgress>>();
     const stopTeam = vi.fn<(teamName: string) => void>();
     const getAliveTeams = vi.fn<() => string[]>();
@@ -82,6 +82,7 @@ describe('HTTP team runtime routes', () => {
           teamName: 'demo-team',
           cwd: '/tmp/project',
           prompt: 'Resume work',
+          providerId: 'anthropic',
           skipPermissions: false,
           clearContext: true,
         },
@@ -115,7 +116,7 @@ describe('HTTP team runtime routes', () => {
   it('returns runtime state, provisioning status, and stop results', async () => {
     const { app, getRuntimeState, getProvisioningStatus, stopTeam, getAliveTeams } = await createApp();
     getRuntimeState
-      .mockReturnValueOnce({
+      .mockResolvedValueOnce({
         teamName: 'demo-team',
         isAlive: true,
         runId: 'run-2',
@@ -128,13 +129,13 @@ describe('HTTP team runtime routes', () => {
           updatedAt: '2026-03-12T00:00:01.000Z',
         },
       })
-      .mockReturnValueOnce({
+      .mockResolvedValueOnce({
         teamName: 'demo-team',
         isAlive: false,
         runId: null,
         progress: null,
       })
-      .mockReturnValueOnce({
+      .mockResolvedValueOnce({
         teamName: 'demo-team',
         isAlive: true,
         runId: 'run-2',

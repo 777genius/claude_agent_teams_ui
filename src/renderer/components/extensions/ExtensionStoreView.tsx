@@ -5,8 +5,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { AlertTriangle, BookOpen, Info, Key, Plus, Puzzle, RefreshCw, Server } from 'lucide-react';
 
 import { api } from '@renderer/api';
 import { Button } from '@renderer/components/ui/button';
@@ -20,6 +18,8 @@ import {
 import { useTabIdOptional } from '@renderer/contexts/useTabUIContext';
 import { useExtensionsTabState } from '@renderer/hooks/useExtensionsTabState';
 import { useStore } from '@renderer/store';
+import { AlertTriangle, BookOpen, Info, Key, Plus, Puzzle, RefreshCw, Server } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { ApiKeysPanel } from './apikeys/ApiKeysPanel';
 import { CustomMcpServerDialog } from './mcp/CustomMcpServerDialog';
@@ -165,15 +165,26 @@ export const ExtensionStoreView = (): React.JSX.Element => {
     }
 
     if (!cliStatus.installed) {
+      const cliLaunchIssue = Boolean(cliStatus.binaryPath && cliStatus.launchError);
       return (
         <div className="mx-4 mt-3 flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-amber-300">Claude CLI is not available</p>
-            <p className="mt-0.5 text-xs text-text-muted">
-              Plugin installs are disabled until Claude CLI is installed. Open the Dashboard to
-              install it and retry.
+            <p className="text-sm font-medium text-amber-300">
+              {cliLaunchIssue
+                ? 'Claude CLI was found but failed to start'
+                : 'Claude CLI is not available'}
             </p>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {cliLaunchIssue
+                ? 'Plugin installs are disabled until Claude CLI passes its startup health check. Open the Dashboard to repair or reinstall it.'
+                : 'Plugin installs are disabled until Claude CLI is installed. Open the Dashboard to install it and retry.'}
+            </p>
+            {cliLaunchIssue && cliStatus.launchError && (
+              <p className="mt-2 break-all font-mono text-[11px] text-text-muted">
+                {cliStatus.launchError}
+              </p>
+            )}
           </div>
           <Button size="sm" variant="outline" onClick={openDashboard}>
             Open Dashboard
@@ -231,8 +242,8 @@ export const ExtensionStoreView = (): React.JSX.Element => {
   return (
     <TooltipProvider>
       <div className="flex flex-1 flex-col overflow-hidden">
-        {cliStatusBanner}
         <div className="flex-1 overflow-y-auto">
+          {cliStatusBanner}
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-3">

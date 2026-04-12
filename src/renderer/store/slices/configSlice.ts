@@ -62,6 +62,7 @@ export const createConfigSlice: StateCreator<AppState, [], [], ConfigSlice> = (s
 
   // Update a section of the app configuration
   updateConfig: async (section: string, data: Record<string, unknown>) => {
+    set({ configError: null });
     try {
       await api.config.update(section, data);
       // Refresh config after update
@@ -74,6 +75,7 @@ export const createConfigSlice: StateCreator<AppState, [], [], ConfigSlice> = (s
       set({
         configError: error instanceof Error ? error.message : 'Failed to update config',
       });
+      throw error;
     }
   },
 

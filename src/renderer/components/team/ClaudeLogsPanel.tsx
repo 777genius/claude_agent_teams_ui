@@ -25,8 +25,10 @@ interface ClaudeLogsPanelProps {
   ctrl: ClaudeLogsController;
   /** Maximum height class for the log viewer (e.g. "max-h-[213px]" for compact). */
   viewerClassName?: string;
+  viewerMaxHeight?: number;
   /** Extra className for the panel wrapper. */
   className?: string;
+  compactMetaInTooltip?: boolean;
 }
 
 // =============================================================================
@@ -36,7 +38,9 @@ interface ClaudeLogsPanelProps {
 export const ClaudeLogsPanel = ({
   ctrl,
   viewerClassName,
+  viewerMaxHeight,
   className,
+  compactMetaInTooltip = false,
 }: ClaudeLogsPanelProps): React.JSX.Element => {
   const {
     data,
@@ -68,8 +72,7 @@ export const ClaudeLogsPanel = ({
         <span className="text-[11px] text-[var(--color-text-muted)]">
           {data.total > 0 ? (
             <>
-              <span className="font-mono">{Math.min(data.total, data.lines.length)}</span> of{' '}
-              <span className="font-mono">{data.total}</span>
+              <span className="font-mono">{data.total}</span> lines
             </>
           ) : isAlive ? (
             'No logs yet.'
@@ -130,8 +133,10 @@ export const ClaudeLogsPanel = ({
             order="newest-first"
             searchQueryOverride={searchQuery.trim() ? searchQuery : undefined}
             className={cn('p-2', viewerClassName)}
+            style={viewerMaxHeight ? { maxHeight: `${viewerMaxHeight}px` } : undefined}
             containerRefCallback={containerRefCallback}
             onScroll={handleScroll}
+            compactMetaInTooltip={compactMetaInTooltip}
             viewerState={viewerState}
             onViewerStateChange={onViewerStateChange}
             footer={

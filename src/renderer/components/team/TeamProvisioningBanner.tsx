@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { useStore } from '@renderer/store';
@@ -7,22 +7,30 @@ import { X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { ProvisioningProgressBlock } from './ProvisioningProgressBlock';
-import { getDisplayStepIndex } from './provisioningSteps';
+import {
+  DISPLAY_COMPLETE_STEP_INDEX,
+  getDisplayStepIndex,
+  getLaunchJoinMilestonesFromMembers,
+  getLaunchJoinState,
+} from './provisioningSteps';
 
 interface TeamProvisioningBannerProps {
   teamName: string;
 }
 
-export const TeamProvisioningBanner = ({
+export const TeamProvisioningBanner = memo(function TeamProvisioningBanner({
   teamName,
-}: TeamProvisioningBannerProps): React.JSX.Element | null => {
-  const { progress, cancelProvisioning, teamMembers } = useStore(
-    useShallow((s) => ({
-      progress: getCurrentProvisioningProgressForTeam(s, teamName),
-      cancelProvisioning: s.cancelProvisioning,
-      teamMembers: s.selectedTeamData?.members,
-    }))
-  );
+}: TeamProvisioningBannerProps): React.JSX.Element | null {
+  const { progress, cancelProvisioning, teamMembers, memberSpawnStatuses, memberSpawnSnapshot } =
+    useStore(
+      useShallow((s) => ({
+        progress: getCurrentProvisioningProgressForTeam(s, teamName),
+        cancelProvisioning: s.cancelProvisioning,
+        teamMembers: s.selectedTeamName === teamName ? s.selectedTeamData?.members : undefined,
+        memberSpawnStatuses: s.memberSpawnStatusesByTeam[teamName],
+        memberSpawnSnapshot: s.memberSpawnSnapshotsByTeam[teamName],
+      }))
+    );
   const [dismissed, setDismissed] = useState(false);
   const lastActiveStepRef = useRef(-1);
   const bannerInstanceKey = useMemo(() => {
@@ -63,9 +71,37 @@ export const TeamProvisioningBanner = ({
     progress.state === 'finalizing' ||
     progress.state === 'verifying';
 
-  const progressStepIndex = getDisplayStepIndex(progress.state);
+  const {
+    expectedTeammateCount: fallbackTeammateCount,
+    heartbeatConfirmedCount,
+    processOnlyAliveCount,
+    pendingSpawnCount,
+    failedSpawnCount,
+  } = getLaunchJoinMilestonesFromMembers({
+    members: teamMembers ?? [],
+    memberSpawnStatuses,
+    memberSpawnSnapshot,
+  });
+  const { allTeammatesConfirmedAlive, hasMembersStillJoining, remainingJoinCount } =
+    getLaunchJoinState({
+      expectedTeammateCount: fallbackTeammateCount,
+      heartbeatConfirmedCount,
+      processOnlyAliveCount,
+      pendingSpawnCount,
+      failedSpawnCount,
+    });
+  const progressStepIndex = getDisplayStepIndex({
+    progress,
+    expectedTeammateCount: fallbackTeammateCount,
+    heartbeatConfirmedCount,
+    processOnlyAliveCount,
+    pendingSpawnCount,
+    failedSpawnCount,
+  });
 
-  // Remember last active step so we can show it as the error location when failed
+  // Keep the error marker aligned to the last meaningful UI milestone, not the
+  // raw backend phase enum. The launch flow now moves through some backend
+  // states too quickly for the old enum mapping to stay user-meaningful.
   if (progressStepIndex >= 0 && !isFailed) {
     lastActiveStepRef.current = progressStepIndex;
   }
@@ -89,6 +125,7 @@ export const TeamProvisioningBanner = ({
           title="Launch failed"
           message={progress.error ?? null}
           tone="error"
+          surface="flat"
           currentStepIndex={lastActiveStepRef.current}
           errorStepIndex={lastActiveStepRef.current >= 0 ? lastActiveStepRef.current : 0}
           startedAt={progress.startedAt}
@@ -102,24 +139,44 @@ export const TeamProvisioningBanner = ({
     );
   }
 
-  const allTeammatesOnline =
-    teamMembers != null &&
-    teamMembers.length > 0 &&
-    teamMembers.every((m) => m.status === 'active' || m.status === 'idle');
-
   if (isReady) {
-    const readyMessage = allTeammatesOnline
-      ? `Team launched — all ${teamMembers.length} teammates online`
-      : 'Team launched — teammates may still be starting';
+    const joiningPhrase =
+      remainingJoinCount === 1
+        ? '1 teammate still joining'
+        : `${remainingJoinCount} teammates still joining`;
+    const readyDetailMessage =
+      failedSpawnCount > 0
+        ? progress.message
+        : fallbackTeammateCount === 0
+          ? 'Team provisioned - lead online'
+          : allTeammatesConfirmedAlive
+            ? `Team provisioned - all ${fallbackTeammateCount} teammates joined`
+            : hasMembersStillJoining
+              ? joiningPhrase
+              : 'Team provisioned - teammates are still joining';
+    const readyDetailSeverity =
+      failedSpawnCount > 0 ? 'warning' : hasMembersStillJoining ? 'info' : undefined;
+    const readyMessage =
+      failedSpawnCount > 0
+        ? `Launch finished with errors - ${failedSpawnCount}/${Math.max(fallbackTeammateCount, failedSpawnCount)} teammates failed to start`
+        : fallbackTeammateCount === 0
+          ? 'Team launched - lead online'
+          : allTeammatesConfirmedAlive
+            ? `Team launched - all ${fallbackTeammateCount} teammates joined`
+            : hasMembersStillJoining
+              ? 'Finishing launch'
+              : 'Finishing launch';
+    const readyStepIndex = hasMembersStillJoining ? 2 : DISPLAY_COMPLETE_STEP_INDEX;
 
     return (
       <div className="mb-3">
         <ProvisioningProgressBlock
           key={progress.runId}
           title="Launch details"
-          message={progress.message}
-          messageSeverity={progress.messageSeverity}
-          currentStepIndex={progressStepIndex >= 0 ? progressStepIndex : -1}
+          message={failedSpawnCount > 0 || hasMembersStillJoining ? readyDetailMessage : null}
+          messageSeverity={readyDetailSeverity}
+          surface="flat"
+          currentStepIndex={readyStepIndex}
           startedAt={progress.startedAt}
           pid={progress.pid}
           cliLogsTail={progress.cliLogsTail}
@@ -127,6 +184,9 @@ export const TeamProvisioningBanner = ({
           defaultLiveOutputOpen={false}
           onCancel={null}
           successMessage={readyMessage}
+          successMessageSeverity={
+            failedSpawnCount > 0 ? 'warning' : hasMembersStillJoining ? 'info' : 'success'
+          }
           onDismiss={() => setDismissed(true)}
         />
       </div>
@@ -141,6 +201,7 @@ export const TeamProvisioningBanner = ({
           title="Launching team"
           message={progress.message}
           messageSeverity={progress.messageSeverity}
+          surface="flat"
           currentStepIndex={progressStepIndex >= 0 ? progressStepIndex : -1}
           loading
           startedAt={progress.startedAt}
@@ -161,4 +222,4 @@ export const TeamProvisioningBanner = ({
   }
 
   return null;
-};
+});

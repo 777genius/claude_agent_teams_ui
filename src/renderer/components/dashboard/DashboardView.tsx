@@ -40,6 +40,7 @@ import {
 
 import { CliStatusBanner } from './CliStatusBanner';
 import { DashboardUpdateBanner } from './DashboardUpdateBanner';
+import { TmuxStatusBanner } from './TmuxStatusBanner';
 
 import type { RepositoryGroup } from '@renderer/types/data';
 import type { TeamSummary } from '@shared/types';
@@ -837,6 +838,7 @@ export const DashboardView = (): React.JSX.Element => {
 
         {/* CLI Status Banner */}
         <CliStatusBanner />
+        <TmuxStatusBanner />
 
         {/* Team select + Search */}
         <div className="mb-12 flex items-center justify-center gap-3">

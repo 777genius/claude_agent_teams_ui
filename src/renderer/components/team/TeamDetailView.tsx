@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentProps } from 'react';
 
 import { api } from '@renderer/api';
 import { SessionContextPanel } from '@renderer/components/chat/SessionContextPanel/index';
@@ -14,13 +15,16 @@ import {
 } from '@renderer/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
+import { useTabIdOptional } from '@renderer/contexts/useTabUIContext';
 import { useBranchSync } from '@renderer/hooks/useBranchSync';
 import { useResizablePanel } from '@renderer/hooks/useResizablePanel';
-import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
-import { isTeamProvisioningActive } from '@renderer/store/slices/teamSlice';
+import {
+  getCurrentProvisioningProgressForTeam,
+  isTeamProvisioningActive,
+} from '@renderer/store/slices/teamSlice';
 import { createChipFromSelection } from '@renderer/utils/chipUtils';
 import { formatPercentOfTotal, sumContextInjectionTokens } from '@renderer/utils/contextMath';
 import { formatProjectPath } from '@renderer/utils/pathDisplay';
@@ -32,6 +36,7 @@ import {
   type TaskChangeRequestOptions,
 } from '@renderer/utils/taskChangeRequest';
 import { stripAgentBlocks } from '@shared/constants/agentBlocks';
+import { createLogger } from '@shared/utils/logger';
 import { isLeadAgentType, isLeadMember } from '@shared/utils/leadDetection';
 import { deriveTaskDisplayId, formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
@@ -87,8 +92,13 @@ import { TeamSidebarRail } from './sidebar/TeamSidebarRail';
 import { ClaudeLogsSection } from './ClaudeLogsSection';
 import { CollapsibleTeamSection } from './CollapsibleTeamSection';
 import { ProcessesSection } from './ProcessesSection';
+import {
+  isLeadSessionMissing,
+  shouldSuppressMissingLeadSessionFetch,
+} from './teamSessionFetchGuards';
 import { TeamProvisioningBanner } from './TeamProvisioningBanner';
 import { TeamSessionsSection } from './TeamSessionsSection';
+import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from './provisioningSteps';
 
 import type { KanbanFilterState } from './kanban/KanbanFilterPopover';
 import type { KanbanSortState } from './kanban/KanbanSortPopover';
@@ -117,6 +127,13 @@ interface CreateTaskDialogState {
   defaultChip?: InlineChip;
 }
 
+const logger = createLogger('Component:TeamDetailView');
+const TEAM_DETAIL_COMMIT_WARN_MS = 32;
+const TEAM_DETAIL_RENDER_BURST_WINDOW_MS = 4_000;
+const TEAM_DETAIL_RENDER_BURST_WARN_COUNT = 8;
+const TEAM_DETAIL_RENDER_WARN_THROTTLE_MS = 2_000;
+const TEAM_PENDING_REPLY_REFRESH_DELAY_MS = 10_000;
+
 function areResolvedMembersEqual(
   prev: readonly ResolvedTeamMember[],
   next: readonly ResolvedTeamMember[]
@@ -135,9 +152,18 @@ function areResolvedMembersEqual(
       prevMember.agentType !== nextMember.agentType ||
       prevMember.role !== nextMember.role ||
       prevMember.workflow !== nextMember.workflow ||
+      prevMember.providerId !== nextMember.providerId ||
+      prevMember.model !== nextMember.model ||
+      prevMember.effort !== nextMember.effort ||
       prevMember.cwd !== nextMember.cwd ||
       prevMember.gitBranch !== nextMember.gitBranch ||
-      prevMember.removedAt !== nextMember.removedAt
+      prevMember.removedAt !== nextMember.removedAt ||
+      prevMember.runtimeAdvisory?.kind !== nextMember.runtimeAdvisory?.kind ||
+      prevMember.runtimeAdvisory?.observedAt !== nextMember.runtimeAdvisory?.observedAt ||
+      prevMember.runtimeAdvisory?.retryUntil !== nextMember.runtimeAdvisory?.retryUntil ||
+      prevMember.runtimeAdvisory?.retryDelayMs !== nextMember.runtimeAdvisory?.retryDelayMs ||
+      prevMember.runtimeAdvisory?.reasonCode !== nextMember.runtimeAdvisory?.reasonCode ||
+      prevMember.runtimeAdvisory?.message !== nextMember.runtimeAdvisory?.message
     ) {
       return false;
     }
@@ -182,10 +208,581 @@ function filterKanbanTasks(tasks: TeamTaskWithKanban[], query: string): TeamTask
   );
 }
 
+const TeamOfflineStatusBanner = memo(function TeamOfflineStatusBanner({
+  teamName,
+  onLaunch,
+}: {
+  teamName: string;
+  onLaunch: () => void;
+}): React.JSX.Element {
+  const summary = useStore(
+    useShallow((s) => {
+      const team = s.teamByName[teamName];
+      if (!team) {
+        return null;
+      }
+
+      return {
+        memberCount: team.memberCount,
+        expectedMemberCount: team.expectedMemberCount,
+        confirmedCount: team.confirmedCount,
+        runtimeAlivePendingCount: team.runtimeAlivePendingCount,
+        teamLaunchState: team.teamLaunchState,
+        partialLaunchFailure: team.partialLaunchFailure,
+        missingMemberCount: team.missingMembers?.length ?? 0,
+      };
+    })
+  );
+
+  const message =
+    summary?.teamLaunchState === 'partial_pending'
+      ? summary.runtimeAlivePendingCount != null && summary.runtimeAlivePendingCount > 0
+        ? `Last launch is still reconciling - ${summary.confirmedCount ?? 0}/${summary.expectedMemberCount ?? summary.memberCount} teammates confirmed alive, ${summary.runtimeAlivePendingCount} runtime${summary.runtimeAlivePendingCount === 1 ? '' : 's'} pending bootstrap`
+        : 'Last launch is still reconciling'
+      : summary?.partialLaunchFailure
+        ? summary.missingMemberCount > 0
+          ? `Last launch failed partway - ${summary.missingMemberCount}/${summary.expectedMemberCount ?? summary.missingMemberCount} teammates did not join`
+          : 'Last launch failed partway'
+        : 'Team is offline';
+
+  return (
+    <div
+      className="mb-3 flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+      style={{
+        backgroundColor: 'var(--warning-bg)',
+        borderColor: 'var(--warning-border)',
+        color: 'var(--warning-text)',
+      }}
+    >
+      <span className="flex items-center gap-1.5 text-xs">
+        <AlertTriangle size={14} className="shrink-0" />
+        {message}
+      </span>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 shrink-0 gap-1 px-2 text-xs text-[var(--step-done-text)] hover:bg-[var(--step-done-bg)]"
+        onClick={onLaunch}
+      >
+        <Play size={12} />
+        Launch
+      </Button>
+    </div>
+  );
+});
+
+type TeamMessagesPanelBridgeProps = Omit<
+  ComponentProps<typeof MessagesPanel>,
+  'leadActivity' | 'leadContextUpdatedAt'
+>;
+type SharedTeamMessagesPanelProps = Omit<TeamMessagesPanelBridgeProps, 'position'>;
+type TeamMemberListBridgeProps = Omit<
+  ComponentProps<typeof MemberList>,
+  'leadActivity' | 'memberSpawnStatuses'
+> & {
+  teamName: string;
+};
+type TeamMemberDetailDialogBridgeProps = Omit<
+  ComponentProps<typeof MemberDetailDialog>,
+  'leadActivity' | 'spawnEntry'
+>;
+type TeamSidebarRailBridgeProps = Omit<
+  ComponentProps<typeof TeamSidebarRail>,
+  'messagesPanelProps'
+> & {
+  messagesPanelProps: SharedTeamMessagesPanelProps;
+};
+interface LeadContextWatcherProps {
+  teamName: string;
+  tabId: string | null;
+  projectId: string | null;
+  leadSessionId: string | null;
+  sessionHistoryKey: string;
+  isThisTabActive: boolean;
+  isTeamAlive?: boolean;
+  sessions: readonly Session[];
+  sessionsLoading: boolean;
+}
+interface LeadContextBridgeProps {
+  teamName: string;
+  tabId: string | null;
+  projectId: string | null;
+  leadSessionId: string | null;
+  fallbackProjectRoot?: string;
+}
+
+function buildMemberSpawnStatusMap(
+  memberSpawnStatuses: Record<string, MemberSpawnStatusEntry> | undefined
+): Map<string, MemberSpawnStatusEntry> | undefined {
+  if (!memberSpawnStatuses) {
+    return undefined;
+  }
+
+  const map = new Map<string, MemberSpawnStatusEntry>(Object.entries(memberSpawnStatuses));
+  return map.size > 0 ? map : undefined;
+}
+
+const TeamSpawnStatusWatcher = memo(function TeamSpawnStatusWatcher({
+  teamName,
+  isTeamProvisioning,
+  isTeamAlive,
+}: {
+  teamName: string;
+  isTeamProvisioning: boolean;
+  isTeamAlive?: boolean;
+}): null {
+  const { leadActivity, memberSpawnStatuses, fetchMemberSpawnStatuses } = useStore(
+    useShallow((s) => ({
+      leadActivity: s.leadActivityByTeam[teamName],
+      memberSpawnStatuses: s.memberSpawnStatusesByTeam[teamName],
+      fetchMemberSpawnStatuses: s.fetchMemberSpawnStatuses,
+    }))
+  );
+
+  useEffect(() => {
+    const shouldFetchSpawnStatuses =
+      isTeamProvisioning ||
+      (memberSpawnStatuses == null &&
+        (isTeamAlive === true || leadActivity === 'active' || leadActivity === 'idle'));
+    if (shouldFetchSpawnStatuses) {
+      void fetchMemberSpawnStatuses(teamName);
+    }
+  }, [
+    fetchMemberSpawnStatuses,
+    isTeamAlive,
+    isTeamProvisioning,
+    leadActivity,
+    memberSpawnStatuses,
+    teamName,
+  ]);
+
+  return null;
+});
+
+const LeadContextWatcher = memo(function LeadContextWatcher({
+  teamName,
+  tabId,
+  projectId,
+  leadSessionId,
+  sessionHistoryKey,
+  isThisTabActive,
+  isTeamAlive,
+  sessions,
+  sessionsLoading,
+}: LeadContextWatcherProps): null {
+  const fetchSessionDetail = useStore((s) => s.fetchSessionDetail);
+  const missingLeadSessionFetchKeyRef = useRef<string | null>(null);
+  const missingLeadSessionFetchKey = useMemo(
+    () => `${teamName}:${projectId ?? ''}:${leadSessionId ?? ''}:${sessionHistoryKey}`,
+    [teamName, projectId, leadSessionId, sessionHistoryKey]
+  );
+
+  useEffect(() => {
+    missingLeadSessionFetchKeyRef.current = null;
+  }, [missingLeadSessionFetchKey]);
+
+  useEffect(() => {
+    if (!isThisTabActive) return;
+    if (!tabId || !projectId || !leadSessionId) return;
+
+    const leadSessionMissing = isLeadSessionMissing({
+      leadSessionId,
+      projectId,
+      sessionsLoading,
+      knownSessions: sessions,
+    });
+    if (leadSessionMissing) {
+      missingLeadSessionFetchKeyRef.current = missingLeadSessionFetchKey;
+      return;
+    }
+
+    const fetchLeadSessionDetail = () => {
+      const suppressRepeatedFetch = shouldSuppressMissingLeadSessionFetch({
+        leadSessionId,
+        projectId,
+        sessionsLoading,
+        knownSessions: sessions,
+        suppressionKey: missingLeadSessionFetchKeyRef.current,
+        currentKey: missingLeadSessionFetchKey,
+      });
+      if (suppressRepeatedFetch) {
+        return;
+      }
+      void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
+    };
+
+    fetchLeadSessionDetail();
+
+    if (!isTeamAlive) return;
+
+    const id = window.setInterval(() => {
+      fetchLeadSessionDetail();
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [
+    fetchSessionDetail,
+    isTeamAlive,
+    isThisTabActive,
+    leadSessionId,
+    missingLeadSessionFetchKey,
+    projectId,
+    sessions,
+    sessionsLoading,
+    tabId,
+  ]);
+
+  return null;
+});
+
+const LeadContextBridge = memo(function LeadContextBridge({
+  teamName,
+  tabId,
+  projectId,
+  leadSessionId,
+  fallbackProjectRoot,
+}: LeadContextBridgeProps): React.JSX.Element | null {
+  const {
+    leadTabData,
+    isContextPanelVisible,
+    selectedContextPhase,
+    setContextPanelVisibleForTab,
+    setSelectedContextPhaseForTab,
+    fetchSessionDetail,
+  } = useStore(
+    useShallow((s) => ({
+      leadTabData: tabId ? (s.tabSessionData[tabId] ?? null) : null,
+      isContextPanelVisible: tabId ? (s.tabUIStates.get(tabId)?.showContextPanel ?? false) : false,
+      selectedContextPhase: tabId ? (s.tabUIStates.get(tabId)?.selectedContextPhase ?? null) : null,
+      setContextPanelVisibleForTab: s.setContextPanelVisibleForTab,
+      setSelectedContextPhaseForTab: s.setSelectedContextPhaseForTab,
+      fetchSessionDetail: s.fetchSessionDetail,
+    }))
+  );
+  const [isContextButtonHovered, setIsContextButtonHovered] = useState(false);
+
+  const setContextPanelVisible = useCallback(
+    (visible: boolean) => {
+      if (!tabId) return;
+      setContextPanelVisibleForTab(tabId, visible);
+    },
+    [setContextPanelVisibleForTab, tabId]
+  );
+  const setSelectedContextPhase = useCallback(
+    (phase: number | null) => {
+      if (!tabId) return;
+      setSelectedContextPhaseForTab(tabId, phase);
+    },
+    [setSelectedContextPhaseForTab, tabId]
+  );
+
+  const leadSessionDetail = leadTabData?.sessionDetail ?? null;
+  const leadConversation = leadTabData?.conversation ?? null;
+  const leadSessionContextStats = leadTabData?.sessionContextStats ?? null;
+  const leadSessionPhaseInfo = leadTabData?.sessionPhaseInfo ?? null;
+  const leadSessionLoading = leadTabData?.sessionDetailLoading ?? false;
+  const leadSessionLoaded = Boolean(
+    leadSessionId && leadSessionDetail?.session?.id === leadSessionId
+  );
+  const leadSubagentCostUsd = useMemo(() => {
+    const processes = leadSessionDetail?.processes;
+    if (!processes || processes.length === 0) return undefined;
+    const total = processes.reduce((sum, p) => sum + (p.metrics.costUsd ?? 0), 0);
+    return total > 0 ? total : undefined;
+  }, [leadSessionDetail?.processes]);
+  const { allContextInjections, lastAiGroupTotalTokens } = useMemo(() => {
+    if (!leadSessionLoaded || !leadSessionContextStats || !leadConversation?.items.length) {
+      return { allContextInjections: [] as ContextInjection[], lastAiGroupTotalTokens: undefined };
+    }
+
+    const effectivePhase = selectedContextPhase;
+
+    let targetAiGroupId: string | undefined;
+    if (effectivePhase !== null && leadSessionPhaseInfo) {
+      const phase = leadSessionPhaseInfo.phases.find((p) => p.phaseNumber === effectivePhase);
+      if (phase) {
+        targetAiGroupId = phase.lastAIGroupId;
+      }
+    }
+
+    if (!targetAiGroupId) {
+      const lastAiItem = [...leadConversation.items].reverse().find((item) => item.type === 'ai');
+      if (lastAiItem?.type !== 'ai') {
+        return {
+          allContextInjections: [] as ContextInjection[],
+          lastAiGroupTotalTokens: undefined,
+        };
+      }
+      targetAiGroupId = lastAiItem.group.id;
+    }
+
+    const stats = leadSessionContextStats.get(targetAiGroupId);
+    const injections = stats?.accumulatedInjections ?? [];
+
+    let totalTokens: number | undefined;
+    const targetItem = leadConversation.items.find(
+      (item) => item.type === 'ai' && item.group.id === targetAiGroupId
+    );
+    if (targetItem?.type === 'ai') {
+      const responses = targetItem.group.responses || [];
+      for (let i = responses.length - 1; i >= 0; i--) {
+        const msg = responses[i];
+        if (msg.type === 'assistant' && msg.usage) {
+          const usage = msg.usage;
+          totalTokens =
+            (usage.input_tokens ?? 0) +
+            (usage.output_tokens ?? 0) +
+            (usage.cache_read_input_tokens ?? 0) +
+            (usage.cache_creation_input_tokens ?? 0);
+          break;
+        }
+      }
+    }
+
+    return { allContextInjections: injections, lastAiGroupTotalTokens: totalTokens };
+  }, [
+    leadConversation,
+    leadSessionContextStats,
+    leadSessionLoaded,
+    leadSessionPhaseInfo,
+    selectedContextPhase,
+  ]);
+  const visibleContextTokens = useMemo(
+    () => sumContextInjectionTokens(allContextInjections),
+    [allContextInjections]
+  );
+  const visibleContextPercentLabel = useMemo(
+    () => formatPercentOfTotal(visibleContextTokens, lastAiGroupTotalTokens),
+    [visibleContextTokens, lastAiGroupTotalTokens]
+  );
+
+  if (!leadSessionId) {
+    return null;
+  }
+
+  return (
+    <>
+      {isContextPanelVisible && (
+        <div className="w-80 shrink-0">
+          {leadSessionLoaded ? (
+            <SessionContextPanel
+              injections={allContextInjections}
+              onClose={() => setContextPanelVisible(false)}
+              projectRoot={leadSessionDetail?.session?.projectPath ?? fallbackProjectRoot}
+              totalSessionTokens={lastAiGroupTotalTokens}
+              sessionMetrics={leadSessionDetail?.metrics}
+              subagentCostUsd={leadSubagentCostUsd}
+              phaseInfo={leadSessionPhaseInfo ?? undefined}
+              selectedPhase={selectedContextPhase}
+              onPhaseChange={setSelectedContextPhase}
+              side="left"
+            />
+          ) : (
+            <div
+              className="flex h-full flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]"
+              style={{ backgroundColor: 'var(--color-surface)' }}
+            >
+              <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[var(--color-text)]">Visible Context</p>
+                  <p className="text-[10px] text-[var(--color-text-muted)]">
+                    {leadSessionLoading ? 'Loading…' : 'No session loaded'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)]"
+                  onClick={() => setContextPanelVisible(false)}
+                  aria-label={`Close ${teamName} context panel`}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex flex-1 items-center justify-center p-4">
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  {leadSessionLoading
+                    ? 'Loading context…'
+                    : 'Open the team lead session to view context.'}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div
+        className="pointer-events-none fixed bottom-4 z-20"
+        style={{ left: isContextPanelVisible ? 'calc(20rem + 1rem)' : '1rem' }}
+      >
+        <button
+          onClick={() => {
+            const next = !isContextPanelVisible;
+            setContextPanelVisible(next);
+            if (tabId && projectId) {
+              void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
+            }
+          }}
+          onMouseEnter={() => setIsContextButtonHovered(true)}
+          onMouseLeave={() => setIsContextButtonHovered(false)}
+          className="pointer-events-auto flex w-fit items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-md transition-colors"
+          style={{
+            backgroundColor: isContextPanelVisible
+              ? 'var(--context-btn-active-bg)'
+              : isContextButtonHovered
+                ? 'var(--context-btn-bg-hover)'
+                : 'var(--context-btn-bg)',
+            color: isContextPanelVisible
+              ? 'var(--context-btn-active-text)'
+              : 'var(--color-text-secondary)',
+          }}
+          title={
+            leadSessionLoaded
+              ? `Session: ${leadSessionId}`
+              : leadSessionLoading
+                ? 'Loading context…'
+                : leadSessionId
+          }
+        >
+          {visibleContextPercentLabel ?? 'Context'}
+        </button>
+      </div>
+    </>
+  );
+});
+
+const TeamMemberListBridge = memo(function TeamMemberListBridge({
+  teamName,
+  ...props
+}: TeamMemberListBridgeProps): React.JSX.Element {
+  const { leadActivity, progress, memberSpawnStatuses, memberSpawnSnapshot } = useStore(
+    useShallow((s) => ({
+      leadActivity: s.leadActivityByTeam[teamName],
+      progress: getCurrentProvisioningProgressForTeam(s, teamName),
+      memberSpawnStatuses: s.memberSpawnStatusesByTeam[teamName],
+      memberSpawnSnapshot: s.memberSpawnSnapshotsByTeam[teamName],
+    }))
+  );
+  const memberSpawnStatusMap = useMemo(
+    () => buildMemberSpawnStatusMap(memberSpawnStatuses),
+    [memberSpawnStatuses]
+  );
+  const isLaunchSettling = useMemo(() => {
+    if (progress?.state !== 'ready') {
+      return false;
+    }
+    return getLaunchJoinState(
+      getLaunchJoinMilestonesFromMembers({
+        members: props.members,
+        memberSpawnStatuses,
+        memberSpawnSnapshot,
+      })
+    ).hasMembersStillJoining;
+  }, [memberSpawnSnapshot, memberSpawnStatuses, progress?.state, props.members]);
+
+  return (
+    <MemberList
+      {...props}
+      leadActivity={leadActivity}
+      memberSpawnStatuses={memberSpawnStatusMap}
+      isLaunchSettling={isLaunchSettling}
+    />
+  );
+});
+
+const TeamMessagesPanelBridge = memo(function TeamMessagesPanelBridge({
+  teamName,
+  ...props
+}: TeamMessagesPanelBridgeProps): React.JSX.Element {
+  const { leadActivity, leadContextUpdatedAt } = useStore(
+    useShallow((s) => ({
+      leadActivity: s.leadActivityByTeam[teamName],
+      leadContextUpdatedAt: s.leadContextByTeam[teamName]?.updatedAt,
+    }))
+  );
+
+  return (
+    <MessagesPanel
+      {...props}
+      teamName={teamName}
+      leadActivity={leadActivity}
+      leadContextUpdatedAt={leadContextUpdatedAt}
+    />
+  );
+});
+
+const TeamSidebarRailBridge = memo(function TeamSidebarRailBridge({
+  messagesPanelProps,
+  ...props
+}: TeamSidebarRailBridgeProps): React.JSX.Element {
+  const { leadActivity, leadContextUpdatedAt } = useStore(
+    useShallow((s) => ({
+      leadActivity: s.leadActivityByTeam[messagesPanelProps.teamName],
+      leadContextUpdatedAt: s.leadContextByTeam[messagesPanelProps.teamName]?.updatedAt,
+    }))
+  );
+  const bridgedMessagesPanelProps = useMemo(
+    () => ({
+      ...messagesPanelProps,
+      leadActivity,
+      leadContextUpdatedAt,
+    }),
+    [leadActivity, leadContextUpdatedAt, messagesPanelProps]
+  );
+
+  return <TeamSidebarRail {...props} messagesPanelProps={bridgedMessagesPanelProps} />;
+});
+
+const TeamMemberDetailDialogBridge = memo(function TeamMemberDetailDialogBridge({
+  teamName,
+  member,
+  ...props
+}: TeamMemberDetailDialogBridgeProps): React.JSX.Element | null {
+  const { leadActivity, progress, members, memberSpawnStatuses, memberSpawnSnapshot, spawnEntry } =
+    useStore(
+      useShallow((s) => ({
+        leadActivity: s.leadActivityByTeam[teamName],
+        progress: getCurrentProvisioningProgressForTeam(s, teamName),
+        members: s.selectedTeamName === teamName ? (s.selectedTeamData?.members ?? []) : [],
+        memberSpawnStatuses: s.memberSpawnStatusesByTeam[teamName],
+        memberSpawnSnapshot: s.memberSpawnSnapshotsByTeam[teamName],
+        spawnEntry: member ? s.memberSpawnStatusesByTeam[teamName]?.[member.name] : undefined,
+      }))
+    );
+  const isLaunchSettling = useMemo(() => {
+    if (progress?.state !== 'ready') {
+      return false;
+    }
+    return getLaunchJoinState(
+      getLaunchJoinMilestonesFromMembers({
+        members,
+        memberSpawnStatuses,
+        memberSpawnSnapshot,
+      })
+    ).hasMembersStillJoining;
+  }, [memberSpawnSnapshot, memberSpawnStatuses, members, progress?.state]);
+
+  return (
+    <MemberDetailDialog
+      {...props}
+      teamName={teamName}
+      member={member}
+      isLaunchSettling={isLaunchSettling}
+      leadActivity={leadActivity}
+      spawnEntry={spawnEntry}
+    />
+  );
+});
+
 export const TeamDetailView = ({
   teamName,
   isPaneFocused = false,
 }: TeamDetailViewProps): React.JSX.Element => {
+  const renderStartedAtRef = useRef(performance.now());
+  const renderDiagnosticsRef = useRef({
+    windowStartedAt: Date.now(),
+    count: 0,
+    lastWarnAt: 0,
+  });
+  renderStartedAtRef.current = performance.now();
   const { isLight } = useTheme();
   const [requestChangesTaskId, setRequestChangesTaskId] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<TeamTaskWithKanban | null>(null);
@@ -209,6 +806,7 @@ export const TeamDetailView = ({
   const contentRef = useRef<HTMLDivElement>(null);
   const provisioningBannerRef = useRef<HTMLDivElement>(null);
   const wasProvisioningRef = useRef(false);
+  const pendingReplyRefreshTimerRef = useRef<number | null>(null);
 
   // Set inert on background content when editor/graph overlay is open (a11y focus trap)
   useEffect(() => {
@@ -415,8 +1013,6 @@ export const TeamDetailView = ({
     error,
     projects,
     repositoryGroups,
-    teams,
-    fetchSessionDetail,
     initTabUIState,
     selectTeam,
     updateKanban,
@@ -441,10 +1037,6 @@ export const TeamDetailView = ({
     provisioningError,
     clearProvisioningError,
     isTeamProvisioning,
-    leadActivityByTeam,
-    leadContextUpdatedAt,
-    memberSpawnStatuses,
-    fetchMemberSpawnStatuses,
     refreshTeamData,
     kanbanFilterQuery,
     clearKanbanFilter,
@@ -455,20 +1047,17 @@ export const TeamDetailView = ({
     launchParams,
     messagesPanelMode,
     messagesPanelWidth,
+    sidebarLogsHeight,
     setMessagesPanelMode,
     setMessagesPanelWidth,
+    setSidebarLogsHeight,
     selectReviewFile,
     pendingReviewRequest,
     setPendingReviewRequest,
   } = useStore(
     useShallow((s) => ({
-      data: s.selectedTeamData,
-      loading: s.selectedTeamLoading,
-      error: s.selectedTeamError,
       projects: s.projects,
       repositoryGroups: s.repositoryGroups,
-      teams: s.teams,
-      fetchSessionDetail: s.fetchSessionDetail,
       initTabUIState: s.initTabUIState,
       selectTeam: s.selectTeam,
       updateKanban: s.updateKanban,
@@ -493,10 +1082,9 @@ export const TeamDetailView = ({
       provisioningError: teamName ? (s.provisioningErrorByTeam[teamName] ?? null) : null,
       clearProvisioningError: s.clearProvisioningError,
       isTeamProvisioning: teamName ? isTeamProvisioningActive(s, teamName) : false,
-      leadActivityByTeam: s.leadActivityByTeam,
-      leadContextUpdatedAt: teamName ? s.leadContextByTeam[teamName]?.updatedAt : undefined,
-      memberSpawnStatuses: teamName ? s.memberSpawnStatusesByTeam[teamName] : undefined,
-      fetchMemberSpawnStatuses: s.fetchMemberSpawnStatuses,
+      data: s.selectedTeamName === teamName ? s.selectedTeamData : null,
+      loading: s.selectedTeamName === teamName ? s.selectedTeamLoading : false,
+      error: s.selectedTeamName === teamName ? s.selectedTeamError : null,
       refreshTeamData: s.refreshTeamData,
       kanbanFilterQuery: s.kanbanFilterQuery,
       clearKanbanFilter: s.clearKanbanFilter,
@@ -507,25 +1095,52 @@ export const TeamDetailView = ({
       launchParams: teamName ? s.launchParamsByTeam[teamName] : undefined,
       messagesPanelMode: s.messagesPanelMode,
       messagesPanelWidth: s.messagesPanelWidth,
+      sidebarLogsHeight: s.sidebarLogsHeight,
       setMessagesPanelMode: s.setMessagesPanelMode,
       setMessagesPanelWidth: s.setMessagesPanelWidth,
+      setSidebarLogsHeight: s.setSidebarLogsHeight,
       selectReviewFile: s.selectReviewFile,
       pendingReviewRequest: s.pendingReviewRequest,
       setPendingReviewRequest: s.setPendingReviewRequest,
     }))
   );
 
-  // Per-tab UI state (context panel visibility + selected phase)
-  const {
-    tabId,
-    isContextPanelVisible,
-    setContextPanelVisible,
-    selectedContextPhase,
-    setSelectedContextPhase,
-  } = useTabUI();
+  const tabId = useTabIdOptional();
   const activeTabId = useStore((s) => s.activeTabId);
   const isThisTabActive = tabId ? activeTabId === tabId : false;
-  const [isContextButtonHovered, setIsContextButtonHovered] = useState(false);
+
+  useEffect(() => {
+    const now = Date.now();
+    const diagnostic = renderDiagnosticsRef.current;
+    if (now - diagnostic.windowStartedAt > TEAM_DETAIL_RENDER_BURST_WINDOW_MS) {
+      diagnostic.windowStartedAt = now;
+      diagnostic.count = 0;
+    }
+    diagnostic.count += 1;
+
+    const commitMs = performance.now() - renderStartedAtRef.current;
+    const messagesCount = data?.messages.length ?? 0;
+    const tasksCount = data?.tasks.length ?? 0;
+    const membersCount = data?.members.length ?? 0;
+    const processesCount = data?.processes.length ?? 0;
+    const shouldWarnSlow = commitMs >= TEAM_DETAIL_COMMIT_WARN_MS;
+    const shouldWarnBurst = diagnostic.count >= TEAM_DETAIL_RENDER_BURST_WARN_COUNT;
+    const shouldWarnLarge = messagesCount >= 150 || tasksCount >= 80;
+
+    if (
+      (shouldWarnSlow || shouldWarnBurst || shouldWarnLarge) &&
+      now - diagnostic.lastWarnAt >= TEAM_DETAIL_RENDER_WARN_THROTTLE_MS
+    ) {
+      diagnostic.lastWarnAt = now;
+      logger.warn(
+        `[perf] commit team=${teamName} ms=${commitMs.toFixed(1)} renders=${diagnostic.count} windowMs=${
+          now - diagnostic.windowStartedAt
+        } activeTab=${isThisTabActive ? 'yes' : 'no'} paneFocused=${isPaneFocused ? 'yes' : 'no'} loading=${
+          loading ? 'yes' : 'no'
+        } messages=${messagesCount} tasks=${tasksCount} members=${membersCount} processes=${processesCount} panel=${messagesPanelMode}`
+      );
+    }
+  });
 
   // Messages panel resize
   const { isResizing: isMessagesPanelResizing, handleProps: messagesPanelHandleProps } =
@@ -536,6 +1151,13 @@ export const TeamDetailView = ({
       maxWidth: 600,
       side: 'left',
     });
+  const { isResizing: isLogsPanelResizing, handleProps: logsPanelHandleProps } = useResizablePanel({
+    height: sidebarLogsHeight,
+    onHeightChange: setSidebarLogsHeight,
+    minHeight: 120,
+    maxHeight: 520,
+    side: 'top',
+  });
 
   const toggleMessagesPanelMode = useCallback(() => {
     setMessagesPanelMode(messagesPanelMode === 'sidebar' ? 'inline' : 'sidebar');
@@ -554,23 +1176,6 @@ export const TeamDetailView = ({
       provisioningBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [isTeamProvisioning]);
-
-  // Fetch initial spawn statuses when provisioning starts
-  useEffect(() => {
-    if (isTeamProvisioning && teamName) {
-      void fetchMemberSpawnStatuses(teamName);
-    }
-  }, [isTeamProvisioning, teamName, fetchMemberSpawnStatuses]);
-
-  // Convert Record<string, MemberSpawnStatusEntry> → Map<string, MemberSpawnEntry>
-  const memberSpawnStatusMap = useMemo(() => {
-    if (!memberSpawnStatuses) return undefined;
-    const map = new Map<string, { status: MemberSpawnStatusEntry['status']; error?: string }>();
-    for (const [name, entry] of Object.entries(memberSpawnStatuses)) {
-      map.set(name, { status: entry.status, error: entry.error });
-    }
-    return map.size > 0 ? map : undefined;
-  }, [memberSpawnStatuses]);
 
   const [kanbanSearch, setKanbanSearch] = useState('');
 
@@ -606,12 +1211,13 @@ export const TeamDetailView = ({
   useEffect(() => {
     if (!launchDialogOpen) return;
     let cancelled = false;
+    const teamsSnapshot = useStore.getState().teams;
     void (async () => {
       try {
         const aliveList = await api.teams.aliveList();
         if (cancelled) return;
         const aliveSet = new Set(aliveList);
-        const refs = teams
+        const refs = teamsSnapshot
           .filter((t) => aliveSet.has(t.teamName) && t.projectPath)
           .map((t) => ({
             teamName: t.teamName,
@@ -626,7 +1232,7 @@ export const TeamDetailView = ({
     return () => {
       cancelled = true;
     };
-  }, [launchDialogOpen, teams]);
+  }, [launchDialogOpen]);
 
   useEffect(() => {
     if (kanbanFilterQuery) {
@@ -641,112 +1247,37 @@ export const TeamDetailView = ({
     [projects, repositoryGroups, data?.config.projectPath]
   );
 
-  // Lead session context panel (reuses the same session context pipeline for exact stats)
   const leadSessionId = data?.config.leadSessionId ?? null;
-  const leadTabData = useStore(useShallow((s) => (tabId ? s.tabSessionData[tabId] : null)));
-  const leadSessionDetail = leadTabData?.sessionDetail ?? null;
-  const leadConversation = leadTabData?.conversation ?? null;
-  const leadSessionContextStats = leadTabData?.sessionContextStats ?? null;
-  const leadSessionPhaseInfo = leadTabData?.sessionPhaseInfo ?? null;
-  const leadSessionLoading = leadTabData?.sessionDetailLoading ?? false;
-  const leadSessionLoaded = Boolean(
-    leadSessionId && leadSessionDetail?.session?.id === leadSessionId
+  const sessionHistoryKey = useMemo(
+    () => (data?.config.sessionHistory ?? []).join('|'),
+    [data?.config.sessionHistory]
   );
 
-  const leadSubagentCostUsd = useMemo(() => {
-    const processes = leadSessionDetail?.processes;
-    if (!processes || processes.length === 0) return undefined;
-    const total = processes.reduce((sum, p) => sum + (p.metrics.costUsd ?? 0), 0);
-    return total > 0 ? total : undefined;
-  }, [leadSessionDetail?.processes]);
-  const { allContextInjections, lastAiGroupTotalTokens } = useMemo(() => {
-    if (!leadSessionLoaded || !leadSessionContextStats || !leadConversation?.items.length) {
-      return { allContextInjections: [] as ContextInjection[], lastAiGroupTotalTokens: undefined };
-    }
-
-    // Determine which phase to show
-    const effectivePhase = selectedContextPhase;
-
-    // If a specific phase is selected, find the last AI group in that phase
-    let targetAiGroupId: string | undefined;
-    if (effectivePhase !== null && leadSessionPhaseInfo) {
-      const phase = leadSessionPhaseInfo.phases.find((p) => p.phaseNumber === effectivePhase);
-      if (phase) {
-        targetAiGroupId = phase.lastAIGroupId;
-      }
-    }
-
-    // Default: use the last AI group overall
-    if (!targetAiGroupId) {
-      const lastAiItem = [...leadConversation.items].reverse().find((item) => item.type === 'ai');
-      if (lastAiItem?.type !== 'ai') {
-        return {
-          allContextInjections: [] as ContextInjection[],
-          lastAiGroupTotalTokens: undefined,
-        };
-      }
-      targetAiGroupId = lastAiItem.group.id;
-    }
-
-    const stats = leadSessionContextStats.get(targetAiGroupId);
-    const injections = stats?.accumulatedInjections ?? [];
-
-    // Get total tokens from the target AI group
-    let totalTokens: number | undefined;
-    const targetItem = leadConversation.items.find(
-      (item) => item.type === 'ai' && item.group.id === targetAiGroupId
-    );
-    if (targetItem?.type === 'ai') {
-      const responses = targetItem.group.responses || [];
-      for (let i = responses.length - 1; i >= 0; i--) {
-        const msg = responses[i];
-        if (msg.type === 'assistant' && msg.usage) {
-          const usage = msg.usage;
-          totalTokens =
-            (usage.input_tokens ?? 0) +
-            (usage.output_tokens ?? 0) +
-            (usage.cache_read_input_tokens ?? 0) +
-            (usage.cache_creation_input_tokens ?? 0);
-          break;
-        }
-      }
-    }
-
-    return { allContextInjections: injections, lastAiGroupTotalTokens: totalTokens };
-  }, [
-    leadSessionLoaded,
-    leadSessionContextStats,
-    leadConversation,
-    selectedContextPhase,
-    leadSessionPhaseInfo,
-  ]);
-
-  const visibleContextTokens = useMemo(
-    () => sumContextInjectionTokens(allContextInjections),
-    [allContextInjections]
-  );
-  const visibleContextPercentLabel = useMemo(
-    () => formatPercentOfTotal(visibleContextTokens, lastAiGroupTotalTokens),
-    [visibleContextTokens, lastAiGroupTotalTokens]
-  );
-
-  // Keep lead-session context fresh in the background while the team tab is active.
-  // This keeps the button value current even when the panel is closed.
-  // For offline teams: fetch once on mount so the percentage shows immediately.
-  // For alive teams: fetch on mount + periodic refresh every 30s.
+  // Keep team message state fresh while we are explicitly waiting for a reply.
+  // Use a delayed single-shot refresh instead of a tight polling loop so we
+  // don't keep rewriting the whole team snapshot every 2 seconds.
   useEffect(() => {
+    if (pendingReplyRefreshTimerRef.current != null) {
+      window.clearTimeout(pendingReplyRefreshTimerRef.current);
+      pendingReplyRefreshTimerRef.current = null;
+    }
+
     if (!isThisTabActive) return;
-    if (!tabId || !projectId || !leadSessionId) return;
-
-    void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
-
     if (!data?.isAlive) return;
+    if (Object.keys(pendingRepliesByMember).length === 0) return;
 
-    const id = window.setInterval(() => {
-      void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
-    }, 10_000);
-    return () => window.clearInterval(id);
-  }, [isThisTabActive, tabId, projectId, leadSessionId, data?.isAlive, fetchSessionDetail]);
+    pendingReplyRefreshTimerRef.current = window.setTimeout(() => {
+      pendingReplyRefreshTimerRef.current = null;
+      void refreshTeamData(teamName, { withDedup: true });
+    }, TEAM_PENDING_REPLY_REFRESH_DELAY_MS);
+
+    return () => {
+      if (pendingReplyRefreshTimerRef.current != null) {
+        window.clearTimeout(pendingReplyRefreshTimerRef.current);
+        pendingReplyRefreshTimerRef.current = null;
+      }
+    };
+  }, [isThisTabActive, data, pendingRepliesByMember, refreshTeamData, teamName]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -924,25 +1455,25 @@ export const TeamDetailView = ({
   );
 
   const taskMap = useMemo(() => new Map((data?.tasks ?? []).map((t) => [t.id, t])), [data?.tasks]);
+  const taskMapRef = useRef(taskMap);
+  taskMapRef.current = taskMap;
 
   const memberTaskCounts = useMemo(() => buildTaskCountsByOwner(data?.tasks ?? []), [data?.tasks]);
 
-  const openCreateTaskDialog = (
-    subject = '',
-    description = '',
-    owner = '',
-    startImmediately?: boolean
-  ): void => {
-    setCreateTaskDialog({
-      open: true,
-      defaultSubject: subject,
-      defaultDescription: description,
-      defaultOwner: owner,
-      defaultStartImmediately: startImmediately,
-    });
-  };
+  const openCreateTaskDialog = useCallback(
+    (subject = '', description = '', owner = '', startImmediately?: boolean): void => {
+      setCreateTaskDialog({
+        open: true,
+        defaultSubject: subject,
+        defaultDescription: description,
+        defaultOwner: owner,
+        defaultStartImmediately: startImmediately,
+      });
+    },
+    []
+  );
 
-  const closeCreateTaskDialog = (): void => {
+  const closeCreateTaskDialog = useCallback((): void => {
     setCreateTaskDialog({
       open: false,
       defaultSubject: '',
@@ -950,7 +1481,7 @@ export const TeamDetailView = ({
       defaultOwner: '',
       defaultStartImmediately: undefined,
     });
-  };
+  }, []);
 
   const handleCreateTaskFromMessage = useCallback((subject: string, description: string) => {
     openCreateTaskDialog(subject, description);
@@ -966,6 +1497,36 @@ export const TeamDetailView = ({
 
   const handleRestartTeam = useCallback(() => {
     setLaunchDialogOpen(true);
+  }, []);
+
+  const handleSelectMember = useCallback((member: ResolvedTeamMember) => {
+    setSelectedMember(member);
+  }, []);
+
+  const handleSendMessageToMember = useCallback((member: ResolvedTeamMember) => {
+    setSendDialogRecipient(member.name);
+    setSendDialogDefaultText(undefined);
+    setSendDialogDefaultChip(undefined);
+    setReplyQuote(undefined);
+    setSendDialogOpen(true);
+  }, []);
+
+  const handleAssignTaskToMember = useCallback(
+    (member: ResolvedTeamMember) => {
+      openCreateTaskDialog('', '', member.name);
+    },
+    [openCreateTaskDialog]
+  );
+
+  const handleOpenTaskById = useCallback((taskId: string) => {
+    const task = taskMapRef.current.get(taskId);
+    if (task) {
+      setSelectedTask(task);
+    }
+  }, []);
+
+  const handleOpenTask = useCallback((task: TeamTaskWithKanban) => {
+    setSelectedTask(task);
   }, []);
 
   const handleTaskIdClick = useCallback(
@@ -1159,6 +1720,46 @@ export const TeamDetailView = ({
     })();
   };
 
+  const sharedMessagesPanelProps = useMemo<SharedTeamMessagesPanelProps>(
+    () => ({
+      teamName,
+      onTogglePosition: toggleMessagesPanelMode,
+      members: activeMembers,
+      tasks: data?.tasks ?? [],
+      messages: data?.messages ?? [],
+      isTeamAlive: data?.isAlive,
+      timeWindow,
+      teamSessionIds,
+      currentLeadSessionId: data?.config.leadSessionId,
+      pendingRepliesByMember,
+      onPendingReplyChange: setPendingRepliesByMember,
+      onMemberClick: handleSelectMember,
+      onTaskClick: handleOpenTask,
+      onCreateTaskFromMessage: handleCreateTaskFromMessage,
+      onReplyToMessage: handleReplyToMessage,
+      onRestartTeam: handleRestartTeam,
+      onTaskIdClick: handleTaskIdClick,
+    }),
+    [
+      activeMembers,
+      data?.config.leadSessionId,
+      data?.isAlive,
+      data?.messages,
+      data?.tasks,
+      handleCreateTaskFromMessage,
+      handleOpenTask,
+      handleReplyToMessage,
+      handleRestartTeam,
+      handleSelectMember,
+      handleTaskIdClick,
+      pendingRepliesByMember,
+      teamName,
+      teamSessionIds,
+      timeWindow,
+      toggleMessagesPanelMode,
+    ]
+  );
+
   if (!teamName) {
     return (
       <div className="flex size-full items-center justify-center p-6 text-sm text-red-400">
@@ -1167,701 +1768,919 @@ export const TeamDetailView = ({
     );
   }
 
-  if ((loading && !data) || (data && data.teamName !== teamName)) {
-    return (
-      <div className="size-full overflow-auto p-4">
-        <div className="mb-4 h-10 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
-        <div ref={provisioningBannerRef}>
-          <TeamProvisioningBanner teamName={teamName} />
-        </div>
-        <div className="space-y-3">
-          <div className="h-24 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
-          <div className="h-48 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
-          <div className="h-48 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
-        </div>
-      </div>
-    );
-  }
+  const spawnStatusWatcher = (
+    <TeamSpawnStatusWatcher
+      teamName={teamName}
+      isTeamProvisioning={isTeamProvisioning}
+      isTeamAlive={data?.isAlive}
+    />
+  );
+  const leadContextWatcher = (
+    <LeadContextWatcher
+      teamName={teamName}
+      tabId={tabId}
+      projectId={projectId}
+      leadSessionId={leadSessionId}
+      sessionHistoryKey={sessionHistoryKey}
+      isThisTabActive={isThisTabActive}
+      isTeamAlive={data?.isAlive}
+      sessions={sessions}
+      sessionsLoading={sessionsLoading}
+    />
+  );
 
-  if (error === 'TEAM_DRAFT') {
-    const teamSummary = teams.find((t) => t.teamName === teamName);
-    return (
-      <>
-        <div className="flex size-full items-center justify-center p-6">
-          <div className="max-w-md text-center">
-            <p className="text-sm font-medium text-text">Team not launched yet</p>
-            <p className="mt-2 text-xs text-text-secondary">
-              This is a draft team — <strong>{teamSummary?.displayName || teamName}</strong> has
-              been configured with {teamSummary?.memberCount ?? 0} member
-              {teamSummary?.memberCount === 1 ? '' : 's'} but hasn&apos;t been provisioned by CLI
-              yet. Click Launch to select a model and start the team.
-            </p>
-            <div className="mt-4 flex justify-center gap-2">
-              <button
-                className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-500"
-                onClick={() => setLaunchDialogOpen(true)}
-              >
-                Launch
-              </button>
-              <button
-                className="rounded-md bg-surface-raised px-4 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:text-text"
-                onClick={() => {
-                  void api.teams.deleteDraft(teamName).catch(() => {});
-                }}
-              >
-                Delete
-              </button>
-            </div>
+  const renderBody = (): React.JSX.Element => {
+    if ((loading && !data) || (data && data.teamName !== teamName)) {
+      return (
+        <div className="size-full overflow-auto p-4">
+          <div className="mb-4 h-10 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
+          <div ref={provisioningBannerRef}>
+            <TeamProvisioningBanner teamName={teamName} />
+          </div>
+          <div className="space-y-3">
+            <div className="h-24 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
+            <div className="h-48 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
+            <div className="h-48 animate-pulse rounded-md bg-[var(--color-surface-raised)]" />
           </div>
         </div>
-        <LaunchTeamDialog
-          mode="launch"
-          open={launchDialogOpen}
-          teamName={teamName}
-          members={[]}
-          defaultProjectPath={teamSummary?.projectPath}
-          provisioningError={provisioningError}
-          clearProvisioningError={clearProvisioningError}
-          onClose={() => setLaunchDialogOpen(false)}
-          onLaunch={async (request) => {
-            await launchTeam(request);
-          }}
-        />
-      </>
-    );
-  }
+      );
+    }
 
-  if (error) {
-    return (
-      <div className="flex size-full items-center justify-center p-6">
-        <div className="text-center">
-          <p className="text-sm font-medium text-red-400">Failed to load team</p>
-          <p className="mt-2 text-xs text-[var(--color-text-muted)]">{error}</p>
-        </div>
-      </div>
-    );
-  }
+    if (error === 'TEAM_DRAFT') {
+      const draftTeamSummary = useStore.getState().teamByName[teamName];
+      const draftDisplayName = draftTeamSummary?.displayName || teamName;
+      const draftMemberCount = draftTeamSummary?.memberCount ?? 0;
 
-  if (!data) {
-    return (
-      <div className="size-full overflow-auto p-4">
-        <div ref={provisioningBannerRef}>
-          <TeamProvisioningBanner teamName={teamName} />
-        </div>
-        <div className="flex flex-1 items-center justify-center p-6 text-sm text-[var(--color-text-muted)]">
-          Team data will appear once provisioning completes
-        </div>
-      </div>
-    );
-  }
-
-  const headerColorSet = data.config.color
-    ? getTeamColorSet(data.config.color)
-    : nameColorSet(data.config.name);
-  const sharedMessagesPanelProps = {
-    teamName,
-    onTogglePosition: toggleMessagesPanelMode,
-    members: activeMembers,
-    tasks: data.tasks,
-    messages: data.messages,
-    isTeamAlive: data.isAlive,
-    leadActivity: leadActivityByTeam[teamName],
-    leadContextUpdatedAt,
-    timeWindow,
-    teamSessionIds,
-    currentLeadSessionId: data.config.leadSessionId,
-    pendingRepliesByMember,
-    onPendingReplyChange: setPendingRepliesByMember,
-    onMemberClick: setSelectedMember,
-    onTaskClick: setSelectedTask,
-    onCreateTaskFromMessage: handleCreateTaskFromMessage,
-    onReplyToMessage: handleReplyToMessage,
-    onRestartTeam: handleRestartTeam,
-    onTaskIdClick: handleTaskIdClick,
-  };
-
-  return (
-    <>
-      <div className="flex size-full overflow-hidden">
-        {/* Context panel sidebar (left) */}
-        {isContextPanelVisible && leadSessionId && (
-          <div className="w-80 shrink-0">
-            {leadSessionLoaded ? (
-              <SessionContextPanel
-                injections={allContextInjections}
-                onClose={() => setContextPanelVisible(false)}
-                projectRoot={leadSessionDetail?.session?.projectPath ?? data.config.projectPath}
-                totalSessionTokens={lastAiGroupTotalTokens}
-                sessionMetrics={leadSessionDetail?.metrics}
-                subagentCostUsd={leadSubagentCostUsd}
-                phaseInfo={leadSessionPhaseInfo ?? undefined}
-                selectedPhase={selectedContextPhase}
-                onPhaseChange={setSelectedContextPhase}
-                side="left"
-              />
-            ) : (
-              <div
-                className="flex h-full flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]"
-                style={{ backgroundColor: 'var(--color-surface)' }}
-              >
-                <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-[var(--color-text)]">Visible Context</p>
-                    <p className="text-[10px] text-[var(--color-text-muted)]">
-                      {leadSessionLoading ? 'Loading…' : 'No session loaded'}
-                    </p>
-                  </div>
+      return (
+        <>
+          <div className="size-full overflow-auto p-6">
+            <div ref={provisioningBannerRef}>
+              <TeamProvisioningBanner teamName={teamName} />
+            </div>
+            <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center">
+              <div className="max-w-md text-center">
+                <p className="text-sm font-medium text-text">Team not launched yet</p>
+                <p className="mt-2 text-xs text-text-secondary">
+                  This is a draft team - <strong>{draftDisplayName}</strong> has been configured
+                  with {draftMemberCount} member
+                  {draftMemberCount === 1 ? '' : 's'} but hasn&apos;t been provisioned by CLI yet.
+                  Click Launch to select a model and start the team.
+                </p>
+                <div className="mt-4 flex justify-center gap-2">
                   <button
-                    type="button"
-                    className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)]"
-                    onClick={() => setContextPanelVisible(false)}
-                    aria-label="Close panel"
+                    className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-500"
+                    onClick={() => setLaunchDialogOpen(true)}
                   >
-                    ×
+                    Launch
+                  </button>
+                  <button
+                    className="rounded-md bg-surface-raised px-4 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:text-text"
+                    onClick={() => {
+                      void api.teams.deleteDraft(teamName).catch(() => {});
+                    }}
+                  >
+                    Delete
                   </button>
                 </div>
-                <div className="flex flex-1 items-center justify-center p-4">
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    {leadSessionLoading
-                      ? 'Loading context…'
-                      : 'Open the team lead session to view context.'}
-                  </p>
-                </div>
               </div>
-            )}
+            </div>
           </div>
-        )}
-
-        {/* Messages sidebar (left, after context panel) */}
-        <TeamSidebarHost
-          teamName={teamName}
-          surface="team"
-          isActive={isThisTabActive}
-          isFocused={isPaneFocused}
-        >
-          <TeamSidebarPortalSource
+          <LaunchTeamDialog
+            mode="launch"
+            open={launchDialogOpen}
             teamName={teamName}
+            members={[]}
+            defaultProjectPath={draftTeamSummary?.projectPath}
+            provisioningError={provisioningError}
+            clearProvisioningError={clearProvisioningError}
+            onClose={() => setLaunchDialogOpen(false)}
+            onLaunch={async (request) => {
+              await launchTeam(request);
+            }}
+          />
+        </>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex size-full items-center justify-center p-6">
+          <div className="text-center">
+            <p className="text-sm font-medium text-red-400">Failed to load team</p>
+            <p className="mt-2 text-xs text-[var(--color-text-muted)]">{error}</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (!data) {
+      return (
+        <div className="size-full overflow-auto p-4">
+          <div ref={provisioningBannerRef}>
+            <TeamProvisioningBanner teamName={teamName} />
+          </div>
+          <div className="flex flex-1 items-center justify-center p-6 text-sm text-[var(--color-text-muted)]">
+            Team data will appear once provisioning completes
+          </div>
+        </div>
+      );
+    }
+
+    const headerColorSet = data.config.color
+      ? getTeamColorSet(data.config.color)
+      : nameColorSet(data.config.name);
+
+    return (
+      <>
+        <div className="flex size-full overflow-hidden">
+          <LeadContextBridge
+            teamName={teamName}
+            tabId={tabId}
+            projectId={projectId}
+            leadSessionId={leadSessionId}
+            fallbackProjectRoot={data.config.projectPath}
+          />
+
+          {/* Messages sidebar (left, after context panel) */}
+          <TeamSidebarHost
+            teamName={teamName}
+            surface="team"
             isActive={isThisTabActive}
             isFocused={isPaneFocused}
           >
-            <TeamSidebarRail
+            <TeamSidebarPortalSource
               teamName={teamName}
-              messagesPanelProps={sharedMessagesPanelProps}
-              isResizing={isMessagesPanelResizing}
-              onResizeMouseDown={messagesPanelHandleProps.onMouseDown}
-            />
-          </TeamSidebarPortalSource>
-        </TeamSidebarHost>
-
-        <div
-          ref={contentRef}
-          className="relative size-full flex-1 overflow-auto p-4"
-          data-team-name={teamName}
-        >
-          {/* Context button pinned to bottom-left of viewport */}
-          {leadSessionId && (
-            <div
-              className="pointer-events-none fixed bottom-4 z-20"
-              style={{ left: isContextPanelVisible ? 'calc(20rem + 1rem)' : '1rem' }}
+              isActive={isThisTabActive}
+              isFocused={isPaneFocused}
             >
-              <button
-                onClick={() => {
-                  const next = !isContextPanelVisible;
-                  setContextPanelVisible(next);
-                  if (tabId && projectId && leadSessionId) {
-                    void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
-                  }
-                }}
-                onMouseEnter={() => setIsContextButtonHovered(true)}
-                onMouseLeave={() => setIsContextButtonHovered(false)}
-                className="pointer-events-auto flex w-fit items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-md transition-colors"
-                style={{
-                  backgroundColor: isContextPanelVisible
-                    ? 'var(--context-btn-active-bg)'
-                    : isContextButtonHovered
-                      ? 'var(--context-btn-bg-hover)'
-                      : 'var(--context-btn-bg)',
-                  color: isContextPanelVisible
-                    ? 'var(--context-btn-active-text)'
-                    : 'var(--color-text-secondary)',
-                }}
-                title={
-                  leadSessionLoaded
-                    ? `Session: ${leadSessionId}`
-                    : leadSessionLoading
-                      ? 'Loading context…'
-                      : leadSessionId
-                }
-              >
-                {visibleContextPercentLabel ?? 'Context'}
-              </button>
-            </div>
-          )}
-
-          <div className="relative -mx-4 -mt-4 mb-3 overflow-hidden border-b border-[var(--color-border)] px-4 py-3">
-            {headerColorSet ? (
-              <div
-                className="pointer-events-none absolute inset-0 z-0"
-                style={{ backgroundColor: getThemedBadge(headerColorSet, isLight) }}
+              <TeamSidebarRailBridge
+                teamName={teamName}
+                messagesPanelProps={sharedMessagesPanelProps}
+                isResizing={isMessagesPanelResizing}
+                onResizeMouseDown={messagesPanelHandleProps.onMouseDown}
+                logsHeight={sidebarLogsHeight}
+                isLogsResizing={isLogsPanelResizing}
+                onLogsResizeMouseDown={logsPanelHandleProps.onMouseDown}
               />
-            ) : null}
-            <div
-              className={cn(
-                'flex items-start justify-between gap-2',
-                headerColorSet && 'relative z-10'
-              )}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-semibold text-[var(--color-text)]">
-                    {data.config.name}
-                  </h2>
-                  {data.isAlive && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
-                      <span className="size-1.5 rounded-full bg-emerald-400" />
-                      Running
-                    </span>
-                  )}
-                  {!data.isAlive && isTeamProvisioning && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
-                      <span className="size-1.5 animate-pulse rounded-full bg-yellow-400" />
-                      Launching...
-                    </span>
-                  )}
-                  {data.isAlive &&
-                    launchParams?.model &&
-                    (() => {
-                      const MODEL_LABELS: Record<string, string> = {
-                        default: 'Default',
-                        opus: 'Opus 4.6',
-                        sonnet: 'Sonnet 4.6',
-                        haiku: 'Haiku 4.5',
-                      };
-                      const modelLabel = MODEL_LABELS[launchParams.model] ?? launchParams.model;
-                      const effortLabel = launchParams.effort
-                        ? launchParams.effort.charAt(0).toUpperCase() + launchParams.effort.slice(1)
-                        : '';
-                      const limitLabel = launchParams.limitContext ? '200K' : '';
-                      const parts = [modelLabel, effortLabel, limitLabel].filter(Boolean).join(' ');
-                      return (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]">
-                          {parts}
-                        </span>
-                      );
-                    })()}
+            </TeamSidebarPortalSource>
+          </TeamSidebarHost>
+
+          <div
+            ref={contentRef}
+            className="relative size-full flex-1 overflow-auto p-4"
+            data-team-name={teamName}
+          >
+            <div className="relative -mx-4 -mt-4 mb-3 overflow-hidden border-b border-[var(--color-border)] px-4 py-3">
+              {headerColorSet ? (
+                <div
+                  className="pointer-events-none absolute inset-0 z-0"
+                  style={{ backgroundColor: getThemedBadge(headerColorSet, isLight) }}
+                />
+              ) : null}
+              <div
+                className={cn(
+                  'flex items-start justify-between gap-2',
+                  headerColorSet && 'relative z-10'
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-semibold text-[var(--color-text)]">
+                      {data.config.name}
+                    </h2>
+                    {data.isAlive && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+                        <span className="size-1.5 rounded-full bg-emerald-400" />
+                        Running
+                      </span>
+                    )}
+                    {!data.isAlive && isTeamProvisioning && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
+                        <span className="size-1.5 animate-pulse rounded-full bg-yellow-400" />
+                        Launching...
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {data.isAlive && (
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {data.isAlive && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                          disabled={stoppingTeam}
+                          onClick={() => void handleStopTeam()}
+                        >
+                          <Square size={12} className={stoppingTeam ? 'animate-pulse' : ''} />
+                          Stop
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">Stop team</TooltipContent>
+                    </Tooltip>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                        onClick={() => setEditDialogOpen(true)}
+                      >
+                        <Pencil size={12} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Edit team</TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-7 gap-1 px-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                        disabled={stoppingTeam}
-                        onClick={() => void handleStopTeam()}
+                        onClick={handleDeleteTeam}
                       >
-                        <Square size={12} className={stoppingTeam ? 'animate-pulse' : ''} />
-                        Stop
+                        <Trash2 size={12} />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Stop team</TooltipContent>
+                    <TooltipContent side="bottom">Delete team</TooltipContent>
                   </Tooltip>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                      onClick={() => setEditDialogOpen(true)}
-                    >
-                      <Pencil size={12} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Edit team</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1 px-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                      onClick={handleDeleteTeam}
-                    >
-                      <Trash2 size={12} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Delete team</TooltipContent>
-                </Tooltip>
+                </div>
               </div>
-            </div>
-            {data.config.description && (
-              <p
-                className={cn(
-                  'min-w-0 truncate text-xs text-[var(--color-text-muted)]',
-                  headerColorSet && 'relative z-10'
-                )}
-              >
-                {data.config.description}
-              </p>
-            )}
-            {(data.config.projectPath || leadBranch) && (
-              <div
-                className={cn(
-                  'mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5',
-                  headerColorSet && 'relative z-10'
-                )}
-              >
-                {data.config.projectPath && (
-                  <span className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)]">
-                    <FolderOpen size={11} className="shrink-0 text-[var(--color-text-muted)]" />
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="max-w-60 truncate font-mono">
-                          {data.config.projectPath
-                            .replace(/\\/g, '/')
-                            .split('/')
-                            .filter(Boolean)
-                            .pop() ?? data.config.projectPath}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <span className="font-mono text-xs">
-                          {formatProjectPath(data.config.projectPath)}
-                        </span>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => setEditorOpen(true)}
-                          className="ml-1 flex items-center gap-0.5 rounded border border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
-                        >
-                          <Code size={10} className="shrink-0" /> Edit code
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Open project in built-in editor</TooltipContent>
-                    </Tooltip>
-                  </span>
-                )}
-                {leadBranch && (
-                  <span
-                    className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)]"
-                    title={leadBranch}
-                  >
-                    <GitBranch size={11} className="shrink-0 text-[var(--color-text-muted)]" />
-                    <span className="max-w-32 truncate">{leadBranch}</span>
-                  </span>
-                )}
-              </div>
-            )}
-            {(() => {
-              const currentPath = data.config.projectPath;
-              const history = data.config.projectPathHistory?.filter((p) => p !== currentPath);
-              if (!history || history.length === 0) return null;
-              return (
-                <div
+              {data.config.description && (
+                <p
                   className={cn(
-                    'mt-0.5 flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]',
+                    'min-w-0 truncate text-xs text-[var(--color-text-muted)]',
                     headerColorSet && 'relative z-10'
                   )}
                 >
-                  <History size={10} className="shrink-0" />
-                  <span className="truncate">
-                    Previous: {history.map((p) => formatProjectPath(p)).join(', ')}
-                  </span>
-                </div>
-              );
-            })()}
-          </div>
-
-          {!data.isAlive && !isTeamProvisioning ? (
-            <div
-              className="mb-3 flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-              style={{
-                backgroundColor: 'var(--warning-bg)',
-                borderColor: 'var(--warning-border)',
-                color: 'var(--warning-text)',
-              }}
-            >
-              <span className="flex items-center gap-1.5 text-xs">
-                <AlertTriangle size={14} className="shrink-0" />
-                Team is offline
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 gap-1 px-2 text-xs text-[var(--step-done-text)] hover:bg-[var(--step-done-bg)]"
-                onClick={() => setLaunchDialogOpen(true)}
-              >
-                <Play size={12} />
-                Launch
-              </Button>
-            </div>
-          ) : null}
-
-          <div ref={provisioningBannerRef}>
-            <TeamProvisioningBanner teamName={teamName} />
-          </div>
-
-          {data.warnings?.some((warning) => warning.toLowerCase().includes('kanban')) ? (
-            <div className="mb-3 rounded-md border border-[var(--step-warning-border)] bg-[var(--step-warning-bg)] px-3 py-2 text-xs text-[var(--step-warning-text)]">
-              Failed to fully load kanban. Displaying safe data.
-            </div>
-          ) : null}
-          {reviewActionError ? (
-            <div className="mb-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-[var(--step-error-text)]">
-              {reviewActionError}
-            </div>
-          ) : null}
-
-          <CollapsibleTeamSection
-            sectionId="team"
-            title="Team"
-            icon={<Users size={14} />}
-            badge={activeTeammateCount === 0 ? 'Solo' : activeTeammateCount}
-            defaultOpen
-            action={
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    useStore.getState().openTab({
-                      type: 'graph',
-                      label: `${data.config.name} Graph`,
-                      teamName,
-                    });
-                  }}
+                  {data.config.description}
+                </p>
+              )}
+              {(data.config.projectPath || leadBranch) && (
+                <div
+                  className={cn(
+                    'mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5',
+                    headerColorSet && 'relative z-10'
+                  )}
                 >
-                  <span className="relative">
-                    <Network size={12} />
-                    <span className="absolute -right-3.5 -top-2.5 rounded-sm bg-emerald-500/20 px-0.5 py-px text-[7px] font-bold leading-none text-emerald-400">
-                      NEW
+                  {data.config.projectPath && (
+                    <span className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)]">
+                      <FolderOpen size={11} className="shrink-0 text-[var(--color-text-muted)]" />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="max-w-60 truncate font-mono">
+                            {data.config.projectPath
+                              .replace(/\\/g, '/')
+                              .split('/')
+                              .filter(Boolean)
+                              .pop() ?? data.config.projectPath}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <span className="font-mono text-xs">
+                            {formatProjectPath(data.config.projectPath)}
+                          </span>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setEditorOpen(true)}
+                            className="ml-1 flex items-center gap-0.5 rounded border border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
+                          >
+                            <Code size={10} className="shrink-0" /> Edit code
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Open project in built-in editor</TooltipContent>
+                      </Tooltip>
                     </span>
-                  </span>
-                  Graph
-                </Button>
+                  )}
+                  {leadBranch && (
+                    <span
+                      className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)]"
+                      title={leadBranch}
+                    >
+                      <GitBranch size={11} className="shrink-0 text-[var(--color-text-muted)]" />
+                      <span className="max-w-32 truncate">{leadBranch}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+              {(() => {
+                const currentPath = data.config.projectPath;
+                const history = data.config.projectPathHistory?.filter((p) => p !== currentPath);
+                if (!history || history.length === 0) return null;
+                return (
+                  <div
+                    className={cn(
+                      'mt-0.5 flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]',
+                      headerColorSet && 'relative z-10'
+                    )}
+                  >
+                    <History size={10} className="shrink-0" />
+                    <span className="truncate">
+                      Previous: {history.map((p) => formatProjectPath(p)).join(', ')}
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {!data.isAlive && !isTeamProvisioning ? (
+              <TeamOfflineStatusBanner
+                teamName={teamName}
+                onLaunch={() => setLaunchDialogOpen(true)}
+              />
+            ) : null}
+
+            <div ref={provisioningBannerRef}>
+              <TeamProvisioningBanner teamName={teamName} />
+            </div>
+
+            {data.warnings?.some((warning) => warning.toLowerCase().includes('kanban')) ? (
+              <div className="mb-3 rounded-md border border-[var(--step-warning-border)] bg-[var(--step-warning-bg)] px-3 py-2 text-xs text-[var(--step-warning-text)]">
+                Failed to fully load kanban. Displaying safe data.
+              </div>
+            ) : null}
+            {reviewActionError ? (
+              <div className="mb-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-[var(--step-error-text)]">
+                {reviewActionError}
+              </div>
+            ) : null}
+
+            <CollapsibleTeamSection
+              sectionId="team"
+              title="Team"
+              icon={<Users size={14} />}
+              badge={activeTeammateCount === 0 ? 'Solo' : activeTeammateCount}
+              defaultOpen
+              action={
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      useStore.getState().openTab({
+                        type: 'graph',
+                        label: `${data.config.name} Graph`,
+                        teamName,
+                      });
+                    }}
+                  >
+                    <span className="relative">
+                      <Network size={12} />
+                      <span className="absolute -right-3.5 -top-2.5 rounded-sm bg-emerald-500/20 px-0.5 py-px text-[7px] font-bold leading-none text-emerald-400">
+                        NEW
+                      </span>
+                    </span>
+                    Graph
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddMemberDialogOpen(true);
+                    }}
+                  >
+                    <UserPlus size={12} />
+                    Member
+                  </Button>
+                </div>
+              }
+            >
+              <TeamMemberListBridge
+                teamName={teamName}
+                members={membersWithLiveBranches}
+                memberTaskCounts={memberTaskCounts}
+                taskMap={taskMap}
+                pendingRepliesByMember={pendingRepliesByMember}
+                isTeamAlive={data.isAlive}
+                isTeamProvisioning={isTeamProvisioning}
+                launchParams={launchParams}
+                onMemberClick={handleSelectMember}
+                onSendMessage={handleSendMessageToMember}
+                onAssignTask={handleAssignTaskToMember}
+                onOpenTask={handleOpenTaskById}
+              />
+            </CollapsibleTeamSection>
+
+            <CollapsibleTeamSection
+              sectionId="sessions"
+              title="Sessions"
+              icon={<History size={14} />}
+              defaultOpen={false}
+            >
+              <TeamSessionsSection
+                sessions={teamSessions}
+                sessionsLoading={sessionsLoading}
+                sessionsError={sessionsError}
+                leadSessionId={data.config.leadSessionId}
+                selectedSessionId={kanbanFilter.sessionId}
+                onSelectSession={(id) => setKanbanFilter((prev) => ({ ...prev, sessionId: id }))}
+                projectPath={data.config.projectPath}
+              />
+            </CollapsibleTeamSection>
+
+            <CollapsibleTeamSection
+              sectionId="kanban"
+              title="Kanban"
+              icon={<Columns3 size={14} />}
+              badge={filteredTasks.length}
+              defaultOpen
+              forceOpen={kanbanSearch.trim().length > 0}
+              contentClassName="overflow-x-visible"
+              action={
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setAddMemberDialogOpen(true);
+                    openCreateTaskDialog();
                   }}
                 >
-                  <UserPlus size={12} />
-                  Member
+                  <Plus size={12} />
+                  Task
                 </Button>
-              </div>
-            }
-          >
-            <MemberList
-              members={membersWithLiveBranches}
-              memberTaskCounts={memberTaskCounts}
-              taskMap={taskMap}
-              pendingRepliesByMember={pendingRepliesByMember}
-              memberSpawnStatuses={memberSpawnStatusMap}
+              }
+            >
+              <KanbanBoard
+                tasks={kanbanDisplayTasks}
+                teamName={teamName}
+                kanbanState={data.kanbanState}
+                filter={kanbanFilter}
+                sort={kanbanSort}
+                sessions={teamSessions}
+                leadSessionId={data.config.leadSessionId}
+                members={activeMembers}
+                onFilterChange={setKanbanFilter}
+                onSortChange={setKanbanSort}
+                toolbarLeft={
+                  <KanbanSearchInput
+                    value={kanbanSearch}
+                    onChange={setKanbanSearch}
+                    tasks={filteredTasks}
+                    members={activeMembers}
+                  />
+                }
+                onRequestReview={(taskId) => {
+                  void (async () => {
+                    try {
+                      await requestReview(teamName, taskId);
+                    } catch {
+                      // error via store
+                    }
+                  })();
+                }}
+                onApprove={(taskId) => {
+                  void (async () => {
+                    try {
+                      await updateKanban(teamName, taskId, {
+                        op: 'set_column',
+                        column: 'approved',
+                      });
+                    } catch {
+                      // error via store
+                    }
+                  })();
+                }}
+                onRequestChanges={(taskId) => {
+                  setRequestChangesTaskId(taskId);
+                }}
+                onMoveBackToDone={(taskId) => {
+                  void (async () => {
+                    try {
+                      await updateKanban(teamName, taskId, { op: 'remove' });
+                      await updateTaskStatus(teamName, taskId, 'completed');
+                    } catch {
+                      // error via store
+                    }
+                  })();
+                }}
+                onStartTask={(taskId) => {
+                  void (async () => {
+                    try {
+                      const result = await startTaskByUser(teamName, taskId);
+                      if (data?.isAlive) {
+                        const task = data.tasks.find((t) => t.id === taskId);
+                        try {
+                          if (result.notifiedOwner && task?.owner) {
+                            await api.teams.processSend(
+                              teamName,
+                              `Task ${formatTaskDisplayLabel(task)} "${task.subject}" has started. Please begin working on it.`
+                            );
+                          } else if (!result.notifiedOwner) {
+                            const desc = task?.description?.trim()
+                              ? `\nDescription: ${task.description.trim()}`
+                              : '';
+                            await api.teams.processSend(
+                              teamName,
+                              `Task #${deriveTaskDisplayId(taskId)} "${task?.subject ?? ''}" has been moved to IN PROGRESS but has no assignee.${desc}\nPlease assign it to an available team member, or take it yourself if everyone is busy.`
+                            );
+                          }
+                        } catch {
+                          // best-effort
+                        }
+                      }
+                    } catch {
+                      // error via store
+                    }
+                  })();
+                }}
+                onCompleteTask={(taskId) => {
+                  void (async () => {
+                    try {
+                      await updateTaskStatus(teamName, taskId, 'completed');
+                    } catch {
+                      // error via store
+                    }
+                  })();
+                }}
+                onCancelTask={(taskId) => {
+                  void (async () => {
+                    try {
+                      const task = data?.tasks.find((t) => t.id === taskId);
+                      await updateTaskStatus(teamName, taskId, 'pending');
+
+                      // Notify assignee directly via inbox — they'll see it immediately
+                      if (task?.owner) {
+                        try {
+                          await api.teams.sendMessage(teamName, {
+                            member: task.owner,
+                            text: `Task ${formatTaskDisplayLabel(task)} "${task.subject}" has been CANCELLED by the user and moved back to TODO. Stop working on it immediately.`,
+                            summary: `Task ${formatTaskDisplayLabel(task)} cancelled`,
+                          });
+                        } catch {
+                          // best-effort
+                        }
+                      }
+
+                      // Also notify team lead so they can reassign/coordinate
+                      if (data?.isAlive) {
+                        try {
+                          const ownerSuffix = task?.owner
+                            ? ` ${task.owner} has been notified to stop.`
+                            : '';
+                          await api.teams.processSend(
+                            teamName,
+                            `Task #${deriveTaskDisplayId(taskId)} "${task?.subject ?? ''}" has been cancelled and moved back to TODO.${ownerSuffix}`
+                          );
+                        } catch {
+                          // best-effort
+                        }
+                      }
+                    } catch {
+                      // error via store
+                    }
+                  })();
+                }}
+                onColumnOrderChange={(columnId, orderedTaskIds) => {
+                  void (async () => {
+                    try {
+                      await updateKanbanColumnOrder(teamName, columnId, orderedTaskIds);
+                    } catch {
+                      // error via store
+                    }
+                  })();
+                }}
+                onScrollToTask={(taskId) => {
+                  const el = document.querySelector(`[data-task-id="${taskId}"]`);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    el.classList.remove('kanban-card-focus-pulse');
+                    void (el as HTMLElement).offsetWidth;
+                    el.classList.add('kanban-card-focus-pulse');
+                    el.addEventListener(
+                      'animationend',
+                      () => el.classList.remove('kanban-card-focus-pulse'),
+                      { once: true }
+                    );
+                  }
+                }}
+                onTaskClick={(task) => setSelectedTask(task)}
+                onViewChanges={handleViewChanges}
+                onAddTask={(startImmediately) => openCreateTaskDialog('', '', '', startImmediately)}
+                onDeleteTask={handleDeleteTask}
+                deletedTaskCount={deletedTasks.length}
+                onOpenTrash={() => setTrashOpen(true)}
+              />
+            </CollapsibleTeamSection>
+
+            <CollapsibleTeamSection
+              sectionId="schedules"
+              title="Schedules"
+              icon={<Clock size={14} />}
+              defaultOpen={false}
+            >
+              <ScheduleSection teamName={teamName} />
+            </CollapsibleTeamSection>
+
+            {(data.processes?.length ?? 0) > 0 && (
+              <CollapsibleTeamSection
+                sectionId="processes"
+                title="CLI Processes"
+                icon={<Terminal size={14} />}
+                badge={data.processes.filter((p) => !p.stoppedAt).length}
+                headerExtra={
+                  data.processes.some((p) => !p.stoppedAt) ? (
+                    <span
+                      className="pointer-events-none relative inline-flex size-2 shrink-0"
+                      title="Active"
+                    >
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+                      <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+                    </span>
+                  ) : null
+                }
+                defaultOpen
+              >
+                <ProcessesSection
+                  teamName={teamName}
+                  members={membersWithLiveBranches}
+                  processes={data.processes}
+                />
+              </CollapsibleTeamSection>
+            )}
+
+            {messagesPanelMode !== 'sidebar' && <ClaudeLogsSection teamName={teamName} />}
+
+            {messagesPanelMode === 'inline' && (
+              <TeamMessagesPanelBridge position="inline" {...sharedMessagesPanelProps} />
+            )}
+
+            <ReviewDialog
+              open={requestChangesTaskId !== null}
+              teamName={teamName}
+              taskId={requestChangesTaskId}
+              members={data?.members ?? []}
+              onCancel={() => setRequestChangesTaskId(null)}
+              onSubmit={(comment, taskRefs) => {
+                if (!requestChangesTaskId) {
+                  return;
+                }
+                void (async () => {
+                  try {
+                    await updateKanban(teamName, requestChangesTaskId, {
+                      op: 'request_changes',
+                      comment,
+                      taskRefs,
+                    });
+                    setRequestChangesTaskId(null);
+                  } catch {
+                    // error state is handled in the store and shown in the view
+                  }
+                })();
+              }}
+            />
+
+            <TeamMemberDetailDialogBridge
+              open={selectedMember !== null}
+              member={selectedMember}
+              teamName={teamName}
+              tasks={data.tasks}
+              messages={data.messages}
               isTeamAlive={data.isAlive}
               isTeamProvisioning={isTeamProvisioning}
-              leadActivity={leadActivityByTeam[teamName]}
-              onMemberClick={setSelectedMember}
-              onSendMessage={(member) => {
-                setSendDialogRecipient(member.name);
+              onClose={() => setSelectedMember(null)}
+              onSendMessage={() => {
+                const name = selectedMember?.name ?? '';
+                setSelectedMember(null);
+                setSendDialogRecipient(name || undefined);
                 setSendDialogDefaultText(undefined);
                 setSendDialogDefaultChip(undefined);
                 setReplyQuote(undefined);
                 setSendDialogOpen(true);
               }}
-              onAssignTask={(member) => {
-                openCreateTaskDialog('', '', member.name);
+              onAssignTask={() => {
+                const name = selectedMember?.name ?? '';
+                setSelectedMember(null);
+                openCreateTaskDialog('', '', name);
               }}
-              onOpenTask={(task) => setSelectedTask(task)}
+              onTaskClick={(task) => {
+                setSelectedMember(null);
+                setSelectedTask(task);
+              }}
+              onUpdateRole={async (memberName, role) => {
+                setUpdatingRoleLoading(true);
+                try {
+                  await updateMemberRole(teamName, memberName, role);
+                  // Optimistically update local selectedMember to reflect new role
+                  setSelectedMember((prev) => {
+                    if (prev?.name !== memberName) return prev;
+                    const normalized =
+                      typeof role === 'string' && role.trim() ? role.trim() : undefined;
+                    return { ...prev, role: normalized };
+                  });
+                } finally {
+                  setUpdatingRoleLoading(false);
+                }
+              }}
+              updatingRole={updatingRoleLoading}
+              onRemoveMember={() => {
+                const name = selectedMember?.name;
+                if (!name) return;
+                setRemoveMemberConfirm(name);
+              }}
+              onViewMemberChanges={(memberName, filePath) => {
+                setSelectedMember(null);
+                setReviewDialogState({
+                  open: true,
+                  mode: 'agent',
+                  memberName,
+                  initialFilePath: filePath,
+                });
+              }}
             />
-          </CollapsibleTeamSection>
 
-          <CollapsibleTeamSection
-            sectionId="sessions"
-            title="Sessions"
-            icon={<History size={14} />}
-            defaultOpen={false}
-          >
-            <TeamSessionsSection
-              sessions={teamSessions}
-              sessionsLoading={sessionsLoading}
-              sessionsError={sessionsError}
-              leadSessionId={data.config.leadSessionId}
-              selectedSessionId={kanbanFilter.sessionId}
-              onSelectSession={(id) => setKanbanFilter((prev) => ({ ...prev, sessionId: id }))}
-              projectPath={data.config.projectPath}
-            />
-          </CollapsibleTeamSection>
-
-          <CollapsibleTeamSection
-            sectionId="kanban"
-            title="Kanban"
-            icon={<Columns3 size={14} />}
-            badge={filteredTasks.length}
-            defaultOpen
-            forceOpen={kanbanSearch.trim().length > 0}
-            contentClassName="overflow-x-visible"
-            action={
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openCreateTaskDialog();
-                }}
-              >
-                <Plus size={12} />
-                Task
-              </Button>
-            }
-          >
-            <KanbanBoard
-              tasks={kanbanDisplayTasks}
+            <CreateTaskDialog
+              open={createTaskDialog.open}
               teamName={teamName}
-              kanbanState={data.kanbanState}
-              filter={kanbanFilter}
-              sort={kanbanSort}
-              sessions={teamSessions}
-              leadSessionId={data.config.leadSessionId}
               members={activeMembers}
-              onFilterChange={setKanbanFilter}
-              onSortChange={setKanbanSort}
-              toolbarLeft={
-                <KanbanSearchInput
-                  value={kanbanSearch}
-                  onChange={setKanbanSearch}
-                  tasks={filteredTasks}
-                  members={activeMembers}
-                />
-              }
-              onRequestReview={(taskId) => {
-                void (async () => {
-                  try {
-                    await requestReview(teamName, taskId);
-                  } catch {
-                    // error via store
-                  }
-                })();
-              }}
-              onApprove={(taskId) => {
-                void (async () => {
-                  try {
-                    await updateKanban(teamName, taskId, { op: 'set_column', column: 'approved' });
-                  } catch {
-                    // error via store
-                  }
-                })();
-              }}
-              onRequestChanges={(taskId) => {
-                setRequestChangesTaskId(taskId);
-              }}
-              onMoveBackToDone={(taskId) => {
-                void (async () => {
-                  try {
-                    await updateKanban(teamName, taskId, { op: 'remove' });
-                    await updateTaskStatus(teamName, taskId, 'completed');
-                  } catch {
-                    // error via store
-                  }
-                })();
-              }}
-              onStartTask={(taskId) => {
-                void (async () => {
-                  try {
-                    const result = await startTaskByUser(teamName, taskId);
-                    if (data?.isAlive) {
-                      const task = data.tasks.find((t) => t.id === taskId);
-                      try {
-                        if (result.notifiedOwner && task?.owner) {
-                          await api.teams.processSend(
-                            teamName,
-                            `Task ${formatTaskDisplayLabel(task)} "${task.subject}" has started. Please begin working on it.`
-                          );
-                        } else if (!result.notifiedOwner) {
-                          const desc = task?.description?.trim()
-                            ? `\nDescription: ${task.description.trim()}`
-                            : '';
-                          await api.teams.processSend(
-                            teamName,
-                            `Task #${deriveTaskDisplayId(taskId)} "${task?.subject ?? ''}" has been moved to IN PROGRESS but has no assignee.${desc}\nPlease assign it to an available team member, or take it yourself if everyone is busy.`
-                          );
-                        }
-                      } catch {
-                        // best-effort
-                      }
-                    }
-                  } catch {
-                    // error via store
-                  }
-                })();
-              }}
-              onCompleteTask={(taskId) => {
-                void (async () => {
-                  try {
-                    await updateTaskStatus(teamName, taskId, 'completed');
-                  } catch {
-                    // error via store
-                  }
-                })();
-              }}
-              onCancelTask={(taskId) => {
-                void (async () => {
-                  try {
-                    const task = data?.tasks.find((t) => t.id === taskId);
-                    await updateTaskStatus(teamName, taskId, 'pending');
+              tasks={data.tasks}
+              isTeamAlive={data.isAlive && !isTeamProvisioning}
+              defaultSubject={createTaskDialog.defaultSubject}
+              defaultDescription={createTaskDialog.defaultDescription}
+              defaultOwner={createTaskDialog.defaultOwner}
+              defaultStartImmediately={createTaskDialog.defaultStartImmediately}
+              defaultChip={createTaskDialog.defaultChip}
+              onClose={closeCreateTaskDialog}
+              onSubmit={handleCreateTask}
+              submitting={creatingTask}
+            />
 
-                    // Notify assignee directly via inbox — they'll see it immediately
-                    if (task?.owner) {
-                      try {
-                        await api.teams.sendMessage(teamName, {
-                          member: task.owner,
-                          text: `Task ${formatTaskDisplayLabel(task)} "${task.subject}" has been CANCELLED by the user and moved back to TODO. Stop working on it immediately.`,
-                          summary: `Task ${formatTaskDisplayLabel(task)} cancelled`,
-                        });
-                      } catch {
-                        // best-effort
-                      }
-                    }
+            <EditTeamDialog
+              open={editDialogOpen}
+              teamName={teamName}
+              currentName={data.config.name}
+              currentDescription={data.config.description ?? ''}
+              currentColor={data.config.color ?? ''}
+              currentMembers={membersWithLiveBranches.filter((m) => !isLeadMember(m))}
+              isTeamAlive={data.isAlive && !isTeamProvisioning}
+              projectPath={data.config.projectPath}
+              onClose={() => setEditDialogOpen(false)}
+              onSaved={() => void selectTeam(teamName)}
+            />
 
-                    // Also notify team lead so they can reassign/coordinate
-                    if (data?.isAlive) {
-                      try {
-                        const ownerSuffix = task?.owner
-                          ? ` ${task.owner} has been notified to stop.`
-                          : '';
-                        await api.teams.processSend(
-                          teamName,
-                          `Task #${deriveTaskDisplayId(taskId)} "${task?.subject ?? ''}" has been cancelled and moved back to TODO.${ownerSuffix}`
-                        );
-                      } catch {
-                        // best-effort
-                      }
-                    }
-                  } catch {
-                    // error via store
-                  }
-                })();
-              }}
-              onColumnOrderChange={(columnId, orderedTaskIds) => {
+            <AddMemberDialog
+              open={addMemberDialogOpen}
+              teamName={teamName}
+              existingNames={membersWithLiveBranches.map((m) => m.name)}
+              existingMembers={membersWithLiveBranches}
+              projectPath={data.config.projectPath}
+              adding={addingMemberLoading}
+              onClose={() => setAddMemberDialogOpen(false)}
+              onAdd={(entries: AddMemberEntry[]) => {
+                setAddingMemberLoading(true);
                 void (async () => {
                   try {
-                    await updateKanbanColumnOrder(teamName, columnId, orderedTaskIds);
+                    for (const entry of entries) {
+                      await addMember(teamName, {
+                        name: entry.name,
+                        role: entry.role,
+                        workflow: entry.workflow,
+                        providerId: entry.providerId,
+                        model: entry.model,
+                        effort: entry.effort,
+                      });
+                    }
+                    setAddMemberDialogOpen(false);
                   } catch {
-                    // error via store
+                    // error shown via store
+                  } finally {
+                    setAddingMemberLoading(false);
                   }
                 })();
               }}
+            />
+
+            <Dialog
+              open={removeMemberConfirm !== null}
+              onOpenChange={(open) => {
+                if (!open) setRemoveMemberConfirm(null);
+              }}
+            >
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Remove member</DialogTitle>
+                  <DialogDescription>
+                    Remove &ldquo;{removeMemberConfirm}&rdquo; from the team? Tasks and messages
+                    will be preserved, but this name cannot be reused.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="ghost" size="sm" onClick={() => setRemoveMemberConfirm(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      const name = removeMemberConfirm;
+                      setRemoveMemberConfirm(null);
+                      setSelectedMember(null);
+                      if (name) void removeMember(teamName, name);
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Delete team</DialogTitle>
+                  <DialogDescription>
+                    Delete team &ldquo;{data.config.name}&rdquo;? This action is irreversible. All
+                    team data and tasks will be deleted.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="ghost" size="sm" onClick={() => setDeleteConfirmOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={confirmDeleteTeam}>
+                    Delete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <LaunchTeamDialog
+              mode="launch"
+              open={launchDialogOpen}
+              teamName={teamName}
+              members={membersWithLiveBranches}
+              defaultProjectPath={data.config.projectPath}
+              provisioningError={provisioningError}
+              clearProvisioningError={clearProvisioningError}
+              activeTeams={activeTeamsForLaunch}
+              onClose={() => setLaunchDialogOpen(false)}
+              onLaunch={async (request) => {
+                await launchTeam(request);
+              }}
+            />
+
+            <SendMessageDialog
+              open={sendDialogOpen}
+              teamName={teamName}
+              members={activeMembers}
+              defaultRecipient={sendDialogRecipient}
+              defaultText={sendDialogDefaultText}
+              defaultChip={sendDialogDefaultChip}
+              quotedMessage={replyQuote}
+              isTeamAlive={data.isAlive}
+              sending={sendingMessage}
+              sendError={sendMessageError}
+              lastResult={lastSendMessageResult}
+              onSend={(member, text, summary, attachments, actionMode, taskRefs) => {
+                void (async () => {
+                  const sentAtMs = Date.now();
+                  setPendingRepliesByMember((prev) => ({ ...prev, [member]: sentAtMs }));
+                  try {
+                    await sendTeamMessage(teamName, {
+                      member,
+                      text,
+                      summary,
+                      attachments,
+                      actionMode,
+                      taskRefs,
+                    });
+                  } catch {
+                    setPendingRepliesByMember((prev) => {
+                      if (prev[member] !== sentAtMs) return prev;
+                      const next = { ...prev };
+                      delete next[member];
+                      return next;
+                    });
+                  }
+                })();
+              }}
+              onClose={() => {
+                setSendDialogOpen(false);
+                setReplyQuote(undefined);
+                setSendDialogDefaultText(undefined);
+                setSendDialogDefaultChip(undefined);
+              }}
+            />
+
+            <TaskDetailDialog
+              open={selectedTask !== null}
+              task={selectedTask}
+              teamName={teamName}
+              kanbanTaskState={selectedTask ? data?.kanbanState.tasks[selectedTask.id] : undefined}
+              taskMap={taskMap}
+              members={activeMembers}
+              onClose={() => setSelectedTask(null)}
               onScrollToTask={(taskId) => {
+                setSelectedTask(null);
                 const el = document.querySelector(`[data-task-id="${taskId}"]`);
                 if (el) {
                   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1875,425 +2694,110 @@ export const TeamDetailView = ({
                   );
                 }
               }}
-              onTaskClick={(task) => setSelectedTask(task)}
-              onViewChanges={handleViewChanges}
-              onAddTask={(startImmediately) => openCreateTaskDialog('', '', '', startImmediately)}
-              onDeleteTask={handleDeleteTask}
-              deletedTaskCount={deletedTasks.length}
-              onOpenTrash={() => setTrashOpen(true)}
-            />
-          </CollapsibleTeamSection>
-
-          <CollapsibleTeamSection
-            sectionId="schedules"
-            title="Schedules"
-            icon={<Clock size={14} />}
-            defaultOpen={false}
-          >
-            <ScheduleSection teamName={teamName} />
-          </CollapsibleTeamSection>
-
-          {(data.processes?.length ?? 0) > 0 && (
-            <CollapsibleTeamSection
-              sectionId="processes"
-              title="CLI Processes"
-              icon={<Terminal size={14} />}
-              badge={data.processes.filter((p) => !p.stoppedAt).length}
-              headerExtra={
-                data.processes.some((p) => !p.stoppedAt) ? (
-                  <span
-                    className="pointer-events-none relative inline-flex size-2 shrink-0"
-                    title="Active"
-                  >
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-                    <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-                  </span>
-                ) : null
-              }
-              defaultOpen
-            >
-              <ProcessesSection />
-            </CollapsibleTeamSection>
-          )}
-
-          {messagesPanelMode !== 'sidebar' && <ClaudeLogsSection teamName={teamName} />}
-
-          {messagesPanelMode === 'inline' && (
-            <MessagesPanel position="inline" {...sharedMessagesPanelProps} />
-          )}
-
-          <ReviewDialog
-            open={requestChangesTaskId !== null}
-            teamName={teamName}
-            taskId={requestChangesTaskId}
-            members={data?.members ?? []}
-            onCancel={() => setRequestChangesTaskId(null)}
-            onSubmit={(comment, taskRefs) => {
-              if (!requestChangesTaskId) {
-                return;
-              }
-              void (async () => {
-                try {
-                  await updateKanban(teamName, requestChangesTaskId, {
-                    op: 'request_changes',
-                    comment,
-                    taskRefs,
-                  });
-                  setRequestChangesTaskId(null);
-                } catch {
-                  // error state is handled in the store and shown in the view
-                }
-              })();
-            }}
-          />
-
-          <MemberDetailDialog
-            open={selectedMember !== null}
-            member={selectedMember}
-            teamName={teamName}
-            tasks={data.tasks}
-            messages={data.messages}
-            isTeamAlive={data.isAlive}
-            isTeamProvisioning={isTeamProvisioning}
-            leadActivity={leadActivityByTeam[teamName]}
-            onClose={() => setSelectedMember(null)}
-            onSendMessage={() => {
-              const name = selectedMember?.name ?? '';
-              setSelectedMember(null);
-              setSendDialogRecipient(name || undefined);
-              setSendDialogDefaultText(undefined);
-              setSendDialogDefaultChip(undefined);
-              setReplyQuote(undefined);
-              setSendDialogOpen(true);
-            }}
-            onAssignTask={() => {
-              const name = selectedMember?.name ?? '';
-              setSelectedMember(null);
-              openCreateTaskDialog('', '', name);
-            }}
-            onTaskClick={(task) => {
-              setSelectedMember(null);
-              setSelectedTask(task);
-            }}
-            onUpdateRole={async (memberName, role) => {
-              setUpdatingRoleLoading(true);
-              try {
-                await updateMemberRole(teamName, memberName, role);
-                // Optimistically update local selectedMember to reflect new role
-                setSelectedMember((prev) => {
-                  if (prev?.name !== memberName) return prev;
-                  const normalized =
-                    typeof role === 'string' && role.trim() ? role.trim() : undefined;
-                  return { ...prev, role: normalized };
-                });
-              } finally {
-                setUpdatingRoleLoading(false);
-              }
-            }}
-            updatingRole={updatingRoleLoading}
-            onRemoveMember={() => {
-              const name = selectedMember?.name;
-              if (!name) return;
-              setRemoveMemberConfirm(name);
-            }}
-            onViewMemberChanges={(memberName, filePath) => {
-              setSelectedMember(null);
-              setReviewDialogState({
-                open: true,
-                mode: 'agent',
-                memberName,
-                initialFilePath: filePath,
-              });
-            }}
-          />
-
-          <CreateTaskDialog
-            open={createTaskDialog.open}
-            teamName={teamName}
-            members={activeMembers}
-            tasks={data.tasks}
-            isTeamAlive={data.isAlive && !isTeamProvisioning}
-            defaultSubject={createTaskDialog.defaultSubject}
-            defaultDescription={createTaskDialog.defaultDescription}
-            defaultOwner={createTaskDialog.defaultOwner}
-            defaultStartImmediately={createTaskDialog.defaultStartImmediately}
-            defaultChip={createTaskDialog.defaultChip}
-            onClose={closeCreateTaskDialog}
-            onSubmit={handleCreateTask}
-            submitting={creatingTask}
-          />
-
-          <EditTeamDialog
-            open={editDialogOpen}
-            teamName={teamName}
-            currentName={data.config.name}
-            currentDescription={data.config.description ?? ''}
-            currentColor={data.config.color ?? ''}
-            currentMembers={membersWithLiveBranches.filter((m) => !isLeadMember(m))}
-            projectPath={data.config.projectPath}
-            onClose={() => setEditDialogOpen(false)}
-            onSaved={() => void selectTeam(teamName)}
-          />
-
-          <AddMemberDialog
-            open={addMemberDialogOpen}
-            teamName={teamName}
-            existingNames={membersWithLiveBranches.map((m) => m.name)}
-            existingMembers={membersWithLiveBranches}
-            projectPath={data.config.projectPath}
-            adding={addingMemberLoading}
-            onClose={() => setAddMemberDialogOpen(false)}
-            onAdd={(entries: AddMemberEntry[]) => {
-              setAddingMemberLoading(true);
-              void (async () => {
-                try {
-                  for (const entry of entries) {
-                    await addMember(teamName, {
-                      name: entry.name,
-                      role: entry.role,
-                      workflow: entry.workflow,
-                    });
+              onOwnerChange={(taskId, owner) => {
+                void (async () => {
+                  try {
+                    await updateTaskOwner(teamName, taskId, owner);
+                  } catch {
+                    // error via store
                   }
-                  setAddMemberDialogOpen(false);
-                } catch {
-                  // error shown via store
-                } finally {
-                  setAddingMemberLoading(false);
-                }
-              })();
-            }}
-          />
+                })();
+              }}
+              onViewChanges={handleViewChangesForFile}
+              onOpenInEditor={(filePath) => {
+                const { revealFileInEditor } = useStore.getState();
+                revealFileInEditor(filePath);
+              }}
+              onDeleteTask={handleDeleteTask}
+            />
 
-          <Dialog
-            open={removeMemberConfirm !== null}
-            onOpenChange={(open) => {
-              if (!open) setRemoveMemberConfirm(null);
-            }}
-          >
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Remove member</DialogTitle>
-                <DialogDescription>
-                  Remove &ldquo;{removeMemberConfirm}&rdquo; from the team? Tasks and messages will
-                  be preserved, but this name cannot be reused.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="ghost" size="sm" onClick={() => setRemoveMemberConfirm(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => {
-                    const name = removeMemberConfirm;
-                    setRemoveMemberConfirm(null);
-                    setSelectedMember(null);
-                    if (name) void removeMember(teamName, name);
-                  }}
-                >
-                  Remove
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            <TrashDialog
+              open={trashOpen}
+              tasks={deletedTasks}
+              onClose={() => setTrashOpen(false)}
+              onRestore={(taskId) => {
+                void (async () => {
+                  try {
+                    await restoreTask(teamName, taskId);
+                  } catch {
+                    // error via store
+                  }
+                })();
+              }}
+            />
 
-          <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Delete team</DialogTitle>
-                <DialogDescription>
-                  Delete team &ldquo;{data.config.name}&rdquo;? This action is irreversible. All
-                  team data and tasks will be deleted.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="ghost" size="sm" onClick={() => setDeleteConfirmOpen(false)}>
-                  Cancel
-                </Button>
-                <Button variant="destructive" size="sm" onClick={confirmDeleteTeam}>
-                  Delete
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          <LaunchTeamDialog
-            mode="launch"
-            open={launchDialogOpen}
-            teamName={teamName}
-            members={membersWithLiveBranches}
-            defaultProjectPath={data.config.projectPath}
-            provisioningError={provisioningError}
-            clearProvisioningError={clearProvisioningError}
-            activeTeams={activeTeamsForLaunch}
-            onClose={() => setLaunchDialogOpen(false)}
-            onLaunch={async (request) => {
-              await launchTeam(request);
-            }}
-          />
-
-          <SendMessageDialog
-            open={sendDialogOpen}
-            teamName={teamName}
-            members={activeMembers}
-            defaultRecipient={sendDialogRecipient}
-            defaultText={sendDialogDefaultText}
-            defaultChip={sendDialogDefaultChip}
-            quotedMessage={replyQuote}
-            isTeamAlive={data.isAlive}
-            sending={sendingMessage}
-            sendError={sendMessageError}
-            lastResult={lastSendMessageResult}
-            onSend={(member, text, summary, attachments, actionMode, taskRefs) => {
-              void (async () => {
-                const sentAtMs = Date.now();
-                setPendingRepliesByMember((prev) => ({ ...prev, [member]: sentAtMs }));
-                try {
-                  await sendTeamMessage(teamName, {
-                    member,
-                    text,
-                    summary,
-                    attachments,
-                    actionMode,
-                    taskRefs,
-                  });
-                } catch {
-                  setPendingRepliesByMember((prev) => {
-                    if (prev[member] !== sentAtMs) return prev;
-                    const next = { ...prev };
-                    delete next[member];
-                    return next;
-                  });
-                }
-              })();
-            }}
-            onClose={() => {
-              setSendDialogOpen(false);
-              setReplyQuote(undefined);
-              setSendDialogDefaultText(undefined);
-              setSendDialogDefaultChip(undefined);
-            }}
-          />
-
-          <TaskDetailDialog
-            open={selectedTask !== null}
-            task={selectedTask}
-            teamName={teamName}
-            kanbanTaskState={selectedTask ? data?.kanbanState.tasks[selectedTask.id] : undefined}
-            taskMap={taskMap}
-            members={activeMembers}
-            onClose={() => setSelectedTask(null)}
-            onScrollToTask={(taskId) => {
-              setSelectedTask(null);
-              const el = document.querySelector(`[data-task-id="${taskId}"]`);
-              if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                el.classList.remove('kanban-card-focus-pulse');
-                void (el as HTMLElement).offsetWidth;
-                el.classList.add('kanban-card-focus-pulse');
-                el.addEventListener(
-                  'animationend',
-                  () => el.classList.remove('kanban-card-focus-pulse'),
-                  { once: true }
-                );
+            <ChangeReviewDialog
+              open={reviewDialogState.open}
+              onOpenChange={(open) =>
+                setReviewDialogState((prev) => ({
+                  ...prev,
+                  open,
+                  ...(open
+                    ? {}
+                    : { initialFilePath: undefined, taskChangeRequestOptions: undefined }),
+                }))
               }
-            }}
-            onOwnerChange={(taskId, owner) => {
-              void (async () => {
-                try {
-                  await updateTaskOwner(teamName, taskId, owner);
-                } catch {
-                  // error via store
-                }
-              })();
-            }}
-            onViewChanges={handleViewChangesForFile}
-            onOpenInEditor={(filePath) => {
-              const { revealFileInEditor } = useStore.getState();
-              revealFileInEditor(filePath);
-            }}
-            onDeleteTask={handleDeleteTask}
-          />
-
-          <TrashDialog
-            open={trashOpen}
-            tasks={deletedTasks}
-            onClose={() => setTrashOpen(false)}
-            onRestore={(taskId) => {
-              void (async () => {
-                try {
-                  await restoreTask(teamName, taskId);
-                } catch {
-                  // error via store
-                }
-              })();
-            }}
-          />
-
-          <ChangeReviewDialog
-            open={reviewDialogState.open}
-            onOpenChange={(open) =>
-              setReviewDialogState((prev) => ({
-                ...prev,
-                open,
-                ...(open
-                  ? {}
-                  : { initialFilePath: undefined, taskChangeRequestOptions: undefined }),
-              }))
-            }
-            teamName={teamName}
-            mode={reviewDialogState.mode}
-            memberName={reviewDialogState.memberName}
-            taskId={reviewDialogState.taskId}
-            initialFilePath={reviewDialogState.initialFilePath}
-            taskChangeRequestOptions={reviewDialogState.taskChangeRequestOptions}
-            projectPath={data.config.projectPath}
-            onEditorAction={handleEditorAction}
-          />
+              teamName={teamName}
+              mode={reviewDialogState.mode}
+              memberName={reviewDialogState.memberName}
+              taskId={reviewDialogState.taskId}
+              initialFilePath={reviewDialogState.initialFilePath}
+              taskChangeRequestOptions={reviewDialogState.taskChangeRequestOptions}
+              projectPath={data.config.projectPath}
+              onEditorAction={handleEditorAction}
+            />
+          </div>
         </div>
-      </div>
 
-      {editorOpen && data.config.projectPath && (
-        <Suspense fallback={null}>
-          <ProjectEditorOverlay
-            projectPath={data.config.projectPath}
-            onClose={() => setEditorOpen(false)}
-            onEditorAction={handleEditorAction}
-          />
-        </Suspense>
-      )}
+        {editorOpen && data.config.projectPath && (
+          <Suspense fallback={null}>
+            <ProjectEditorOverlay
+              projectPath={data.config.projectPath}
+              onClose={() => setEditorOpen(false)}
+              onEditorAction={handleEditorAction}
+            />
+          </Suspense>
+        )}
 
-      {graphOpen && (
-        <Suspense fallback={null}>
-          <TeamGraphOverlay
-            teamName={teamName}
-            onClose={() => setGraphOpen(false)}
-            onPinAsTab={() => {
-              setGraphOpen(false);
-              useStore
-                .getState()
-                .openTab({ type: 'graph', label: `${data.config.name} Graph`, teamName });
-            }}
-            onSendMessage={(memberName) => {
-              setSendDialogRecipient(memberName);
-              setSendDialogDefaultText(undefined);
-              setSendDialogDefaultChip(undefined);
-              setSendDialogOpen(true);
-            }}
-            onOpenTaskDetail={(taskId) => {
-              const task = data.tasks.find((t) => t.id === taskId);
-              if (task) setSelectedTask(task);
-            }}
-            onOpenMemberProfile={(memberName) => {
-              setSendDialogRecipient(memberName);
-              setSendDialogDefaultText(undefined);
-              setSendDialogDefaultChip(undefined);
-              setSendDialogOpen(true);
-            }}
-          />
-        </Suspense>
-      )}
+        {graphOpen && (
+          <Suspense fallback={null}>
+            <TeamGraphOverlay
+              teamName={teamName}
+              onClose={() => setGraphOpen(false)}
+              onPinAsTab={() => {
+                setGraphOpen(false);
+                useStore
+                  .getState()
+                  .openTab({ type: 'graph', label: `${data.config.name} Graph`, teamName });
+              }}
+              onSendMessage={(memberName) => {
+                setSendDialogRecipient(memberName);
+                setSendDialogDefaultText(undefined);
+                setSendDialogDefaultChip(undefined);
+                setSendDialogOpen(true);
+              }}
+              onOpenTaskDetail={(taskId) => {
+                const task = data.tasks.find((t) => t.id === taskId);
+                if (task) setSelectedTask(task);
+              }}
+              onOpenMemberProfile={(memberName) => {
+                setSendDialogRecipient(memberName);
+                setSendDialogDefaultText(undefined);
+                setSendDialogDefaultChip(undefined);
+                setSendDialogOpen(true);
+              }}
+            />
+          </Suspense>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <>
+      {spawnStatusWatcher}
+      {leadContextWatcher}
+      {renderBody()}
     </>
   );
 };

@@ -18,15 +18,17 @@
 
 import { createLogger } from '@shared/utils/logger';
 
-import { HttpServer } from './services/infrastructure/HttpServer';
 import {
   getProjectsBasePath,
   getTodosBasePath,
   setClaudeBasePathOverride,
 } from './utils/pathDecoder';
-import { LocalFileSystemProvider, NotificationManager, ServiceContext } from './services';
+import { LocalFileSystemProvider } from './services/infrastructure/LocalFileSystemProvider';
 
 import type { HttpServices } from './http';
+import type { HttpServer } from './services/infrastructure/HttpServer';
+import type { NotificationManager } from './services/infrastructure/NotificationManager';
+import type { ServiceContext } from './services/infrastructure/ServiceContext';
 import type { SshConnectionManager } from './services/infrastructure/SshConnectionManager';
 import type { UpdaterService } from './services/infrastructure/UpdaterService';
 
@@ -98,6 +100,13 @@ async function start(): Promise<void> {
     setClaudeBasePathOverride(CLAUDE_ROOT);
     logger.info(`Using CLAUDE_ROOT: ${CLAUDE_ROOT}`);
   }
+
+  // Import services after applying CLAUDE_ROOT so ConfigManager picks up the correct base path.
+  const [{ HttpServer }, { NotificationManager }, { ServiceContext }] = await Promise.all([
+    import('./services/infrastructure/HttpServer'),
+    import('./services/infrastructure/NotificationManager'),
+    import('./services/infrastructure/ServiceContext'),
+  ]);
 
   const projectsDir = getProjectsBasePath();
   const todosDir = getTodosBasePath();

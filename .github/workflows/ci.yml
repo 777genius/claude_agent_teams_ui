@@ -5,9 +5,12 @@ on:
     branches: [main, dev]
     paths:
       - 'src/**'
+      - 'scripts/**'
       - 'agent-teams-controller/**'
       - 'mcp-server/**'
       - 'packages/**'
+      - 'resources/runtime/**'
+      - 'runtime.lock.json'
       - 'test/**'
       - '.github/workflows/**'
       - 'pnpm-workspace.yaml'
@@ -21,9 +24,12 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'scripts/**'
       - 'agent-teams-controller/**'
       - 'mcp-server/**'
       - 'packages/**'
+      - 'resources/runtime/**'
+      - 'runtime.lock.json'
       - 'test/**'
       - '.github/workflows/**'
       - 'pnpm-workspace.yaml'
@@ -41,15 +47,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -76,15 +82,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies

@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { api } from '@renderer/api';
 import {
   buildMembersFromDrafts,
-  createMemberDraft,
+  createMemberDraftsFromInputs,
+  filterEditableMemberInputs,
   MembersEditorSection,
   validateMemberNameInline,
 } from '@renderer/components/team/members/MembersEditorSection';
@@ -17,7 +18,6 @@ import {
   DialogTitle,
 } from '@renderer/components/ui/dialog';
 import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
-import { CUSTOM_ROLE, PRESET_ROLES } from '@renderer/constants/teamRoles';
 import { useFileListCacheWarmer } from '@renderer/hooks/useFileListCacheWarmer';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { cn } from '@renderer/lib/utils';
@@ -43,24 +43,14 @@ interface EditTeamDialogProps {
   currentDescription: string;
   currentColor: string;
   currentMembers: ResolvedTeamMember[];
+  isTeamAlive?: boolean;
   projectPath?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }
 
 function membersToDrafts(members: ResolvedTeamMember[]) {
-  const active = members.filter((m) => !m.removedAt);
-  return active.map((m) => {
-    const presetRoles: readonly string[] = PRESET_ROLES;
-    const isPreset = m.role != null && presetRoles.includes(m.role);
-    const isCustom = m.role != null && m.role.length > 0 && !isPreset;
-    return createMemberDraft({
-      name: m.name,
-      roleSelection: isCustom ? CUSTOM_ROLE : (m.role ?? ''),
-      customRole: isCustom ? m.role : '',
-      workflow: m.workflow,
-    });
-  });
+  return createMemberDraftsFromInputs(filterEditableMemberInputs(members));
 }
 
 export const EditTeamDialog = ({
@@ -70,6 +60,7 @@ export const EditTeamDialog = ({
   currentDescription,
   currentColor,
   currentMembers,
+  isTeamAlive = false,
   projectPath,
   onClose,
   onSaved,
@@ -170,11 +161,18 @@ export const EditTeamDialog = ({
               onChange={setMembers}
               validateMemberName={validateMemberNameInline}
               showWorkflow
-              showJsonEditor
+              showJsonEditor={!isTeamAlive}
               draftKeyPrefix={`editTeam:${teamName}`}
               projectPath={projectPath ?? null}
+              lockProviderModel={isTeamAlive}
             />
           </div>
+          {isTeamAlive ? (
+            <p className="text-xs text-amber-300">
+              Provider and model changes are locked while the team is live. Reconnect the team to
+              change them safely.
+            </p>
+          ) : null}
           <div>
             {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- Color picker is a group of buttons, not a single input */}
             <label className="label-optional mb-1 block text-xs font-medium">

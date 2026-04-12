@@ -5,6 +5,8 @@ vi.mock('@renderer/api', () => ({
   api: {
     cliInstaller: {
       getStatus: vi.fn(),
+      getProviderStatus: vi.fn(),
+      invalidateStatus: vi.fn(),
       install: vi.fn(),
       onProgress: vi.fn(() => vi.fn()),
     },
@@ -83,13 +85,20 @@ describe('cliInstallerSlice', () => {
   describe('fetchCliStatus', () => {
     it('updates cliStatus from API', async () => {
       const mockStatus: CliInstallationStatus = {
+        flavor: 'claude',
+        displayName: 'Claude CLI',
+        supportsSelfUpdate: true,
+        showVersionDetails: true,
+        showBinaryPath: true,
         installed: true,
         installedVersion: '2.1.59',
         binaryPath: '/usr/local/bin/claude',
         latestVersion: '2.1.59',
         updateAvailable: false,
         authLoggedIn: false,
+        authStatusChecking: false,
         authMethod: null,
+        providers: [],
       };
       vi.mocked(api.cliInstaller.getStatus).mockResolvedValue(mockStatus);
 
@@ -109,19 +118,96 @@ describe('cliInstallerSlice', () => {
 
     it('detects update available', async () => {
       const mockStatus: CliInstallationStatus = {
+        flavor: 'claude',
+        displayName: 'Claude CLI',
+        supportsSelfUpdate: true,
+        showVersionDetails: true,
+        showBinaryPath: true,
         installed: true,
         installedVersion: '2.1.34',
         binaryPath: '/usr/local/bin/claude',
         latestVersion: '2.1.59',
         updateAvailable: true,
         authLoggedIn: true,
+        authStatusChecking: false,
         authMethod: 'oauth_token',
+        providers: [],
       };
       vi.mocked(api.cliInstaller.getStatus).mockResolvedValue(mockStatus);
 
       await useStore.getState().fetchCliStatus();
 
       expect(useStore.getState().cliStatus?.updateAvailable).toBe(true);
+    });
+  });
+
+  describe('bootstrapCliStatus', () => {
+    it('falls back to the full Claude status if multimodel bootstrap resolves a claude flavor', async () => {
+      const mockStatus: CliInstallationStatus = {
+        flavor: 'claude',
+        displayName: 'Claude CLI',
+        supportsSelfUpdate: true,
+        showVersionDetails: true,
+        showBinaryPath: true,
+        installed: true,
+        installedVersion: '2.1.100',
+        binaryPath: '/Users/belief/.local/bin/claude',
+        latestVersion: '2.1.100',
+        updateAvailable: false,
+        authLoggedIn: true,
+        authStatusChecking: false,
+        authMethod: 'oauth_token',
+        providers: [],
+      };
+      vi.mocked(api.cliInstaller.getStatus).mockResolvedValue(mockStatus);
+
+      await useStore.getState().bootstrapCliStatus({ multimodelEnabled: true });
+
+      expect(useStore.getState().cliStatus).toEqual(mockStatus);
+      expect(useStore.getState().cliStatusLoading).toBe(false);
+      expect(api.cliInstaller.getProviderStatus).not.toHaveBeenCalled();
+    });
+
+    it('does not fetch provider status when the multimodel runtime fails its health check', async () => {
+      const mockStatus: CliInstallationStatus = {
+        flavor: 'agent_teams_orchestrator',
+        displayName: 'agent_teams_orchestrator',
+        supportsSelfUpdate: false,
+        showVersionDetails: false,
+        showBinaryPath: true,
+        installed: false,
+        installedVersion: null,
+        binaryPath: '/Users/tester/.claude/local/node_modules/.bin/claude',
+        launchError: 'spawn EACCES',
+        latestVersion: null,
+        updateAvailable: false,
+        authLoggedIn: false,
+        authStatusChecking: false,
+        authMethod: null,
+        providers: [
+          {
+            providerId: 'anthropic',
+            displayName: 'Anthropic',
+            supported: false,
+            authenticated: false,
+            authMethod: null,
+            verificationState: 'error',
+            statusMessage: 'Runtime found, but startup health check failed.',
+            models: [],
+            canLoginFromUi: false,
+            capabilities: { teamLaunch: false, oneShot: false },
+            backend: null,
+          },
+        ],
+      };
+      vi.mocked(api.cliInstaller.getStatus).mockResolvedValue(mockStatus);
+
+      await useStore.getState().bootstrapCliStatus({ multimodelEnabled: true });
+
+      expect(useStore.getState().cliStatus).toEqual(mockStatus);
+      expect(useStore.getState().cliStatusLoading).toBe(false);
+      expect(useStore.getState().cliProviderStatusLoading).toEqual({});
+      expect(api.cliInstaller.getProviderStatus).not.toHaveBeenCalled();
     });
   });
 

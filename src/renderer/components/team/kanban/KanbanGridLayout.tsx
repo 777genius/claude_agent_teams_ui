@@ -65,7 +65,15 @@ function buildDefaultItems(itemIds: string[]): PersistedGridLayoutItem[] {
       ? (index - ITEMS_PER_FIRST_ROW) * SECOND_ROW_ITEM_WIDTH
       : index * DEFAULT_ITEM_WIDTH;
     const y = isSecondRow ? DEFAULT_ITEM_HEIGHT : 0;
-    return { id, x, y, w, h: DEFAULT_ITEM_HEIGHT, minW: DEFAULT_MIN_WIDTH, minH: DEFAULT_MIN_HEIGHT };
+    return {
+      id,
+      x,
+      y,
+      w,
+      h: DEFAULT_ITEM_HEIGHT,
+      minW: DEFAULT_MIN_WIDTH,
+      minH: DEFAULT_MIN_HEIGHT,
+    };
   });
 }
 
@@ -243,7 +251,7 @@ export const KanbanGridLayout = ({
   const [showResolvedLayout, setShowResolvedLayout] = useState(false);
 
   useEffect(() => {
-    if (!isLoaded || showResolvedLayout) return;
+    if (showResolvedLayout) return;
 
     const timeoutId = window.setTimeout(() => {
       setShowResolvedLayout(true);
@@ -252,7 +260,7 @@ export const KanbanGridLayout = ({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isLoaded, showResolvedLayout]);
+  }, [showResolvedLayout]);
 
   const applyReactGridLayout = useCallback(
     (layout: Layout, options?: { persist?: boolean }) => {
@@ -263,7 +271,7 @@ export const KanbanGridLayout = ({
     [applyVisibleItems]
   );
 
-  if (!isLoaded || !showResolvedLayout) {
+  if (!showResolvedLayout && !isLoaded) {
     return <LoadingKanbanGridLayout columns={columns} visibleItems={visibleItems} />;
   }
 

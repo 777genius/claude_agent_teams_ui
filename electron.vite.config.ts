@@ -20,14 +20,16 @@ const bundledDeps = prodDeps.filter(d => d !== 'node-pty' && d !== 'agent-teams-
 // but they have pure JS fallbacks when the native module isn't available.
 function nativeModuleStub(): Plugin {
   const STUB_ID = '\0native-stub'
+  const NODE_MODULE_RE = /\.node(?:\?.*)?$/
   return {
     name: 'native-module-stub',
+    enforce: 'pre',
     resolveId(source) {
-      if (source.endsWith('.node')) return STUB_ID
+      if (NODE_MODULE_RE.test(source)) return `${STUB_ID}:${source}`
       return null
     },
     load(id) {
-      if (id === STUB_ID) return 'export default {}'
+      if (id.startsWith(STUB_ID) || NODE_MODULE_RE.test(id)) return 'export default {}'
       return null
     }
   }
@@ -70,6 +72,9 @@ export default defineConfig({
     build: {
       externalizeDeps: {
         exclude: bundledDeps
+      },
+      commonjsOptions: {
+        strictRequires: [/node_modules\/.*ssh2\//],
       },
       sourcemap: 'hidden',
       outDir: 'dist-electron/main',

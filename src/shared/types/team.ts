@@ -5,6 +5,9 @@ export interface TeamMember {
   role?: string;
   /** Per-agent workflow/instructions injected into spawn prompt. */
   workflow?: string;
+  providerId?: TeamProviderId;
+  model?: string;
+  effort?: EffortLevel;
   color?: string;
   joinedAt?: number;
   cwd?: string;
@@ -55,6 +58,23 @@ export interface TeamSummary {
   deletedAt?: string;
   /** True when team.meta.json exists but config.json doesn't — provisioning failed before TeamCreate. */
   pendingCreate?: boolean;
+  /** True when the last launch partially succeeded (e.g. lead started, but not all teammates joined). */
+  partialLaunchFailure?: boolean;
+  /** Planned teammate count for the last persisted partial launch marker. */
+  expectedMemberCount?: number;
+  /** Confirmed teammate count from runtime artifacts/config for the last partial launch marker. */
+  confirmedMemberCount?: number;
+  /** Missing teammate names from the last partial launch marker. */
+  missingMembers?: string[];
+  /** Durable aggregate launch state derived from persisted launch-state evidence. */
+  teamLaunchState?: TeamLaunchAggregateState;
+  /** ISO timestamp of the last durable launch-state evaluation. */
+  launchUpdatedAt?: string;
+  /** Durable aggregate teammate counts from launch-state evidence. */
+  confirmedCount?: number;
+  pendingCount?: number;
+  failedCount?: number;
+  runtimeAlivePendingCount?: number;
 }
 
 export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted';
@@ -213,7 +233,7 @@ export interface TeamTask {
   blockedBy?: string[];
   /**
    * Explicit task links (non-blocking). Used for navigation between related tasks,
-   * e.g. "review task" ↔ "work task".
+   * e.g. "frontend task" ↔ "backend task" or a rare meta reminder ↔ the main work task.
    */
   related?: string[];
   createdAt?: string;
@@ -437,14 +457,14 @@ export interface AddTaskCommentRequest {
 
 export type MemberStatus = 'active' | 'idle' | 'terminated' | 'unknown';
 
-/**
- * Spawn lifecycle status for a team member during team launch/reconnect.
- * - offline: not yet spawned (no Agent tool_use seen)
- * - spawning: Agent tool_use sent, awaiting tool_result
- * - online: tool_result received, agent is active
- * - error: spawn failed (tool_result with error)
- */
 export type MemberSpawnStatus = 'offline' | 'waiting' | 'spawning' | 'online' | 'error';
+export type MemberLaunchState =
+  | 'starting'
+  | 'runtime_pending_bootstrap'
+  | 'confirmed_alive'
+  | 'failed_to_start';
+export type TeamLaunchAggregateState = 'clean_success' | 'partial_pending' | 'partial_failure';
+export type PersistedTeamLaunchPhase = 'active' | 'finished' | 'reconciled';
 
 export type KanbanColumnId = 'todo' | 'in_progress' | 'done' | 'review' | 'approved';
 
@@ -479,10 +499,30 @@ export interface ResolvedTeamMember {
   agentType?: string;
   role?: string;
   workflow?: string;
+  providerId?: TeamProviderId;
+  model?: string;
+  effort?: EffortLevel;
   cwd?: string;
   /** Set only when member's git branch differs from the lead's branch. */
   gitBranch?: string;
+  runtimeAdvisory?: MemberRuntimeAdvisory;
   removedAt?: number;
+}
+
+export interface MemberRuntimeAdvisory {
+  kind: 'sdk_retrying';
+  observedAt: string;
+  retryUntil: string;
+  retryDelayMs: number;
+  reasonCode?:
+    | 'quota_exhausted'
+    | 'rate_limited'
+    | 'auth_error'
+    | 'network_error'
+    | 'provider_overloaded'
+    | 'backend_error'
+    | 'unknown';
+  message?: string;
 }
 
 export interface TeamProcess {
@@ -511,11 +551,13 @@ export interface TeamData {
 }
 
 export type EffortLevel = 'low' | 'medium' | 'high';
+export type TeamProviderId = 'anthropic' | 'codex' | 'gemini';
 
 export interface TeamLaunchRequest {
   teamName: string;
   cwd: string;
   prompt?: string;
+  providerId?: TeamProviderId;
   model?: string;
   effort?: EffortLevel;
   /** When true, context window is limited to 200K tokens instead of the default. */
@@ -569,10 +611,63 @@ export interface LeadContextUsageSnapshot {
   runId: string | null;
 }
 
+export interface PersistedTeamLaunchMemberSources {
+  inboxHeartbeat?: boolean;
+  nativeHeartbeat?: boolean;
+  processAlive?: boolean;
+  configRegistered?: boolean;
+  configDrift?: boolean;
+  hardFailureSignal?: boolean;
+  duplicateRespawnBlocked?: boolean;
+}
+
+export interface PersistedTeamLaunchMemberState {
+  name: string;
+  launchState: MemberLaunchState;
+  agentToolAccepted: boolean;
+  runtimeAlive: boolean;
+  bootstrapConfirmed: boolean;
+  hardFailure: boolean;
+  hardFailureReason?: string;
+  firstSpawnAcceptedAt?: string;
+  lastHeartbeatAt?: string;
+  lastRuntimeAliveAt?: string;
+  lastEvaluatedAt: string;
+  sources?: PersistedTeamLaunchMemberSources;
+  diagnostics?: string[];
+}
+
+export interface PersistedTeamLaunchSummary {
+  confirmedCount: number;
+  pendingCount: number;
+  failedCount: number;
+  runtimeAlivePendingCount: number;
+}
+
+export interface PersistedTeamLaunchSnapshot {
+  version: 2;
+  teamName: string;
+  updatedAt: string;
+  leadSessionId?: string;
+  launchPhase: PersistedTeamLaunchPhase;
+  expectedMembers: string[];
+  members: Record<string, PersistedTeamLaunchMemberState>;
+  summary: PersistedTeamLaunchSummary;
+  teamLaunchState: TeamLaunchAggregateState;
+}
+
 export interface MemberSpawnStatusesSnapshot {
   statuses: Record<string, MemberSpawnStatusEntry>;
   runId: string | null;
+  teamLaunchState?: TeamLaunchAggregateState;
+  launchPhase?: PersistedTeamLaunchPhase;
+  expectedMembers?: string[];
+  updatedAt?: string;
+  summary?: PersistedTeamLaunchSummary;
+  source?: 'live' | 'persisted' | 'merged';
 }
+
+export type MemberSpawnLivenessSource = 'heartbeat' | 'process';
 
 export interface TeamChangeEvent {
   type:
@@ -599,8 +694,29 @@ export interface ProjectBranchChangeEvent {
 /** Per-member spawn status entry, exposed to renderer via IPC. */
 export interface MemberSpawnStatusEntry {
   status: MemberSpawnStatus;
+  launchState: MemberLaunchState;
   /** Error message when status === 'error'. */
   error?: string;
+  /** Hard failure reason for failed_to_start. */
+  hardFailureReason?: string;
+  /**
+   * Optional provenance for `online`.
+   * - heartbeat: teammate sent a real inbox/native message after bootstrap
+   * - process: runtime process is alive, but bootstrap/first reply is not yet confirmed
+   */
+  livenessSource?: MemberSpawnLivenessSource;
+  /** Agent tool_result confirmed the spawn request was accepted by the runtime. */
+  agentToolAccepted?: boolean;
+  /** Runtime process or registered teammate runtime is currently alive. */
+  runtimeAlive?: boolean;
+  /** A real teammate heartbeat/bootstrap confirmation was observed. */
+  bootstrapConfirmed?: boolean;
+  /** Hard failure observed from spawn/bootstrap/runtime evidence. */
+  hardFailure?: boolean;
+  /** ISO timestamp of the first accepted teammate spawn for this member. */
+  firstSpawnAcceptedAt?: string;
+  /** ISO timestamp of the latest confirmed heartbeat/bootstrap message. */
+  lastHeartbeatAt?: string;
   /** ISO timestamp of the last status change. */
   updatedAt: string;
 }
@@ -641,6 +757,9 @@ export interface TeamProvisioningMemberInput {
   role?: string;
   /** Per-agent workflow/instructions injected into spawn prompt. */
   workflow?: string;
+  providerId?: TeamProviderId;
+  model?: string;
+  effort?: EffortLevel;
 }
 
 export interface TeamCreateRequest {
@@ -651,6 +770,7 @@ export interface TeamCreateRequest {
   members: TeamProvisioningMemberInput[];
   cwd: string;
   prompt?: string;
+  providerId?: TeamProviderId;
   model?: string;
   effort?: EffortLevel;
   /** When true, context window is limited to 200K tokens instead of the default. */
@@ -788,6 +908,9 @@ export interface AddMemberRequest {
   name: string;
   role?: string;
   workflow?: string;
+  providerId?: TeamProviderId;
+  model?: string;
+  effort?: EffortLevel;
 }
 
 export interface RemoveMemberRequest {

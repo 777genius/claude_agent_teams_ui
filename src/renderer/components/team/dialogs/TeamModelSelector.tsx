@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 
 import { Label } from '@renderer/components/ui/label';
+import { Tabs, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
 import {
   Tooltip,
   TooltipContent,
@@ -8,7 +9,22 @@ import {
   TooltipTrigger,
 } from '@renderer/components/ui/tooltip';
 import { cn } from '@renderer/lib/utils';
-import { Check, ChevronDown, Info } from 'lucide-react';
+import { useStore } from '@renderer/store';
+import {
+  GEMINI_UI_DISABLED_BADGE_LABEL,
+  GEMINI_UI_DISABLED_REASON,
+  isGeminiUiFrozen,
+} from '@renderer/utils/geminiUiFreeze';
+import {
+  doesTeamModelCarryProviderBrand,
+  getTeamModelLabel as getCatalogTeamModelLabel,
+  getTeamModelUiDisabledReason,
+  getTeamProviderLabel as getCatalogTeamProviderLabel,
+  getTeamProviderModelOptions,
+  normalizeTeamModelForUi,
+  TEAM_MODEL_UI_DISABLED_BADGE_LABEL,
+} from '@renderer/utils/teamModelCatalog';
+import { Info } from 'lucide-react';
 
 // --- Provider SVG Icons (real brand logos from Simple Icons, monochrome currentColor) ---
 
@@ -26,38 +42,92 @@ const OpenAIIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-/** Google Gemini — official sparkle/star mark (Simple Icons) */
-const GoogleIcon: React.FC<{ className?: string }> = ({ className }) => (
+const GoogleGeminiIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
-    <path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81" />
+    <path d="M12 2.25c.62 3.9 1.6 6.57 3.18 8.15 1.58 1.58 4.25 2.56 8.15 3.18-3.9.62-6.57 1.6-8.15 3.18-1.58 1.58-2.56 4.25-3.18 8.15-.62-3.9-1.6-6.57-3.18-8.15-1.58-1.58-4.25-2.56-8.15-3.18 3.9-.62 6.57-1.6 8.15-3.18C10.4 8.82 11.38 6.15 12 2.25Z" />
   </svg>
 );
 
-/** Local — server rack icon */
-const LocalIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className}>
-    <rect x="3" y="3" width="18" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
-    <rect x="3" y="14" width="18" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
-    <circle cx="7" cy="6.5" r="1" fill="currentColor" />
-    <circle cx="7" cy="17.5" r="1" fill="currentColor" />
-    <line
-      x1="10.5"
-      y1="6.5"
-      x2="17.5"
-      y2="6.5"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      strokeLinecap="round"
-    />
-    <line
-      x1="10.5"
-      y1="17.5"
-      x2="17.5"
-      y2="17.5"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      strokeLinecap="round"
-    />
+const OpenCodeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 24 24" className={className}>
+    <defs>
+      <linearGradient id="opencode-bg" x1="4" y1="3" x2="20" y2="21" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#303030" />
+        <stop offset="1" stopColor="#161616" />
+      </linearGradient>
+      <linearGradient
+        id="opencode-frame"
+        x1="7"
+        y1="4.5"
+        x2="17"
+        y2="19.5"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop offset="0" stopColor="#f4f4f4" />
+        <stop offset="0.35" stopColor="#d9d9d9" />
+        <stop offset="0.68" stopColor="#a8a8a8" />
+        <stop offset="1" stopColor="#ececec" />
+      </linearGradient>
+      <linearGradient
+        id="opencode-frame-stroke"
+        x1="7"
+        y1="4.5"
+        x2="17"
+        y2="19.5"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop offset="0" stopColor="#ffffff" stopOpacity="0.9" />
+        <stop offset="1" stopColor="#5a5a5a" stopOpacity="0.9" />
+      </linearGradient>
+      <linearGradient
+        id="opencode-core"
+        x1="12"
+        y1="7"
+        x2="12"
+        y2="17"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop offset="0" stopColor="#121212" />
+        <stop offset="0.42" stopColor="#3e3b33" />
+        <stop offset="1" stopColor="#16140f" />
+      </linearGradient>
+      <linearGradient
+        id="opencode-core-stroke"
+        x1="9"
+        y1="7"
+        x2="15"
+        y2="17"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop offset="0" stopColor="#f2f2f2" stopOpacity="0.95" />
+        <stop offset="1" stopColor="#6e6e6e" stopOpacity="0.85" />
+      </linearGradient>
+      <filter id="opencode-shadow" x="0" y="0" width="24" height="24" filterUnits="userSpaceOnUse">
+        <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" floodColor="#000000" floodOpacity="0.42" />
+      </filter>
+    </defs>
+    <rect x="1.5" y="1.5" width="21" height="21" rx="5.2" fill="url(#opencode-bg)" />
+    <g filter="url(#opencode-shadow)">
+      <path
+        d="M7 4.25h10c.3 0 .55.25.55.55v14.4c0 .3-.25.55-.55.55H7c-.3 0-.55-.25-.55-.55V4.8c0-.3.25-.55.55-.55Z"
+        fill="url(#opencode-frame)"
+        stroke="url(#opencode-frame-stroke)"
+        strokeWidth="0.55"
+      />
+      <path
+        d="M8.95 7.25h6.1c.22 0 .4.18.4.4v8.7c0 .22-.18.4-.4.4h-6.1a.4.4 0 0 1-.4-.4v-8.7c0-.22.18-.4.4-.4Z"
+        fill="url(#opencode-core)"
+        stroke="url(#opencode-core-stroke)"
+        strokeWidth="0.45"
+      />
+      <path
+        d="M9.25 7.6h5.5"
+        stroke="#ffffff"
+        strokeOpacity="0.18"
+        strokeWidth="0.45"
+        strokeLinecap="round"
+      />
+    </g>
   </svg>
 );
 
@@ -72,21 +142,65 @@ interface ProviderDef {
 
 const PROVIDERS: ProviderDef[] = [
   { id: 'anthropic', label: 'Anthropic', icon: AnthropicIcon, comingSoon: false },
-  { id: 'openai', label: 'OpenAI', icon: OpenAIIcon, comingSoon: true },
-  { id: 'google', label: 'Google', icon: GoogleIcon, comingSoon: true },
-  { id: 'local', label: 'Local', icon: LocalIcon, comingSoon: true },
+  { id: 'codex', label: 'Codex', icon: OpenAIIcon, comingSoon: false },
+  // { id: 'gemini', label: 'Gemini', icon: GoogleGeminiIcon, comingSoon: false },
+  { id: 'gemini', label: 'Gemini', icon: GoogleGeminiIcon, comingSoon: false },
+  { id: 'opencode', label: 'OpenCode', icon: OpenCodeIcon, comingSoon: false },
 ];
 
-const ACTIVE_PROVIDER = PROVIDERS[0];
+const OPENCODE_UI_DISABLED_REASON = 'OpenCode in development';
 
-// --- Model options (Anthropic only for now) ---
+export function getTeamModelLabel(model: string): string {
+  return getCatalogTeamModelLabel(model) ?? model;
+}
 
-const MODEL_OPTIONS = [
-  { value: '', label: 'Default' },
-  { value: 'opus', label: 'Opus 4.6' },
-  { value: 'sonnet', label: 'Sonnet 4.6' },
-  { value: 'haiku', label: 'Haiku 4.5' },
-] as const;
+export function getProviderScopedTeamModelLabel(
+  providerId: 'anthropic' | 'codex' | 'gemini',
+  model: string
+): string {
+  const baseLabel = getTeamModelLabel(model);
+  if (providerId !== 'codex') {
+    return baseLabel;
+  }
+  return baseLabel.replace(/^GPT-/i, '');
+}
+
+export function getTeamProviderLabel(providerId: 'anthropic' | 'codex' | 'gemini'): string {
+  return getCatalogTeamProviderLabel(providerId) ?? 'Anthropic';
+}
+
+export function getTeamEffortLabel(effort: string): string {
+  const trimmed = effort.trim();
+  if (!trimmed) return 'Default';
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+export function formatTeamModelSummary(
+  providerId: 'anthropic' | 'codex' | 'gemini',
+  model: string,
+  effort?: string
+): string {
+  const providerLabel = getTeamProviderLabel(providerId);
+  const rawModelLabel = model.trim() ? getTeamModelLabel(model.trim()) : 'Default';
+  const modelLabel = model.trim()
+    ? getProviderScopedTeamModelLabel(providerId, model.trim())
+    : 'Default';
+  const effortLabel = effort?.trim() ? getTeamEffortLabel(effort) : '';
+
+  const modelAlreadyCarriesProviderBrand =
+    doesTeamModelCarryProviderBrand(providerId, rawModelLabel) ||
+    (providerId === 'codex' && model.trim().toLowerCase().startsWith('gpt-'));
+  const providerActsAsBackendOnly =
+    providerId !== 'anthropic' && modelLabel !== 'Default' && !modelAlreadyCarriesProviderBrand;
+
+  const parts = modelAlreadyCarriesProviderBrand
+    ? [modelLabel, effortLabel]
+    : providerActsAsBackendOnly
+      ? [modelLabel, `via ${providerLabel}`, effortLabel]
+      : [providerLabel, modelLabel, effortLabel];
+
+  return parts.filter(Boolean).join(' · ');
+}
 
 /**
  * Computes the effective model string for team provisioning.
@@ -96,164 +210,291 @@ const MODEL_OPTIONS = [
  */
 export function computeEffectiveTeamModel(
   selectedModel: string,
-  limitContext: boolean
+  limitContext: boolean,
+  providerId: 'anthropic' | 'codex' | 'gemini' = 'anthropic'
 ): string | undefined {
   const base = selectedModel || undefined;
+  if (providerId !== 'anthropic') return base;
   if (limitContext) return base;
   if (base === 'haiku') return base;
   return base ? `${base}[1m]` : 'opus[1m]';
 }
 
 export interface TeamModelSelectorProps {
+  providerId: 'anthropic' | 'codex' | 'gemini';
+  onProviderChange: (providerId: 'anthropic' | 'codex' | 'gemini') => void;
   value: string;
   onValueChange: (value: string) => void;
   id?: string;
+  disableGeminiOption?: boolean;
 }
 
 export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
+  providerId,
+  onProviderChange,
   value,
   onValueChange,
   id,
+  disableGeminiOption = false,
 }) => {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const cliStatus = useStore((s) => s.cliStatus);
+  const multimodelEnabled = useStore((s) => s.appConfig?.general?.multimodelEnabled ?? true);
+  const multimodelAvailable = multimodelEnabled || cliStatus?.flavor === 'agent_teams_orchestrator';
 
-  // Close dropdown on click outside
+  const effectiveProviderId =
+    disableGeminiOption && isGeminiUiFrozen() && providerId === 'gemini' ? 'anthropic' : providerId;
+  const defaultModelTooltip = useMemo(() => {
+    if (effectiveProviderId === 'anthropic') {
+      return 'Default model from Claude CLI (/model).\nUses the runtime default for the selected provider.';
+    }
+    return 'Uses the runtime default for the selected provider.';
+  }, [effectiveProviderId]);
+  const getProviderDisabledReason = (candidateProviderId: string): string | null => {
+    if (candidateProviderId === 'opencode') {
+      return OPENCODE_UI_DISABLED_REASON;
+    }
+    if (disableGeminiOption && isGeminiUiFrozen() && candidateProviderId === 'gemini') {
+      return GEMINI_UI_DISABLED_REASON;
+    }
+    return null;
+  };
+  const isProviderTemporarilyDisabled = (candidateProviderId: string): boolean =>
+    getProviderDisabledReason(candidateProviderId) !== null;
+  const isProviderSelectable = (candidateProviderId: string): boolean =>
+    !isProviderTemporarilyDisabled(candidateProviderId) &&
+    (multimodelAvailable || candidateProviderId === 'anthropic');
+  const activeProviderSelectable = isProviderSelectable(effectiveProviderId);
+  const getProviderStatusBadge = (candidateProviderId: string): string | null => {
+    if (candidateProviderId === 'opencode') {
+      return 'In development';
+    }
+
+    const providerDisabledReason = getProviderDisabledReason(candidateProviderId);
+    if (providerDisabledReason) {
+      return GEMINI_UI_DISABLED_BADGE_LABEL;
+    }
+
+    if (!isProviderSelectable(candidateProviderId)) {
+      return 'Multimodel off';
+    }
+
+    return null;
+  };
+  const getProviderStatusBadgeLabel = (statusBadge: string | null): string | null => {
+    if (statusBadge === 'In development') {
+      return 'Dev';
+    }
+
+    if (statusBadge === 'Multimodel off') {
+      return 'Off';
+    }
+
+    return statusBadge;
+  };
+  const runtimeModels = useMemo(
+    () =>
+      cliStatus?.providers.find((provider) => provider.providerId === effectiveProviderId)
+        ?.models ?? [],
+    [cliStatus?.providers, effectiveProviderId]
+  );
+  const normalizedValue = normalizeTeamModelForUi(effectiveProviderId, value);
+
   useEffect(() => {
-    if (!dropdownOpen) return;
+    if (normalizedValue !== value) {
+      onValueChange(normalizedValue);
+    }
+  }, [normalizedValue, onValueChange, value]);
 
-    const handleClickOutside = (event: MouseEvent): void => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [dropdownOpen]);
-
-  const ProviderIcon = ACTIVE_PROVIDER.icon;
+  const modelOptions = useMemo(() => {
+    const fallback = getTeamProviderModelOptions(effectiveProviderId);
+    if (effectiveProviderId === 'anthropic' || runtimeModels.length === 0) {
+      return fallback.map((option) => ({
+        ...option,
+        label:
+          option.value === ''
+            ? option.label
+            : getProviderScopedTeamModelLabel(effectiveProviderId, option.value),
+      }));
+    }
+    const dynamicOptions = runtimeModels.map((model) => ({
+      value: model,
+      label: getProviderScopedTeamModelLabel(effectiveProviderId, model),
+    }));
+    return [{ value: '', label: 'Default' }, ...dynamicOptions];
+  }, [effectiveProviderId, runtimeModels]);
 
   return (
     <div className="mb-5">
       <Label htmlFor={id} className="label-optional mb-1.5 block">
         Model (optional)
       </Label>
-      <div ref={containerRef} className="relative inline-block">
-        <div className="inline-flex rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5">
-          {/* Provider button */}
-          <button
-            type="button"
-            className={cn(
-              'flex items-center gap-1.5 rounded-[3px] px-2.5 py-1 text-xs font-medium transition-colors',
-              'mr-0.5 border-r border-[var(--color-border)] pr-2.5',
-              dropdownOpen
-                ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)]'
-                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
-            )}
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-          >
-            <ProviderIcon className="size-3.5" />
-            <span>{ACTIVE_PROVIDER.label}</span>
-            <ChevronDown
-              className={cn(
-                'size-3 transition-transform duration-200',
-                dropdownOpen && 'rotate-180'
-              )}
-            />
-          </button>
+      <Tabs
+        value={effectiveProviderId}
+        onValueChange={(nextValue) => {
+          if (
+            (nextValue === 'anthropic' || nextValue === 'codex' || nextValue === 'gemini') &&
+            isProviderSelectable(nextValue)
+          ) {
+            onProviderChange(nextValue);
+          }
+        }}
+      >
+        <div className="space-y-0">
+          <div className="-mb-px border-b border-[var(--color-border-subtle)]">
+            <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-none bg-transparent p-0">
+              {PROVIDERS.map((provider) => {
+                const Icon = provider.icon;
+                const providerDisabledReason = getProviderDisabledReason(provider.id);
+                const providerSelectable = isProviderSelectable(provider.id);
+                const statusBadge = getProviderStatusBadge(provider.id);
+                const statusBadgeLabel = getProviderStatusBadgeLabel(statusBadge);
 
-          {/* Model pills */}
-          {MODEL_OPTIONS.map((opt) => (
-            <button
-              key={opt.value || '__default__'}
-              type="button"
-              id={opt.value === value ? id : undefined}
-              className={cn(
-                'flex items-center gap-1 rounded-[3px] px-3 py-1 text-xs font-medium transition-colors',
-                value === opt.value
-                  ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
-                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-              )}
-              onClick={() => onValueChange(opt.value)}
-            >
-              {opt.label}
-              {opt.value === '' && (
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                      <Info className="size-3 opacity-40 transition-opacity hover:opacity-70" />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[240px] text-xs">
-                      Default model from Claude CLI (/model).
-                      <br />
-                      Currently Sonnet 4.6, but may change with CLI updates.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Provider dropdown */}
-        {dropdownOpen && (
-          <div
-            className="absolute bottom-full left-0 z-50 mb-1 min-w-[220px] overflow-hidden rounded-md border py-1 shadow-xl shadow-black/20"
-            style={{
-              backgroundColor: 'var(--color-surface-raised)',
-              borderColor: 'var(--color-border-subtle)',
-            }}
-          >
-            {PROVIDERS.map((provider, index) => {
-              const Icon = provider.icon;
-              const isActive = provider.id === ACTIVE_PROVIDER.id;
-              const isFirst = index === 0;
-              const prevWasActive = index > 0 && !PROVIDERS[index - 1].comingSoon;
-
-              return (
-                <React.Fragment key={provider.id}>
-                  {prevWasActive && !isFirst && (
-                    <div
-                      className="mx-2 my-1 border-t"
-                      style={{ borderColor: 'var(--color-border-subtle)' }}
-                    />
-                  )}
-                  <button
-                    type="button"
-                    disabled={provider.comingSoon}
-                    onClick={() => {
-                      if (!provider.comingSoon) {
-                        setDropdownOpen(false);
-                      }
-                    }}
-                    className={cn(
-                      'flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors duration-100',
-                      isActive && 'bg-indigo-500/10 text-indigo-400',
-                      provider.comingSoon && 'cursor-not-allowed opacity-40',
-                      !isActive && !provider.comingSoon && 'hover:bg-white/5'
-                    )}
-                    style={
-                      !isActive && !provider.comingSoon
-                        ? { color: 'var(--color-text-secondary)' }
-                        : undefined
+                return (
+                  <TabsTrigger
+                    key={provider.id}
+                    value={provider.id}
+                    disabled={provider.comingSoon || !providerSelectable}
+                    title={
+                      providerDisabledReason ??
+                      (statusBadge === 'Multimodel off'
+                        ? 'Enable Multimodel mode to use this provider.'
+                        : (statusBadge ?? undefined))
                     }
+                    className={cn(
+                      "relative h-12 min-w-[128px] items-center justify-start gap-2 rounded-b-none border border-b-0 border-transparent px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] data-[state=active]:z-10 data-[state=active]:-mb-px data-[state=active]:border-[var(--color-border)] data-[state=active]:bg-[var(--color-surface)] data-[state=active]:text-[var(--color-text)] data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:-bottom-px data-[state=active]:after:h-px data-[state=active]:after:bg-[var(--color-surface)] data-[state=active]:after:content-['']",
+                      !providerSelectable && 'opacity-50'
+                    )}
                   >
                     <Icon className="size-3.5 shrink-0" />
-                    <span className="flex-1">{provider.label}</span>
-                    {provider.comingSoon && (
-                      <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">
-                        Coming Soon
+                    <span
+                      className={cn(
+                        'min-w-0 truncate text-sm font-medium',
+                        statusBadgeLabel && 'pr-9'
+                      )}
+                    >
+                      {provider.label}
+                    </span>
+                    {statusBadgeLabel ? (
+                      <span
+                        className="absolute right-2 top-1.5 rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em]"
+                        style={{
+                          color: 'var(--color-text-muted)',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        }}
+                        aria-label={statusBadge ?? undefined}
+                        title={statusBadge ?? undefined}
+                      >
+                        {statusBadgeLabel}
                       </span>
-                    )}
-                    {isActive && <Check className="size-3.5 shrink-0" />}
-                  </button>
-                </React.Fragment>
-              );
-            })}
+                    ) : null}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
           </div>
-        )}
-      </div>
+
+          <div className="rounded-b-md border border-t-0 border-[var(--color-border)] bg-[var(--color-surface)]">
+            {!multimodelAvailable ? (
+              <div className="border-b border-[var(--color-border-subtle)] px-3 py-2">
+                <p className="text-[11px] text-[var(--color-text-muted)]">
+                  Codex and Gemini require Multimodel mode.
+                </p>
+              </div>
+            ) : null}
+
+            <div className="p-3">
+              <div
+                className="grid gap-1.5 rounded-md bg-[var(--color-surface)]"
+                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}
+              >
+                {modelOptions.map((opt) =>
+                  (() => {
+                    const modelDisabledReason = getTeamModelUiDisabledReason(
+                      effectiveProviderId,
+                      opt.value
+                    );
+                    const modelSelectable = activeProviderSelectable && !modelDisabledReason;
+
+                    return (
+                      <button
+                        key={opt.value || '__default__'}
+                        type="button"
+                        id={opt.value === normalizedValue ? id : undefined}
+                        aria-disabled={!modelSelectable}
+                        className={cn(
+                          'flex min-h-[44px] items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-center text-xs font-medium transition-colors',
+                          normalizedValue === opt.value
+                            ? 'bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
+                            : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]',
+                          !modelSelectable && 'cursor-not-allowed opacity-45',
+                          !modelDisabledReason && !activeProviderSelectable && 'pointer-events-none'
+                        )}
+                        style={{
+                          borderColor:
+                            normalizedValue === opt.value
+                              ? 'var(--color-border-emphasis)'
+                              : 'var(--color-border-subtle)',
+                        }}
+                        onClick={() => {
+                          if (!modelSelectable) return;
+                          onValueChange(opt.value);
+                        }}
+                      >
+                        <span className="flex flex-col items-center justify-center gap-0.5">
+                          <span className="leading-tight">{opt.label}</span>
+                          {opt.value === '' && (
+                            <span className="flex items-center justify-center gap-1">
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    asChild
+                                    onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                  >
+                                    <Info className="size-3 shrink-0 opacity-40 transition-opacity hover:opacity-70" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[240px] text-xs">
+                                    {defaultModelTooltip.split('\n').map((line, index) => (
+                                      <React.Fragment key={line}>
+                                        {index > 0 ? <br /> : null}
+                                        {line}
+                                      </React.Fragment>
+                                    ))}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </span>
+                          )}
+                          {modelDisabledReason && (
+                            <span
+                              className="flex items-center justify-center gap-1 text-[10px] font-normal text-[var(--color-text-muted)]"
+                              title={modelDisabledReason}
+                            >
+                              <span>{TEAM_MODEL_UI_DISABLED_BADGE_LABEL}</span>
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    asChild
+                                    onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                  >
+                                    <Info className="size-3 shrink-0 opacity-40 transition-opacity hover:opacity-70" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[240px] text-xs">
+                                    {modelDisabledReason}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })()
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Tabs>
     </div>
   );
 };

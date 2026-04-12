@@ -8,8 +8,8 @@
 
 import { isElectronMode } from '@renderer/api';
 import { useStore } from '@renderer/store';
-import { useShallow } from 'zustand/react/shallow';
 import { AlertTriangle } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 
 export const CliInstallWarningBanner = (): React.JSX.Element | null => {
   const cliStatus = useStore(useShallow((s) => s.cliStatus));
@@ -39,7 +39,9 @@ export const CliInstallWarningBanner = (): React.JSX.Element | null => {
     >
       <AlertTriangle className="size-3.5 shrink-0" />
       <span className="text-xs">
-        Claude Code is not installed. Install it from the Dashboard to enable all features.
+        {cliStatus.binaryPath && cliStatus.launchError
+          ? 'Claude Code was found but failed to start. Open the Dashboard to repair or reinstall it.'
+          : 'Claude Code is not installed. Install it from the Dashboard to enable all features.'}
       </span>
       <button
         onClick={openDashboard}

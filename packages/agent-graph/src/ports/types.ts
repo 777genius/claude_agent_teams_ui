@@ -44,6 +44,8 @@ export interface GraphNode {
   // ─── Member/Lead-specific ──────────────────────────────────────────────
   /** Agent role description */
   role?: string;
+  /** Compact provider/model/effort summary shown under the label */
+  runtimeLabel?: string;
   /** Avatar image URL (e.g., robohash) */
   avatarUrl?: string;
   /** Spawn lifecycle status */

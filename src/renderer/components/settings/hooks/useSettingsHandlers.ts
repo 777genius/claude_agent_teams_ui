@@ -67,49 +67,55 @@ export function useSettingsHandlers({
   // Use ref for config to avoid recreating callbacks when config changes
   const configRef = useRef(config);
   configRef.current = config;
+  const fireAndForgetConfigUpdate = useCallback(
+    (section: keyof AppConfig, data: Partial<AppConfig[keyof AppConfig]>) => {
+      void updateConfig(section, data).catch(() => undefined);
+    },
+    [updateConfig]
+  );
 
   // General handlers
   const handleGeneralToggle = useCallback(
     (key: keyof AppConfig['general'], value: boolean) => {
-      void updateConfig('general', { [key]: value });
+      fireAndForgetConfigUpdate('general', { [key]: value });
     },
-    [updateConfig]
+    [fireAndForgetConfigUpdate]
   );
 
   const handleThemeChange = useCallback(
     (value: 'dark' | 'light' | 'system') => {
-      void updateConfig('general', { theme: value });
+      fireAndForgetConfigUpdate('general', { theme: value });
     },
-    [updateConfig]
+    [fireAndForgetConfigUpdate]
   );
 
   const handleLanguageChange = useCallback(
     (value: string) => {
-      void updateConfig('general', { agentLanguage: value });
+      fireAndForgetConfigUpdate('general', { agentLanguage: value });
     },
-    [updateConfig]
+    [fireAndForgetConfigUpdate]
   );
 
   const handleDefaultTabChange = useCallback(
     (value: 'dashboard' | 'last-session') => {
-      void updateConfig('general', { defaultTab: value });
+      fireAndForgetConfigUpdate('general', { defaultTab: value });
     },
-    [updateConfig]
+    [fireAndForgetConfigUpdate]
   );
 
   // Notification handlers
   const handleNotificationToggle = useCallback(
     (key: keyof AppConfig['notifications'], value: boolean) => {
-      void updateConfig('notifications', { [key]: value });
+      fireAndForgetConfigUpdate('notifications', { [key]: value });
     },
-    [updateConfig]
+    [fireAndForgetConfigUpdate]
   );
 
   const handleStatusChangeStatusesUpdate = useCallback(
     (statuses: string[]) => {
-      void updateConfig('notifications', { statusChangeStatuses: statuses });
+      fireAndForgetConfigUpdate('notifications', { statusChangeStatuses: statuses });
     },
-    [updateConfig]
+    [fireAndForgetConfigUpdate]
   );
 
   const handleSnooze = useCallback(
@@ -250,9 +256,9 @@ export function useSettingsHandlers({
   // Display handlers
   const handleDisplayToggle = useCallback(
     (key: keyof AppConfig['display'], value: boolean) => {
-      void updateConfig('display', { [key]: value });
+      fireAndForgetConfigUpdate('display', { [key]: value });
     },
-    [updateConfig]
+    [fireAndForgetConfigUpdate]
   );
 
   // Advanced handlers
@@ -314,11 +320,27 @@ export function useSettingsHandlers({
           showDockIcon: true,
           theme: 'dark',
           defaultTab: 'dashboard',
+          multimodelEnabled: true,
           claudeRootPath: null,
           agentLanguage: 'system',
           autoExpandAIGroups: false,
           useNativeTitleBar: false,
           telemetryEnabled: true,
+        },
+        providerConnections: {
+          anthropic: {
+            authMode: 'auto',
+          },
+          codex: {
+            apiKeyBetaEnabled: false,
+            authMode: 'oauth',
+          },
+        },
+        runtime: {
+          providerBackends: {
+            gemini: 'auto',
+            codex: 'auto',
+          },
         },
         display: {
           showTimestamps: true,
@@ -333,6 +355,8 @@ export function useSettingsHandlers({
 
       await api.config.update('notifications', defaultConfig.notifications);
       await api.config.update('general', defaultConfig.general);
+      await api.config.update('providerConnections', defaultConfig.providerConnections);
+      await api.config.update('runtime', defaultConfig.runtime);
       const updatedConfig = await api.config.update('display', defaultConfig.display);
       setConfig(updatedConfig);
       setOptimisticConfig(updatedConfig);

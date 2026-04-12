@@ -152,7 +152,6 @@ export const MetricsPill = ({
             style={{
               ...tooltipStyle,
               border: `1px solid ${TAG_BORDER}`,
-              backdropFilter: 'blur(8px)',
             }}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}

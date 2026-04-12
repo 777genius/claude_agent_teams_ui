@@ -9,9 +9,11 @@ import {
   API_KEYS_STORAGE_STATUS,
   APP_RELAUNCH,
   CLI_INSTALLER_GET_STATUS,
+  CLI_INSTALLER_GET_PROVIDER_STATUS,
   CLI_INSTALLER_INSTALL,
   CLI_INSTALLER_INVALIDATE_STATUS,
   CLI_INSTALLER_PROGRESS,
+  TMUX_GET_STATUS,
   CONTEXT_CHANGED,
   CONTEXT_GET_ACTIVE,
   CONTEXT_LIST,
@@ -291,6 +293,7 @@ import type {
   ToolApprovalEvent,
   ToolApprovalFileContent,
   ToolApprovalSettings,
+  TmuxStatus,
   TriggerTestResult,
   UpdateKanbanPatch,
   UpdateSchedulePatch,
@@ -839,8 +842,17 @@ const electronAPI: ElectronAPI = {
     deleteDraft: async (teamName: string) => {
       return invokeIpcWithResult<void>(TEAM_DELETE_DRAFT, teamName);
     },
-    prepareProvisioning: async (cwd?: string) => {
-      return invokeIpcWithResult<TeamProvisioningPrepareResult>(TEAM_PREPARE_PROVISIONING, cwd);
+    prepareProvisioning: async (
+      cwd?: string,
+      providerId?: TeamLaunchRequest['providerId'],
+      providerIds?: TeamLaunchRequest['providerId'][]
+    ) => {
+      return invokeIpcWithResult<TeamProvisioningPrepareResult>(
+        TEAM_PREPARE_PROVISIONING,
+        cwd,
+        providerId,
+        providerIds
+      );
     },
     createTeam: async (request: TeamCreateRequest) => {
       return invokeIpcWithResult<TeamCreateResponse>(TEAM_CREATE, request);
@@ -1343,6 +1355,9 @@ const electronAPI: ElectronAPI = {
     getStatus: async (): Promise<CliInstallationStatus> => {
       return invokeIpcWithResult<CliInstallationStatus>(CLI_INSTALLER_GET_STATUS);
     },
+    getProviderStatus: async (providerId: import('@shared/types').CliProviderId) => {
+      return invokeIpcWithResult(CLI_INSTALLER_GET_PROVIDER_STATUS, providerId);
+    },
     install: async (): Promise<void> => {
       return invokeIpcWithResult<void>(CLI_INSTALLER_INSTALL);
     },
@@ -1360,6 +1375,12 @@ const electronAPI: ElectronAPI = {
           callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
         );
       };
+    },
+  },
+
+  tmux: {
+    getStatus: async (): Promise<TmuxStatus> => {
+      return invokeIpcWithResult<TmuxStatus>(TMUX_GET_STATUS);
     },
   },
 

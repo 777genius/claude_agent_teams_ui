@@ -1,8 +1,9 @@
 import { FileReadTimeoutError, readFileUtf8WithTimeout } from '@main/utils/fsRead';
 import { getTeamsBasePath } from '@main/utils/pathDecoder';
-import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+
+import { getEffectiveInboxMessageId } from './inboxMessageIdentity';
 
 import type { InboxMessage } from '@shared/types';
 
@@ -96,10 +97,10 @@ export class TeamInboxReader {
       // often lack messageId because Claude Code CLI doesn't generate one.
       // We produce a deterministic hash so the same message always gets the same ID
       // across reads — important for React keys, dedup, and message tracking.
-      const messageId =
-        typeof row.messageId === 'string' && row.messageId.trim().length > 0
-          ? row.messageId
-          : `inbox-${createHash('sha256').update(`${row.from}\n${row.timestamp}\n${row.text}`).digest('hex').slice(0, 16)}`;
+      const messageId = getEffectiveInboxMessageId(row);
+      if (!messageId) {
+        continue;
+      }
       messages.push({
         from: row.from,
         to: typeof row.to === 'string' ? row.to : undefined,

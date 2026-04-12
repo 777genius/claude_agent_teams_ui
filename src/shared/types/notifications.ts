@@ -308,6 +308,8 @@ export interface AppConfig {
     theme: 'dark' | 'light' | 'system';
     /** Default tab to show on app launch */
     defaultTab: 'dashboard' | 'last-session';
+    /** Whether to use the multimodel runtime instead of the stock Claude CLI */
+    multimodelEnabled: boolean;
     /** Optional custom Claude root folder (auto-detected when null) */
     claudeRootPath: string | null;
     /** Agent communication language ('system' = use OS locale) */
@@ -318,6 +320,23 @@ export interface AppConfig {
     useNativeTitleBar: boolean;
     /** Send anonymous crash & performance telemetry (requires SENTRY_DSN at build time) */
     telemetryEnabled: boolean;
+  };
+  /** Provider connection preferences for app-launched multimodel sessions */
+  providerConnections: {
+    anthropic: {
+      authMode: 'auto' | 'oauth' | 'api_key';
+    };
+    codex: {
+      apiKeyBetaEnabled: boolean;
+      authMode: 'oauth' | 'api_key';
+    };
+  };
+  /** Runtime backend preferences for app-launched agent_teams_orchestrator sessions */
+  runtime: {
+    providerBackends: {
+      gemini: 'auto' | 'api' | 'cli-sdk';
+      codex: 'auto' | 'adapter';
+    };
   };
   /** Display and UI settings */
   display: {

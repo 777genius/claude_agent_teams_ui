@@ -6,6 +6,7 @@
  */
 
 import { getToolSummary } from '@renderer/utils/toolRendering/toolSummaryHelpers';
+import { summarizeAgentToolInput } from '@shared/utils/toolSummary';
 
 import type { AIGroupDisplayItem, LinkedToolItem } from '@renderer/types/groups';
 
@@ -363,8 +364,8 @@ export function groupBySubagent(groups: StreamJsonGroup[]): StreamJsonEntry[] {
         if (item.type === 'tool' && (item.tool.name === 'Agent' || item.tool.name === 'Task')) {
           const input = item.tool.input as Record<string, unknown> | undefined;
           const desc =
+            (item.tool.name === 'Agent' && input ? summarizeAgentToolInput(input, 80) : null) ||
             (typeof input?.description === 'string' && input.description) ||
-            (typeof input?.prompt === 'string' && input.prompt.slice(0, 80)) ||
             'Subagent';
           pendingDescriptions.push(desc);
         }

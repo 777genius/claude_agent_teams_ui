@@ -37,6 +37,16 @@ export function isInboxNoiseMessage(text: string): boolean {
   return !!type && INBOX_NOISE_SET.has(type);
 }
 
+/**
+ * Returns true when a teammate message is substantive enough to count as a real
+ * bootstrap/check-in signal. Internal coordination noise like idle/shutdown
+ * JSON should keep the runtime marked alive, but must not be treated as a
+ * teammate "checked in" signal in launch UX.
+ */
+export function isMeaningfulBootstrapCheckInMessage(text: string): boolean {
+  return text.trim().length > 0 && !isInboxNoiseMessage(text);
+}
+
 // ---------------------------------------------------------------------------
 // Teammate permission request parsing
 // ---------------------------------------------------------------------------

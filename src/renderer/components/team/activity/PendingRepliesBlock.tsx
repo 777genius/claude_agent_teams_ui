@@ -8,10 +8,12 @@ import {
   agentAvatarUrl,
   buildMemberColorMap,
   displayMemberName,
+  getMemberRuntimeAdvisoryLabel,
+  getMemberRuntimeAdvisoryTitle,
 } from '@renderer/utils/memberHelpers';
 import { nameColorSet } from '@renderer/utils/projectColor';
 import { formatDistanceToNowStrict } from 'date-fns';
-import { ShieldQuestion, Users } from 'lucide-react';
+import { Loader2, ShieldQuestion, Users } from 'lucide-react';
 
 import type { ResolvedTeamMember } from '@shared/types';
 
@@ -80,6 +82,15 @@ export const PendingRepliesBlock = ({
           const roleLabel = formatAgentRole(
             member.role ?? (member.agentType !== 'general-purpose' ? member.agentType : undefined)
           );
+          const advisoryLabel = getMemberRuntimeAdvisoryLabel(
+            member.runtimeAdvisory,
+            member.providerId
+          );
+          const advisoryTitle = getMemberRuntimeAdvisoryTitle(
+            member.runtimeAdvisory,
+            member.providerId
+          );
+          const isRetrying = advisoryLabel !== null;
 
           return (
             <article
@@ -100,8 +111,12 @@ export const PendingRepliesBlock = ({
                     loading="lazy"
                   />
                   <span className="absolute -bottom-0.5 -right-0.5 flex size-2.5">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                    <span className="relative inline-flex size-full rounded-full bg-emerald-500" />
+                    <span
+                      className={`absolute inline-flex size-full animate-ping rounded-full opacity-70 ${isRetrying ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                    />
+                    <span
+                      className={`relative inline-flex size-full rounded-full ${isRetrying ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    />
                   </span>
                 </span>
                 {onMemberClick ? (
@@ -136,12 +151,15 @@ export const PendingRepliesBlock = ({
                   </span>
                 ) : null}
                 <span
-                  className="min-w-0 flex-1 truncate text-[10px]"
-                  style={{ color: CARD_ICON_MUTED }}
-                  title="Message sent, awaiting reply"
+                  className={`min-w-0 flex-1 truncate text-[10px] ${isRetrying ? 'text-amber-300' : ''}`}
+                  style={isRetrying ? undefined : { color: CARD_ICON_MUTED }}
+                  title={advisoryTitle ?? 'Message sent, awaiting reply'}
                 >
-                  awaiting reply
+                  {advisoryLabel ?? 'awaiting reply'}
                 </span>
+                {isRetrying ? (
+                  <Loader2 className="size-3 shrink-0 animate-spin text-amber-400" />
+                ) : null}
                 <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
                   {since}
                 </span>

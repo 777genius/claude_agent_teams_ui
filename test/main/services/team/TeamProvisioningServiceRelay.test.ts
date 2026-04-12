@@ -130,6 +130,7 @@ vi.mock('agent-teams-controller', () => ({
   },
 }));
 
+import { buildLegacyInboxMessageId } from '../../../../src/main/services/team/inboxMessageIdentity';
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 
 function seedConfig(teamName: string): void {
@@ -217,6 +218,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     hoisted.files.clear();
     hoisted.readFile.mockClear();
     hoisted.atomicWrite.mockClear();
+    hoisted.setAtomicWriteShouldFail(false);
     hoisted.appendSentMessage.mockClear();
     hoisted.sendInboxMessage.mockClear();
     hoisted.setAtomicWriteShouldFail(false);
@@ -307,7 +309,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     }
   });
 
-  it('adds task-first reply guidance for task comment notifications in lead relay prompts', async () => {
+  it('adds substantive-only task comment guidance for lead relay prompts', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';
     seedConfig(teamName);
@@ -331,7 +333,8 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('Source: system_notification');
     expect(payload).toContain('summary looks like \\"Comment on #...\\"');
-    expect(payload).toContain('REQUIRES an on-task reply via task_add_comment');
+    expect(payload).toContain('reply via task_add_comment only when you have a substantive board update');
+    expect(payload).toContain('Do NOT post acknowledgement-only task comments');
 
     (service as any).handleStreamJsonMessage(run, {
       type: 'assistant',
@@ -694,7 +697,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(writeSpy).toHaveBeenCalledTimes(1);
     const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('"type":"user"');
-    expect(payload).toContain('recipient=\\"alice\\"');
+    expect(payload).toContain('to=\\"alice\\"');
     expect(payload).toContain('Source: system_notification');
     expect(payload).toContain('forward that notification exactly once without paraphrasing');
     expect(payload).toContain('Please retry with logging enabled.');
@@ -851,7 +854,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(writeSpy).toHaveBeenCalledTimes(0);
   });
 
-  it('includes MessageId in lead inbox relay prompt for provenance', async () => {
+  it('includes user message provenance in lead inbox relay prompt', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';
     seedConfig(teamName);
@@ -878,7 +881,8 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     await relayPromise;
 
     const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
-    expect(payload).toContain('MessageId: msg-provenance-001');
+    expect(payload).toContain('Eligible for task_create_from_message: yes');
+    expect(payload).toContain('User MessageId: msg-provenance-001');
     expect(payload).toContain('Build the authentication module');
   });
 
@@ -906,10 +910,290 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(payload).toContain('Please review my changes');
   });
 
-  it('lead inbox relay prompt mentions task_create_from_message for user messages with messageId', async () => {
+  it('marks pure member heartbeat idle as read without relaying it', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';
     seedConfig(teamName);
+    seedMemberInbox(teamName, 'alice', [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+        }),
+        timestamp: '2026-02-23T15:10:00.000Z',
+        read: false,
+        messageId: 'idle-member-heartbeat-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayMemberInboxMessages(teamName, 'alice');
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/alice.json`) ?? '[]'
+    ) as Array<{ messageId?: string; read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({
+        messageId: 'idle-member-heartbeat-1',
+        read: true,
+      }),
+    ]);
+  });
+
+  it('marks member heartbeat with peer summary read and does not relay it', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedMemberInbox(teamName, 'alice', [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T15:11:00.000Z',
+        read: false,
+        messageId: 'idle-member-summary-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const first = await service.relayMemberInboxMessages(teamName, 'alice');
+    const second = await service.relayMemberInboxMessages(teamName, 'alice');
+
+    expect(first).toBe(0);
+    expect(second).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/alice.json`) ?? '[]'
+    ) as Array<{ messageId?: string; read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({
+        messageId: 'idle-member-summary-1',
+        read: true,
+      }),
+    ]);
+  });
+
+  it('marks legacy member passive idle rows read via fallback identity', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedMemberInbox(teamName, 'alice', [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T15:11:30.000Z',
+        read: false,
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayMemberInboxMessages(teamName, 'alice');
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/alice.json`) ?? '[]'
+    ) as Array<{ read?: boolean }>;
+    expect(inbox).toEqual([expect.objectContaining({ read: true })]);
+  });
+
+  it('marks byte-identical legacy member passive idle duplicates read together', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    const duplicate = {
+      from: 'alice',
+      text: JSON.stringify({
+        type: 'idle_notification',
+        idleReason: 'available',
+        summary: '[to bob] aligned on rollout order',
+      }),
+      timestamp: '2026-02-23T15:11:31.000Z',
+      read: false,
+    };
+    seedMemberInbox(teamName, 'alice', [duplicate, { ...duplicate }]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayMemberInboxMessages(teamName, 'alice');
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/alice.json`) ?? '[]'
+    ) as Array<{ read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({ read: true }),
+      expect.objectContaining({ read: true }),
+    ]);
+  });
+
+  it('retries passive member idle on next cycle when exact mark-read fails', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedMemberInbox(teamName, 'alice', [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T15:11:45.000Z',
+        read: false,
+        messageId: 'idle-member-summary-fail-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    hoisted.setAtomicWriteShouldFail(true);
+    const first = await service.relayMemberInboxMessages(teamName, 'alice');
+    hoisted.setAtomicWriteShouldFail(false);
+    const second = await service.relayMemberInboxMessages(teamName, 'alice');
+
+    expect(first).toBe(0);
+    expect(second).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/alice.json`) ?? '[]'
+    ) as Array<{ messageId?: string; read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({
+        messageId: 'idle-member-summary-fail-1',
+        read: true,
+      }),
+    ]);
+  });
+
+  it('does not rewrite the inbox file when exact mark-read is a no-op on an already-read legacy row', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    const legacyRow = {
+      from: 'alice',
+      text: JSON.stringify({
+        type: 'idle_notification',
+        idleReason: 'available',
+        summary: '[to bob] aligned on rollout order',
+      }),
+      timestamp: '2026-02-23T15:11:46.000Z',
+      read: true,
+    };
+    seedMemberInbox(teamName, 'alice', [legacyRow]);
+
+    await (service as any).markInboxMessagesRead(teamName, 'alice', [
+      {
+        messageId: buildLegacyInboxMessageId(
+          legacyRow.from,
+          legacyRow.timestamp,
+          legacyRow.text
+        ),
+      },
+    ]);
+
+    expect(hoisted.atomicWrite).not.toHaveBeenCalled();
+  });
+
+  it('marks persisted duplicate messageId passive rows read together', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedMemberInbox(teamName, 'alice', [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T15:11:47.000Z',
+        read: false,
+        messageId: 'dup-passive-id-1',
+      },
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T15:11:48.000Z',
+        read: false,
+        messageId: 'dup-passive-id-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayMemberInboxMessages(teamName, 'alice');
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/alice.json`) ?? '[]'
+    ) as Array<{ messageId?: string; read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({ messageId: 'dup-passive-id-1', read: true }),
+      expect.objectContaining({ messageId: 'dup-passive-id-1', read: true }),
+    ]);
+  });
+
+  it('relays actionable member idle notifications such as failures', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedMemberInbox(teamName, 'alice', [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'failed',
+          completedStatus: 'failed',
+          failureReason: 'teammate crashed',
+        }),
+        timestamp: '2026-02-23T15:12:00.000Z',
+        read: false,
+        messageId: 'idle-member-failure-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayMemberInboxMessages(teamName, 'alice');
+
+    expect(relayed).toBe(1);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
+    expect(payload).toContain('idle_notification');
+    expect(payload).toContain('teammate crashed');
+  });
+
+  it('lead inbox relay prompt mentions task_create_from_message for user messages with messageId', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    hoisted.files.set(
+      `/mock/teams/${teamName}/config.json`,
+      JSON.stringify({
+        name: 'My Team',
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'alice', role: 'developer' },
+        ],
+      })
+    );
     seedLeadInbox(teamName, [
       {
         from: 'user',
@@ -934,6 +1218,238 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
 
     const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('task_create_from_message');
-    expect(payload).toContain('MessageId');
+    expect(payload).toContain('Current durable team context:');
+    expect(payload).toContain(`- Team name: ${teamName}`);
+    expect(payload).toContain(`teamName MUST be \\"${teamName}\\"`);
+    expect(payload).toContain('Eligible for task_create_from_message: yes');
+    expect(payload).toContain('User MessageId: msg-task-pref-001');
+  });
+
+  it('does not present teammate inbox message ids as task_create_from_message provenance', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'jack',
+        text: 'Могу начать с проверки массовых удалений в docs-site.',
+        timestamp: '2026-02-23T16:05:00.000Z',
+        read: false,
+        summary: 'Нет назначенных задач для jack',
+        messageId: 'inbox-jack-001',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: 'Понял.' }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+    await relayPromise;
+
+    const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
+    expect(payload).toContain('Eligible for task_create_from_message: no');
+    expect(payload).not.toContain('User MessageId: inbox-jack-001');
+  });
+
+  it('marks pure lead heartbeat idle as read without relaying it', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+        }),
+        timestamp: '2026-02-23T16:10:00.000Z',
+        read: false,
+        messageId: 'idle-lead-heartbeat-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayLeadInboxMessages(teamName);
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/team-lead.json`) ?? '[]'
+    ) as Array<{ messageId?: string; read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({
+        messageId: 'idle-lead-heartbeat-1',
+        read: true,
+      }),
+    ]);
+  });
+
+  it('marks lead heartbeat with peer summary read across repeated scans and does not relay it', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T16:11:00.000Z',
+        read: false,
+        messageId: 'idle-lead-summary-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+
+    const first = await service.relayLeadInboxMessages(teamName);
+    const second = await service.relayLeadInboxMessages(teamName);
+
+    expect(first).toBe(0);
+    expect(second).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/team-lead.json`) ?? '[]'
+    ) as Array<{ messageId?: string; read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({
+        messageId: 'idle-lead-summary-1',
+        read: true,
+      }),
+    ]);
+  });
+
+  it('does not clear pending cross-team reply expectations for passive lead idle', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    service.registerPendingCrossTeamReplyExpectation(teamName, 'other-team', 'conv-passive');
+    seedLeadInbox(teamName, [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T16:11:30.000Z',
+        read: false,
+        messageId: 'idle-lead-summary-2',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayLeadInboxMessages(teamName);
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+    const pendingKeys = (service as any).getPendingCrossTeamReplyExpectationKeys(teamName);
+    expect(Array.from(pendingKeys)).toContain('other-team\0conv-passive');
+  });
+
+  it('does not feed passive lead idle into same-team native matching', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T16:11:45.000Z',
+        read: false,
+        messageId: 'idle-lead-summary-native-match-1',
+      },
+    ]);
+
+    const nativeMatchSpy = vi
+      .spyOn(service as any, 'confirmSameTeamNativeMatches')
+      .mockResolvedValue({ nativeMatchedMessageIds: new Set<string>(), persisted: true });
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayed = await service.relayLeadInboxMessages(teamName);
+
+    expect(relayed).toBe(0);
+    expect(writeSpy).toHaveBeenCalledTimes(0);
+    expect(nativeMatchSpy).toHaveBeenCalledWith(teamName, 'team-lead', []);
+  });
+
+  it('does not let cross-team idle-shaped payloads inherit passive idle handling', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'other-team.alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        }),
+        timestamp: '2026-02-23T16:11:50.000Z',
+        read: false,
+        messageId: 'cross-team-idle-shaped-1',
+        source: 'cross_team',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: 'Seen.' }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+    const relayed = await relayPromise;
+    expect(relayed).toBe(1);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('relays actionable lead idle notifications such as task-terminal updates', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'alice',
+        text: JSON.stringify({
+          type: 'idle_notification',
+          completedTaskId: 'task-1',
+          completedStatus: 'blocked',
+        }),
+        timestamp: '2026-02-23T16:12:00.000Z',
+        read: false,
+        messageId: 'idle-lead-terminal-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: 'Investigating blocker.' }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+    const relayed = await relayPromise;
+    expect(relayed).toBe(1);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
+    expect(payload).toContain('idle_notification');
+    expect(payload).toContain('blocked');
   });
 });

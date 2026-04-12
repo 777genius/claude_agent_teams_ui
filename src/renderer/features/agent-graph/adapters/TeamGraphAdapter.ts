@@ -8,9 +8,14 @@
  */
 
 import { getUnreadCount } from '@renderer/services/commentReadStorage';
+import { formatTeamRuntimeSummary } from '@renderer/utils/teamRuntimeSummary';
 import { agentAvatarUrl } from '@renderer/utils/memberHelpers';
 import { stripCrossTeamPrefix } from '@shared/constants/crossTeam';
-import { getInboxJsonType, isInboxNoiseMessage } from '@shared/utils/inboxNoise';
+import {
+  getIdleGraphLabel,
+  classifyIdleNotificationText,
+} from '@shared/utils/idleNotificationSemantics';
+import { isInboxNoiseMessage } from '@shared/utils/inboxNoise';
 import { isLeadMember } from '@shared/utils/leadDetection';
 
 import type {
@@ -74,7 +79,7 @@ export class TeamGraphAdapter {
     const memberKey = teamData.members
       .map(
         (member) =>
-          `${member.name}:${member.status}:${member.currentTaskId ?? ''}:${member.role ?? ''}:${member.color ?? ''}:${member.agentType ?? ''}:${member.removedAt ?? ''}`
+          `${member.name}:${member.status}:${member.currentTaskId ?? ''}:${member.role ?? ''}:${member.color ?? ''}:${member.agentType ?? ''}:${member.providerId ?? ''}:${member.model ?? ''}:${member.effort ?? ''}:${member.removedAt ?? ''}`
       )
       .sort()
       .join('|');
@@ -237,6 +242,14 @@ export class TeamGraphAdapter {
     return data.members.find((member) => isLeadMember(member))?.name ?? `${teamName}-lead`;
   }
 
+  static #getRuntimeLabel(
+    providerId: TeamData['members'][number]['providerId'],
+    model: TeamData['members'][number]['model'],
+    effort: TeamData['members'][number]['effort']
+  ): string | undefined {
+    return formatTeamRuntimeSummary(providerId, model, effort);
+  }
+
   static #selectVisibleTool(
     runningTools?: Record<string, ActiveToolCall>,
     finishedTools?: Record<string, ActiveToolCall>
@@ -262,6 +275,7 @@ export class TeamGraphAdapter {
     toolHistory?: Record<string, ActiveToolCall[]>
   ): void {
     const percent = leadContext?.percent;
+    const leadMember = data.members.find((member) => member.name === leadName);
     const activeTool = TeamGraphAdapter.#selectVisibleTool(
       activeTools?.[leadName],
       finishedVisible?.[leadName]
@@ -276,6 +290,11 @@ export class TeamGraphAdapter {
           ? 'tool_calling'
           : 'active',
       color: data.config.color ?? undefined,
+      runtimeLabel: TeamGraphAdapter.#getRuntimeLabel(
+        leadMember?.providerId,
+        leadMember?.model,
+        leadMember?.effort
+      ),
       contextUsage: percent != null ? Math.max(0, Math.min(1, percent / 100)) : undefined,
       avatarUrl: agentAvatarUrl(leadName, 64),
       activeTool: activeTool
@@ -338,6 +357,11 @@ export class TeamGraphAdapter {
           : TeamGraphAdapter.#mapMemberStatus(member.status, spawn?.status),
         color: member.color ?? undefined,
         role: member.role ?? undefined,
+        runtimeLabel: TeamGraphAdapter.#getRuntimeLabel(
+          member.providerId,
+          member.model,
+          member.effort
+        ),
         spawnStatus: spawn?.status,
         avatarUrl: agentAvatarUrl(member.name, 64),
         currentTaskId: member.currentTaskId ?? undefined,
@@ -565,12 +589,10 @@ export class TeamGraphAdapter {
       // Skip comment notifications — #buildCommentParticles handles them with real text
       if (msg.summary?.startsWith('Comment on ')) continue;
 
-      // Handle noise messages: idle shows as "idle", others (shutdown, terminated) skip entirely
+      // Handle noise messages: idle uses semantic label, others (shutdown, terminated) skip entirely
       const msgText = msg.text ?? '';
-      const noiseType = getInboxJsonType(msgText);
-      if (noiseType === 'idle_notification') {
-        // Show idle as a simple label, don't skip
-      } else if (isInboxNoiseMessage(msgText)) {
+      const idleSemantic = classifyIdleNotificationText(msgText);
+      if (!idleSemantic && isInboxNoiseMessage(msgText)) {
         continue; // skip shutdown_approved, teammate_terminated, shutdown_request
       }
 
@@ -623,11 +645,9 @@ export class TeamGraphAdapter {
       );
       const isFromTeammate = fromId !== leadId;
 
-      // For idle notifications, show a clean "idle" label instead of raw JSON
       const particleLabel =
-        noiseType === 'idle_notification'
-          ? 'idle'
-          : TeamGraphAdapter.#buildParticleLabel(msg.summary ?? msg.text, 'inbox');
+        getIdleGraphLabel(msgText) ??
+        TeamGraphAdapter.#buildParticleLabel(msg.summary ?? msg.text, 'inbox');
 
       particles.push({
         id: `particle:msg:${teamName}:${msgKey}`,

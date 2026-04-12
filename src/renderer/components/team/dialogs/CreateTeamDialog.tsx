@@ -1,14 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
 import {
   buildMemberDraftColorMap,
   buildMemberDraftSuggestions,
   buildMembersFromDrafts,
+  clearMemberModelOverrides,
   createMemberDraft,
-  MembersEditorSection,
+  normalizeMemberDraftForProviderMode,
+  normalizeProviderForMode,
   validateMemberNameInline,
 } from '@renderer/components/team/members/MembersEditorSection';
+import { TeamRosterEditorSection } from '@renderer/components/team/members/TeamRosterEditorSection';
 import { AutoResizeTextarea } from '@renderer/components/ui/auto-resize-textarea';
 import { Button } from '@renderer/components/ui/button';
 import { Checkbox } from '@renderer/components/ui/checkbox';
@@ -32,16 +35,31 @@ import { useTaskSuggestions } from '@renderer/hooks/useTaskSuggestions';
 import { useTeamSuggestions } from '@renderer/hooks/useTeamSuggestions';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { cn } from '@renderer/lib/utils';
+import { useStore } from '@renderer/store';
+import {
+  isGeminiUiFrozen,
+  normalizeCreateLaunchProviderForUi,
+} from '@renderer/utils/geminiUiFreeze';
 import { normalizePath } from '@renderer/utils/pathNormalize';
+import { normalizeTeamModelForUi } from '@renderer/utils/teamModelAvailability';
+import { isTeamProviderId, normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
 
 import { AdvancedCliSection } from './AdvancedCliSection';
-import { EffortLevelSelector } from './EffortLevelSelector';
-import { LimitContextCheckbox } from './LimitContextCheckbox';
 import { OptionalSettingsSection } from './OptionalSettingsSection';
+import {
+  createInitialProviderChecks,
+  failIncompleteProviderChecks,
+  getProvisioningProviderBackendSummary,
+  getProvisioningFailureHint,
+  ProvisioningProviderStatusList,
+  shouldHideProvisioningProviderStatusList,
+  updateProviderCheck,
+  type ProvisioningProviderCheck,
+} from './ProvisioningProviderStatusList';
 import { ProjectPathSelector } from './ProjectPathSelector';
 import { SkipPermissionsCheckbox } from './SkipPermissionsCheckbox';
-import { computeEffectiveTeamModel, TeamModelSelector } from './TeamModelSelector';
+import { computeEffectiveTeamModel } from './TeamModelSelector';
 import { getNextSuggestedTeamName } from './teamNameSets';
 
 const TEAM_COLOR_NAMES = [
@@ -55,13 +73,54 @@ const TEAM_COLOR_NAMES = [
   'pink',
 ] as const;
 
+const APP_TEAM_RUNTIME_DISALLOWED_TOOLS = 'TeamDelete,TodoWrite,TaskCreate,TaskUpdate';
+
 import type {
   EffortLevel,
   Project,
   TeamCreateRequest,
+  TeamProviderId,
   TeamProvisioningMemberInput,
   TeamProvisioningPrepareResult,
 } from '@shared/types';
+
+function getStoredTeamProvider(): TeamProviderId {
+  const stored = localStorage.getItem('team:lastSelectedProvider');
+  // return stored === 'codex' || stored === 'gemini' ? stored : 'anthropic';
+  return normalizeCreateLaunchProviderForUi(
+    stored === 'codex' || stored === 'gemini' ? stored : 'anthropic',
+    true
+  );
+}
+
+function getStoredTeamModel(providerId: TeamProviderId): string {
+  const stored = localStorage.getItem(`team:lastSelectedModel:${providerId}`);
+  if (stored === null) {
+    return providerId === 'anthropic' ? 'opus' : '';
+  }
+  return normalizeTeamModelForUi(providerId, stored === '__default__' ? '' : stored);
+}
+
+function isEphemeralRenderedProjectPath(projectPath: string | null | undefined): boolean {
+  const normalized = normalizePath(projectPath ?? '').toLowerCase();
+  return (
+    normalized.includes('rendered_mcp_') ||
+    normalized.includes('rendered_mcp_config') ||
+    normalized.includes('/portable-mcp-live')
+  );
+}
+
+function getProviderLabel(providerId: TeamProviderId): string {
+  switch (providerId) {
+    case 'codex':
+      return 'Codex';
+    case 'gemini':
+      return 'Gemini';
+    case 'anthropic':
+    default:
+      return 'Anthropic';
+  }
+}
 
 export interface TeamCopyData {
   teamName: string;
@@ -223,6 +282,10 @@ export const CreateTeamDialog = ({
   onOpenTeam,
 }: CreateTeamDialogProps): React.JSX.Element => {
   const { isLight } = useTheme();
+  const multimodelEnabled = useStore((s) => s.appConfig?.general?.multimodelEnabled ?? true);
+  const cliStatus = useStore((s) => s.cliStatus);
+  const cliStatusLoading = useStore((s) => s.cliStatusLoading);
+  const fetchCliStatus = useStore((s) => s.fetchCliStatus);
 
   // ── Persisted draft state (survives tab navigation) ──────────────────
   const {
@@ -230,6 +293,8 @@ export const CreateTeamDialog = ({
     setTeamName,
     members,
     setMembers,
+    syncModelsWithLead,
+    setSyncModelsWithLead,
     cwdMode,
     setCwdMode,
     selectedProjectPath,
@@ -258,6 +323,7 @@ export const CreateTeamDialog = ({
   const [prepareState, setPrepareState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
   const [prepareMessage, setPrepareMessage] = useState<string | null>(null);
   const [prepareWarnings, setPrepareWarnings] = useState<string[]>([]);
+  const [prepareChecks, setPrepareChecks] = useState<ProvisioningProviderCheck[]>([]);
   const prepareRequestSeqRef = useRef(0);
   const lastAutoDescriptionRef = useRef<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
@@ -267,11 +333,11 @@ export const CreateTeamDialog = ({
   }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [conflictDismissed, setConflictDismissed] = useState(false);
-  const [selectedModel, setSelectedModelRaw] = useState(() => {
-    const stored = localStorage.getItem('team:lastSelectedModel');
-    if (stored === null) return 'opus';
-    return stored === '__default__' ? '' : stored;
-  });
+  const [selectedProviderId, setSelectedProviderIdRaw] =
+    useState<TeamProviderId>(getStoredTeamProvider);
+  const [selectedModel, setSelectedModelRaw] = useState(() =>
+    getStoredTeamModel(getStoredTeamProvider())
+  );
   const [limitContext, setLimitContextRaw] = useState(
     () => localStorage.getItem('team:lastLimitContext') === 'true'
   );
@@ -289,6 +355,17 @@ export const CreateTeamDialog = ({
   const [worktreeName, setWorktreeNameRaw] = useState('');
   const [customArgs, setCustomArgsRaw] = useState('');
 
+  useEffect(() => {
+    const legacyTeamModel = localStorage.getItem('team:lastSelectedModel');
+    if (
+      legacyTeamModel != null &&
+      localStorage.getItem('team:lastSelectedModel:anthropic') == null
+    ) {
+      localStorage.setItem('team:lastSelectedModel:anthropic', legacyTeamModel);
+    }
+    localStorage.removeItem('team:lastSelectedModel');
+  }, []);
+
   // Re-read localStorage when advancedKey changes
   useEffect(() => {
     const storedEnabled =
@@ -300,8 +377,20 @@ export const CreateTeamDialog = ({
   }, [advancedKey]);
 
   const setSelectedModel = (value: string): void => {
-    setSelectedModelRaw(value);
-    localStorage.setItem('team:lastSelectedModel', value);
+    const normalizedValue = normalizeTeamModelForUi(selectedProviderId, value);
+    setSelectedModelRaw(normalizedValue);
+    localStorage.setItem(`team:lastSelectedModel:${selectedProviderId}`, normalizedValue);
+  };
+
+  const setSelectedProviderId = (value: TeamProviderId): void => {
+    const normalizedValue = normalizeProviderForMode(value, multimodelEnabled);
+    setSelectedProviderIdRaw(normalizedValue);
+    localStorage.setItem('team:lastSelectedProvider', normalizedValue);
+    if (normalizedValue !== 'anthropic') {
+      setLimitContextRaw(false);
+      localStorage.setItem('team:lastLimitContext', 'false');
+    }
+    setSelectedModelRaw(getStoredTeamModel(normalizedValue));
   };
 
   const setLimitContext = (value: boolean): void => {
@@ -343,6 +432,7 @@ export const CreateTeamDialog = ({
     setPrepareState('idle');
     setPrepareMessage(null);
     setPrepareWarnings([]);
+    setPrepareChecks([]);
     setConflictDismissed(false);
   };
 
@@ -371,6 +461,63 @@ export const CreateTeamDialog = ({
     }
   }, [open, clearProvisioningError, dialogTeamNameKey]);
 
+  const effectiveMemberDrafts = useMemo(
+    () => (syncModelsWithLead ? members.map(clearMemberModelOverrides) : members),
+    [members, syncModelsWithLead]
+  );
+
+  const selectedMemberProviders = useMemo<TeamProviderId[]>(() => {
+    if (!multimodelEnabled) {
+      return ['anthropic'];
+    }
+    if (soloTeam || syncModelsWithLead) {
+      return [selectedProviderId];
+    }
+    return Array.from(
+      new Set([
+        selectedProviderId,
+        ...members.flatMap((member) =>
+          isTeamProviderId(member.providerId) ? [member.providerId] : []
+        ),
+      ])
+    );
+  }, [members, multimodelEnabled, selectedProviderId, soloTeam, syncModelsWithLead]);
+
+  const runtimeBackendSummaryByProvider = useMemo(() => {
+    const entries: Array<readonly [TeamProviderId, string | null]> = (
+      cliStatus?.providers ?? []
+    ).map(
+      (provider) =>
+        [
+          provider.providerId as TeamProviderId,
+          getProvisioningProviderBackendSummary(provider),
+        ] as const
+    );
+    return new Map<TeamProviderId, string | null>(entries);
+  }, [cliStatus?.providers]);
+
+  useEffect(() => {
+    if (multimodelEnabled) {
+      return;
+    }
+    if (selectedProviderId !== 'anthropic') {
+      setSelectedProviderIdRaw('anthropic');
+      setSelectedModelRaw(getStoredTeamModel('anthropic'));
+    }
+    const nextMembers = members.map((member) => normalizeMemberDraftForProviderMode(member, false));
+    const changed = nextMembers.some((member, index) => member !== members[index]);
+    if (changed) {
+      setMembers(nextMembers);
+    }
+  }, [members, multimodelEnabled, selectedProviderId, setMembers]);
+
+  useEffect(() => {
+    if (!open || cliStatus || cliStatusLoading) {
+      return;
+    }
+    void fetchCliStatus();
+  }, [open, cliStatus, cliStatusLoading, fetchCliStatus]);
+
   useEffect(() => {
     if (!open || !canCreate || !launchTeam) {
       return;
@@ -379,6 +526,7 @@ export const CreateTeamDialog = ({
     if (typeof api.teams.prepareProvisioning !== 'function') {
       setPrepareState('failed');
       setPrepareWarnings([]);
+      setPrepareChecks([]);
       setPrepareMessage(
         'Current preload version does not support team:prepareProvisioning. Restart the dev app.'
       );
@@ -388,6 +536,7 @@ export const CreateTeamDialog = ({
     if (!effectiveCwd) {
       setPrepareState('idle');
       setPrepareWarnings([]);
+      setPrepareChecks([]);
       setPrepareMessage('Select a working directory to validate the launch environment.');
       return;
     }
@@ -395,26 +544,77 @@ export const CreateTeamDialog = ({
     let cancelled = false;
     const requestSeq = ++prepareRequestSeqRef.current;
     setPrepareState('loading');
-    setPrepareMessage('Warming up CLI environment...');
+    setPrepareMessage('Checking selected providers...');
     setPrepareWarnings([]);
+    setPrepareChecks(createInitialProviderChecks(selectedMemberProviders));
 
     // Defer so file list fetch (triggered by project select) can run first
     const timer = setTimeout(() => {
       void (async () => {
+        let checks = createInitialProviderChecks(selectedMemberProviders);
+        let anyFailure = false;
+        let anyNotes = false;
+        const collectedWarnings: string[] = [];
+
         try {
-          const prepResult: TeamProvisioningPrepareResult =
-            await api.teams.prepareProvisioning(effectiveCwd);
+          for (const providerId of selectedMemberProviders) {
+            checks = updateProviderCheck(checks, providerId, {
+              status: 'checking',
+              backendSummary: runtimeBackendSummaryByProvider.get(providerId) ?? null,
+              details: [],
+            });
+            if (!cancelled && prepareRequestSeqRef.current === requestSeq) {
+              setPrepareChecks(checks);
+              setPrepareMessage(`Checking ${getProviderLabel(providerId)} runtime...`);
+            }
+
+            const prepResult: TeamProvisioningPrepareResult = await api.teams.prepareProvisioning(
+              effectiveCwd,
+              providerId,
+              [providerId]
+            );
+            const detailLines = [
+              ...(prepResult.warnings ?? []).filter(Boolean),
+              ...(!prepResult.ready && prepResult.message ? [prepResult.message] : []),
+            ];
+            if (prepResult.warnings?.length) {
+              anyNotes = true;
+              collectedWarnings.push(
+                ...prepResult.warnings.map(
+                  (warning) => `${getProviderLabel(providerId)}: ${warning}`
+                )
+              );
+            }
+            if (!prepResult.ready) {
+              anyFailure = true;
+            }
+            checks = updateProviderCheck(checks, providerId, {
+              status: !prepResult.ready ? 'failed' : detailLines.length > 0 ? 'notes' : 'ready',
+              backendSummary: runtimeBackendSummaryByProvider.get(providerId) ?? null,
+              details: detailLines,
+            });
+            if (!cancelled && prepareRequestSeqRef.current === requestSeq) {
+              setPrepareChecks(checks);
+            }
+          }
           if (cancelled || prepareRequestSeqRef.current !== requestSeq) return;
-          setPrepareState(prepResult.ready ? 'ready' : 'failed');
-          setPrepareMessage(prepResult.message);
-          setPrepareWarnings(prepResult.warnings ?? []);
+          setPrepareState(anyFailure ? 'failed' : 'ready');
+          setPrepareMessage(
+            anyFailure
+              ? 'Some selected providers need attention.'
+              : anyNotes
+                ? 'Selected providers are ready with notes.'
+                : 'Selected providers are ready.'
+          );
+          setPrepareWarnings(collectedWarnings);
         } catch (error) {
           if (cancelled || prepareRequestSeqRef.current !== requestSeq) return;
+          const failureMessage =
+            error instanceof Error ? error.message : 'Failed to warm up Claude CLI environment';
           setPrepareState('failed');
           setPrepareWarnings([]);
-          setPrepareMessage(
-            error instanceof Error ? error.message : 'Failed to warm up Claude CLI environment'
-          );
+          setPrepareChecks(failIncompleteProviderChecks(checks, failureMessage));
+          setPrepareMessage(failureMessage);
         }
       })();
     }, 250);
@@ -423,7 +623,15 @@ export const CreateTeamDialog = ({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [open, canCreate, launchTeam, effectiveCwd]);
+  }, [
+    open,
+    canCreate,
+    launchTeam,
+    effectiveCwd,
+    selectedProviderId,
+    selectedMemberProviders,
+    runtimeBackendSummaryByProvider,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -446,6 +654,7 @@ export const CreateTeamDialog = ({
         // display and select it.
         if (
           defaultProjectPath &&
+          !isEphemeralRenderedProjectPath(defaultProjectPath) &&
           !nextProjects.some((p) => normalizePath(p.path) === defaultProjectPath)
         ) {
           const folderName =
@@ -492,13 +701,22 @@ export const CreateTeamDialog = ({
           const presetRoles: readonly string[] = PRESET_ROLES;
           const isPreset = m.role != null && presetRoles.includes(m.role);
           const isCustom = m.role != null && m.role.length > 0 && !isPreset;
-          return createMemberDraft({
-            name: m.name,
-            roleSelection: isCustom ? CUSTOM_ROLE : (m.role ?? ''),
-            customRole: isCustom ? m.role : '',
-            workflow: m.workflow,
-          });
+          return normalizeMemberDraftForProviderMode(
+            createMemberDraft({
+              name: m.name,
+              roleSelection: isCustom ? CUSTOM_ROLE : (m.role ?? ''),
+              customRole: isCustom ? m.role : '',
+              workflow: m.workflow,
+              providerId: normalizeOptionalTeamProviderId(m.providerId),
+              model: m.model ?? '',
+              effort: m.effort,
+            }),
+            multimodelEnabled
+          );
         })
+      );
+      setSyncModelsWithLead(
+        !initialData.members.some((member) => member.providerId || member.model || member.effort)
       );
       return;
     }
@@ -559,7 +777,7 @@ export const CreateTeamDialog = ({
     if (selectedProjectPath || projects.length === 0) {
       return;
     }
-    if (defaultProjectPath) {
+    if (defaultProjectPath && !isEphemeralRenderedProjectPath(defaultProjectPath)) {
       const match = projects.find((p) => normalizePath(p.path) === defaultProjectPath);
       if (match) {
         setSelectedProjectPath(match.path);
@@ -568,6 +786,16 @@ export const CreateTeamDialog = ({
     }
     setSelectedProjectPath(projects[0].path);
   }, [open, cwdMode, projects, selectedProjectPath, defaultProjectPath]);
+
+  useEffect(() => {
+    if (!open || cwdMode !== 'project' || !selectedProjectPath) {
+      return;
+    }
+    if (!isEphemeralRenderedProjectPath(selectedProjectPath)) {
+      return;
+    }
+    setSelectedProjectPath('');
+  }, [open, cwdMode, selectedProjectPath, setSelectedProjectPath]);
 
   useFileListCacheWarmer(effectiveCwd || null);
 
@@ -587,23 +815,25 @@ export const CreateTeamDialog = ({
   );
 
   const effectiveModel = useMemo(
-    () => computeEffectiveTeamModel(selectedModel, limitContext),
-    [selectedModel, limitContext]
+    () => computeEffectiveTeamModel(selectedModel, limitContext, selectedProviderId),
+    [selectedModel, limitContext, selectedProviderId]
   );
 
   const sanitizedTeamName = sanitizeTeamName(teamName.trim());
+  const teamNameInlineError = validateTeamNameInline(teamName);
+  const isNameTakenByExistingTeam = existingTeamNames.includes(sanitizedTeamName);
   const isNameProvisioning =
-    provisioningTeamNames.includes(sanitizedTeamName) &&
-    !existingTeamNames.includes(sanitizedTeamName);
+    provisioningTeamNames.includes(sanitizedTeamName) && !isNameTakenByExistingTeam;
 
   const request = useMemo<TeamCreateRequest>(
     () => ({
       teamName: sanitizedTeamName,
       description: description.trim() || undefined,
       color: teamColor || undefined,
-      members: soloTeam ? [] : buildMembersFromDrafts(members),
+      members: soloTeam ? [] : buildMembersFromDrafts(effectiveMemberDrafts),
       cwd: effectiveCwd,
       prompt: prompt.trim() || undefined,
+      providerId: selectedProviderId,
       model: effectiveModel,
       effort: (selectedEffort as EffortLevel) || undefined,
       limitContext,
@@ -616,9 +846,10 @@ export const CreateTeamDialog = ({
       description,
       teamColor,
       soloTeam,
-      members,
+      effectiveMemberDrafts,
       effectiveCwd,
       prompt,
+      selectedProviderId,
       effectiveModel,
       selectedEffort,
       limitContext,
@@ -628,12 +859,21 @@ export const CreateTeamDialog = ({
       customArgs,
     ]
   );
+  const requestValidation = useMemo(
+    () => validateRequest(request, { requireCwd: launchTeam }),
+    [request, launchTeam]
+  );
+  const hasCreateFormErrors =
+    !!teamNameInlineError ||
+    isNameTakenByExistingTeam ||
+    isNameProvisioning ||
+    !requestValidation.valid;
 
   const internalArgs = useMemo(() => {
     const args: string[] = [];
     args.push('--input-format', 'stream-json', '--output-format', 'stream-json');
     args.push('--verbose', '--setting-sources', 'user,project,local');
-    args.push('--mcp-config', '<auto>', '--disallowedTools', 'TeamDelete,TodoWrite');
+    args.push('--mcp-config', '<auto>', '--disallowedTools', APP_TEAM_RUNTIME_DISALLOWED_TOOLS);
     if (skipPermissions) args.push('--dangerously-skip-permissions');
     if (effectiveModel) args.push('--model', effectiveModel);
     if (selectedEffort) args.push('--effort', selectedEffort);
@@ -643,23 +883,11 @@ export const CreateTeamDialog = ({
   const launchOptionalSummary = useMemo(() => {
     const summary: string[] = [];
     if (prompt.trim()) summary.push('Lead prompt');
-    if (selectedModel) summary.push(`Model: ${selectedModel}`);
-    if (selectedEffort) summary.push(`Effort: ${selectedEffort}`);
-    if (limitContext) summary.push('Limited to 200K context');
     if (skipPermissions) summary.push('Auto-approve tools');
     if (worktreeEnabled && worktreeName.trim()) summary.push(`Worktree: ${worktreeName.trim()}`);
     if (customArgs.trim()) summary.push('Custom CLI args');
     return summary;
-  }, [
-    prompt,
-    selectedModel,
-    selectedEffort,
-    limitContext,
-    skipPermissions,
-    worktreeEnabled,
-    worktreeName,
-    customArgs,
-  ]);
+  }, [prompt, skipPermissions, worktreeEnabled, worktreeName, customArgs]);
 
   const teamDetailsSummary = useMemo(() => {
     const summary: string[] = [];
@@ -667,6 +895,16 @@ export const CreateTeamDialog = ({
     if (teamColor) summary.push(`Color: ${teamColor}`);
     return summary;
   }, [description, teamColor]);
+
+  const handleSyncModelsWithLeadChange = useCallback(
+    (checked: boolean): void => {
+      setSyncModelsWithLead(checked);
+      if (checked) {
+        setMembers(members.map(clearMemberModelOverrides));
+      }
+    },
+    [members, setMembers, setSyncModelsWithLead]
+  );
 
   const activeError = localError ?? provisioningErrorsByTeam[request.teamName] ?? null;
   const canOpenExistingTeam =
@@ -822,7 +1060,14 @@ export const CreateTeamDialog = ({
                 <p className="text-red-300/80">
                   {prepareMessage ?? 'Failed to prepare environment'}
                 </p>
-                {prepareWarnings.length > 0 ? (
+                {!shouldHideProvisioningProviderStatusList(prepareChecks, prepareMessage) ? (
+                  <ProvisioningProviderStatusList
+                    checks={prepareChecks}
+                    className="mt-1"
+                    suppressDetailsMatching={prepareMessage}
+                  />
+                ) : null}
+                {prepareWarnings.length > 0 && prepareChecks.length === 0 ? (
                   <div className="space-y-0.5">
                     {prepareWarnings.map((warning) => (
                       <p
@@ -836,8 +1081,7 @@ export const CreateTeamDialog = ({
                   </div>
                 ) : null}
                 <p className="text-[11px] text-[var(--color-text-muted)]">
-                  Make sure <span className="font-mono">claude</span> CLI is installed and available
-                  in PATH, then reopen this dialog.
+                  {getProvisioningFailureHint(prepareMessage, prepareChecks)}
                 </p>
               </div>
             </div>
@@ -864,20 +1108,24 @@ export const CreateTeamDialog = ({
               id="team-name"
               className={cn(
                 'h-8 text-xs',
-                (fieldErrors.teamName || allTakenTeamNames.includes(sanitizedTeamName)) &&
+                (fieldErrors.teamName || teamNameInlineError || isNameTakenByExistingTeam) &&
                   'border-[var(--field-error-border)] bg-[var(--field-error-bg)] focus-visible:ring-[var(--field-error-border)]'
               )}
               value={teamName}
               onChange={(event) => handleTeamNameChange(event.target.value)}
               placeholder={suggestedTeamName}
             />
-            {allTakenTeamNames.includes(sanitizedTeamName) ? (
+            {isNameTakenByExistingTeam ? (
               <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
-                {isNameProvisioning ? 'Team is currently launching' : 'Team name already exists'}
+                Team name already exists
               </p>
-            ) : validateTeamNameInline(teamName) ? (
+            ) : teamNameInlineError ? (
               <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
-                {validateTeamNameInline(teamName)}
+                {teamNameInlineError}
+              </p>
+            ) : isNameProvisioning ? (
+              <p className="text-[11px]" style={{ color: 'var(--warning-text)' }}>
+                A team with this name is currently launching
               </p>
             ) : fieldErrors.teamName ? (
               <p className="text-[11px]" style={{ color: 'var(--field-error-text)' }}>
@@ -892,9 +1140,9 @@ export const CreateTeamDialog = ({
           </div>
 
           <div className="md:col-span-2">
-            <MembersEditorSection
+            <TeamRosterEditorSection
               members={members}
-              onChange={setMembers}
+              onMembersChange={setMembers}
               fieldError={fieldErrors.members}
               validateMemberName={validateMemberNameInline}
               showWorkflow
@@ -903,34 +1151,53 @@ export const CreateTeamDialog = ({
               projectPath={effectiveCwd || null}
               taskSuggestions={taskSuggestions}
               teamSuggestions={teamMentionSuggestions}
-              hideContent={soloTeam}
-              headerExtra={
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="solo-team"
-                      checked={soloTeam}
-                      onCheckedChange={(checked) => setSoloTeam(checked === true)}
-                    />
-                    <Label
-                      htmlFor="solo-team"
-                      className="cursor-pointer text-xs font-normal text-text-secondary"
-                    >
-                      Solo team
-                    </Label>
-                  </div>
-                  {soloTeam && (
-                    <div className="flex items-start gap-2 rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2">
-                      <Info className="mt-0.5 size-3.5 shrink-0 text-sky-400" />
-                      <p className="text-[11px] leading-relaxed text-sky-300">
-                        Only the team lead (main process) will be started &mdash; no teammates will
-                        be spawned. Works like a regular Claude session but with access to the task
-                        board for planning. Saves tokens by avoiding teammate coordination overhead.
-                        You can add members later from the team settings.
-                      </p>
-                    </div>
-                  )}
+              defaultProviderId={selectedProviderId}
+              inheritedProviderId={selectedProviderId}
+              inheritedModel={selectedModel}
+              inheritedEffort={(selectedEffort as EffortLevel) || undefined}
+              inheritModelSettingsByDefault
+              lockProviderModel={syncModelsWithLead}
+              forceInheritedModelSettings={syncModelsWithLead}
+              modelLockReason="This teammate is synced with the lead model. Turn off sync to set a custom provider, model, or effort."
+              hideMembersContent={soloTeam}
+              providerId={selectedProviderId}
+              model={selectedModel}
+              effort={(selectedEffort as EffortLevel) || undefined}
+              limitContext={limitContext}
+              onProviderChange={setSelectedProviderId}
+              onModelChange={setSelectedModel}
+              onEffortChange={setSelectedEffort}
+              onLimitContextChange={setLimitContext}
+              syncModelsWithTeammates={syncModelsWithLead}
+              onSyncModelsWithTeammatesChange={handleSyncModelsWithLeadChange}
+              disableGeminiOption={isGeminiUiFrozen()}
+              headerTop={
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="solo-team"
+                    checked={soloTeam}
+                    onCheckedChange={(checked) => setSoloTeam(checked === true)}
+                  />
+                  <Label
+                    htmlFor="solo-team"
+                    className="cursor-pointer text-xs font-normal text-text-secondary"
+                  >
+                    Solo team
+                  </Label>
                 </div>
+              }
+              headerBottom={
+                soloTeam ? (
+                  <div className="flex items-start gap-2 rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2">
+                    <Info className="mt-0.5 size-3.5 shrink-0 text-sky-400" />
+                    <p className="text-[11px] leading-relaxed text-sky-300">
+                      Only the team lead (main process) will be started &mdash; no teammates will be
+                      spawned. Works like a regular Claude session but with access to the task board
+                      for planning. Saves tokens by avoiding teammate coordination overhead. You can
+                      add members later from the team settings.
+                    </p>
+                  </div>
+                ) : null
               }
             />
           </div>
@@ -984,7 +1251,7 @@ export const CreateTeamDialog = ({
 
                 <OptionalSettingsSection
                   title="Optional launch settings"
-                  description="Prompt, model, safety, and CLI overrides live here when you need them."
+                  description="Prompt, safety, and CLI overrides live here when you need them."
                   summary={launchOptionalSummary}
                 >
                   <div className="space-y-4">
@@ -1017,29 +1284,11 @@ export const CreateTeamDialog = ({
                       />
                     </div>
 
-                    <div>
-                      <TeamModelSelector
-                        value={selectedModel}
-                        onValueChange={setSelectedModel}
-                        id="create-model"
-                      />
-                      <EffortLevelSelector
-                        value={selectedEffort}
-                        onValueChange={setSelectedEffort}
-                        id="create-effort"
-                      />
-                      <LimitContextCheckbox
-                        id="create-limit-context"
-                        checked={limitContext}
-                        onCheckedChange={setLimitContext}
-                        disabled={selectedModel === 'haiku'}
-                      />
-                      <SkipPermissionsCheckbox
-                        id="create-skip-permissions"
-                        checked={skipPermissions}
-                        onCheckedChange={setSkipPermissions}
-                      />
-                    </div>
+                    <SkipPermissionsCheckbox
+                      id="create-skip-permissions"
+                      checked={skipPermissions}
+                      onCheckedChange={setSkipPermissions}
+                    />
 
                     <AdvancedCliSection
                       teamName={advancedKey}
@@ -1133,27 +1382,23 @@ export const CreateTeamDialog = ({
         <DialogFooter className="pt-4 sm:justify-between">
           <div className="min-w-0">
             {canCreate && launchTeam && (prepareState === 'idle' || prepareState === 'loading') ? (
-              <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-                <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                <div>
-                  <span>
-                    {prepareMessage ??
-                      (prepareState === 'idle'
-                        ? 'Warming up CLI environment...'
-                        : 'Preparing environment...')}
-                  </span>
-                  <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)] opacity-70">
-                    <span>Pre-flight check to catch errors before launch</span>
-                    <button
-                      type="button"
-                      onClick={() => setPrepareState('ready')}
-                      className="rounded px-1.5 py-0.5 text-[10px] transition-colors hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      Skip
-                    </button>
-                  </p>
+              <>
+                <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                  <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <div>
+                    <span>
+                      {prepareMessage ??
+                        (prepareState === 'idle'
+                          ? 'Warming up CLI environment...'
+                          : 'Preparing environment...')}
+                    </span>
+                    <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)] opacity-70">
+                      Pre-flight check to catch errors before launch
+                    </p>
+                  </div>
                 </div>
-              </div>
+                <ProvisioningProviderStatusList checks={prepareChecks} className="mt-2" />
+              </>
             ) : null}
 
             {canCreate && launchTeam && prepareState === 'ready' ? (
@@ -1161,7 +1406,8 @@ export const CreateTeamDialog = ({
                 <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
                   <CheckCircle2 className="size-3.5 shrink-0" />
                   <span>
-                    {prepareWarnings.length > 0
+                    {prepareChecks.some((check) => check.status === 'notes') ||
+                    prepareWarnings.length > 0
                       ? 'CLI environment ready (with notes)'
                       : 'CLI environment ready'}
                   </span>
@@ -1171,7 +1417,8 @@ export const CreateTeamDialog = ({
                     {prepareMessage}
                   </p>
                 ) : null}
-                {prepareWarnings.length > 0 ? (
+                <ProvisioningProviderStatusList checks={prepareChecks} className="mt-1" />
+                {prepareWarnings.length > 0 && prepareChecks.length === 0 ? (
                   <div className="mt-0.5 space-y-0.5 pl-5">
                     {prepareWarnings.map((warning) => (
                       <p key={warning} className="text-[11px] text-sky-300">
@@ -1202,12 +1449,7 @@ export const CreateTeamDialog = ({
             </Button>
             <Button
               size="sm"
-              disabled={
-                !canCreate ||
-                !draftLoaded ||
-                isSubmitting ||
-                (launchTeam && prepareState !== 'ready')
-              }
+              disabled={!canCreate || !draftLoaded || isSubmitting || hasCreateFormErrors}
               onClick={handleSubmit}
             >
               {isSubmitting ? (
@@ -1215,6 +1457,8 @@ export const CreateTeamDialog = ({
                   <Loader2 className="mr-1.5 size-3.5 animate-spin" />
                   Creating...
                 </>
+              ) : launchTeam && (prepareState === 'idle' || prepareState === 'loading') ? (
+                'Skip preflight and create'
               ) : (
                 'Create'
               )}

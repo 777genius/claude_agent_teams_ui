@@ -2,10 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockGetCachedShellEnv = vi.fn<() => Record<string, string> | null>();
 const mockGetShellPreferredHome = vi.fn<() => string>();
+const mockGetClaudeBasePath = vi.fn<() => string>();
 
 vi.mock('@main/utils/shellEnv', () => ({
   getCachedShellEnv: () => mockGetCachedShellEnv(),
   getShellPreferredHome: () => mockGetShellPreferredHome(),
+}));
+
+vi.mock('@main/utils/pathDecoder', () => ({
+  getClaudeBasePath: () => mockGetClaudeBasePath(),
 }));
 
 describe('buildMergedCliPath', () => {
@@ -16,6 +21,7 @@ describe('buildMergedCliPath', () => {
     vi.resetModules();
     mockGetShellPreferredHome.mockReturnValue('/home/testuser');
     mockGetCachedShellEnv.mockReturnValue(null);
+    mockGetClaudeBasePath.mockReturnValue('/home/testuser/.claude');
     process.env.PATH = '/usr/bin';
     ({ buildMergedCliPath } = await import('@main/utils/cliPathMerge'));
   });
@@ -29,6 +35,7 @@ describe('buildMergedCliPath', () => {
     const p = buildMergedCliPath(null);
     expect(p.split(':')).toEqual(
       expect.arrayContaining([
+        '/home/testuser/.claude/local/node_modules/.bin',
         '/home/testuser/.local/bin',
         '/home/testuser/.npm-global/bin',
         '/home/testuser/.npm/bin',
@@ -37,7 +44,7 @@ describe('buildMergedCliPath', () => {
         '/usr/bin',
       ])
     );
-    expect(p.startsWith('/home/testuser/.local/bin')).toBe(true);
+    expect(p.startsWith('/home/testuser/.claude/local/node_modules/.bin')).toBe(true);
   });
 
   it('on win32 with cold shell cache uses semicolon and npm-style dirs', () => {
@@ -58,6 +65,7 @@ describe('buildMergedCliPath', () => {
     const p = buildMergedCliPath(null);
     expect(p.startsWith('/opt/custom/bin')).toBe(true);
     expect(p).toContain('/bin');
+    expect(p).toContain('/home/testuser/.claude/local/node_modules/.bin');
     expect(p).toContain('/usr/bin');
     expect(p).not.toContain('/home/testuser/.local/bin');
   });

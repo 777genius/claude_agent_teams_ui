@@ -8,11 +8,12 @@
 import { useStore } from '@renderer/store';
 import { useShallow } from 'zustand/react/shallow';
 
-import type { CliInstallationStatus } from '@shared/types';
+import type { CliInstallationStatus, CliProviderId } from '@shared/types';
 
 export function useCliInstaller(): {
   cliStatus: CliInstallationStatus | null;
   cliStatusLoading: boolean;
+  cliProviderStatusLoading: Partial<Record<CliProviderId, boolean>>;
   cliStatusError: string | null;
   installerState:
     | 'idle'
@@ -29,7 +30,12 @@ export function useCliInstaller(): {
   installerDetail: string | null;
   installerRawChunks: string[];
   completedVersion: string | null;
+  bootstrapCliStatus: (options?: { multimodelEnabled?: boolean }) => Promise<void>;
   fetchCliStatus: () => Promise<void>;
+  fetchCliProviderStatus: (
+    providerId: CliProviderId,
+    options?: { silent?: boolean; epoch?: number }
+  ) => Promise<void>;
   invalidateCliStatus: () => Promise<void>;
   installCli: () => void;
   isBusy: boolean;
@@ -37,6 +43,7 @@ export function useCliInstaller(): {
   const {
     cliStatus,
     cliStatusLoading,
+    cliProviderStatusLoading,
     cliStatusError,
     installerState,
     downloadProgress,
@@ -46,13 +53,16 @@ export function useCliInstaller(): {
     installerDetail,
     installerRawChunks,
     completedVersion,
+    bootstrapCliStatus,
     fetchCliStatus,
+    fetchCliProviderStatus,
     invalidateCliStatus,
     installCli,
   } = useStore(
     useShallow((s) => ({
       cliStatus: s.cliStatus,
       cliStatusLoading: s.cliStatusLoading,
+      cliProviderStatusLoading: s.cliProviderStatusLoading,
       cliStatusError: s.cliStatusError,
       installerState: s.cliInstallerState,
       downloadProgress: s.cliDownloadProgress,
@@ -62,17 +72,21 @@ export function useCliInstaller(): {
       installerDetail: s.cliInstallerDetail,
       installerRawChunks: s.cliInstallerRawChunks,
       completedVersion: s.cliCompletedVersion,
+      bootstrapCliStatus: s.bootstrapCliStatus,
       fetchCliStatus: s.fetchCliStatus,
+      fetchCliProviderStatus: s.fetchCliProviderStatus,
       invalidateCliStatus: s.invalidateCliStatus,
       installCli: s.installCli,
     }))
   );
 
-  const isBusy = installerState !== 'idle' && installerState !== 'error';
+  const isBusy =
+    installerState !== 'idle' && installerState !== 'error' && installerState !== 'completed';
 
   return {
     cliStatus,
     cliStatusLoading,
+    cliProviderStatusLoading,
     cliStatusError,
     installerState,
     downloadProgress,
@@ -82,7 +96,9 @@ export function useCliInstaller(): {
     installerDetail,
     installerRawChunks,
     completedVersion,
+    bootstrapCliStatus,
     fetchCliStatus,
+    fetchCliProviderStatus,
     invalidateCliStatus,
     installCli,
     isBusy,

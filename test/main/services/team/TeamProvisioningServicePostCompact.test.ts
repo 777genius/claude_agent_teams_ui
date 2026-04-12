@@ -5,6 +5,14 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const hoisted = vi.hoisted(() => ({
+  paths: {
+    claudeRoot: '',
+    teamsBase: '',
+    tasksBase: '',
+  },
+}));
+
 let tempClaudeRoot = '';
 let tempTeamsBase = '';
 let tempTasksBase = '';
@@ -22,10 +30,10 @@ vi.mock('@main/utils/pathDecoder', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@main/utils/pathDecoder')>();
   return {
     ...actual,
-    getAutoDetectedClaudeBasePath: () => tempClaudeRoot,
-    getClaudeBasePath: () => tempClaudeRoot,
-    getTeamsBasePath: () => tempTeamsBase,
-    getTasksBasePath: () => tempTasksBase,
+    getAutoDetectedClaudeBasePath: () => hoisted.paths.claudeRoot,
+    getClaudeBasePath: () => hoisted.paths.claudeRoot,
+    getTeamsBasePath: () => hoisted.paths.teamsBase,
+    getTasksBasePath: () => hoisted.paths.tasksBase,
   };
 });
 
@@ -80,6 +88,8 @@ async function setupRunningTeam(teamName: string) {
   (svc as any).updateConfigProjectPath = vi.fn(async () => {});
   (svc as any).restorePrelaunchConfig = vi.fn(async () => {});
   (svc as any).assertConfigLeadOnlyForLaunch = vi.fn(async () => {});
+  (svc as any).validateAgentTeamsMcpRuntime = vi.fn(async () => {});
+  (svc as any).persistLaunchStateSnapshot = vi.fn(async () => {});
   (svc as any).resolveLaunchExpectedMembers = vi.fn(async () => ({
     members: [{ name: 'alice', role: 'developer' }],
     source: 'config-fallback',
@@ -110,6 +120,9 @@ describe('TeamProvisioningService post-compact lifecycle', () => {
     tempClaudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-team-compact-'));
     tempTeamsBase = path.join(tempClaudeRoot, 'teams');
     tempTasksBase = path.join(tempClaudeRoot, 'tasks');
+    hoisted.paths.claudeRoot = tempClaudeRoot;
+    hoisted.paths.teamsBase = tempTeamsBase;
+    hoisted.paths.tasksBase = tempTasksBase;
     setAppDataBasePath(tempClaudeRoot);
     fs.mkdirSync(tempTeamsBase, { recursive: true });
     fs.mkdirSync(tempTasksBase, { recursive: true });
@@ -117,6 +130,9 @@ describe('TeamProvisioningService post-compact lifecycle', () => {
 
   afterEach(() => {
     setAppDataBasePath(null);
+    hoisted.paths.claudeRoot = '';
+    hoisted.paths.teamsBase = '';
+    hoisted.paths.tasksBase = '';
     try {
       fs.rmSync(tempClaudeRoot, { recursive: true, force: true });
     } catch {

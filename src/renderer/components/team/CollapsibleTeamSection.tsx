@@ -31,10 +31,14 @@ interface CollapsibleTeamSectionProps {
   sectionId?: string;
   /** Extra classes applied to the content wrapper (e.g. padding). */
   contentClassName?: string;
+  /** Extra classes for the outer content wrapper (e.g. remove default top/bottom gaps). */
+  contentWrapperClassName?: string;
   /** Extra classes for the header bar (e.g. "-mx-6 w-[calc(100%+3rem)]" to match parent padding). */
   headerClassName?: string;
   /** Extra classes for the inner header content (e.g. "pl-6" to match parent padding). */
   headerContentClassName?: string;
+  /** Extra classes for the clickable header surface itself (e.g. override rounded corners). */
+  headerSurfaceClassName?: string;
   /** When true, children stay mounted (hidden via CSS) when collapsed. Useful when children drive header state (e.g. online indicators). */
   keepMounted?: boolean;
   children: React.ReactNode;
@@ -53,8 +57,10 @@ export const CollapsibleTeamSection = ({
   action,
   sectionId,
   contentClassName,
+  contentWrapperClassName,
   headerClassName,
   headerContentClassName,
+  headerSurfaceClassName,
   keepMounted,
   children,
 }: CollapsibleTeamSectionProps): React.JSX.Element => {
@@ -88,7 +94,13 @@ export const CollapsibleTeamSection = ({
       >
         <button
           type="button"
-          className={`absolute inset-0 z-0 cursor-pointer transition-colors ${isOpen ? 'rounded-t-xl bg-[var(--color-section-bg-open)] hover:bg-[var(--color-section-hover-open)]' : 'rounded-xl bg-[var(--color-section-bg)] hover:bg-[var(--color-section-hover)]'}`}
+          className={cn(
+            'absolute inset-0 z-0 cursor-pointer transition-colors',
+            isOpen
+              ? 'rounded-t-xl bg-[var(--color-section-bg-open)] hover:bg-[var(--color-section-hover-open)]'
+              : 'rounded-xl bg-[var(--color-section-bg)] hover:bg-[var(--color-section-hover)]',
+            headerSurfaceClassName
+          )}
           onClick={() =>
             setOpen((prev) => {
               const next = !prev;
@@ -138,14 +150,24 @@ export const CollapsibleTeamSection = ({
       </div>
       {keepMounted ? (
         <div
-          className={cn('mt-1.5 min-w-0 overflow-x-clip pb-2', contentClassName)}
+          className={cn(
+            'mt-1.5 min-w-0 overflow-x-clip pb-2',
+            contentWrapperClassName,
+            contentClassName
+          )}
           style={isOpen ? undefined : { display: 'none' }}
         >
           {children}
         </div>
       ) : (
         isOpen && (
-          <div className={cn('mt-1.5 min-w-0 overflow-x-clip pb-2', contentClassName)}>
+          <div
+            className={cn(
+              'mt-1.5 min-w-0 overflow-x-clip pb-2',
+              contentWrapperClassName,
+              contentClassName
+            )}
+          >
             {children}
           </div>
         )

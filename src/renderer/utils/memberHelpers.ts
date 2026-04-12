@@ -7,9 +7,13 @@ import { isLeadMember } from '@shared/utils/leadDetection';
 
 import type {
   LeadActivityState,
+  MemberLaunchState,
+  MemberRuntimeAdvisory,
+  MemberSpawnLivenessSource,
   MemberSpawnStatus,
   MemberStatus,
   ResolvedTeamMember,
+  TeamProviderId,
   TeamReviewState,
   TeamTaskStatus,
 } from '@shared/types';
@@ -98,11 +102,29 @@ export const SPAWN_DOT_COLORS: Record<MemberSpawnStatus, string> = {
 
 export const SPAWN_PRESENCE_LABELS: Record<MemberSpawnStatus, string> = {
   offline: 'offline',
-  waiting: 'waiting',
-  spawning: 'spawning',
-  online: 'online',
+  waiting: 'starting',
+  spawning: 'starting',
+  online: 'ready',
   error: 'spawn failed',
 };
+
+function isLaunchStillStarting(
+  spawnStatus: MemberSpawnStatus | undefined,
+  spawnLaunchState: MemberLaunchState | undefined,
+  runtimeAlive: boolean | undefined,
+  keepRuntimePendingInStarting = false
+): boolean {
+  if (spawnLaunchState === 'failed_to_start') {
+    return false;
+  }
+  if (spawnLaunchState === 'runtime_pending_bootstrap') {
+    if (runtimeAlive !== true) {
+      return true;
+    }
+    return keepRuntimePendingInStarting;
+  }
+  return spawnLaunchState === 'starting' || spawnStatus === 'waiting' || spawnStatus === 'spawning';
+}
 
 /**
  * Returns dot class for a member during provisioning, respecting spawn status.
@@ -111,12 +133,39 @@ export const SPAWN_PRESENCE_LABELS: Record<MemberSpawnStatus, string> = {
 export function getSpawnAwareDotClass(
   member: ResolvedTeamMember,
   spawnStatus: MemberSpawnStatus | undefined,
+  spawnLaunchState: MemberLaunchState | undefined,
+  runtimeAlive: boolean | undefined,
+  isLaunchSettling = false,
   isTeamAlive?: boolean,
   isTeamProvisioning?: boolean,
   leadActivity?: LeadActivityState
 ): string {
-  if (spawnStatus && isTeamProvisioning) {
-    return SPAWN_DOT_COLORS[spawnStatus];
+  const keepLaunchSettlingVisuals = isTeamProvisioning === true || isLaunchSettling;
+  if (isTeamAlive === false && !isTeamProvisioning) {
+    return STATUS_DOT_COLORS.terminated;
+  }
+  if (spawnLaunchState === 'failed_to_start' || spawnStatus === 'error') {
+    return SPAWN_DOT_COLORS.error;
+  }
+  if (
+    isLaunchStillStarting(spawnStatus, spawnLaunchState, runtimeAlive, keepLaunchSettlingVisuals)
+  ) {
+    return spawnStatus === 'spawning' ? SPAWN_DOT_COLORS.spawning : SPAWN_DOT_COLORS.waiting;
+  }
+  if (spawnLaunchState === 'runtime_pending_bootstrap' && spawnStatus === 'online') {
+    return SPAWN_DOT_COLORS.online;
+  }
+  if (spawnStatus === 'waiting') {
+    return SPAWN_DOT_COLORS.waiting;
+  }
+  if (spawnStatus === 'online') {
+    return SPAWN_DOT_COLORS.online;
+  }
+  if (spawnStatus === 'offline' && isTeamProvisioning) {
+    return SPAWN_DOT_COLORS.offline;
+  }
+  if (spawnStatus === 'spawning' && isTeamProvisioning) {
+    return SPAWN_DOT_COLORS.spawning;
   }
   return getMemberDotClass(member, isTeamAlive, isTeamProvisioning, leadActivity);
 }
@@ -127,10 +176,32 @@ export function getSpawnAwareDotClass(
 export function getSpawnAwarePresenceLabel(
   member: ResolvedTeamMember,
   spawnStatus: MemberSpawnStatus | undefined,
+  spawnLaunchState: MemberLaunchState | undefined,
+  livenessSource: MemberSpawnLivenessSource | undefined,
+  runtimeAlive: boolean | undefined,
+  isLaunchSettling = false,
   isTeamAlive?: boolean,
   isTeamProvisioning?: boolean,
   leadActivity?: LeadActivityState
 ): string {
+  const keepLaunchSettlingVisuals = isTeamProvisioning === true || isLaunchSettling;
+  if (isTeamAlive === false && !isTeamProvisioning) {
+    return 'offline';
+  }
+  if (spawnLaunchState === 'failed_to_start' || spawnStatus === 'error') {
+    return SPAWN_PRESENCE_LABELS.error;
+  }
+  if (
+    isLaunchStillStarting(spawnStatus, spawnLaunchState, runtimeAlive, keepLaunchSettlingVisuals)
+  ) {
+    return 'starting';
+  }
+  if (spawnStatus === 'online' && keepLaunchSettlingVisuals) {
+    return SPAWN_PRESENCE_LABELS.online;
+  }
+  if (spawnStatus === 'online' && livenessSource === 'process') {
+    return 'online';
+  }
   if (spawnStatus && isTeamProvisioning) {
     return SPAWN_PRESENCE_LABELS[spawnStatus];
   }
@@ -141,14 +212,30 @@ export function getSpawnAwarePresenceLabel(
  * Card container CSS classes based on spawn status (opacity + animation).
  * Used by MemberCard wrapper for fade-in transitions.
  */
-export function getSpawnCardClass(spawnStatus: MemberSpawnStatus | undefined): string {
+export function getSpawnCardClass(
+  spawnStatus: MemberSpawnStatus | undefined,
+  spawnLaunchState?: MemberLaunchState,
+  runtimeAlive?: boolean,
+  isLaunchSettling = false,
+  isTeamAlive?: boolean,
+  isTeamProvisioning?: boolean
+): string {
+  const keepLaunchSettlingVisuals = isTeamProvisioning === true || isLaunchSettling;
+  if (isTeamAlive === false && !isTeamProvisioning) {
+    return 'opacity-40';
+  }
+  if (
+    isLaunchStillStarting(spawnStatus, spawnLaunchState, runtimeAlive, keepLaunchSettlingVisuals)
+  ) {
+    return 'member-waiting-shimmer';
+  }
   switch (spawnStatus) {
     case 'offline':
-      return 'opacity-40';
+      return spawnLaunchState === 'starting' ? 'member-waiting-shimmer opacity-75' : 'opacity-40';
     case 'waiting':
       return 'member-waiting-shimmer';
     case 'spawning':
-      return '';
+      return 'member-waiting-shimmer';
     case 'online':
       return 'animate-[member-fade-in_0.4s_ease-out]';
     case 'error':
@@ -156,6 +243,169 @@ export function getSpawnCardClass(spawnStatus: MemberSpawnStatus | undefined): s
     default:
       return '';
   }
+}
+
+function formatRetryCountdown(ms: number): string {
+  const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function getRuntimeAdvisoryProviderLabel(providerId: TeamProviderId | undefined): string | null {
+  switch (providerId) {
+    case 'anthropic':
+      return 'Anthropic';
+    case 'codex':
+      return 'Codex';
+    case 'gemini':
+      return 'Gemini';
+    default:
+      return null;
+  }
+}
+
+function appendRuntimeAdvisoryRawMessage(base: string, message: string | undefined): string {
+  const trimmed = message?.trim();
+  return trimmed ? `${base}\n\n${trimmed}` : base;
+}
+
+function formatRuntimeAdvisoryBaseLabel(
+  advisory: MemberRuntimeAdvisory,
+  providerId: TeamProviderId | undefined
+): string {
+  const providerLabel = getRuntimeAdvisoryProviderLabel(providerId);
+  switch (advisory.reasonCode) {
+    case 'quota_exhausted':
+      return providerLabel ? `${providerLabel} quota retry` : 'Quota retry';
+    case 'rate_limited':
+      return providerLabel ? `${providerLabel} rate limit` : 'Rate limit retry';
+    case 'auth_error':
+      return providerLabel ? `${providerLabel} auth retry` : 'Auth retry';
+    case 'network_error':
+      return 'Network retry';
+    case 'provider_overloaded':
+      return providerLabel ? `${providerLabel} overload retry` : 'Provider overload retry';
+    case 'backend_error':
+    case 'unknown':
+      return 'Provider retry';
+    default:
+      return 'retrying now';
+  }
+}
+
+function formatRuntimeAdvisoryTitle(
+  advisory: MemberRuntimeAdvisory,
+  providerId: TeamProviderId | undefined
+): string {
+  const providerLabel = getRuntimeAdvisoryProviderLabel(providerId);
+  switch (advisory.reasonCode) {
+    case 'quota_exhausted':
+      return appendRuntimeAdvisoryRawMessage(
+        `${providerLabel ?? 'Provider'} quota exhausted. SDK is retrying automatically.`,
+        advisory.message
+      );
+    case 'rate_limited':
+      return appendRuntimeAdvisoryRawMessage(
+        `${providerLabel ?? 'Provider'} rate limited the request. SDK is retrying automatically.`,
+        advisory.message
+      );
+    case 'auth_error':
+      return appendRuntimeAdvisoryRawMessage(
+        `${providerLabel ?? 'Provider'} authentication issue. SDK is retrying automatically.`,
+        advisory.message
+      );
+    case 'network_error':
+      return appendRuntimeAdvisoryRawMessage(
+        'Network or connectivity issue. SDK is retrying automatically.',
+        advisory.message
+      );
+    case 'provider_overloaded':
+      return appendRuntimeAdvisoryRawMessage(
+        'Provider is temporarily overloaded. SDK is retrying automatically.',
+        advisory.message
+      );
+    case 'backend_error':
+    case 'unknown':
+      return appendRuntimeAdvisoryRawMessage(
+        'The SDK is retrying this request after a provider or backend error.',
+        advisory.message
+      );
+    default:
+      return (
+        advisory.message?.trim() ||
+        'The SDK is retrying this request after a provider or backend error.'
+      );
+  }
+}
+
+export function getMemberRuntimeAdvisoryLabel(
+  advisory: MemberRuntimeAdvisory | undefined,
+  providerId?: TeamProviderId,
+  nowMs = Date.now()
+): string | null {
+  if (!advisory || advisory.kind !== 'sdk_retrying') {
+    return null;
+  }
+  const baseLabel = formatRuntimeAdvisoryBaseLabel(advisory, providerId);
+  const retryUntilMs = Date.parse(advisory.retryUntil);
+  if (!Number.isFinite(retryUntilMs)) {
+    return baseLabel;
+  }
+  const remainingMs = retryUntilMs - nowMs;
+  if (remainingMs <= 0) {
+    return baseLabel;
+  }
+  return `${baseLabel} · ${formatRetryCountdown(remainingMs)}`;
+}
+
+export function getMemberRuntimeAdvisoryTitle(
+  advisory: MemberRuntimeAdvisory | undefined,
+  providerId?: TeamProviderId
+): string | undefined {
+  if (!advisory || advisory.kind !== 'sdk_retrying') {
+    return undefined;
+  }
+  return formatRuntimeAdvisoryTitle(advisory, providerId);
+}
+
+export function getLaunchAwarePresenceLabel(
+  member: ResolvedTeamMember,
+  spawnStatus: MemberSpawnStatus | undefined,
+  spawnLaunchState: MemberLaunchState | undefined,
+  livenessSource: MemberSpawnLivenessSource | undefined,
+  runtimeAlive: boolean | undefined,
+  runtimeAdvisory: MemberRuntimeAdvisory | undefined,
+  isLaunchSettling = false,
+  isTeamAlive?: boolean,
+  isTeamProvisioning?: boolean,
+  leadActivity?: LeadActivityState
+): string {
+  const basePresenceLabel = getSpawnAwarePresenceLabel(
+    member,
+    spawnStatus,
+    spawnLaunchState,
+    livenessSource,
+    runtimeAlive,
+    isLaunchSettling,
+    isTeamAlive,
+    isTeamProvisioning,
+    leadActivity
+  );
+  if (
+    basePresenceLabel === 'starting' ||
+    basePresenceLabel === 'connecting' ||
+    basePresenceLabel === 'spawn failed' ||
+    basePresenceLabel === 'offline' ||
+    basePresenceLabel === 'terminated'
+  ) {
+    return basePresenceLabel;
+  }
+  const advisoryLabel = getMemberRuntimeAdvisoryLabel(runtimeAdvisory, member.providerId);
+  return advisoryLabel ?? basePresenceLabel;
 }
 
 export const TASK_STATUS_STYLES: Record<TeamTaskStatus, { bg: string; text: string }> = {

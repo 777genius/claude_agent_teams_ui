@@ -377,7 +377,9 @@ function createDefaultViewerState(): ClaudeLogsViewerState {
 // =============================================================================
 
 export function useClaudeLogsController(teamName: string): ClaudeLogsController {
-  const isAlive = useStore((s) => s.selectedTeamData?.isAlive ?? false);
+  const isAlive = useStore((s) =>
+    s.selectedTeamName === teamName ? (s.selectedTeamData?.isAlive ?? false) : false
+  );
 
   // ── Data state ────────────────────────────────────────────────────────
   const [loadedCount, setLoadedCount] = useState(PAGE_SIZE);
@@ -585,13 +587,14 @@ export function useClaudeLogsController(teamName: string): ClaudeLogsController 
 
   // ── Computed values ───────────────────────────────────────────────────
   const online = useMemo(() => isRecent(data.updatedAt), [data.updatedAt]);
-  const badge = data.total > 0 ? data.total : undefined;
   const showMoreVisible = data.hasMore || loadingMore;
 
   const lastLogPreview = useMemo(
     () => (data.lines.length > 0 ? extractLastLogPreview(data.lines) : null),
     [data.lines]
   );
+
+  const normalizedText = useMemo(() => normalizeToStreamJsonText(data.lines), [data.lines]);
 
   const filteredText = useMemo(() => {
     if (data.lines.length === 0) return '';
@@ -601,11 +604,11 @@ export function useClaudeLogsController(teamName: string): ClaudeLogsController 
       [...DEFAULT_CLAUDE_LOGS_FILTER.streams].every((s) => filter.streams.has(s)) &&
       [...DEFAULT_CLAUDE_LOGS_FILTER.kinds].every((k) => filter.kinds.has(k));
 
-    if (!searchQuery.trim() && isDefault) {
-      return normalizeToStreamJsonText(data.lines);
-    }
+    if (!searchQuery.trim() && isDefault) return normalizedText;
     return filterStreamJsonText(data.lines, searchQuery, filter);
-  }, [data.lines, searchQuery, filter]);
+  }, [data.lines, normalizedText, searchQuery, filter]);
+
+  const badge = data.total > 0 ? data.total : undefined;
 
   // ── Container ref callback ────────────────────────────────────────────
   const containerRefCallback = useCallback((el: HTMLDivElement | null) => {

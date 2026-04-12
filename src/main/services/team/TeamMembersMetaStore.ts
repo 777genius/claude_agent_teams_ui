@@ -1,5 +1,6 @@
 import { FileReadTimeoutError, readFileUtf8WithTimeout } from '@main/utils/fsRead';
 import { getTeamsBasePath } from '@main/utils/pathDecoder';
+import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import { createCliAutoSuffixNameGuard } from '@shared/utils/teamMemberName';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,6 +25,12 @@ function normalizeMember(member: TeamMember): TeamMember | null {
     name: trimmedName,
     role: typeof member.role === 'string' ? member.role.trim() || undefined : undefined,
     workflow: typeof member.workflow === 'string' ? member.workflow.trim() || undefined : undefined,
+    providerId: normalizeOptionalTeamProviderId(member.providerId),
+    model: typeof member.model === 'string' ? member.model.trim() || undefined : undefined,
+    effort:
+      member.effort === 'low' || member.effort === 'medium' || member.effort === 'high'
+        ? member.effort
+        : undefined,
     agentType:
       typeof member.agentType === 'string' ? member.agentType.trim() || undefined : undefined,
     color: typeof member.color === 'string' ? member.color.trim() || undefined : undefined,

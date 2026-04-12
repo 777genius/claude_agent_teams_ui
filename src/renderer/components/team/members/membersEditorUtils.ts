@@ -1,10 +1,14 @@
-import { CUSTOM_ROLE, NO_ROLE } from '@renderer/constants/teamRoles';
+import { CUSTOM_ROLE, NO_ROLE, PRESET_ROLES } from '@renderer/constants/teamRoles';
+import { normalizeCreateLaunchProviderForUi } from '@renderer/utils/geminiUiFreeze';
+import { normalizeTeamModelForUi } from '@renderer/utils/teamModelAvailability';
 import { serializeChipsWithText } from '@renderer/types/inlineChip';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { isLeadMember } from '@shared/utils/leadDetection';
+import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 
 import type { MemberDraft } from './membersEditorTypes';
 import type { MentionSuggestion } from '@renderer/types/mention';
-import type { TeamProvisioningMemberInput } from '@shared/types';
+import type { EffortLevel, TeamProvisioningMemberInput, TeamProviderId } from '@shared/types';
 
 function isValidMemberName(name: string): boolean {
   if (name.length < 1 || name.length > 128) return false;
@@ -27,13 +31,105 @@ function newDraftId(): string {
 }
 
 export function createMemberDraft(initial?: Partial<MemberDraft>): MemberDraft {
+  const providerId = initial?.providerId;
   return {
     id: initial?.id ?? newDraftId(),
     name: initial?.name ?? '',
     roleSelection: initial?.roleSelection ?? '',
     customRole: initial?.customRole ?? '',
     workflow: initial?.workflow,
+    providerId,
+    model: normalizeTeamModelForUi(providerId, initial?.model ?? ''),
+    effort: initial?.effort,
+    removedAt: initial?.removedAt,
   };
+}
+
+export function createMemberDraftsFromInputs(
+  members: readonly {
+    name: string;
+    agentType?: string;
+    role?: string;
+    workflow?: string;
+    providerId?: TeamProviderId;
+    model?: string;
+    effort?: EffortLevel;
+    removedAt?: number | string | null;
+  }[]
+): MemberDraft[] {
+  return members
+    .filter((member) => !member.removedAt)
+    .map((member) => {
+      const role = typeof member.role === 'string' ? member.role.trim() : '';
+      const presetRoles: readonly string[] = PRESET_ROLES;
+      const isPreset = presetRoles.includes(role);
+      return createMemberDraft({
+        name: member.name,
+        roleSelection: role ? (isPreset ? role : CUSTOM_ROLE) : '',
+        customRole: role && !isPreset ? role : '',
+        workflow: member.workflow,
+        providerId: normalizeOptionalTeamProviderId(member.providerId),
+        model: member.model ?? '',
+        effort: normalizeDraftEffort(member.effort),
+        removedAt: member.removedAt,
+      });
+    });
+}
+
+export function filterEditableMemberInputs<T extends { name?: unknown; agentType?: unknown }>(
+  members: readonly T[]
+): T[] {
+  return members.filter((member) => !isLeadMember(member));
+}
+
+export function clearMemberModelOverrides(member: MemberDraft): MemberDraft {
+  return {
+    ...member,
+    providerId: undefined,
+    model: '',
+    effort: undefined,
+  };
+}
+
+export function normalizeProviderForMode(
+  providerId: TeamProviderId | undefined,
+  multimodelEnabled: boolean
+): TeamProviderId {
+  return normalizeCreateLaunchProviderForUi(providerId, multimodelEnabled);
+}
+
+export function normalizeMemberDraftForProviderMode(
+  member: MemberDraft,
+  multimodelEnabled: boolean
+): MemberDraft {
+  const normalizedProviderId =
+    member.providerId == null
+      ? undefined
+      : normalizeCreateLaunchProviderForUi(member.providerId, multimodelEnabled);
+
+  if (normalizedProviderId === member.providerId) {
+    return member;
+  }
+
+  if (
+    member.providerId === 'codex' ||
+    member.providerId === 'gemini' ||
+    normalizedProviderId !== member.providerId
+  ) {
+    return {
+      ...member,
+      providerId: normalizedProviderId,
+      model: '',
+    };
+  }
+  return member;
+}
+
+function normalizeDraftEffort(value: string | undefined): EffortLevel | undefined {
+  if (value === 'low' || value === 'medium' || value === 'high') {
+    return value;
+  }
+  return undefined;
 }
 
 interface ExistingMemberColorInput {
@@ -104,6 +200,9 @@ export function getWorkflowForExport(member: MemberDraft): string | undefined {
 export function buildMembersFromDrafts(members: MemberDraft[]): TeamProvisioningMemberInput[] {
   return members
     .map((member) => {
+      if (member.removedAt) {
+        return null;
+      }
       const name = member.name.trim();
       if (!name) {
         return null;
@@ -113,6 +212,18 @@ export function buildMembersFromDrafts(members: MemberDraft[]): TeamProvisioning
       const result: TeamProvisioningMemberInput = { name, role };
       const workflow = getWorkflowForExport(member);
       if (workflow) result.workflow = workflow;
+      const providerId = normalizeOptionalTeamProviderId(member.providerId);
+      if (providerId) {
+        result.providerId = providerId;
+      }
+      const model = member.model?.trim();
+      if (model) {
+        result.model = normalizeTeamModelForUi(providerId, model);
+      }
+      const effort = normalizeDraftEffort(member.effort);
+      if (effort) {
+        result.effort = effort;
+      }
       return result;
     })
     .filter((member): member is NonNullable<typeof member> => member !== null);

@@ -1,0 +1,56 @@
+import { getTeamsBasePath } from '@main/utils/pathDecoder';
+import { createLogger } from '@shared/utils/logger';
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { normalizePersistedLaunchSnapshot } from './TeamLaunchStateEvaluator';
+import { atomicWriteAsync } from './atomicWrite';
+
+import type { PersistedTeamLaunchSnapshot } from '@shared/types';
+
+const logger = createLogger('Service:TeamLaunchStateStore');
+const TEAM_LAUNCH_STATE_FILE = 'launch-state.json';
+const MAX_LAUNCH_STATE_BYTES = 256 * 1024;
+
+export function getTeamLaunchStatePath(teamName: string): string {
+  return path.join(getTeamsBasePath(), teamName, TEAM_LAUNCH_STATE_FILE);
+}
+
+export class TeamLaunchStateStore {
+  async read(teamName: string): Promise<PersistedTeamLaunchSnapshot | null> {
+    const targetPath = getTeamLaunchStatePath(teamName);
+    try {
+      const stat = await fs.promises.stat(targetPath);
+      if (!stat.isFile() || stat.size > MAX_LAUNCH_STATE_BYTES) {
+        return null;
+      }
+      const raw = await fs.promises.readFile(targetPath, 'utf8');
+      return normalizePersistedLaunchSnapshot(teamName, JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+
+  async write(teamName: string, snapshot: PersistedTeamLaunchSnapshot): Promise<void> {
+    try {
+      await atomicWriteAsync(
+        getTeamLaunchStatePath(teamName),
+        `${JSON.stringify(snapshot, null, 2)}\n`
+      );
+    } catch (error) {
+      logger.warn(
+        `[${teamName}] Failed to persist launch-state: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  async clear(teamName: string): Promise<void> {
+    try {
+      await fs.promises.rm(getTeamLaunchStatePath(teamName), { force: true });
+    } catch {
+      // best-effort
+    }
+  }
+}

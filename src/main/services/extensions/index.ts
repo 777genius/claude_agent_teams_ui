@@ -2,7 +2,7 @@
  * Extension services barrel export.
  */
 
-export { ApiKeyService } from './apikeys/ApiKeyService';
+export { ApiKeyService, RUNTIME_MANAGED_API_KEY_ENV_VARS } from './apikeys/ApiKeyService';
 export { GitHubStarsService } from './catalog/GitHubStarsService';
 export { GlamaMcpEnrichmentService } from './catalog/GlamaMcpEnrichmentService';
 export { McpCatalogAggregator } from './catalog/McpCatalogAggregator';

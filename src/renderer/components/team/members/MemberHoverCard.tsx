@@ -8,18 +8,20 @@ import {
 } from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { useStore } from '@renderer/store';
-import { useShallow } from 'zustand/react/shallow';
+import { getCurrentProvisioningProgressForTeam } from '@renderer/store/slices/teamSlice';
 import { formatAgentRole } from '@renderer/utils/formatAgentRole';
 import {
   agentAvatarUrl,
   displayMemberName,
-  getMemberDotClass,
-  getPresenceLabel,
+  getLaunchAwarePresenceLabel,
+  getMemberRuntimeAdvisoryTitle,
+  getSpawnAwareDotClass,
 } from '@renderer/utils/memberHelpers';
-import { isLeadAgentType, isLeadMember } from '@shared/utils/leadDetection';
+import { isLeadMember } from '@shared/utils/leadDetection';
 import { ExternalLink } from 'lucide-react';
 
 import { CurrentTaskIndicator } from './CurrentTaskIndicator';
+import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from '../provisioningSteps';
 
 import type { LeadActivityState, TeamTaskWithKanban } from '@shared/types';
 
@@ -28,6 +30,8 @@ interface MemberHoverCardProps {
   name: string;
   /** Color key for the member */
   color?: string;
+  /** Owning team context for store lookups. */
+  teamName?: string;
   /** Called when user clicks on the current task */
   onOpenTask?: (task: TeamTaskWithKanban) => void;
   children: React.ReactNode;
@@ -41,41 +45,89 @@ interface MemberHoverCardProps {
 export const MemberHoverCard = ({
   name,
   color,
+  teamName,
   onOpenTask,
   children,
 }: MemberHoverCardProps): React.JSX.Element => {
   const { isLight } = useTheme();
-  const { member, isTeamAlive, teamName, leadActivity, openMemberProfile, tasks } = useStore(
-    useShallow((s) => {
-      const tn = s.selectedTeamName;
-      return {
-        member: s.selectedTeamData?.members.find((m) => m.name === name) ?? null,
-        isTeamAlive: s.selectedTeamData?.isAlive,
-        teamName: tn,
-        leadActivity: tn ? s.leadActivityByTeam[tn] : undefined,
-        openMemberProfile: s.openMemberProfile,
-        tasks: s.selectedTeamData?.tasks,
-      };
-    })
+  const selectedTeamName = useStore((s) => s.selectedTeamName);
+  const effectiveTeamName = teamName ?? selectedTeamName;
+  const {
+    member,
+    members,
+    isTeamAlive,
+    progress,
+    memberSpawnSnapshot,
+    memberSpawnStatuses,
+    spawnEntry,
+    leadActivity,
+  } = useStore((s) => {
+    const isSelectedTeam = Boolean(effectiveTeamName && s.selectedTeamName === effectiveTeamName);
+    const selectedTeamData = isSelectedTeam ? s.selectedTeamData : null;
+    return {
+      member: selectedTeamData?.members.find((m) => m.name === name) ?? null,
+      members: selectedTeamData?.members ?? [],
+      isTeamAlive: selectedTeamData?.isAlive,
+      progress: effectiveTeamName
+        ? getCurrentProvisioningProgressForTeam(s, effectiveTeamName)
+        : null,
+      memberSpawnSnapshot: effectiveTeamName
+        ? s.memberSpawnSnapshotsByTeam[effectiveTeamName]
+        : undefined,
+      memberSpawnStatuses: effectiveTeamName
+        ? s.memberSpawnStatusesByTeam[effectiveTeamName]
+        : undefined,
+      spawnEntry: effectiveTeamName
+        ? s.memberSpawnStatusesByTeam[effectiveTeamName]?.[name]
+        : undefined,
+      leadActivity: effectiveTeamName ? s.leadActivityByTeam[effectiveTeamName] : undefined,
+    };
+  });
+  const openMemberProfile = useStore((s) => s.openMemberProfile);
+  const tasks = useStore((s) =>
+    effectiveTeamName && s.selectedTeamName === effectiveTeamName
+      ? s.selectedTeamData?.tasks
+      : undefined
   );
 
   if (!member) {
     return <>{children}</>;
   }
 
+  const launchJoinMilestones = getLaunchJoinMilestonesFromMembers({
+    members,
+    memberSpawnStatuses,
+    memberSpawnSnapshot,
+  });
+  const isLaunchSettling =
+    progress?.state === 'ready' && getLaunchJoinState(launchJoinMilestones).hasMembersStillJoining;
   const colors = getTeamColorSet(color ?? member.color ?? '');
   const roleLabel = formatAgentRole(member.role) ?? formatAgentRole(member.agentType);
-  const presenceLabel = getPresenceLabel(
+  const presenceLabel = getLaunchAwarePresenceLabel(
     member,
+    spawnEntry?.status,
+    spawnEntry?.launchState,
+    spawnEntry?.livenessSource,
+    spawnEntry?.runtimeAlive,
+    member.runtimeAdvisory,
+    isLaunchSettling,
     isTeamAlive,
     false,
     isLeadMember(member) ? leadActivity : undefined
   );
-  const dotClass = getMemberDotClass(
+  const dotClass = getSpawnAwareDotClass(
     member,
+    spawnEntry?.status,
+    spawnEntry?.launchState,
+    spawnEntry?.runtimeAlive,
+    isLaunchSettling,
     isTeamAlive,
     false,
     isLeadMember(member) ? leadActivity : undefined
+  );
+  const runtimeAdvisoryTitle = getMemberRuntimeAdvisoryTitle(
+    member.runtimeAdvisory,
+    member.providerId
   );
   const currentTask: TeamTaskWithKanban | null =
     member.currentTaskId && tasks
@@ -120,6 +172,7 @@ export const MemberHoverCard = ({
                 <Badge
                   variant="secondary"
                   className="shrink-0 px-1.5 py-0 text-[10px] font-normal leading-tight"
+                  title={runtimeAdvisoryTitle}
                   style={{
                     backgroundColor: getThemedBadge(colors, isLight),
                     color: getThemedText(colors, isLight),

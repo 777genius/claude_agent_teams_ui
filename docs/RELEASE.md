@@ -235,7 +235,12 @@ Without these secrets, macOS builds will be unsigned (users need to bypass Gatek
 
 ## Auto-Update
 
-electron-builder generates `latest-mac.yml`, `latest.yml`, `latest-linux.yml` alongside release artifacts. These files enable the built-in auto-updater — users get notified when a new version is available.
+The release workflow publishes canonical updater metadata after all platform assets are uploaded:
+- `latest.yml` for Windows
+- `latest-linux.yml` for Linux
+- `latest-mac.yml` for macOS
+
+⚠️ `latest-mac.yml` is currently Apple Silicon first because `electron-updater` on GitHub releases still uses a single macOS metadata file. Intel Mac users keep manual download support, while automatic macOS updates stay aligned with the native arm64 build until we move to universal packaging or an arch-aware provider.
 
 ## Quick Reference
 

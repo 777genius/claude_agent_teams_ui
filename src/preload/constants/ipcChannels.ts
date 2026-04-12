@@ -420,6 +420,9 @@ export const CROSS_TEAM_GET_OUTBOX = 'crossTeam:getOutbox';
 /** Get CLI installation status */
 export const CLI_INSTALLER_GET_STATUS = 'cliInstaller:getStatus';
 
+/** Get status for a single provider */
+export const CLI_INSTALLER_GET_PROVIDER_STATUS = 'cliInstaller:getProviderStatus';
+
 /** Start CLI install/update */
 export const CLI_INSTALLER_INSTALL = 'cliInstaller:install';
 
@@ -428,6 +431,9 @@ export const CLI_INSTALLER_PROGRESS = 'cliInstaller:progress';
 
 /** Invalidate cached CLI status (forces fresh check on next getStatus) */
 export const CLI_INSTALLER_INVALIDATE_STATUS = 'cliInstaller:invalidateStatus';
+
+/** Get current tmux runtime availability for dashboard diagnostics */
+export const TMUX_GET_STATUS = 'tmux:getStatus';
 
 // =============================================================================
 // Terminal API Channels

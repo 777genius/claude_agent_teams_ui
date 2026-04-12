@@ -12,6 +12,8 @@ import type {
   HttpServerConfig,
   NotificationConfig,
   NotificationTrigger,
+  ProviderConnectionsConfig,
+  RuntimeConfig,
   SshPersistConfig,
 } from '../services';
 
@@ -31,6 +33,8 @@ interface ValidationFailure {
 export type ConfigUpdateValidationResult =
   | ValidationSuccess<'notifications'>
   | ValidationSuccess<'general'>
+  | ValidationSuccess<'providerConnections'>
+  | ValidationSuccess<'runtime'>
   | ValidationSuccess<'display'>
   | ValidationSuccess<'httpServer'>
   | ValidationSuccess<'ssh'>
@@ -39,6 +43,8 @@ export type ConfigUpdateValidationResult =
 const VALID_SECTIONS = new Set<ConfigSection>([
   'notifications',
   'general',
+  'providerConnections',
+  'runtime',
   'display',
   'httpServer',
   'ssh',
@@ -286,6 +292,7 @@ function validateGeneralSection(data: unknown): ValidationSuccess<'general'> | V
     'showDockIcon',
     'theme',
     'defaultTab',
+    'multimodelEnabled',
     'claudeRootPath',
     'agentLanguage',
     'autoExpandAIGroups',
@@ -327,6 +334,12 @@ function validateGeneralSection(data: unknown): ValidationSuccess<'general'> | V
           };
         }
         result.defaultTab = value;
+        break;
+      case 'multimodelEnabled':
+        if (typeof value !== 'boolean') {
+          return { valid: false, error: 'general.multimodelEnabled must be a boolean' };
+        }
+        result.multimodelEnabled = value;
         break;
       case 'claudeRootPath':
         if (value === null) {
@@ -387,6 +400,148 @@ function validateGeneralSection(data: unknown): ValidationSuccess<'general'> | V
   return {
     valid: true,
     section: 'general',
+    data: result,
+  };
+}
+
+function validateRuntimeSection(data: unknown): ValidationSuccess<'runtime'> | ValidationFailure {
+  if (!isPlainObject(data)) {
+    return { valid: false, error: 'runtime update must be an object' };
+  }
+
+  const result: Partial<RuntimeConfig> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (key !== 'providerBackends') {
+      return { valid: false, error: `runtime.${key} is not a valid setting` };
+    }
+
+    if (!isPlainObject(value)) {
+      return { valid: false, error: 'runtime.providerBackends must be an object' };
+    }
+
+    const providerBackends: Partial<RuntimeConfig['providerBackends']> = {};
+
+    for (const [providerId, backendId] of Object.entries(value)) {
+      if (providerId === 'gemini') {
+        if (backendId !== 'auto' && backendId !== 'api' && backendId !== 'cli-sdk') {
+          return {
+            valid: false,
+            error: 'runtime.providerBackends.gemini must be one of: auto, api, cli-sdk',
+          };
+        }
+        providerBackends.gemini = backendId;
+        continue;
+      }
+
+      if (providerId === 'codex') {
+        if (backendId !== 'auto' && backendId !== 'adapter') {
+          return {
+            valid: false,
+            error: 'runtime.providerBackends.codex must be one of: auto, adapter',
+          };
+        }
+        providerBackends.codex = backendId;
+        continue;
+      }
+
+      return { valid: false, error: `runtime.providerBackends.${providerId} is not supported` };
+    }
+
+    result.providerBackends = providerBackends as RuntimeConfig['providerBackends'];
+  }
+
+  return {
+    valid: true,
+    section: 'runtime',
+    data: result,
+  };
+}
+
+function validateProviderConnectionsSection(
+  data: unknown
+): ValidationSuccess<'providerConnections'> | ValidationFailure {
+  if (!isPlainObject(data)) {
+    return { valid: false, error: 'providerConnections update must be an object' };
+  }
+
+  const result: Partial<ProviderConnectionsConfig> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (key !== 'anthropic' && key !== 'codex') {
+      return { valid: false, error: `providerConnections.${key} is not a valid setting` };
+    }
+
+    if (!isPlainObject(value)) {
+      return { valid: false, error: `providerConnections.${key} must be an object` };
+    }
+
+    if (key === 'anthropic') {
+      const anthropicUpdate: Partial<ProviderConnectionsConfig['anthropic']> = {};
+
+      for (const [connectionKey, connectionValue] of Object.entries(value)) {
+        if (connectionKey !== 'authMode') {
+          return {
+            valid: false,
+            error: `providerConnections.anthropic.${connectionKey} is not a valid setting`,
+          };
+        }
+
+        if (
+          connectionValue !== 'auto' &&
+          connectionValue !== 'oauth' &&
+          connectionValue !== 'api_key'
+        ) {
+          return {
+            valid: false,
+            error: 'providerConnections.anthropic.authMode must be one of: auto, oauth, api_key',
+          };
+        }
+
+        anthropicUpdate.authMode = connectionValue;
+      }
+
+      result.anthropic = anthropicUpdate as ProviderConnectionsConfig['anthropic'];
+      continue;
+    }
+
+    const codexUpdate: Partial<ProviderConnectionsConfig['codex']> = {};
+
+    for (const [connectionKey, connectionValue] of Object.entries(value)) {
+      if (connectionKey === 'apiKeyBetaEnabled') {
+        if (typeof connectionValue !== 'boolean') {
+          return {
+            valid: false,
+            error: 'providerConnections.codex.apiKeyBetaEnabled must be a boolean',
+          };
+        }
+        codexUpdate.apiKeyBetaEnabled = connectionValue;
+        continue;
+      }
+
+      if (connectionKey === 'authMode') {
+        if (connectionValue !== 'oauth' && connectionValue !== 'api_key') {
+          return {
+            valid: false,
+            error: 'providerConnections.codex.authMode must be one of: oauth, api_key',
+          };
+        }
+        codexUpdate.authMode = connectionValue;
+        continue;
+      }
+
+      return {
+        valid: false,
+        error: `providerConnections.codex.${connectionKey} is not a valid setting`,
+      };
+    }
+
+    result.codex = codexUpdate as ProviderConnectionsConfig['codex'];
+  }
+
+  return {
+    valid: true,
+    section: 'providerConnections',
     data: result,
   };
 }
@@ -537,7 +692,8 @@ export function validateConfigUpdatePayload(
   if (typeof section !== 'string' || !VALID_SECTIONS.has(section as ConfigSection)) {
     return {
       valid: false,
-      error: 'Section must be one of: notifications, general, display, httpServer, ssh',
+      error:
+        'Section must be one of: notifications, general, providerConnections, runtime, display, httpServer, ssh',
     };
   }
 
@@ -546,6 +702,10 @@ export function validateConfigUpdatePayload(
       return validateNotificationsSection(data);
     case 'general':
       return validateGeneralSection(data);
+    case 'providerConnections':
+      return validateProviderConnectionsSection(data);
+    case 'runtime':
+      return validateRuntimeSection(data);
     case 'display':
       return validateDisplaySection(data);
     case 'httpServer':

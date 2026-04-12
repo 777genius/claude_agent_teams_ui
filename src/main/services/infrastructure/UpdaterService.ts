@@ -22,32 +22,13 @@ import { app, net } from 'electron';
 
 import type { UpdaterStatus } from '@shared/types';
 import type { BrowserWindow } from 'electron';
+import {
+  getExpectedReleaseAssetUrl,
+  getLatestMacMetadataUrl,
+  isLatestMacMetadataCompatible,
+} from './updaterReleaseMetadata';
 
 const logger = createLogger('UpdaterService');
-
-const REPO_OWNER = '777genius';
-const REPO_NAME = 'claude_agent_teams_ui';
-
-/**
- * Build the expected download URL for the platform-specific installer asset.
- * Returns null if the current platform is unrecognized.
- */
-function getExpectedAssetUrl(version: string): string | null {
-  const base = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/v${version}`;
-
-  switch (process.platform) {
-    case 'darwin':
-      return process.arch === 'arm64'
-        ? `${base}/Claude.Agent.Teams.UI-${version}-arm64.dmg`
-        : `${base}/Claude.Agent.Teams.UI-${version}.dmg`;
-    case 'win32':
-      return `${base}/Claude.Agent.Teams.UI.Setup.${version}.exe`;
-    case 'linux':
-      return `${base}/Claude.Agent.Teams.UI-${version}.AppImage`;
-    default:
-      return null;
-  }
-}
 
 /**
  * Check if a remote URL exists using a HEAD request.
@@ -59,6 +40,18 @@ async function assetExists(url: string): Promise<boolean> {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+async function fetchText(url: string): Promise<string | null> {
+  try {
+    const response = await net.fetch(url, { method: 'GET' });
+    if (!response.ok) {
+      return null;
+    }
+    return await response.text();
+  } catch {
+    return null;
   }
 }
 
@@ -154,6 +147,24 @@ export class UpdaterService {
     return isVersionOlder(normalizeVersion(app.getVersion()), normalizeVersion(candidateVersion));
   }
 
+  private async hasCompatibleMacFeed(version: string): Promise<boolean> {
+    if (process.platform !== 'darwin') {
+      return true;
+    }
+    if (process.arch !== 'arm64' && process.arch !== 'x64') {
+      return false;
+    }
+
+    const metadataUrl = getLatestMacMetadataUrl(version);
+    const metadataText = await fetchText(metadataUrl);
+    if (!metadataText) {
+      logger.warn(`latest-mac.yml is not available for ${version} (${metadataUrl})`);
+      return false;
+    }
+
+    return isLatestMacMetadataCompatible(metadataText, version, process.arch);
+  }
+
   /**
    * Verify that the platform-specific asset exists before notifying the renderer.
    * If CI hasn't finished uploading the artifact for this OS yet, suppress the
@@ -170,7 +181,7 @@ export class UpdaterService {
       return;
     }
 
-    const url = getExpectedAssetUrl(info.version);
+    const url = getExpectedReleaseAssetUrl(info.version, process.platform, process.arch);
     if (url) {
       const exists = await assetExists(url);
       if (!exists) {
@@ -179,6 +190,13 @@ export class UpdaterService {
         );
         return;
       }
+    }
+
+    if (!(await this.hasCompatibleMacFeed(info.version))) {
+      logger.warn(
+        `latest-mac.yml does not match ${process.platform}/${process.arch}, suppressing update notification`
+      );
+      return;
     }
 
     this.sendStatus({

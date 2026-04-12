@@ -51,7 +51,8 @@ import {
   getTrafficLightPositionForZoom,
   WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL,
 } from '@shared/constants';
-import { isInboxNoiseMessage, parseInboxJson } from '@shared/utils/inboxNoise';
+import { shouldSuppressDesktopNotificationForInboxText } from '@shared/utils/idleNotificationSemantics';
+import { parseInboxJson } from '@shared/utils/inboxNoise';
 import { createLogger } from '@shared/utils/logger';
 import { app, BrowserWindow } from 'electron';
 import { existsSync } from 'fs';
@@ -62,6 +63,7 @@ import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { setReviewMainWindow } from './ipc/review';
 import {
   ApiKeyService,
+  RUNTIME_MANAGED_API_KEY_ENV_VARS,
   ExtensionFacadeService,
   GlamaMcpEnrichmentService,
   McpCatalogAggregator,
@@ -84,6 +86,11 @@ import {
   writeTeamControlApiState,
 } from './services/team/TeamControlApiState';
 import { TeamInboxReader } from './services/team/TeamInboxReader';
+import { TeamMemberRuntimeAdvisoryService } from './services/team/TeamMemberRuntimeAdvisoryService';
+import {
+  createTeamReconcileDrainScheduler,
+  type TeamReconcileTrigger,
+} from './services/team/TeamReconcileDrainScheduler';
 import { TeamSentMessagesStore } from './services/team/TeamSentMessagesStore';
 import { getAppIconPath } from './utils/appIcon';
 import { getProjectsBasePath, getTeamsBasePath, getTodosBasePath } from './utils/pathDecoder';
@@ -272,7 +279,7 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
       // Skip messages sent from our own UI
       if (msg.source && suppressedSources.has(msg.source)) continue;
       // Skip internal coordination noise (idle_notification, shutdown_*, etc.)
-      if (isInboxNoiseMessage(msg.text)) continue;
+      if (shouldSuppressDesktopNotificationForInboxText(msg.text)) continue;
 
       const fromLabel = msg.from || 'Unknown';
       const extracted = extractNotificationContent(msg.text);
@@ -343,7 +350,7 @@ async function notifyNewSentMessages(teamName: string): Promise<void> {
       // Skip messages sent from our own UI
       if (msg.source && suppressedSources.has(msg.source)) continue;
       // Skip internal coordination noise
-      if (isInboxNoiseMessage(msg.text)) continue;
+      if (shouldSuppressDesktopNotificationForInboxText(msg.text)) continue;
 
       const fromLabel = msg.from || 'team-lead';
       const extracted = extractNotificationContent(msg.text);
@@ -507,6 +514,27 @@ function wireFileWatcherEvents(context: ServiceContext): void {
   context.fileWatcher.on('todo-change', todoChangeHandler);
   todoChangeCleanup = () => context.fileWatcher.off('todo-change', todoChangeHandler);
 
+  const reconcileScheduler = teamDataService
+    ? createTeamReconcileDrainScheduler({
+        run: async (teamName: string, trigger: TeamReconcileTrigger) => {
+          try {
+            await teamDataService.reconcileTeamArtifacts(teamName, trigger);
+          } catch (e) {
+            if (trigger.source === 'task') {
+              logger.warn(
+                `[FileWatcher] task reconcile failed for ${teamName} detail=${trigger.detail}: ${String(e)}`
+              );
+            } else {
+              logger.warn(
+                `[FileWatcher] reconcile failed for ${teamName} source=${trigger.source} detail=${trigger.detail}: ${String(e)}`
+              );
+            }
+            throw e;
+          }
+        },
+      })
+    : null;
+
   // Forward team-change events to renderer and HTTP SSE
   const teamChangeHandler = (event: unknown): void => {
     safeSendToRenderer(mainWindow, TEAM_CHANGE, event);
@@ -522,12 +550,8 @@ function wireFileWatcherEvents(context: ServiceContext): void {
 
       // --- Inbox change events: relay to lead + native OS notifications ---
       if (row.type === 'inbox') {
-        if (teamDataService) {
-          void teamDataService
-            .reconcileTeamArtifacts(teamName)
-            .catch((e: unknown) =>
-              logger.warn(`[FileWatcher] reconcile failed for ${teamName}: ${String(e)}`)
-            );
+        if (reconcileScheduler) {
+          reconcileScheduler.schedule(teamName, { source: 'inbox', detail });
         }
 
         // Relay inbox changes into active runtime recipients.
@@ -535,9 +559,6 @@ function wireFileWatcherEvents(context: ServiceContext): void {
           const match = /^inboxes\/(.+)\.json$/.exec(detail);
           if (match && teamDataService) {
             const inboxName = match[1];
-
-            // Mark member as online when their first inbox message arrives (spawn tracking).
-            teamProvisioningService.markMemberOnlineFromInbox(teamName, inboxName);
 
             void teamDataService
               .getLeadMemberName(teamName)
@@ -588,11 +609,7 @@ function wireFileWatcherEvents(context: ServiceContext): void {
 
       // --- Task change events: notify lead when teammate starts a task via CLI ---
       if (row.type === 'task' && detail.endsWith('.json') && teamDataService) {
-        void teamDataService
-          .reconcileTeamArtifacts(teamName)
-          .catch((e: unknown) =>
-            logger.warn(`[FileWatcher] task reconcile failed for ${teamName}: ${String(e)}`)
-          );
+        reconcileScheduler?.schedule(teamName, { source: 'task', detail });
 
         const taskId = detail.replace('.json', '');
         void teamDataService
@@ -625,7 +642,10 @@ function wireFileWatcherEvents(context: ServiceContext): void {
     }
   };
   context.fileWatcher.on('team-change', teamChangeHandler);
-  teamChangeCleanup = () => context.fileWatcher.off('team-change', teamChangeHandler);
+  teamChangeCleanup = () => {
+    context.fileWatcher.off('team-change', teamChangeHandler);
+    reconcileScheduler?.dispose();
+  };
 
   logger.info(`FileWatcher events wired for context: ${context.id}`);
 }
@@ -716,7 +736,7 @@ function reconfigureLocalContextForClaudeRoot(): void {
 /**
  * Initializes all services.
  */
-function initializeServices(): void {
+async function initializeServices(): Promise<void> {
   logger.info('Initializing services...');
 
   // Initialize SSH connection manager
@@ -758,7 +778,12 @@ function initializeServices(): void {
   updaterService = new UpdaterService();
   cliInstallerService = new CliInstallerService();
   ptyTerminalService = new PtyTerminalService();
+  const teamMemberLogsFinder = new TeamMemberLogsFinder();
+  const teamMemberRuntimeAdvisoryService = new TeamMemberRuntimeAdvisoryService(
+    teamMemberLogsFinder
+  );
   teamDataService = new TeamDataService();
+  teamDataService.setMemberRuntimeAdvisoryService(teamMemberRuntimeAdvisoryService);
   teamProvisioningService = new TeamProvisioningService();
   // Startup GC: remove stale MCP config files from previous sessions (best-effort)
   void new TeamMcpConfigBuilder().gcStaleConfigs();
@@ -788,7 +813,6 @@ function initializeServices(): void {
   );
   teamProvisioningService.setCrossTeamSender((request) => crossTeamService.send(request));
 
-  const teamMemberLogsFinder = new TeamMemberLogsFinder();
   const taskChangePresenceRepository = new JsonTaskChangePresenceRepository();
   const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
   let teammateToolTracker: TeammateToolTracker | null = null;
@@ -839,6 +863,7 @@ function initializeServices(): void {
   const pluginInstallService = new PluginInstallService(pluginCatalogService);
   const mcpInstallService = new McpInstallService(mcpAggregator);
   const apiKeyService = new ApiKeyService();
+  await apiKeyService.syncProcessEnv(RUNTIME_MANAGED_API_KEY_ENV_VARS);
   // warmup() and ensureInstalled() are deferred to after window creation
   // (did-finish-load handler) to avoid thread pool contention at startup.
   httpServer = new HttpServer();
@@ -1392,7 +1417,7 @@ function createWindow(): void {
 /**
  * Application ready handler.
  */
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   logger.info('App ready, initializing...');
 
   // Pre-warm interactive shell env cache (non-blocking).
@@ -1403,7 +1428,7 @@ void app.whenReady().then(() => {
 
   try {
     // Initialize services first
-    initializeServices();
+    await initializeServices();
 
     // Apply configuration settings
     const config = configManager.getConfig();

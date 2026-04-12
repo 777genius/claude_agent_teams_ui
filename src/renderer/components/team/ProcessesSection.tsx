@@ -1,9 +1,10 @@
-import { useStore } from '@renderer/store';
-import { useShallow } from 'zustand/react/shallow';
+import { memo } from 'react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { ExternalLink, Square, Terminal } from 'lucide-react';
 
 import { MemberBadge } from './MemberBadge';
+
+import type { ResolvedTeamMember, TeamProcess } from '@shared/types';
 
 function formatShortTime(date: Date): string {
   const distance = formatDistanceToNowStrict(date, { addSuffix: false });
@@ -24,15 +25,61 @@ function formatShortTime(date: Date): string {
     .replace(' year', 'y');
 }
 
-export const ProcessesSection = (): React.JSX.Element | null => {
-  const teamName = useStore((s) => s.selectedTeamName);
-  const data = useStore(useShallow((s) => s.selectedTeamData));
+interface ProcessesSectionProps {
+  teamName: string;
+  members: ResolvedTeamMember[];
+  processes: TeamProcess[];
+}
 
-  if (!teamName || !data?.processes?.length) return null;
+function areMembersEquivalent(
+  left: readonly ResolvedTeamMember[],
+  right: readonly ResolvedTeamMember[]
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index].name !== right[index].name || left[index].color !== right[index].color) {
+      return false;
+    }
+  }
+  return true;
+}
 
-  const memberColorMap = new Map(data.members.map((m) => [m.name, m.color]));
+function areProcessesEquivalent(
+  left: readonly TeamProcess[],
+  right: readonly TeamProcess[]
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftProcess = left[index];
+    const rightProcess = right[index];
+    if (
+      leftProcess.id !== rightProcess.id ||
+      leftProcess.port !== rightProcess.port ||
+      leftProcess.url !== rightProcess.url ||
+      leftProcess.label !== rightProcess.label ||
+      leftProcess.pid !== rightProcess.pid ||
+      leftProcess.registeredBy !== rightProcess.registeredBy ||
+      leftProcess.registeredAt !== rightProcess.registeredAt ||
+      leftProcess.stoppedAt !== rightProcess.stoppedAt
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
-  const sorted = [...data.processes].sort((a, b) => {
+export const ProcessesSection = memo(function ProcessesSection({
+  teamName,
+  members,
+  processes,
+}: ProcessesSectionProps): React.JSX.Element | null {
+  if (!teamName || processes.length === 0) return null;
+
+  const memberColorMap = new Map(members.map((m) => [m.name, m.color]));
+
+  const sorted = [...processes].sort((a, b) => {
     const aAlive = !a.stoppedAt;
     const bAlive = !b.stoppedAt;
     if (aAlive !== bAlive) return aAlive ? -1 : 1;
@@ -120,6 +167,7 @@ export const ProcessesSection = (): React.JSX.Element | null => {
                 <MemberBadge
                   name={proc.registeredBy}
                   color={memberColorMap.get(proc.registeredBy)}
+                  teamName={teamName}
                 />
               )}
               <span className="text-[var(--color-text-muted)]">{timeStr}</span>
@@ -129,4 +177,15 @@ export const ProcessesSection = (): React.JSX.Element | null => {
       })}
     </div>
   );
-};
+}, areProcessesSectionPropsEqual);
+
+function areProcessesSectionPropsEqual(
+  prev: Readonly<ProcessesSectionProps>,
+  next: Readonly<ProcessesSectionProps>
+): boolean {
+  return (
+    prev.teamName === next.teamName &&
+    areMembersEquivalent(prev.members, next.members) &&
+    areProcessesEquivalent(prev.processes, next.processes)
+  );
+}

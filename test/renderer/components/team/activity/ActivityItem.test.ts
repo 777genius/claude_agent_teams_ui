@@ -40,6 +40,7 @@ import {
   getCrossTeamSentMemberName,
   getCrossTeamSentTarget,
   getSystemMessageLabel,
+  isNoiseMessage,
   isQualifiedExternalRecipient,
 } from '@renderer/components/team/activity/ActivityItem';
 import type { InboxMessage } from '@shared/types';
@@ -152,5 +153,96 @@ describe('ActivityItem legacy system message fallback', () => {
     );
     expect(getCrossTeamSentMemberName('team-best.user')).toBe('user');
     expect(getCrossTeamSentMemberName('cross-team:team-best')).toBeNull();
+  });
+
+  it('keeps heartbeat peer summaries out of compact idle noise rendering', () => {
+    expect(isNoiseMessage('{"type":"idle_notification","idleReason":"available"}')).toBe(true);
+    expect(
+      isNoiseMessage(
+        JSON.stringify({
+          type: 'idle_notification',
+          idleReason: 'available',
+          summary: '[to bob] aligned on rollout order',
+        })
+      )
+    ).toBe(false);
+  });
+
+  it('renders peer-summary idle rows with semantic summary text instead of generic idle noise', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    const message: InboxMessage = {
+      from: 'alice',
+      text: JSON.stringify({
+        type: 'idle_notification',
+        from: 'alice',
+        timestamp: '2026-04-08T12:01:00.000Z',
+        idleReason: 'available',
+        summary: '[to bob] aligned on rollout order',
+      }),
+      timestamp: new Date('2026-04-08T12:01:00.000Z').toISOString(),
+      read: true,
+      source: 'inbox',
+    };
+
+    await act(async () => {
+      root.render(React.createElement(ActivityItem, { message, teamName: 'my-team' }));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('update');
+    expect(host.textContent).toContain('alice');
+    expect(host.textContent).toContain('bob');
+    expect(host.textContent).toContain('aligned on rollout order');
+    expect(host.textContent).not.toContain('[to bob]');
+    expect(host.textContent).not.toContain('idle');
+    expect(host.textContent).not.toContain('Idle (available)');
+    expect(host.textContent).not.toContain('Raw JSON');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('renders user-directed peer-summary rows as passive updates instead of pseudo messages', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    const message: InboxMessage = {
+      from: 'alice',
+      text: JSON.stringify({
+        type: 'idle_notification',
+        from: 'alice',
+        timestamp: '2026-04-08T12:02:00.000Z',
+        idleReason: 'available',
+        summary: '[to user] Я здесь.',
+      }),
+      timestamp: new Date('2026-04-08T12:02:00.000Z').toISOString(),
+      read: true,
+      source: 'inbox',
+    };
+
+    await act(async () => {
+      root.render(React.createElement(ActivityItem, { message, teamName: 'my-team' }));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('update');
+    expect(host.textContent).toContain('alice');
+    expect(host.textContent).toContain('user');
+    expect(host.textContent).toContain('Я здесь.');
+    expect(host.textContent).not.toContain('[to user]');
+    expect(host.textContent).not.toContain('idle');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
   });
 });

@@ -28,6 +28,13 @@ function isSameTaskMember(left, right, leadName) {
     );
 }
 
+function mergeMemberRecord(base, overlay) {
+    return {
+        ...(base && typeof base === 'object' ? base : {}),
+        ...(overlay && typeof overlay === 'object' ? overlay : {}),
+    };
+}
+
 function quoteMarkdown(text) {
     return String(text)
         .split('\n')
@@ -563,13 +570,14 @@ Failure to follow this protocol means the task board will show incorrect status.
  * Context-free — does NOT follow the (context, ...) convention.
  */
 function buildProcessProtocolText(teamName) {
-    return `BACKGROUND PROCESS REGISTRATION — when you start a background process (dev server, watcher, database, etc.):
+    return `BACKGROUND SERVICE PROCESS REGISTRATION — this is ONLY for extra background services started by teammates (dev server, watcher, database, etc.). It is NOT a list of teammate agents themselves.
 1. Launch with & to get PID:
    pnpm dev &
 2. Register immediately with MCP tool process_register (--port and --url are optional, use when the process listens on a port):
    { teamName: "${teamName}", pid: <PID>, label: "<description>", from: "<your-name>", port?: <PORT>, url?: "http://localhost:<PORT>", command?: "<command>" }
 3. VERIFY registration succeeded (MANDATORY — never skip this step) using MCP tool process_list:
    { teamName: "${teamName}" }
+   process_list shows ONLY registered background services for the team. It does NOT show whether teammate agents themselves are alive.
 4. When stopping a process, use MCP tool process_stop:
    { teamName: "${teamName}", pid: <PID> }
 5. To fully remove a process record (e.g. after it has been stopped and is no longer needed), use MCP tool process_unregister:
@@ -606,9 +614,43 @@ async function memberBriefing(context, memberName) {
     if (resolved.removedNames && resolved.removedNames.has(requestedMemberKey)) {
         throw new Error(`Member is removed from the team: ${requestedMemberName}`);
     }
-    const member =
+    let member =
         resolved.members.find((entry) => normalizeMemberName(entry && entry.name) === requestedMemberKey) ||
         null;
+    if (!member) {
+        const runtimeIdentity = runtimeHelpers.getCurrentRuntimeMemberIdentity();
+        const runtimeAgentName = normalizeMemberName(runtimeIdentity && runtimeIdentity.agentName);
+        const runtimeAgentId = String((runtimeIdentity && runtimeIdentity.agentId) || '').trim().toLowerCase();
+        const runtimeTeamName = String((runtimeIdentity && runtimeIdentity.teamName) || '').trim().toLowerCase();
+        const requestedAgentId = `${requestedMemberKey}@${String(context.teamName || '').trim().toLowerCase()}`;
+        const isCurrentRuntimeMember =
+            requestedMemberKey &&
+            ((runtimeAgentName && runtimeAgentName === requestedMemberKey) ||
+                (runtimeAgentId && runtimeAgentId === requestedAgentId)) &&
+            (!runtimeTeamName || runtimeTeamName === String(context.teamName || '').trim().toLowerCase());
+        if (isCurrentRuntimeMember) {
+            const configMembers = Array.isArray(config.members) ? config.members : [];
+            const configMember =
+                configMembers.find((entry) => normalizeMemberName(entry && entry.name) === requestedMemberKey) ||
+                null;
+            const metaMember =
+                Array.isArray(resolved.members)
+                    ? resolved.members.find((entry) => normalizeMemberName(entry && entry.name) === requestedMemberKey)
+                    : null;
+            member = mergeMemberRecord(
+                {
+                    name: requestedMemberName,
+                    ...(runtimeIdentity && runtimeIdentity.agentName
+                        ? { name: String(runtimeIdentity.agentName).trim() }
+                        : {}),
+                    ...(typeof config.projectPath === 'string' && config.projectPath.trim()
+                        ? { cwd: config.projectPath.trim() }
+                        : {}),
+                },
+                mergeMemberRecord(configMember || {}, metaMember || {})
+            );
+        }
+    }
     if (!member) {
         throw new Error(
             `Member not found in team metadata or inboxes: ${requestedMemberName}`

@@ -264,13 +264,20 @@ describe('extensionsSlice', () => {
     it('sets progress to pending then success', async () => {
       store.setState({
         cliStatus: {
+          flavor: 'claude',
+          displayName: 'Claude',
+          supportsSelfUpdate: true,
+          showVersionDetails: true,
+          showBinaryPath: true,
           installed: true,
           installedVersion: '1.0.0',
           binaryPath: '/usr/local/bin/claude',
           latestVersion: '1.0.0',
           updateAvailable: false,
           authLoggedIn: true,
+          authStatusChecking: false,
           authMethod: 'oauth_token',
+          providers: [],
         },
       });
       const plugins = [makePlugin({ pluginId: 'a@m' })];
@@ -289,13 +296,20 @@ describe('extensionsSlice', () => {
     it('sets progress to error on failure', async () => {
       store.setState({
         cliStatus: {
+          flavor: 'claude',
+          displayName: 'Claude',
+          supportsSelfUpdate: true,
+          showVersionDetails: true,
+          showBinaryPath: true,
           installed: true,
           installedVersion: '1.0.0',
           binaryPath: '/usr/local/bin/claude',
           latestVersion: '1.0.0',
           updateAvailable: false,
           authLoggedIn: true,
+          authStatusChecking: false,
           authMethod: 'oauth_token',
+          providers: [],
         },
       });
       (api.plugins!.install as ReturnType<typeof vi.fn>).mockResolvedValue({
