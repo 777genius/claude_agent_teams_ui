@@ -32,7 +32,8 @@ function normalizeModelCandidate(model: string | undefined): string {
   if (!trimmed || trimmed === 'default' || trimmed === '__default__') {
     return '';
   }
-  return trimmed;
+  // Strip [1m] suffix — the UI stores base model names; computeEffectiveTeamModel adds it back
+  return trimmed.replace(/\[1m\]$/, '');
 }
 
 function canReuseModelForSelectedProvider(
