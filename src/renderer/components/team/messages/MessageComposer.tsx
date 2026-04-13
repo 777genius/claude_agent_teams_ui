@@ -208,18 +208,47 @@ export const MessageComposer = ({
 
   const { suggestions: teamMentionSuggestions } = useTeamSuggestions(teamName);
   const { suggestions: taskSuggestions } = useTaskSuggestions(teamName);
-  const slashCommandSuggestions = useMemo<MentionSuggestion[]>(
-    () =>
-      KNOWN_SLASH_COMMANDS.map((command) => ({
-        id: `command:${command.name}`,
-        name: command.name,
-        command: command.command,
-        description: command.description,
-        subtitle: command.description,
-        type: 'command',
-      })),
-    []
+  // Project skills as slash command suggestions
+  const projectSkills = useStore(
+    useShallow((s) => (projectPath ? (s.skillsProjectCatalogByProjectPath[projectPath] ?? []) : []))
   );
+  const userSkills = useStore(useShallow((s) => s.skillsUserCatalog));
+  const fetchSkillsCatalog = useStore((s) => s.fetchSkillsCatalog);
+
+  // Fetch skills catalog for the team's project on mount / project change
+  useEffect(() => {
+    void fetchSkillsCatalog(projectPath ?? undefined);
+  }, [fetchSkillsCatalog, projectPath]);
+
+  const slashCommandSuggestions = useMemo<MentionSuggestion[]>(() => {
+    const builtIn: MentionSuggestion[] = KNOWN_SLASH_COMMANDS.map((command) => ({
+      id: `command:${command.name}`,
+      name: command.name,
+      command: command.command,
+      description: command.description,
+      subtitle: command.description,
+      type: 'command',
+    }));
+
+    const allSkills = [...projectSkills, ...userSkills];
+    // Deduplicate by name (project skills take precedence)
+    const seen = new Set<string>();
+    const skillSuggestions: MentionSuggestion[] = [];
+    for (const skill of allSkills) {
+      if (!skill.isValid || seen.has(skill.folderName)) continue;
+      seen.add(skill.folderName);
+      skillSuggestions.push({
+        id: `skill:${skill.id}`,
+        name: skill.folderName,
+        command: `/${skill.folderName}`,
+        description: skill.description,
+        subtitle: `${skill.scope === 'project' ? 'Project' : 'Personal'} skill — ${skill.description}`,
+        type: 'command',
+      });
+    }
+
+    return [...builtIn, ...skillSuggestions];
+  }, [projectSkills, userSkills]);
 
   const trimmed = stripEncodedTaskReferenceMetadata(draft.text).trim();
   const standaloneSlashCommand = useMemo(() => parseStandaloneSlashCommand(trimmed), [trimmed]);
