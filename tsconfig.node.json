@@ -23,8 +23,9 @@
     "electron.vite.config.ts",
     "src/main/**/*",
     "src/preload/**/*",
-    "src/features/*/contracts/**/*",
-    "src/features/*/main/**/*",
-    "src/features/*/preload/**/*"
+    "src/features/**/contracts/**/*",
+    "src/features/**/core/**/*",
+    "src/features/**/main/**/*",
+    "src/features/**/preload/**/*"
   ]
 }

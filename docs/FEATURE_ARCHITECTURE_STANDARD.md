@@ -267,7 +267,6 @@ If the feature still owns meaningful pure semantics or projection rules, keep
 
 Example:
 - `src/features/agent-graph` keeps `core/domain` and `renderer`, but does not add fake `main/` or `preload/` folders because the transport boundary lives elsewhere.
-
 ## Definition Of Done For A Reference Feature
 
 A feature is reference-quality when:

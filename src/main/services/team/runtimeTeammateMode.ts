@@ -1,27 +1,12 @@
+import { isTmuxRuntimeReadyForCurrentPlatform } from '@features/tmux-installer/main';
 import { parseCliArgs } from '@shared/utils/cliArgsParser';
-import { execFile } from 'child_process';
-
-const TMUX_AVAILABILITY_CACHE_TTL_MS = 10_000;
 
 interface DesktopTeammateModeDecision {
   injectedTeammateMode: 'tmux' | null;
   forceProcessTeammates: boolean;
 }
 
-let tmuxAvailabilityCache: { value: boolean; at: number } | null = null;
 let tmuxAvailablePromise: Promise<boolean> | null = null;
-
-function execFileAsync(command: string, args: string[], timeout: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout }, (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-}
 
 function getExplicitTeammateMode(
   rawExtraCliArgs: string | undefined
@@ -29,6 +14,7 @@ function getExplicitTeammateMode(
   const tokens = parseCliArgs(rawExtraCliArgs);
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
+    // eslint-disable-next-line security/detect-possible-timing-attacks -- parsing user-supplied CLI flags, not comparing secrets
     if (token === '--teammate-mode') {
       const next = tokens[i + 1];
       if (next === 'auto' || next === 'tmux' || next === 'in-process') {
@@ -49,21 +35,10 @@ function getExplicitTeammateMode(
 }
 
 async function isTmuxAvailable(): Promise<boolean> {
-  if (
-    tmuxAvailabilityCache &&
-    Date.now() - tmuxAvailabilityCache.at < TMUX_AVAILABILITY_CACHE_TTL_MS
-  ) {
-    return tmuxAvailabilityCache.value;
-  }
-
   if (!tmuxAvailablePromise) {
-    tmuxAvailablePromise = execFileAsync('tmux', ['-V'], 3_000)
-      .then(() => true)
+    tmuxAvailablePromise = isTmuxRuntimeReadyForCurrentPlatform()
+      .then((value) => value)
       .catch(() => false)
-      .then((value) => {
-        tmuxAvailabilityCache = { value, at: Date.now() };
-        return value;
-      })
       .finally(() => {
         tmuxAvailablePromise = null;
       });
@@ -84,13 +59,6 @@ export async function resolveDesktopTeammateModeDecision(
   }
 
   if (explicitMode === 'auto' || explicitMode === 'in-process') {
-    return {
-      injectedTeammateMode: null,
-      forceProcessTeammates: false,
-    };
-  }
-
-  if (process.platform === 'win32') {
     return {
       injectedTeammateMode: null,
       forceProcessTeammates: false,

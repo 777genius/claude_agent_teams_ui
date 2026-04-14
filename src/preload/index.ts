@@ -1,4 +1,5 @@
 import { createRecentProjectsBridge } from '@features/recent-projects/preload';
+import { createTmuxInstallerBridge } from '@features/tmux-installer/preload';
 import { WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL } from '@shared/constants';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
@@ -185,7 +186,6 @@ import {
   TERMINAL_RESIZE,
   TERMINAL_SPAWN,
   TERMINAL_WRITE,
-  TMUX_GET_STATUS,
   UPDATER_CHECK,
   UPDATER_DOWNLOAD,
   UPDATER_INSTALL,
@@ -302,7 +302,6 @@ import type {
   TeamTask,
   TeamTaskStatus,
   TeamUpdateConfigRequest,
-  TmuxStatus,
   ToolApprovalEvent,
   ToolApprovalFileContent,
   ToolApprovalSettings,
@@ -1434,11 +1433,7 @@ const electronAPI: ElectronAPI = {
     },
   },
 
-  tmux: {
-    getStatus: async (): Promise<TmuxStatus> => {
-      return invokeIpcWithResult<TmuxStatus>(TMUX_GET_STATUS);
-    },
-  },
+  tmux: createTmuxInstallerBridge({ ipcRenderer, invokeIpcWithResult }),
 
   // ===== Terminal API =====
   terminal: {

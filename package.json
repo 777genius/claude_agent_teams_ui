@@ -322,6 +322,9 @@
       "tsconfig*.json"
     ],
     "paths": {
+      "@features/*": [
+        "./src/features/*"
+      ],
       "@main/*": [
         "./src/main/*"
       ],
