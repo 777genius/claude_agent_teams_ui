@@ -1,4 +1,4 @@
-import { getKnownSlashCommand, isSupportedSlashCommandName } from '@shared/utils/slashCommands';
+import { isSupportedSlashCommandName } from '@shared/utils/slashCommands';
 
 import type { MentionSuggestion } from '@renderer/types/mention';
 import type { SkillCatalogItem } from '@shared/types/extensions';
@@ -9,6 +9,7 @@ export function buildSlashCommandSuggestions(
   projectSkills: readonly SkillCatalogItem[],
   userSkills: readonly SkillCatalogItem[]
 ): MentionSuggestion[] {
+  const builtInNames = new Set(builtIns.map((command) => command.name.trim().toLowerCase()));
   const builtInSuggestions: MentionSuggestion[] = builtIns.map((command) => ({
     id: `command:${command.name}`,
     name: command.name,
@@ -26,7 +27,7 @@ export function buildSlashCommandSuggestions(
       !skill.isValid ||
       !normalizedFolderName ||
       !isSupportedSlashCommandName(normalizedFolderName) ||
-      getKnownSlashCommand(normalizedFolderName) !== null ||
+      builtInNames.has(normalizedFolderName) ||
       seenSkillNames.has(normalizedFolderName)
     ) {
       continue;

@@ -68,5 +68,6 @@ describe('computeEffectiveTeamModel', () => {
 
   it('returns non-anthropic models as-is', () => {
     expect(computeEffectiveTeamModel('gpt-5.4', false, 'codex')).toBe('gpt-5.4');
+    expect(computeEffectiveTeamModel('custom-model[1m]', false, 'codex')).toBe('custom-model[1m]');
   });
 });

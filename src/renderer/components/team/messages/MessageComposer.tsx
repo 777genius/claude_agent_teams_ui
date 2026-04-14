@@ -19,6 +19,7 @@ import { serializeChipsWithText } from '@renderer/types/inlineChip';
 import { formatAgentRole } from '@renderer/utils/formatAgentRole';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { nameColorSet } from '@renderer/utils/projectColor';
+import { getSuggestedSlashCommandsForProvider } from '@renderer/utils/providerSlashCommands';
 import { buildSlashCommandSuggestions } from '@renderer/utils/skillCommandSuggestions';
 import {
   extractTaskRefsFromText,
@@ -26,7 +27,11 @@ import {
 } from '@renderer/utils/taskReferenceUtils';
 import { MAX_TEXT_LENGTH } from '@shared/constants';
 import { isLeadMember } from '@shared/utils/leadDetection';
-import { KNOWN_SLASH_COMMANDS, parseStandaloneSlashCommand } from '@shared/utils/slashCommands';
+import { parseStandaloneSlashCommand } from '@shared/utils/slashCommands';
+import {
+  inferTeamProviderIdFromModel,
+  normalizeOptionalTeamProviderId,
+} from '@shared/utils/teamProvider';
 import { AlertCircle, Check, ChevronDown, Mic, Paperclip, Search, Send } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -206,6 +211,12 @@ export const MessageComposer = ({
       })),
     [members, colorMap]
   );
+  const leadProviderId = useMemo(() => {
+    const lead = members.find((member) => isLeadMember(member));
+    return (
+      normalizeOptionalTeamProviderId(lead?.providerId) ?? inferTeamProviderIdFromModel(lead?.model)
+    );
+  }, [members]);
 
   const { suggestions: teamMentionSuggestions } = useTeamSuggestions(teamName);
   const { suggestions: taskSuggestions } = useTaskSuggestions(teamName);
@@ -222,8 +233,13 @@ export const MessageComposer = ({
   }, [fetchSkillsCatalog, projectPath]);
 
   const slashCommandSuggestions = useMemo<MentionSuggestion[]>(
-    () => buildSlashCommandSuggestions(KNOWN_SLASH_COMMANDS, projectSkills, userSkills),
-    [projectSkills, userSkills]
+    () =>
+      buildSlashCommandSuggestions(
+        getSuggestedSlashCommandsForProvider(leadProviderId),
+        projectSkills,
+        userSkills
+      ),
+    [leadProviderId, projectSkills, userSkills]
   );
 
   const trimmed = stripEncodedTaskReferenceMetadata(draft.text).trim();
