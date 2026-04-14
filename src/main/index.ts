@@ -61,6 +61,7 @@ import { join } from 'path';
 import { cleanupEditorState, setEditorMainWindow } from './ipc/editor';
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { setReviewMainWindow } from './ipc/review';
+import { setTmuxMainWindow } from './ipc/tmux';
 import {
   ApiKeyService,
   ExtensionFacadeService,
@@ -102,8 +103,8 @@ import {
 } from './utils/safeWebContentsSend';
 import { syncTelemetryFlag } from './sentry';
 import {
-  BoardTaskActivityRecordSource,
   BoardTaskActivityDetailService,
+  BoardTaskActivityRecordSource,
   BoardTaskActivityService,
   BoardTaskExactLogDetailService,
   BoardTaskExactLogsService,
@@ -1390,6 +1391,7 @@ function createWindow(): void {
     if (cliInstallerService) {
       cliInstallerService.setMainWindow(null);
     }
+    setTmuxMainWindow(null);
     if (ptyTerminalService) {
       ptyTerminalService.setMainWindow(null);
     }
@@ -1423,6 +1425,7 @@ function createWindow(): void {
   if (cliInstallerService) {
     cliInstallerService.setMainWindow(mainWindow);
   }
+  setTmuxMainWindow(mainWindow);
   if (ptyTerminalService) {
     ptyTerminalService.setMainWindow(mainWindow);
   }

@@ -1,0 +1,71 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, type Mock,vi } from 'vitest';
+
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual('node:child_process');
+  return {
+    ...actual,
+    execFile: vi.fn(),
+    execFileSync: vi.fn(),
+  };
+});
+
+import * as childProcess from 'node:child_process';
+
+import { TmuxPlatformCommandExecutor } from '../TmuxPlatformCommandExecutor';
+
+function setPlatform(value: string): void {
+  Object.defineProperty(process, 'platform', {
+    value,
+    configurable: true,
+    writable: true,
+  });
+}
+
+const originalPlatform = process.platform;
+const originalWindir = process.env.WINDIR;
+
+describe('TmuxPlatformCommandExecutor', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  afterEach(() => {
+    setPlatform(originalPlatform);
+    if (originalWindir === undefined) {
+      delete process.env.WINDIR;
+    } else {
+      process.env.WINDIR = originalWindir;
+    }
+  });
+
+  it('falls back to plain wsl.exe for sync cleanup when WINDIR is missing', () => {
+    setPlatform('win32');
+    delete process.env.WINDIR;
+
+    const execFileSyncMock = childProcess.execFileSync as unknown as Mock;
+    execFileSyncMock.mockImplementation((command: string) => {
+      if (command === 'wsl.exe') {
+        return Buffer.from('');
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const executor = new TmuxPlatformCommandExecutor(
+      {
+        getPersistedPreferredDistroSync: () => null,
+      } as never,
+      {} as never
+    );
+
+    expect(() => executor.killPaneSync('%1')).not.toThrow();
+    expect(execFileSyncMock).toHaveBeenCalledWith(
+      'wsl.exe',
+      ['-e', 'tmux', 'kill-pane', '-t', '%1'],
+      expect.objectContaining({
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+    );
+  });
+});

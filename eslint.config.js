@@ -97,6 +97,54 @@ export default defineConfig([
     },
   },
 
+  // Import plugin configuration - Feature main/preload slices
+  {
+    name: 'import-plugin-features-node',
+    files: ['src/features/**/main/**/*.ts', 'src/features/**/preload/**/*.ts'],
+    plugins: {
+      import: importPlugin,
+    },
+    settings: {
+      'import/resolver': {
+        typescript: {
+          alwaysTryTypes: true,
+          project: ['./tsconfig.node.json', './tsconfig.json'],
+        },
+      },
+    },
+    rules: {
+      'import/no-cycle': ['error', { maxDepth: 3, ignoreExternal: true }],
+      'import/no-unresolved': 'error',
+      'import/no-default-export': 'warn',
+    },
+  },
+
+  // Import plugin configuration - Feature contracts/core/renderer slices
+  {
+    name: 'import-plugin-features-web',
+    files: [
+      'src/features/**/contracts/**/*.ts',
+      'src/features/**/core/**/*.ts',
+      'src/features/**/renderer/**/*.{ts,tsx}',
+    ],
+    plugins: {
+      import: importPlugin,
+    },
+    settings: {
+      'import/resolver': {
+        typescript: {
+          alwaysTryTypes: true,
+          project: ['./tsconfig.json', './tsconfig.node.json'],
+        },
+      },
+    },
+    rules: {
+      'import/no-cycle': ['error', { maxDepth: 3, ignoreExternal: true }],
+      'import/no-unresolved': 'error',
+      'import/no-default-export': 'warn',
+    },
+  },
+
   // Module boundaries - Enforce Electron three-process architecture
   {
     name: 'module-boundaries',
@@ -621,6 +669,137 @@ export default defineConfig([
       'security/detect-child-process': 'warn',
       'security/detect-non-literal-require': 'warn',
       'security/detect-possible-timing-attacks': 'warn',
+    },
+  },
+
+  {
+    name: 'feature-public-entrypoints-only',
+    files: [
+      'src/main/**/*.{ts,tsx}',
+      'src/preload/**/*.{ts,tsx}',
+      'src/renderer/**/*.{ts,tsx}',
+      'src/shared/**/*.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@features/*/contracts/*',
+                '@features/*/core/**',
+                '@features/*/main/*',
+                '@features/*/preload/*',
+                '@features/*/renderer/*',
+              ],
+              message: 'Import feature public entrypoints only.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'feature-core-domain-guards',
+    files: ['src/features/*/core/domain/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'electron', message: 'core/domain must stay Electron-free.' },
+            { name: 'fastify', message: 'core/domain must stay transport-free.' },
+            { name: 'child_process', message: 'core/domain must stay side-effect free.' },
+            { name: 'node:child_process', message: 'core/domain must stay side-effect free.' },
+          ],
+          patterns: [
+            {
+              group: ['@main/*', '@preload/*', '@renderer/*'],
+              message: 'core/domain must stay process-agnostic.',
+            },
+            {
+              group: ['@features/*/main/**', '@features/*/preload/**', '@features/*/renderer/**'],
+              message: 'core/domain must not import runtime or transport layers.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'feature-core-application-guards',
+    files: ['src/features/*/core/application/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'electron', message: 'core/application must stay Electron-free.' },
+            { name: 'fastify', message: 'core/application must stay transport-free.' },
+            { name: 'child_process', message: 'core/application must not spawn processes directly.' },
+            {
+              name: 'node:child_process',
+              message: 'core/application must not spawn processes directly.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@main/*', '@preload/*', '@renderer/*'],
+              message: 'core/application must stay framework-agnostic.',
+            },
+            {
+              group: ['@features/*/main/**', '@features/*/preload/**', '@features/*/renderer/**'],
+              message: 'core/application must depend on ports, not runtime adapters.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'feature-preload-guards',
+    files: ['src/features/*/preload/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@main/*'],
+              message: 'Feature preload should not import app-shell main modules.',
+            },
+            {
+              group: ['@features/*/main/**'],
+              message: 'Feature preload must not reach into feature main internals.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'feature-renderer-ui-guards',
+    files: ['src/features/*/renderer/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: '@renderer/api', message: 'renderer/ui must stay presentational.' },
+            { name: '@renderer/store', message: 'renderer/ui must stay store-free.' },
+            { name: 'electron', message: 'renderer/ui must stay Electron-free.' },
+          ],
+          patterns: [
+            { group: ['@main/*'], message: 'renderer/ui must not import main modules.' },
+            { group: ['@renderer/store/*'], message: 'renderer/ui must stay store-free.' },
+          ],
+        },
+      ],
     },
   },
 

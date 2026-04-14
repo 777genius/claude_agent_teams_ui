@@ -1,3 +1,4 @@
+import { killTmuxPaneForCurrentPlatformSync } from '@features/tmux-installer/main';
 import { ConfigManager } from '@main/services/infrastructure/ConfigManager';
 import { NotificationManager } from '@main/services/infrastructure/NotificationManager';
 import { getAppIconPath } from '@main/utils/appIcon';
@@ -7232,7 +7233,7 @@ export class TeamProvisioningService {
         continue;
       }
       try {
-        execFileSync('tmux', ['kill-pane', '-t', paneId], { stdio: 'ignore' });
+        killTmuxPaneForCurrentPlatformSync(paneId);
         logger.info(`[${teamName}] Killed teammate pane ${name} (${paneId}) during stop`);
       } catch (error) {
         logger.debug(

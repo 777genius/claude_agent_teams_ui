@@ -1,0 +1,254 @@
+import React from 'react';
+
+import { AlertTriangle, ExternalLink, RefreshCw, Wrench, XCircle } from 'lucide-react';
+
+import { useTmuxInstallerBanner } from '../hooks/useTmuxInstallerBanner';
+
+const SourceLink = ({
+  label,
+  url,
+  onOpen,
+}: {
+  label: string;
+  url: string;
+  onOpen: (url: string) => Promise<void>;
+}): React.JSX.Element => (
+  <button
+    type="button"
+    onClick={() => void onOpen(url)}
+    className="inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] transition-colors hover:bg-white/5"
+    style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}
+  >
+    {label}
+    <ExternalLink className="size-3" />
+  </button>
+);
+
+export function TmuxInstallerBannerView(): React.JSX.Element | null {
+  const { viewModel, install, cancel, submitInput, refresh, toggleDetails, openExternal } =
+    useTmuxInstallerBanner();
+  const [inputValue, setInputValue] = React.useState('');
+
+  React.useEffect(() => {
+    if (!viewModel.acceptsInput) {
+      setInputValue('');
+    }
+  }, [viewModel.acceptsInput]);
+
+  if (!viewModel.visible) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mb-6 rounded-lg border-l-4 px-4 py-3"
+      style={{
+        borderLeftColor: viewModel.error ? '#ef4444' : '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.08)',
+        borderColor: 'rgba(245, 158, 11, 0.2)',
+      }}
+    >
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            {viewModel.error ? (
+              <AlertTriangle className="size-4 text-red-300" />
+            ) : (
+              <Wrench className="size-4 text-amber-300" />
+            )}
+            <span>{viewModel.title}</span>
+          </div>
+          <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            {viewModel.body}
+          </p>
+          {(viewModel.platformLabel ||
+            viewModel.locationLabel ||
+            viewModel.runtimeReadyLabel ||
+            viewModel.versionLabel ||
+            viewModel.phase !== 'idle') && (
+            <div
+              className="mt-2 flex flex-wrap items-center gap-2 text-[11px]"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              {viewModel.platformLabel && <span>Detected OS: {viewModel.platformLabel}</span>}
+              {viewModel.locationLabel && <span>Runtime path: {viewModel.locationLabel}</span>}
+              {viewModel.runtimeReadyLabel && <span>{viewModel.runtimeReadyLabel}</span>}
+              {viewModel.versionLabel && <span>{viewModel.versionLabel}</span>}
+              {viewModel.phase !== 'idle' && <span>Phase: {viewModel.phase}</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {viewModel.installSupported && (
+            <button
+              type="button"
+              onClick={() => void install()}
+              disabled={viewModel.installDisabled}
+              className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              <Wrench className="size-4" />
+              {viewModel.installLabel}
+            </button>
+          )}
+          {viewModel.canCancel && (
+            <button
+              type="button"
+              onClick={() => void cancel()}
+              className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              <XCircle className="size-4" />
+              Cancel
+            </button>
+          )}
+          {viewModel.primaryGuideUrl && (
+            <button
+              type="button"
+              onClick={() => void openExternal(viewModel.primaryGuideUrl)}
+              className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              <ExternalLink className="size-4" />
+              Manual guide
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
+            <RefreshCw className="size-4" />
+            Re-check
+          </button>
+        </div>
+      </div>
+
+      {viewModel.progressPercent !== null && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between text-[11px]">
+            <span style={{ color: 'var(--color-text-muted)' }}>Installer progress</span>
+            <span style={{ color: 'var(--color-text-secondary)' }}>
+              {viewModel.progressPercent}%
+            </span>
+          </div>
+          <div
+            className="h-2 overflow-hidden rounded-full"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.08)' }}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${viewModel.progressPercent}%`,
+                backgroundColor: viewModel.error ? '#ef4444' : '#f59e0b',
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {viewModel.acceptsInput && (
+        <div className="mt-3 space-y-2">
+          <form
+            className="flex flex-col gap-2 sm:flex-row sm:items-center"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void (async () => {
+                const submitted = await submitInput(inputValue);
+                if (submitted) {
+                  setInputValue('');
+                }
+              })();
+            }}
+          >
+            <input
+              type={viewModel.inputSecret ? 'password' : 'text'}
+              value={inputValue}
+              onChange={(event) => setInputValue(event.target.value)}
+              placeholder={viewModel.inputPrompt ?? 'Send input to the installer'}
+              className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
+              style={{
+                borderColor: 'var(--color-border)',
+                backgroundColor: 'rgba(0, 0, 0, 0.12)',
+                color: 'var(--color-text)',
+              }}
+              autoComplete="current-password"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              Send input
+            </button>
+          </form>
+          {viewModel.inputSecret && (
+            <div className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+              Password input is sent directly to the installer terminal and is not added to the log
+              output.
+            </div>
+          )}
+        </div>
+      )}
+
+      {viewModel.manualHints.length > 0 && (
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {viewModel.manualHints.map((hint) => (
+            <div
+              key={`${hint.title}-${hint.command ?? hint.url ?? hint.description}`}
+              className="rounded-md border px-3 py-2"
+              style={{
+                borderColor: 'rgba(245, 158, 11, 0.18)',
+                backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              }}
+            >
+              <div className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>
+                {hint.title}
+              </div>
+              <div className="mt-1 text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                {hint.description}
+              </div>
+              {hint.command && (
+                <code className="mt-2 block rounded bg-black/20 px-2 py-1 font-mono text-[11px]">
+                  {hint.command}
+                </code>
+              )}
+              {hint.url && (
+                <div className="mt-2">
+                  <SourceLink label={hint.title} url={hint.url} onOpen={openExternal} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(viewModel.logs.length > 0 || viewModel.error) && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={toggleDetails}
+            className="text-xs underline-offset-4 hover:underline"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            {viewModel.detailsOpen ? 'Hide details' : 'Show details'}
+          </button>
+          {viewModel.detailsOpen && (
+            <pre
+              className="mt-2 max-h-64 overflow-auto rounded-md border p-3 text-xs"
+              style={{
+                borderColor: 'var(--color-border)',
+                backgroundColor: 'rgba(0, 0, 0, 0.18)',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {[viewModel.error, ...viewModel.logs].filter(Boolean).join('\n')}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,3 +1,4 @@
+import { createTmuxInstallerBridge } from '@features/tmux-installer/preload';
 import { WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL } from '@shared/constants';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
@@ -184,7 +185,6 @@ import {
   TERMINAL_RESIZE,
   TERMINAL_SPAWN,
   TERMINAL_WRITE,
-  TMUX_GET_STATUS,
   UPDATER_CHECK,
   UPDATER_DOWNLOAD,
   UPDATER_INSTALL,
@@ -243,6 +243,7 @@ import type {
   ClaudeRootInfo,
   CliInstallationStatus,
   CliInstallerProgress,
+  CliProviderId,
   ConflictCheckResult,
   ContextInfo,
   CreateScheduleInput,
@@ -300,7 +301,6 @@ import type {
   TeamTask,
   TeamTaskStatus,
   TeamUpdateConfigRequest,
-  TmuxStatus,
   ToolApprovalEvent,
   ToolApprovalFileContent,
   ToolApprovalSettings,
@@ -1408,7 +1408,7 @@ const electronAPI: ElectronAPI = {
     getStatus: async (): Promise<CliInstallationStatus> => {
       return invokeIpcWithResult<CliInstallationStatus>(CLI_INSTALLER_GET_STATUS);
     },
-    getProviderStatus: async (providerId: import('@shared/types').CliProviderId) => {
+    getProviderStatus: async (providerId: CliProviderId) => {
       return invokeIpcWithResult(CLI_INSTALLER_GET_PROVIDER_STATUS, providerId);
     },
     install: async (): Promise<void> => {
@@ -1431,11 +1431,7 @@ const electronAPI: ElectronAPI = {
     },
   },
 
-  tmux: {
-    getStatus: async (): Promise<TmuxStatus> => {
-      return invokeIpcWithResult<TmuxStatus>(TMUX_GET_STATUS);
-    },
-  },
+  tmux: createTmuxInstallerBridge({ ipcRenderer, invokeIpcWithResult }),
 
   // ===== Terminal API =====
   terminal: {

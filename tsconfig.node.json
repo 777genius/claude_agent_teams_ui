@@ -12,11 +12,20 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
+      "@features/*": ["./src/features/*"],
       "@main/*": ["./src/main/*"],
       "@preload/*": ["./src/preload/*"],
       "@shared/*": ["./src/shared/*"]
     },
     "types": ["node"]
   },
-  "include": ["electron.vite.config.ts", "src/main/**/*", "src/preload/**/*"]
+  "include": [
+    "electron.vite.config.ts",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/features/**/contracts/**/*",
+    "src/features/**/core/**/*",
+    "src/features/**/main/**/*",
+    "src/features/**/preload/**/*"
+  ]
 }

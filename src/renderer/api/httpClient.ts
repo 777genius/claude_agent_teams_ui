@@ -1122,14 +1122,58 @@ export class HttpAPIClient implements ElectronAPI {
 
   tmux: TmuxAPI = {
     getStatus: async (): Promise<TmuxStatus> => ({
-      available: true,
-      version: null,
-      binaryPath: null,
       platform: 'unknown',
-      nativeSupported: true,
+      nativeSupported: false,
       checkedAt: new Date().toISOString(),
+      host: {
+        available: false,
+        version: null,
+        binaryPath: null,
+        error: null,
+      },
+      effective: {
+        available: false,
+        location: null,
+        version: null,
+        binaryPath: null,
+        runtimeReady: false,
+        detail: 'tmux diagnostics are not available in browser mode.',
+      },
       error: null,
+      autoInstall: {
+        supported: false,
+        strategy: 'manual',
+        packageManagerLabel: null,
+        requiresTerminalInput: false,
+        requiresAdmin: false,
+        requiresRestart: false,
+        mayOpenExternalWindow: false,
+        reasonIfUnsupported: 'tmux installation is only available in Electron mode.',
+        manualHints: [],
+      },
     }),
+    getInstallerSnapshot: async () => ({
+      phase: 'idle',
+      strategy: null,
+      message: null,
+      detail: 'tmux installer is not available in browser mode.',
+      error: null,
+      canCancel: false,
+      acceptsInput: false,
+      inputPrompt: null,
+      inputSecret: false,
+      logs: [],
+      updatedAt: new Date().toISOString(),
+    }),
+    install: async (): Promise<void> => {
+      throw new Error('tmux installer is not available in browser mode');
+    },
+    cancelInstall: async (): Promise<void> => {},
+    submitInstallerInput: async (): Promise<void> => {},
+    invalidateStatus: async (): Promise<void> => {},
+    onProgress: (): (() => void) => {
+      return () => {};
+    },
   };
 
   // ---------------------------------------------------------------------------
@@ -1219,41 +1263,47 @@ export class HttpAPIClient implements ElectronAPI {
   };
 
   schedules = {
-    list: async () => {
+    list: async (): Promise<Schedule[]> => {
       console.warn('Schedules not available in browser mode');
       return [] as Schedule[];
     },
-    get: async () => {
+    get: async (_id: string): Promise<Schedule | null> => {
       console.warn('Schedules not available in browser mode');
       return null;
     },
-    create: async () => {
+    create: async (_input: CreateScheduleInput): Promise<Schedule> => {
       throw new Error('Schedules not available in browser mode');
     },
-    update: async () => {
+    update: async (_id: string, _patch: UpdateSchedulePatch): Promise<Schedule> => {
       throw new Error('Schedules not available in browser mode');
     },
-    delete: async () => {
+    delete: async (_id: string): Promise<void> => {
       throw new Error('Schedules not available in browser mode');
     },
-    pause: async () => {
+    pause: async (_id: string): Promise<void> => {
       throw new Error('Schedules not available in browser mode');
     },
-    resume: async () => {
+    resume: async (_id: string): Promise<void> => {
       throw new Error('Schedules not available in browser mode');
     },
-    triggerNow: async () => {
+    triggerNow: async (_id: string): Promise<ScheduleRun> => {
       throw new Error('Schedules not available in browser mode');
     },
-    getRuns: async () => {
+    getRuns: async (
+      _scheduleId: string,
+      _opts?: { limit?: number; offset?: number }
+    ): Promise<ScheduleRun[]> => {
       console.warn('Schedules not available in browser mode');
       return [] as ScheduleRun[];
     },
-    getRunLogs: async () => {
+    getRunLogs: async (
+      _scheduleId: string,
+      _runId: string
+    ): Promise<{ stdout: string; stderr: string }> => {
       console.warn('Schedules not available in browser mode');
       return { stdout: '', stderr: '' };
     },
-    onScheduleChange: () => {
+    onScheduleChange: (): (() => void) => {
       return () => {};
     },
   };

@@ -7,7 +7,7 @@ export default defineConfig({
     environment: 'happy-dom',
     testTimeout: 15000,
     setupFiles: ['./test/setup.ts'],
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.ts', 'src/**/*.test.ts', 'src/**/*.test.tsx'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -17,6 +17,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@features': resolve(__dirname, 'src/features'),
       '@shared': resolve(__dirname, 'src/shared'),
       '@main': resolve(__dirname, 'src/main'),
       '@renderer': resolve(__dirname, 'src/renderer'),

@@ -73,6 +73,7 @@ export default defineConfig({
     },
     resolve: {
       alias: {
+        '@features': resolve(__dirname, 'src/features'),
         '@main': resolve(__dirname, 'src/main'),
         '@shared': resolve(__dirname, 'src/shared'),
         '@preload': resolve(__dirname, 'src/preload')
@@ -111,6 +112,7 @@ export default defineConfig({
   preload: {
     resolve: {
       alias: {
+        '@features': resolve(__dirname, 'src/features'),
         '@preload': resolve(__dirname, 'src/preload'),
         '@shared': resolve(__dirname, 'src/shared'),
         '@main': resolve(__dirname, 'src/main')
@@ -141,6 +143,7 @@ export default defineConfig({
     },
     resolve: {
       alias: {
+        '@features': resolve(__dirname, 'src/features'),
         '@renderer': resolve(__dirname, 'src/renderer'),
         '@shared': resolve(__dirname, 'src/shared'),
         '@main': resolve(__dirname, 'src/main'),
