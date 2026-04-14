@@ -84,6 +84,18 @@ export function TmuxInstallerBannerView(): React.JSX.Element | null {
           >
             {viewModel.body}
           </p>
+          {viewModel.benefitsBody && (
+            <div
+              className="mt-3 max-w-4xl rounded-md border px-3 py-2 text-[13px] leading-6"
+              style={{
+                borderColor: 'rgba(245, 158, 11, 0.18)',
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {viewModel.benefitsBody}
+            </div>
+          )}
           {(viewModel.platformLabel ||
             viewModel.locationLabel ||
             viewModel.runtimeReadyLabel ||
@@ -155,8 +167,18 @@ export function TmuxInstallerBannerView(): React.JSX.Element | null {
               type="button"
               onClick={() => void install()}
               disabled={viewModel.installDisabled}
-              className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ borderColor: 'var(--color-border)' }}
+              className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                viewModel.installButtonPrimary ? 'hover:bg-emerald-500/20' : 'hover:bg-white/5'
+              }`}
+              style={
+                viewModel.installButtonPrimary
+                  ? {
+                      borderColor: 'rgba(34, 197, 94, 0.75)',
+                      backgroundColor: 'rgba(34, 197, 94, 0.16)',
+                      color: '#dcfce7',
+                    }
+                  : { borderColor: 'var(--color-border)' }
+              }
             >
               <Wrench className="size-4" />
               {viewModel.installLabel}
@@ -201,15 +223,17 @@ export function TmuxInstallerBannerView(): React.JSX.Element | null {
                 : `Show setup steps (${viewModel.manualHints.length})`}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5"
-            style={{ borderColor: 'var(--color-border)' }}
-          >
-            <RefreshCw className="size-4" />
-            Re-check
-          </button>
+          {viewModel.showRefreshButton && (
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-white/5"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              <RefreshCw className="size-4" />
+              Re-check
+            </button>
+          )}
         </div>
       </div>
 

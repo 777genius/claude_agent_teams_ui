@@ -42,7 +42,7 @@ export function formatTmuxInstallerProgress(phase: TmuxInstallerPhase): number |
   if (phase === 'verifying') return 90;
   if (phase === 'needs_restart') return 96;
   if (phase === 'completed') return 100;
-  if (phase === 'needs_manual_step') return 100;
+  if (phase === 'needs_manual_step') return 82;
   if (phase === 'error') return 100;
   if (phase === 'cancelled') return 0;
   return null;
@@ -60,4 +60,16 @@ export function formatTmuxLocationLabel(location: 'host' | 'wsl' | null): string
   if (location === 'host') return 'Host runtime';
   if (location === 'wsl') return 'WSL runtime';
   return null;
+}
+
+export function formatTmuxOptionalBenefits(platform: TmuxPlatform | null): string | null {
+  if (!platform) {
+    return null;
+  }
+
+  if (platform === 'win32') {
+    return 'Optional, but recommended. The app works without tmux. With tmux in WSL, teammates are more reliable for long-running work, restarts are cleaner, and recovery after reconnects is better.';
+  }
+
+  return 'Optional, but recommended. The app works without tmux. With tmux, teammates are more reliable for long-running work, restarts are cleaner, and recovery after reconnects is better.';
 }

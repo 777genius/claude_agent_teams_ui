@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 
 import { killProcessTree } from '@main/utils/childProcess';
 
+import { decodeInstallerProcessOutput } from '../runtime/decodeInstallerProcessOutput';
+
 import type { ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
 
@@ -45,7 +47,8 @@ export class TmuxCommandRunner {
         return {
           push: (chunk: string): void => {
             pending += chunk;
-            const lines = pending.split(/\r?\n/);
+            const normalizedPending = pending.replace(/\r(?!\n)/g, '\n');
+            const lines = normalizedPending.split('\n');
             pending = lines.pop() ?? '';
             for (const line of lines) {
               emitLine(line);
@@ -64,8 +67,12 @@ export class TmuxCommandRunner {
       const stdoutWriter = createBufferedLineWriter();
       const stderrWriter = createBufferedLineWriter();
 
-      child.stdout.on('data', (chunk: Buffer | string) => stdoutWriter.push(String(chunk)));
-      child.stderr.on('data', (chunk: Buffer | string) => stderrWriter.push(String(chunk)));
+      child.stdout.on('data', (chunk: Buffer | string) =>
+        stdoutWriter.push(decodeInstallerProcessOutput(chunk))
+      );
+      child.stderr.on('data', (chunk: Buffer | string) =>
+        stderrWriter.push(decodeInstallerProcessOutput(chunk))
+      );
       child.on('error', (error) => {
         this.#activeChild = null;
         reject(error);

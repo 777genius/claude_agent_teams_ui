@@ -20,6 +20,8 @@ const baseViewModel: TmuxInstallerBannerViewModel = {
   loading: false,
   title: 'tmux is not installed',
   body: 'WSL is available, but no Linux distribution is installed yet.',
+  benefitsBody:
+    'Optional, but recommended. The app works without tmux. With tmux in WSL, teammates are more reliable.',
   error: null,
   platformLabel: 'Windows',
   locationLabel: null,
@@ -45,6 +47,8 @@ const baseViewModel: TmuxInstallerBannerViewModel = {
   installSupported: true,
   installDisabled: false,
   installLabel: 'Install Ubuntu in WSL',
+  installButtonPrimary: true,
+  showRefreshButton: true,
   canCancel: false,
   acceptsInput: false,
   inputPrompt: null,

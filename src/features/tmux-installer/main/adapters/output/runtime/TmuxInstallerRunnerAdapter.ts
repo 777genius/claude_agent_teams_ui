@@ -15,6 +15,8 @@ import type { TmuxInstallPlan } from '@features/tmux-installer/main/infrastructu
 const MAX_LOG_LINES = 400;
 const RETRY_WITH_UPDATE_PATTERNS = ['unable to locate package', 'failed to fetch'];
 const RECOMMENDED_WSL_DISTRO_NAME = 'Ubuntu';
+const WINDOWS_DISTRO_APPEAR_RETRY_DELAY_MS = 2_000;
+const WINDOWS_DISTRO_APPEAR_RETRY_ATTEMPTS = 6;
 
 class TmuxInstallCancelledError extends Error {
   constructor() {
@@ -33,6 +35,7 @@ export class TmuxInstallerRunnerAdapter
   readonly #wslService: TmuxWslService;
   readonly #windowsElevatedStepRunner: WindowsElevatedStepRunner;
   readonly #presenter: TmuxInstallerProgressPresenter;
+  readonly #sleep: (ms: number) => Promise<void>;
   #cancelRequested = false;
   #snapshot: TmuxInstallerSnapshot = {
     phase: 'idle',
@@ -55,7 +58,8 @@ export class TmuxInstallerRunnerAdapter
     commandRunner = new TmuxCommandRunner(),
     terminalSession = new TmuxInstallTerminalSession(),
     wslService = new TmuxWslService(),
-    windowsElevatedStepRunner = new WindowsElevatedStepRunner()
+    windowsElevatedStepRunner = new WindowsElevatedStepRunner(),
+    sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   ) {
     this.#statusSource = statusSource;
     this.#presenter = presenter;
@@ -64,6 +68,7 @@ export class TmuxInstallerRunnerAdapter
     this.#terminalSession = terminalSession;
     this.#wslService = wslService;
     this.#windowsElevatedStepRunner = windowsElevatedStepRunner;
+    this.#sleep = sleep;
   }
 
   getSnapshot(): TmuxInstallerSnapshot {
@@ -412,15 +417,15 @@ export class TmuxInstallerRunnerAdapter
       inputPrompt: null,
       inputSecret: false,
     });
-    const status = await this.#refreshStatus();
-    if (!status.wsl?.distroName) {
+    const status = await this.#waitForWindowsDistroStatus();
+    if (status.wsl?.rebootRequired) {
       this.#setSnapshot({
-        phase: 'needs_manual_step',
+        phase: 'needs_restart',
         strategy: 'wsl',
-        message: 'WSL distro install still needs a manual step',
+        message: 'Restart Windows before continuing with tmux setup',
         detail:
-          status.wsl?.statusDetail ??
-          'The app could not confirm that a WSL distro is ready yet. Finish the distro install manually, then re-check.',
+          status.wsl.statusDetail ??
+          'Windows still needs a restart before the installed WSL distro can be finalized.',
         error: null,
         canCancel: false,
         acceptsInput: false,
@@ -428,6 +433,33 @@ export class TmuxInstallerRunnerAdapter
         inputSecret: false,
       });
       return status;
+    }
+    if (!status.wsl?.distroName) {
+      this.#setSnapshot({
+        phase: 'waiting_for_external_step',
+        strategy: 'wsl',
+        message: 'Finish Ubuntu setup in WSL',
+        detail:
+          'Ubuntu installation was started, but Windows has not exposed the distro to the app yet. Wait a moment, then click Re-check. If Ubuntu appears in the Start menu, open it once and complete the first Linux user setup.',
+        error: null,
+        canCancel: false,
+        acceptsInput: false,
+        inputPrompt: null,
+        inputSecret: false,
+      });
+      return status;
+    }
+    return status;
+  }
+
+  async #waitForWindowsDistroStatus(): Promise<TmuxStatus> {
+    let status = await this.#refreshStatus();
+    for (let attempt = 0; attempt < WINDOWS_DISTRO_APPEAR_RETRY_ATTEMPTS; attempt += 1) {
+      if (status.wsl?.distroName || status.wsl?.rebootRequired) {
+        return status;
+      }
+      await this.#sleep(WINDOWS_DISTRO_APPEAR_RETRY_DELAY_MS);
+      status = await this.#refreshStatus();
     }
     return status;
   }

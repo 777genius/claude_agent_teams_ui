@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 
+import { decodeInstallerProcessOutput } from '../runtime/decodeInstallerProcessOutput';
+
 import { TmuxWslPreferenceStore } from './TmuxWslPreferenceStore';
 
 import type {
@@ -373,37 +375,7 @@ export class TmuxWslService {
   }
 
   #decodeOutput(output: string | Buffer): string {
-    if (typeof output === 'string') {
-      return output.replace(/\0/g, '');
-    }
-    if (output.length === 0) {
-      return '';
-    }
-
-    const hasUtf16LeBom = output.length >= 2 && output[0] === 0xff && output[1] === 0xfe;
-    const decoded =
-      hasUtf16LeBom || this.#looksLikeUtf16Le(output)
-        ? output.toString('utf16le')
-        : output.toString('utf8');
-    return decoded.replace(/\0/g, '');
-  }
-
-  #looksLikeUtf16Le(buffer: Buffer): boolean {
-    const sampleSize = Math.min(buffer.length, 512);
-    if (sampleSize < 2) {
-      return false;
-    }
-
-    let pairs = 0;
-    let nullsAtOddIndex = 0;
-    for (let i = 0; i + 1 < sampleSize; i += 2) {
-      pairs += 1;
-      if (buffer[i + 1] === 0) {
-        nullsAtOddIndex += 1;
-      }
-    }
-
-    return pairs > 0 && nullsAtOddIndex / pairs >= 0.3;
+    return decodeInstallerProcessOutput(output);
   }
 
   #parseWslDistros(stdout: string): string[] {

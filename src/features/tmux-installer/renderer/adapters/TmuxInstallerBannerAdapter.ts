@@ -3,6 +3,7 @@ import {
   formatTmuxInstallerProgress,
   formatTmuxInstallerTitle,
   formatTmuxLocationLabel,
+  formatTmuxOptionalBenefits,
   formatTmuxPlatformLabel,
 } from '@features/tmux-installer/renderer/utils/formatTmuxInstallerText';
 
@@ -17,6 +18,7 @@ export interface TmuxInstallerBannerViewModel {
   loading: boolean;
   title: string;
   body: string;
+  benefitsBody: string | null;
   error: string | null;
   platformLabel: string | null;
   locationLabel: string | null;
@@ -31,6 +33,8 @@ export interface TmuxInstallerBannerViewModel {
   installSupported: boolean;
   installDisabled: boolean;
   installLabel: string;
+  installButtonPrimary: boolean;
+  showRefreshButton: boolean;
   canCancel: boolean;
   acceptsInput: boolean;
   inputPrompt: string | null;
@@ -60,6 +64,12 @@ export class TmuxInstallerBannerAdapter {
     const title =
       snapshot.phase === 'idle' && status?.effective.available && !status.effective.runtimeReady
         ? 'tmux needs one more step'
+        : snapshot.message &&
+            (snapshot.phase === 'pending_external_elevation' ||
+              snapshot.phase === 'waiting_for_external_step' ||
+              snapshot.phase === 'needs_restart' ||
+              snapshot.phase === 'needs_manual_step')
+          ? snapshot.message
         : formatTmuxInstallerTitle(snapshot.phase);
     const primaryGuideUrl =
       status?.autoInstall.manualHints.find((hint) => typeof hint.url === 'string')?.url ?? null;
@@ -71,6 +81,8 @@ export class TmuxInstallerBannerAdapter {
       status?.effective.detail ??
       status?.wsl?.statusDetail ??
       'tmux improves persistent teammate reliability and cleaner recovery for long-running tasks.';
+    const benefitsBody =
+      status && !status.effective.runtimeReady ? formatTmuxOptionalBenefits(status.platform) : null;
     const runtimeReadyLabel = status
       ? status.effective.runtimeReady
         ? 'Ready for persistent teammates'
@@ -93,12 +105,27 @@ export class TmuxInstallerBannerAdapter {
             ? 'Install Ubuntu in WSL'
             : 'Install tmux in WSL'
         : formatInstallButtonLabel(snapshot.phase);
+    const installDisabled =
+      input.loading ||
+      snapshot.phase === 'preparing' ||
+      snapshot.phase === 'checking' ||
+      snapshot.phase === 'requesting_privileges' ||
+      snapshot.phase === 'pending_external_elevation' ||
+      snapshot.phase === 'waiting_for_external_step' ||
+      snapshot.phase === 'installing' ||
+      snapshot.phase === 'verifying';
+    const installButtonPrimary =
+      !installDisabled && (installLabel.startsWith('Install') || installLabel.startsWith('Retry'));
+    const showRefreshButton =
+      !(status?.autoInstall.supported ?? false) ||
+      (installLabel !== 'Re-check' && installLabel !== 'Re-check after restart');
 
     return {
       visible,
       loading: input.loading,
       title,
       body,
+      benefitsBody,
       error: input.error ?? snapshot.error ?? status?.error ?? null,
       platformLabel: formatTmuxPlatformLabel(status?.platform ?? null),
       locationLabel: formatTmuxLocationLabel(status?.effective.location ?? null),
@@ -111,16 +138,10 @@ export class TmuxInstallerBannerAdapter {
       manualHintsCollapsible,
       primaryGuideUrl,
       installSupported: status?.autoInstall.supported ?? false,
-      installDisabled:
-        input.loading ||
-        snapshot.phase === 'preparing' ||
-        snapshot.phase === 'checking' ||
-        snapshot.phase === 'requesting_privileges' ||
-        snapshot.phase === 'pending_external_elevation' ||
-        snapshot.phase === 'waiting_for_external_step' ||
-        snapshot.phase === 'installing' ||
-        snapshot.phase === 'verifying',
+      installDisabled,
       installLabel,
+      installButtonPrimary,
+      showRefreshButton,
       canCancel: snapshot.canCancel,
       acceptsInput: snapshot.acceptsInput,
       inputPrompt: snapshot.inputPrompt,

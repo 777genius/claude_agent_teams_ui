@@ -73,6 +73,9 @@ describe('TmuxInstallerBannerAdapter', () => {
     expect(result.manualHints).toHaveLength(1);
     expect(result.manualHintsCollapsible).toBe(false);
     expect(result.body).toContain('persistent teammate reliability');
+    expect(result.benefitsBody).toContain('Optional, but recommended');
+    expect(result.installButtonPrimary).toBe(true);
+    expect(result.showRefreshButton).toBe(true);
   });
 
   it('prioritizes renderer errors and disables the install button while installing', () => {
@@ -98,12 +101,14 @@ describe('TmuxInstallerBannerAdapter', () => {
 
     expect(result.title).toBe('Installing tmux');
     expect(result.body).toBe('Renderer bridge failed');
+    expect(result.benefitsBody).toContain('Optional, but recommended');
     expect(result.error).toBe('Renderer bridge failed');
     expect(result.installDisabled).toBe(true);
     expect(result.canCancel).toBe(true);
     expect(result.acceptsInput).toBe(false);
     expect(result.progressPercent).toBe(68);
     expect(result.logs).toEqual(['Downloading bottle...']);
+    expect(result.installButtonPrimary).toBe(false);
   });
 
   it('exposes a manual guide url when auto install is unavailable', () => {
@@ -143,8 +148,10 @@ describe('TmuxInstallerBannerAdapter', () => {
 
     expect(result.platformLabel).toBe('Windows');
     expect(result.primaryGuideUrl).toBe('https://learn.microsoft.com/en-us/windows/wsl/install');
-    expect(result.progressPercent).toBe(100);
+    expect(result.progressPercent).toBe(82);
     expect(result.manualHintsCollapsible).toBe(true);
+    expect(result.benefitsBody).toContain('With tmux in WSL');
+    expect(result.showRefreshButton).toBe(true);
   });
 
   it('keeps the banner visible when tmux is installed but runtime is not ready yet', () => {
@@ -174,6 +181,7 @@ describe('TmuxInstallerBannerAdapter', () => {
     expect(result.locationLabel).toBe('Host runtime');
     expect(result.runtimeReadyLabel).toBe('Installed, but not active yet');
     expect(result.versionLabel).toBe('tmux 3.4');
+    expect(result.benefitsBody).toContain('With tmux in WSL');
   });
 
   it('exposes installer input metadata for interactive privilege flows', () => {
@@ -259,5 +267,39 @@ describe('TmuxInstallerBannerAdapter', () => {
 
     expect(installWslResult.installLabel).toBe('Install WSL');
     expect(installUbuntuResult.installLabel).toBe('Install Ubuntu in WSL');
+    expect(installWslResult.installButtonPrimary).toBe(true);
+    expect(installUbuntuResult.installButtonPrimary).toBe(true);
+  });
+
+  it('uses a specific Windows external-step message as the title', () => {
+    const adapter = TmuxInstallerBannerAdapter.create();
+
+    const result = adapter.adapt({
+      status: {
+        ...baseStatus,
+        platform: 'win32',
+        autoInstall: {
+          ...baseStatus.autoInstall,
+          supported: true,
+          strategy: 'wsl',
+        },
+      },
+      snapshot: {
+        ...idleSnapshot,
+        phase: 'waiting_for_external_step',
+        strategy: 'wsl',
+        message: 'Finish Ubuntu setup in WSL',
+        detail:
+          'Ubuntu installation was started, but Windows has not exposed the distro to the app yet.',
+      },
+      loading: false,
+      error: null,
+      detailsOpen: false,
+    });
+
+    expect(result.title).toBe('Finish Ubuntu setup in WSL');
+    expect(result.progressPercent).toBe(48);
+    expect(result.installDisabled).toBe(true);
+    expect(result.showRefreshButton).toBe(true);
   });
 });

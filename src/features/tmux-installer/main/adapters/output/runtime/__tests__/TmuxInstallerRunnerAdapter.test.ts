@@ -366,4 +366,105 @@ describe('TmuxInstallerRunnerAdapter', () => {
     expect(runner.getSnapshot().phase).toBe('waiting_for_external_step');
     expect(runner.getSnapshot().message).toContain('Ubuntu');
   });
+
+  it('keeps Windows distro install in an external-step state when Ubuntu is still being provisioned', async () => {
+    const presenter = createPresenter();
+    const initialStatus = createBaseStatus({
+      platform: 'win32',
+      nativeSupported: false,
+      autoInstall: {
+        supported: true,
+        strategy: 'wsl',
+        packageManagerLabel: 'WSL',
+        requiresTerminalInput: false,
+        requiresAdmin: false,
+        requiresRestart: false,
+        mayOpenExternalWindow: true,
+        reasonIfUnsupported: null,
+        manualHints: [],
+      },
+      wsl: {
+        wslInstalled: true,
+        rebootRequired: false,
+        distroName: null,
+        distroVersion: null,
+        distroBootstrapped: false,
+        innerPackageManager: null,
+        tmuxAvailableInsideWsl: false,
+        tmuxVersion: null,
+        tmuxBinaryPath: null,
+        statusDetail: 'No distro is configured yet.',
+      },
+      wslPreference: null,
+    });
+    const pendingStatus = createBaseStatus({
+      platform: 'win32',
+      nativeSupported: false,
+      autoInstall: initialStatus.autoInstall,
+      effective: {
+        available: false,
+        location: null,
+        version: null,
+        binaryPath: null,
+        runtimeReady: false,
+        detail: 'WSL is available, but no Linux distribution is installed yet.',
+      },
+      wsl: {
+        wslInstalled: true,
+        rebootRequired: false,
+        distroName: null,
+        distroVersion: null,
+        distroBootstrapped: false,
+        innerPackageManager: null,
+        tmuxAvailableInsideWsl: false,
+        tmuxVersion: null,
+        tmuxBinaryPath: null,
+        statusDetail: 'WSL is available, but no Linux distribution is installed yet.',
+      },
+      wslPreference: {
+        preferredDistroName: 'Ubuntu',
+        source: 'persisted',
+      },
+    });
+    let statusCallCount = 0;
+    const statusSource = {
+      getStatus: vi.fn(async () => {
+        statusCallCount += 1;
+        return statusCallCount === 1 ? initialStatus : pendingStatus;
+      }),
+      invalidateStatus: vi.fn(),
+    };
+    const runner = new TmuxInstallerRunnerAdapter(
+      statusSource as never,
+      presenter as never,
+      {
+        resolve: vi.fn(async () => {
+          throw new Error('resolve() should not run while distro is still provisioning');
+        }),
+      } as never,
+      {
+        run: vi.fn(async () => ({ exitCode: 0 })),
+        cancel: vi.fn(),
+      } as never,
+      {
+        run: vi.fn(),
+        writeLine: vi.fn(),
+        cancel: vi.fn(),
+      } as never,
+      {
+        persistPreferredDistro: vi.fn(async () => undefined),
+      } as never,
+      {
+        runWslCoreInstall: vi.fn(),
+      } as never,
+      async () => undefined
+    );
+
+    await expect(runner.install()).resolves.toBeUndefined();
+
+    expect(statusCallCount).toBeGreaterThan(2);
+    expect(runner.getSnapshot().phase).toBe('waiting_for_external_step');
+    expect(runner.getSnapshot().message).toContain('Finish Ubuntu setup');
+    expect(runner.getSnapshot().detail).toContain('Wait a moment, then click Re-check');
+  });
 });
