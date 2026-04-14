@@ -49,6 +49,7 @@ describe('computeEffectiveTeamModel', () => {
   it('does not double-append [1m] when input already has it', () => {
     expect(computeEffectiveTeamModel('opus[1m]', false, 'anthropic')).toBe('opus[1m]');
     expect(computeEffectiveTeamModel('sonnet[1m]', false, 'anthropic')).toBe('sonnet[1m]');
+    expect(computeEffectiveTeamModel('opus[1m][1m]', false, 'anthropic')).toBe('opus[1m]');
   });
 
   it('defaults to opus[1m] when no model selected', () => {
@@ -58,6 +59,7 @@ describe('computeEffectiveTeamModel', () => {
   it('returns base model without [1m] when limitContext is true', () => {
     expect(computeEffectiveTeamModel('opus', true, 'anthropic')).toBe('opus');
     expect(computeEffectiveTeamModel('opus[1m]', true, 'anthropic')).toBe('opus');
+    expect(computeEffectiveTeamModel('opus[1m][1m]', true, 'anthropic')).toBe('opus');
   });
 
   it('returns haiku as-is', () => {

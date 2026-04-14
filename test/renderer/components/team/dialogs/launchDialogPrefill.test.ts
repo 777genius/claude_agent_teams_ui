@@ -38,6 +38,7 @@ describe('resolveLaunchDialogPrefill', () => {
       multimodelEnabled: true,
       storedProviderId: 'anthropic',
       storedEffort: 'medium',
+      storedLimitContext: false,
       getStoredModel: createStoredModelGetter({
         anthropic: 'haiku',
         codex: 'gpt-5.4',
@@ -48,6 +49,7 @@ describe('resolveLaunchDialogPrefill', () => {
       providerId: 'codex',
       model: 'gpt-5.4',
       effort: 'medium',
+      limitContext: false,
     });
   });
 
@@ -78,6 +80,7 @@ describe('resolveLaunchDialogPrefill', () => {
       multimodelEnabled: true,
       storedProviderId: 'anthropic',
       storedEffort: 'medium',
+      storedLimitContext: false,
       getStoredModel: createStoredModelGetter({
         anthropic: 'haiku',
         codex: 'gpt-5.4',
@@ -88,6 +91,7 @@ describe('resolveLaunchDialogPrefill', () => {
       providerId: 'codex',
       model: 'gpt-5.4',
       effort: 'medium',
+      limitContext: false,
     });
   });
 
@@ -103,6 +107,7 @@ describe('resolveLaunchDialogPrefill', () => {
       multimodelEnabled: true,
       storedProviderId: 'anthropic',
       storedEffort: 'medium',
+      storedLimitContext: false,
       getStoredModel: createStoredModelGetter({
         anthropic: 'haiku',
         codex: 'gpt-5.4',
@@ -113,6 +118,7 @@ describe('resolveLaunchDialogPrefill', () => {
       providerId: 'codex',
       model: 'gpt-5.3-codex',
       effort: 'high',
+      limitContext: false,
     });
   });
 
@@ -134,6 +140,7 @@ describe('resolveLaunchDialogPrefill', () => {
       multimodelEnabled: true,
       storedProviderId: 'anthropic',
       storedEffort: 'medium',
+      storedLimitContext: false,
       getStoredModel: createStoredModelGetter({
         anthropic: 'haiku',
         codex: 'gpt-5.4',
@@ -144,6 +151,34 @@ describe('resolveLaunchDialogPrefill', () => {
       providerId: 'anthropic',
       model: 'haiku',
       effort: 'medium',
+      limitContext: false,
+    });
+  });
+
+  it('prefers per-team launch params for limitContext over stale global storage', () => {
+    const result = resolveLaunchDialogPrefill({
+      members: [],
+      savedRequest: null,
+      previousLaunchParams: {
+        providerId: 'anthropic',
+        model: 'opus[1m][1m]',
+        effort: 'high',
+        limitContext: true,
+      },
+      multimodelEnabled: true,
+      storedProviderId: 'anthropic',
+      storedEffort: 'medium',
+      storedLimitContext: false,
+      getStoredModel: createStoredModelGetter({
+        anthropic: 'haiku',
+      }),
+    });
+
+    expect(result).toEqual({
+      providerId: 'anthropic',
+      model: 'opus',
+      effort: 'high',
+      limitContext: true,
     });
   });
 });

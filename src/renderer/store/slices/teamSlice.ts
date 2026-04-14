@@ -6,6 +6,7 @@ import {
   canDisplayTaskChangesForOptions,
   type TaskChangeRequestOptions,
 } from '@renderer/utils/taskChangeRequest';
+import { stripTrailingOneMillionSuffixes } from '@renderer/utils/teamModelContext';
 import { IpcError, unwrapIpc } from '@renderer/utils/unwrapIpc';
 import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { createLogger } from '@shared/utils/logger';
@@ -1220,8 +1221,7 @@ function saveLaunchParams(teamName: string, params: TeamLaunchParams): void {
  * E.g. 'opus[1m]' → 'opus', 'sonnet' → 'sonnet', undefined → undefined.
  */
 function extractBaseModel(raw?: string): string | undefined {
-  if (!raw) return undefined;
-  return raw.replace(/\[1m\]$/, '') || undefined;
+  return stripTrailingOneMillionSuffixes(raw);
 }
 
 const TOOL_APPROVAL_PREFIX = 'team:toolApprovalSettings:';
