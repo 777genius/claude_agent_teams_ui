@@ -4878,17 +4878,31 @@ export class TeamProvisioningService {
             members: prevMembers,
             launchPhase,
           } = persistedLaunchState;
+          const teammateWasNeverSpawned = (
+            member:
+              | {
+                  agentToolAccepted?: boolean;
+                  firstSpawnAcceptedAt?: string;
+                  runtimeAlive?: boolean;
+                  bootstrapConfirmed?: boolean;
+                }
+              | undefined
+          ): boolean => {
+            if (!member) return true;
+            const hasAcceptedSpawn =
+              member.agentToolAccepted === true ||
+              (typeof member.firstSpawnAcceptedAt === 'string' &&
+                member.firstSpawnAcceptedAt.trim().length > 0);
+            return (
+              !hasAcceptedSpawn &&
+              member.runtimeAlive !== true &&
+              member.bootstrapConfirmed !== true
+            );
+          };
           const allTeammatesNeverSpawned =
             launchPhase !== 'active' &&
             prevExpected.length > 0 &&
-            prevExpected.every((name) => {
-              const m = prevMembers[name];
-              return (
-                !m ||
-                (m.launchState === 'starting' && !m.agentToolAccepted) ||
-                m.launchState === 'failed_to_start'
-              );
-            });
+            prevExpected.every((name) => teammateWasNeverSpawned(prevMembers[name]));
           if (allTeammatesNeverSpawned) {
             skipResume = true;
             logger.info(
