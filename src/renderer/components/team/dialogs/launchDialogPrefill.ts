@@ -1,4 +1,5 @@
 import { normalizeCreateLaunchProviderForUi } from '@renderer/utils/geminiUiFreeze';
+import { stripTrailingOneMillionSuffixes } from '@renderer/utils/teamModelContext';
 import { normalizeTeamModelForUi } from '@renderer/utils/teamModelAvailability';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
@@ -9,6 +10,7 @@ interface PreviousLaunchParamsLike {
   providerId?: TeamProviderId;
   model?: string;
   effort?: string;
+  limitContext?: boolean;
 }
 
 interface LaunchDialogPrefillInput {
@@ -18,6 +20,7 @@ interface LaunchDialogPrefillInput {
   multimodelEnabled: boolean;
   storedProviderId: TeamProviderId;
   storedEffort: string;
+  storedLimitContext: boolean;
   getStoredModel: (providerId: TeamProviderId) => string;
 }
 
@@ -25,6 +28,7 @@ interface LaunchDialogPrefillResult {
   providerId: TeamProviderId;
   model: string;
   effort: string;
+  limitContext: boolean;
 }
 
 function normalizeModelCandidate(model: string | undefined): string {
@@ -32,8 +36,7 @@ function normalizeModelCandidate(model: string | undefined): string {
   if (!trimmed || trimmed === 'default' || trimmed === '__default__') {
     return '';
   }
-  // Strip [1m] suffix — the UI stores base model names; computeEffectiveTeamModel adds it back
-  return trimmed.replace(/\[1m\]$/, '');
+  return stripTrailingOneMillionSuffixes(trimmed) ?? '';
 }
 
 function canReuseModelForSelectedProvider(
@@ -53,6 +56,7 @@ export function resolveLaunchDialogPrefill({
   multimodelEnabled,
   storedProviderId,
   storedEffort,
+  storedLimitContext,
   getStoredModel,
 }: LaunchDialogPrefillInput): LaunchDialogPrefillResult {
   const currentLead = members.find((member) => isLeadMember(member));
@@ -89,6 +93,8 @@ export function resolveLaunchDialogPrefill({
 
   const effort =
     currentLead?.effort ?? savedRequest?.effort ?? previousLaunchParams?.effort ?? storedEffort;
+  const limitContext =
+    previousLaunchParams?.limitContext ?? savedRequest?.limitContext ?? storedLimitContext;
 
   return {
     providerId,
@@ -96,5 +102,6 @@ export function resolveLaunchDialogPrefill({
       ? normalizeTeamModelForUi(providerId, matchingModel)
       : getStoredModel(providerId),
     effort,
+    limitContext,
   };
 }
