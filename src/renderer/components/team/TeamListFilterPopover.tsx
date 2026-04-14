@@ -42,9 +42,8 @@ export const TeamListFilterPopover = ({
   const activeCount = useMemo(() => {
     let count = 0;
     if (filter.selectedStatuses.size > 0) count += 1;
-    if (selectedProjectPath) count += 1;
     return count;
-  }, [filter.selectedStatuses, selectedProjectPath]);
+  }, [filter.selectedStatuses]);
 
   const uniqueProjects = useMemo(() => {
     const paths = new Set<string>();
@@ -73,7 +72,6 @@ export const TeamListFilterPopover = ({
 
   const handleClearAll = (): void => {
     onFilterChange(EMPTY_TEAM_FILTER);
-    onProjectChange(null);
   };
 
   const aliveSet = useMemo(() => new Set(aliveTeams), [aliveTeams]);
@@ -146,7 +144,7 @@ export const TeamListFilterPopover = ({
         {uniqueProjects.length > 0 && (
           <div className="border-b border-[var(--color-border)] p-3">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-              Project
+              Project priority
             </p>
             <div className="max-h-40 space-y-1.5 overflow-y-auto">
               {uniqueProjects.map((project) => (

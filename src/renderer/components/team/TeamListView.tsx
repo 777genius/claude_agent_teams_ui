@@ -421,11 +421,10 @@ export const TeamListView = (): React.JSX.Element => {
       });
     }
 
-    if (currentProjectPath) {
-      result = result.filter((team) => teamMatchesProjectSelection(team, currentProjectPath));
-    }
-
     const aliveSet = new Set(aliveTeams);
+    const matchesCurrentProject = currentProjectPath
+      ? (team: TeamSummary): boolean => teamMatchesProjectSelection(team, currentProjectPath)
+      : null;
 
     result = [...result].sort((a, b) => {
       // 1. Alive (running) teams first
@@ -433,12 +432,19 @@ export const TeamListView = (): React.JSX.Element => {
       const aliveB = aliveSet.has(b.teamName) ? 0 : 1;
       if (aliveA !== aliveB) return aliveA - aliveB;
 
-      // 2. Most recently active teams first (stable secondary sort)
+      // 2. Teams related to the selected project are prioritized next
+      if (matchesCurrentProject) {
+        const projectA = matchesCurrentProject(a) ? 0 : 1;
+        const projectB = matchesCurrentProject(b) ? 0 : 1;
+        if (projectA !== projectB) return projectA - projectB;
+      }
+
+      // 3. Most recently active teams first (stable secondary sort)
       const tsA = a.lastActivity ? new Date(a.lastActivity).getTime() : 0;
       const tsB = b.lastActivity ? new Date(b.lastActivity).getTime() : 0;
       if (tsA !== tsB) return tsB - tsA;
 
-      // 3. Fallback: alphabetical by team name for deterministic order
+      // 4. Fallback: alphabetical by team name for deterministic order
       return a.teamName.localeCompare(b.teamName);
     });
 
@@ -770,7 +776,7 @@ export const TeamListView = (): React.JSX.Element => {
               className="mt-1 truncate text-xs text-[var(--color-text-muted)]"
               title={currentProjectPath}
             >
-              {currentProjectPath}
+              Prioritizing teams related to this project - not hiding the rest
             </p>
           </div>
           <Button
@@ -848,7 +854,7 @@ export const TeamListView = (): React.JSX.Element => {
       );
     }
 
-    const hasActiveFilters = filter.selectedStatuses.size > 0 || currentProjectPath != null;
+    const hasActiveFilters = filter.selectedStatuses.size > 0;
     if (filteredTeams.length === 0 && (searchQuery.trim() || hasActiveFilters)) {
       return (
         <div className="flex items-center justify-center py-12 text-sm text-[var(--color-text-muted)]">
