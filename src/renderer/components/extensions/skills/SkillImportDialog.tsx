@@ -22,6 +22,7 @@ import {
 import { useStore } from '@renderer/store';
 import { FileSearch, FolderOpen, X } from 'lucide-react';
 
+import { getSuggestedSkillFolderNameFromPath } from './skillFolderNameUtils';
 import { SkillReviewDialog } from './SkillReviewDialog';
 import { resolveSkillProjectPath } from './skillProjectUtils';
 
@@ -55,11 +56,6 @@ interface SkillImportDialogProps {
   projectLabel: string | null;
   onClose: () => void;
   onImported: (skillId: string | null) => void;
-}
-
-function getFolderNameFromPath(value: string): string {
-  const segments = value.split(/[\\/]/u).filter(Boolean);
-  return segments.at(-1) ?? '';
 }
 
 export const SkillImportDialog = ({
@@ -101,7 +97,7 @@ export const SkillImportDialog = ({
     if (!open || folderNameEdited) {
       return;
     }
-    setFolderName(getFolderNameFromPath(sourceDir));
+    setFolderName(getSuggestedSkillFolderNameFromPath(sourceDir));
   }, [folderNameEdited, open, sourceDir]);
 
   useEffect(() => {

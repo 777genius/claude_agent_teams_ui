@@ -32,6 +32,7 @@ import {
   readSkillTemplateContent,
   updateSkillTemplateFrontmatter,
 } from './skillDraftUtils';
+import { toSuggestedSkillFolderName } from './skillFolderNameUtils';
 import { resolveSkillProjectPath } from './skillProjectUtils';
 import { SkillReviewDialog } from './SkillReviewDialog';
 
@@ -59,16 +60,6 @@ function parseInitialName(detail: SkillDetail | null): string {
 
 function parseInitialDescription(detail: SkillDetail | null): string {
   return detail?.item.description ?? '';
-}
-
-function toSuggestedFolderName(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[^\x00-\x7F]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
 }
 
 export const SkillEditorDialog = ({
@@ -192,7 +183,7 @@ export const SkillEditorDialog = ({
         notes: nextNotes,
       });
     const rawInput = readSkillTemplateContent(nextRawContent);
-    const suggestedFolderName = toSuggestedFolderName(nextName || 'New Skill');
+    const suggestedFolderName = toSuggestedSkillFolderName(nextName || 'New Skill');
     const hasCustomMarkdown = mode === 'edit' && rawInput.hasUnstructuredBody;
 
     setScope(nextScope);
@@ -485,7 +476,7 @@ export const SkillEditorDialog = ({
                         const nextValue = event.target.value;
                         setName(nextValue);
                         if (mode === 'create' && !folderNameEdited) {
-                          setFolderName(toSuggestedFolderName(nextValue || 'New Skill'));
+                          setFolderName(toSuggestedSkillFolderName(nextValue || 'New Skill'));
                         }
                         applyFormToRawContent({ name: nextValue });
                       }}

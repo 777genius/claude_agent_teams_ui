@@ -188,6 +188,44 @@ describe('SkillImportDialog', () => {
     });
   });
 
+  it('sanitizes the suggested destination folder when the source folder name is not CLI-safe', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    selectFoldersMock.mockResolvedValueOnce(['/tmp/My Skill Folder']);
+
+    await act(async () => {
+      root.render(
+        React.createElement(SkillImportDialog, {
+          open: true,
+          projectPath: null,
+          projectLabel: null,
+          onClose: vi.fn(),
+          onImported: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const browseButton = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Browse')
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      browseButton.click();
+      await Promise.resolve();
+    });
+
+    const folderInput = host.querySelector('#skill-import-folder') as HTMLInputElement;
+    expect(folderInput.value).toBe('my-skill-folder');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
   it('falls back to user scope when the project context disappears mid-dialog', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
