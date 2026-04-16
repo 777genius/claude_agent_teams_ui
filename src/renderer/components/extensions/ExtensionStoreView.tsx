@@ -323,6 +323,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
 
               <TabsContent value="plugins" className="mt-0 pt-4">
                 <PluginsPanel
+                  projectPath={projectPath}
                   pluginFilters={tabState.pluginFilters}
                   pluginSort={tabState.pluginSort}
                   selectedPluginId={tabState.selectedPluginId}
