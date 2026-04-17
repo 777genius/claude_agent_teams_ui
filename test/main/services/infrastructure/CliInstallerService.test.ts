@@ -72,12 +72,21 @@ vi.mock('@main/services/team/cliFlavor', () => ({
   })),
 }));
 
+vi.mock('@main/services/runtime/providerAwareCliEnv', () => ({
+  buildProviderAwareCliEnv: vi.fn(async () => ({
+    env: { HOME: '/Users/tester' },
+    connectionIssues: {},
+  })),
+}));
+
 import {
   CliInstallerService,
   isVersionOlder,
   normalizeVersion,
 } from '@main/services/infrastructure/CliInstallerService';
+import { ClaudeMultimodelBridgeService } from '@main/services/runtime/ClaudeMultimodelBridgeService';
 import { ClaudeBinaryResolver } from '@main/services/team/ClaudeBinaryResolver';
+import { getCliFlavorUiOptions, getConfiguredCliFlavor } from '@main/services/team/cliFlavor';
 import { execCli } from '@main/utils/childProcess';
 
 /**
@@ -96,6 +105,13 @@ describe('CliInstallerService', () => {
     vi.clearAllMocks();
     realpathMock.mockReset();
     realpathMock.mockImplementation(async (value: string) => value);
+    vi.mocked(getConfiguredCliFlavor).mockReturnValue('claude');
+    vi.mocked(getCliFlavorUiOptions).mockReturnValue({
+      displayName: 'Claude CLI',
+      supportsSelfUpdate: true,
+      showVersionDetails: true,
+      showBinaryPath: true,
+    });
     service = new CliInstallerService();
   });
 
@@ -175,6 +191,146 @@ describe('CliInstallerService', () => {
       expect(status.installed).toBe(true);
       expect(status.installedVersion).toBe('2.1.101');
       expect(status.authLoggedIn).toBe(true);
+    });
+
+    it('publishes probe-enriched runtime model status snapshots only for explicit verification requests', async () => {
+      allowConsoleLogs();
+      vi.mocked(getConfiguredCliFlavor).mockReturnValue('agent_teams_orchestrator');
+      vi.mocked(getCliFlavorUiOptions).mockReturnValue({
+        displayName: 'agent_teams_orchestrator',
+        supportsSelfUpdate: false,
+        showVersionDetails: false,
+        showBinaryPath: false,
+      });
+      vi.mocked(ClaudeBinaryResolver.resolve).mockResolvedValue('/usr/local/bin/claude');
+
+      vi.spyOn(ClaudeMultimodelBridgeService.prototype, 'getProviderStatuses').mockImplementation(
+        async (_binaryPath, onUpdate) => {
+          const providers = [
+            {
+              providerId: 'anthropic',
+              displayName: 'Anthropic',
+              supported: true,
+              authenticated: true,
+              authMethod: 'oauth_token',
+              verificationState: 'verified',
+              modelVerificationState: 'idle',
+              statusMessage: null,
+              models: [],
+              modelAvailability: [],
+              canLoginFromUi: true,
+              capabilities: { teamLaunch: true, oneShot: true },
+              backend: null,
+            },
+            {
+              providerId: 'codex',
+              displayName: 'Codex',
+              supported: true,
+              authenticated: true,
+              authMethod: 'oauth_token',
+              verificationState: 'verified',
+              modelVerificationState: 'idle',
+              statusMessage: null,
+              models: ['gpt-5.4', 'gpt-5.2-codex'],
+              modelAvailability: [],
+              canLoginFromUi: true,
+              capabilities: { teamLaunch: true, oneShot: true },
+              backend: {
+                kind: 'openai',
+                label: 'OpenAI',
+                endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+              },
+            },
+            {
+              providerId: 'gemini',
+              displayName: 'Gemini',
+              supported: false,
+              authenticated: false,
+              authMethod: null,
+              verificationState: 'unknown',
+              modelVerificationState: 'idle',
+              statusMessage: null,
+              models: [],
+              modelAvailability: [],
+              canLoginFromUi: true,
+              capabilities: { teamLaunch: false, oneShot: false },
+              backend: null,
+            },
+          ];
+          onUpdate?.(providers as never);
+          return providers as never;
+        }
+      );
+
+      vi.mocked(execCli).mockImplementation(async (_binaryPath, args) => {
+        const normalizedArgs = Array.isArray(args) ? args.join(' ') : '';
+        if (normalizedArgs === '--version') {
+          return { stdout: '2.3.4', stderr: '' };
+        }
+        if (normalizedArgs.includes('--model gpt-5.4')) {
+          return { stdout: 'PONG', stderr: '' };
+        }
+        if (normalizedArgs.includes('--model gpt-5.2-codex')) {
+          throw new Error(
+            "The 'gpt-5.2-codex' model is not supported when using Codex with a ChatGPT account."
+          );
+        }
+        throw new Error(`Unexpected execCli call: ${normalizedArgs}`);
+      });
+
+      const mockWindow = {
+        isDestroyed: () => false,
+        webContents: { send: vi.fn(), isDestroyed: () => false },
+      };
+      service.setMainWindow(mockWindow as unknown as import('electron').BrowserWindow);
+
+      const status = await service.getStatus();
+      expect(status.providers.find((provider) => provider.providerId === 'codex')?.modelAvailability).toEqual([]);
+
+      const verifiedProvider = await service.verifyProviderModels('codex');
+      expect(verifiedProvider?.modelAvailability).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ modelId: 'gpt-5.4', status: 'checking' }),
+          expect.objectContaining({ modelId: 'gpt-5.2-codex', status: 'checking' }),
+        ])
+      );
+
+      await vi.waitFor(() => {
+        const latestCodexProvider = service
+          .getLatestStatusSnapshot()
+          ?.providers.find((provider) => provider.providerId === 'codex');
+
+        expect(latestCodexProvider?.modelAvailability).toEqual([
+          expect.objectContaining({ modelId: 'gpt-5.4', status: 'available' }),
+          expect.objectContaining({
+            modelId: 'gpt-5.2-codex',
+            status: 'unavailable',
+          }),
+        ]);
+      });
+
+      const statusEvents = mockWindow.webContents.send.mock.calls
+        .filter((call: unknown[]) => call[0] === 'cliInstaller:progress')
+        .map((call: unknown[]) => call[1] as { type?: string; status?: { providers?: unknown[] } })
+        .filter((event) => event.type === 'status');
+
+      expect(statusEvents.length).toBeGreaterThan(1);
+      expect(
+        statusEvents.some((event) =>
+          event.status?.providers?.some(
+            (provider) =>
+              typeof provider === 'object' &&
+              provider !== null &&
+              'providerId' in provider &&
+              'modelAvailability' in provider &&
+              (provider as { providerId?: string }).providerId === 'codex' &&
+              Array.isArray((provider as { modelAvailability?: unknown[] }).modelAvailability) &&
+              (provider as { modelAvailability: Array<{ status?: string }> }).modelAvailability.some(
+                (item) => item.status === 'unavailable'
+              )
+          )
+        )
+      ).toBe(true);
     });
   });
 

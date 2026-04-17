@@ -48,6 +48,12 @@ unknown-key: true
         message: expect.stringContaining('version'),
       })
     );
+    expect(item.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'has-scripts',
+        severity: 'info',
+      })
+    );
   });
 
   it('marks missing frontmatter as invalid', () => {

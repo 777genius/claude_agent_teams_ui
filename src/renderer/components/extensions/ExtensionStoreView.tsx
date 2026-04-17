@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api } from '@renderer/api';
+import { ProviderBrandLogo } from '@renderer/components/common/ProviderBrandLogo';
+import { Badge } from '@renderer/components/ui/badge';
 import { Button } from '@renderer/components/ui/button';
 import { Tabs, TabsContent, TabsList } from '@renderer/components/ui/tabs';
 import {
@@ -18,8 +20,25 @@ import {
 import { useTabIdOptional } from '@renderer/contexts/useTabUIContext';
 import { useExtensionsTabState } from '@renderer/hooks/useExtensionsTabState';
 import { useStore } from '@renderer/store';
+import {
+  formatCliExtensionCapabilityStatus,
+  getVisibleMultimodelProviders,
+  isMultimodelRuntimeStatus,
+} from '@renderer/utils/multimodelProviderVisibility';
 import { resolveProjectPathById } from '@renderer/utils/projectLookup';
-import { AlertTriangle, BookOpen, Info, Key, Plus, Puzzle, RefreshCw, Server } from 'lucide-react';
+import { getExtensionActionDisableReason } from '@shared/utils/extensionNormalizers';
+import { getCliProviderExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
+import {
+  AlertTriangle,
+  BookOpen,
+  Info,
+  Key,
+  Loader2,
+  Plus,
+  Puzzle,
+  RefreshCw,
+  Server,
+} from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { ApiKeysPanel } from './apikeys/ApiKeysPanel';
@@ -28,6 +47,55 @@ import { McpServersPanel } from './mcp/McpServersPanel';
 import { PluginsPanel } from './plugins/PluginsPanel';
 import { SkillsPanel } from './skills/SkillsPanel';
 import { ExtensionsSubTabTrigger } from './ExtensionsSubTabTrigger';
+
+import type { CliProviderStatus } from '@shared/types';
+
+const ProviderCapabilityCardSkeleton = ({
+  providerId,
+  displayName,
+}: {
+  providerId: 'anthropic' | 'codex' | 'gemini';
+  displayName: string;
+}): React.JSX.Element => (
+  <div className="rounded-md border border-border bg-surface-raised px-3 py-2">
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        <p className="inline-flex items-center gap-2 text-sm font-medium text-text">
+          <ProviderBrandLogo providerId={providerId} className="size-4 shrink-0" />
+          <span>{displayName}</span>
+        </p>
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-text-muted">
+          <Loader2 className="size-3 animate-spin" />
+          <span>Checking provider status...</span>
+        </div>
+      </div>
+      <Badge variant="outline" className="shrink-0 text-text-muted">
+        Loading...
+      </Badge>
+    </div>
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {Array.from({ length: 3 }, (_, index) => (
+        <span
+          key={index}
+          className="h-7 w-28 animate-pulse rounded-md border border-border bg-surface"
+        />
+      ))}
+    </div>
+  </div>
+);
+
+function isProviderCapabilityCardLoading(
+  provider: CliProviderStatus,
+  providerLoading: boolean
+): boolean {
+  return (
+    providerLoading ||
+    (!provider.authenticated &&
+      provider.statusMessage === 'Checking...' &&
+      provider.models.length === 0 &&
+      provider.backend == null)
+  );
+}
 
 export const ExtensionStoreView = (): React.JSX.Element => {
   const tabId = useTabIdOptional();
@@ -38,11 +106,13 @@ export const ExtensionStoreView = (): React.JSX.Element => {
     fetchSkillsCatalog,
     mcpBrowse,
     mcpFetchInstalled,
+    apiKeysLoading,
     pluginCatalogLoading,
     mcpBrowseLoading,
     skillsLoading,
     cliStatus,
     cliStatusLoading,
+    cliProviderStatusLoading,
     openDashboard,
     sessions,
     projects,
@@ -55,11 +125,13 @@ export const ExtensionStoreView = (): React.JSX.Element => {
       fetchSkillsCatalog: s.fetchSkillsCatalog,
       mcpBrowse: s.mcpBrowse,
       mcpFetchInstalled: s.mcpFetchInstalled,
+      apiKeysLoading: s.apiKeysLoading,
       pluginCatalogLoading: s.pluginCatalogLoading,
       mcpBrowseLoading: s.mcpBrowseLoading,
       skillsLoading: s.skillsLoading,
       cliStatus: s.cliStatus,
       cliStatusLoading: s.cliStatusLoading,
+      cliProviderStatusLoading: s.cliProviderStatusLoading,
       openDashboard: s.openDashboard,
       sessions: s.sessions,
       projects: s.projects,
@@ -90,21 +162,21 @@ export const ExtensionStoreView = (): React.JSX.Element => {
         label: 'Plugins',
         icon: Puzzle,
         description:
-          'Small add-ons for Claude. They give the app extra features and integrations you can install when you need them.',
+          'Small add-ons for the runtime. In multimodel mode they currently apply to Anthropic sessions when supported. Broader provider support is in development.',
       },
       {
         value: 'mcp-servers' as const,
         label: 'MCP Servers',
         icon: Server,
         description:
-          'Connections to outside tools and apps. They let Claude read data or do actions beyond this app.',
+          'Connections to outside tools and apps. They let the runtime read data or do actions beyond this app.',
       },
       {
         value: 'skills' as const,
         label: 'Skills',
         icon: BookOpen,
         description:
-          'Ready-made instructions for common jobs. They help Claude do specific tasks better and more consistently.',
+          'Ready-made instructions for common jobs. They help the runtime handle repeatable tasks more consistently.',
       },
       {
         value: 'api-keys' as const,
@@ -143,22 +215,52 @@ export const ExtensionStoreView = (): React.JSX.Element => {
 
   // Refresh all data (plugins + MCP browse + installed + skills)
   const handleRefresh = useCallback(() => {
+    void fetchCliStatus();
+    void fetchApiKeys();
     void fetchPluginCatalog(projectPath ?? undefined, true);
     void mcpBrowse(); // re-fetch first page
     void mcpFetchInstalled(projectPath ?? undefined);
     void fetchSkillsCatalog(projectPath ?? undefined);
-  }, [fetchPluginCatalog, fetchSkillsCatalog, mcpBrowse, mcpFetchInstalled, projectPath]);
+  }, [
+    fetchApiKeys,
+    fetchCliStatus,
+    fetchPluginCatalog,
+    fetchSkillsCatalog,
+    mcpBrowse,
+    mcpFetchInstalled,
+    projectPath,
+  ]);
 
-  const isRefreshing = pluginCatalogLoading || mcpBrowseLoading || skillsLoading;
+  const isRefreshing =
+    cliStatusLoading || apiKeysLoading || pluginCatalogLoading || mcpBrowseLoading || skillsLoading;
+  const mcpMutationDisableReason = useMemo(
+    () =>
+      getExtensionActionDisableReason({
+        isInstalled: false,
+        cliStatus,
+        cliStatusLoading,
+        section: 'mcp',
+      }),
+    [cliStatus, cliStatusLoading]
+  );
   const cliStatusBanner = useMemo(() => {
-    if (cliStatusLoading || cliStatus === null) {
+    const providers = cliStatus?.providers ?? [];
+    const visibleProviders = getVisibleMultimodelProviders(providers);
+    const isMultimodel = isMultimodelRuntimeStatus(cliStatus);
+    const shouldShowMultimodelProviderCards =
+      isMultimodel && visibleProviders.length > 0 && cliStatus !== null;
+
+    if ((cliStatusLoading || cliStatus === null) && !shouldShowMultimodelProviderCards) {
       return (
         <div className="bg-surface/70 mx-4 mt-3 flex items-start gap-3 rounded-md border border-border px-4 py-3">
           <Info className="mt-0.5 size-4 shrink-0 text-text-secondary" />
           <div>
-            <p className="text-sm font-medium text-text">Checking Claude CLI availability</p>
+            <p className="text-sm font-medium text-text">
+              Checking extensions runtime availability
+            </p>
             <p className="mt-0.5 text-xs text-text-muted">
-              Extensions need Claude CLI to install plugins, run MCP servers, and validate auth.
+              Extensions need the configured runtime to manage plugins, MCP servers, skills, and
+              provider connections.
             </p>
           </div>
         </div>
@@ -173,13 +275,13 @@ export const ExtensionStoreView = (): React.JSX.Element => {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-amber-300">
               {cliLaunchIssue
-                ? 'Claude CLI was found but failed to start'
-                : 'Claude CLI is not available'}
+                ? 'The configured runtime was found but failed to start'
+                : 'The configured runtime is not available'}
             </p>
             <p className="mt-0.5 text-xs text-text-muted">
               {cliLaunchIssue
-                ? 'Plugin installs are disabled until Claude CLI passes its startup health check. Open the Dashboard to repair or reinstall it.'
-                : 'Plugin installs are disabled until Claude CLI is installed. Open the Dashboard to install it and retry.'}
+                ? 'Extensions are disabled until the runtime passes its startup health check. Open the Dashboard to repair or reinstall it.'
+                : 'Extensions are disabled until the runtime is installed. Open the Dashboard to install it and retry.'}
             </p>
             {cliLaunchIssue && cliStatus.launchError && (
               <p className="mt-2 break-all font-mono text-[11px] text-text-muted">
@@ -194,7 +296,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
       );
     }
 
-    if (!cliStatus.authLoggedIn) {
+    if (!isMultimodel && !cliStatus.authLoggedIn) {
       return (
         <div className="mx-4 mt-3 flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
@@ -213,6 +315,97 @@ export const ExtensionStoreView = (): React.JSX.Element => {
       );
     }
 
+    if (isMultimodel) {
+      return (
+        <div className="bg-surface/70 mx-4 mt-3 rounded-md border border-border px-4 py-3">
+          <div className="flex items-start gap-3">
+            <Info className="mt-0.5 size-4 shrink-0 text-text-secondary" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-text">Multimodel runtime capabilities</p>
+              <p className="mt-0.5 text-xs text-text-muted">
+                Provider support can differ by section. Plugins are shown only where the runtime
+                explicitly declares support.
+              </p>
+            </div>
+          </div>
+          {visibleProviders.length > 0 && (
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {visibleProviders.map((provider) => {
+                const providerLoading = cliProviderStatusLoading[provider.providerId] === true;
+                if (isProviderCapabilityCardLoading(provider, providerLoading)) {
+                  return (
+                    <ProviderCapabilityCardSkeleton
+                      key={provider.providerId}
+                      providerId={provider.providerId}
+                      displayName={provider.displayName}
+                    />
+                  );
+                }
+
+                const statusTone = provider.authenticated
+                  ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
+                  : provider.supported
+                    ? 'border-amber-500/30 bg-amber-500/5 text-amber-300'
+                    : 'border-border bg-surface-raised text-text-muted';
+                const statusLabel = provider.authenticated
+                  ? 'Connected'
+                  : provider.supported
+                    ? 'Needs setup'
+                    : 'Unsupported';
+                const extensionCapabilities = getCliProviderExtensionCapabilities(provider);
+                const pluginStatus = extensionCapabilities.plugins.status;
+
+                return (
+                  <div
+                    key={provider.providerId}
+                    className={`rounded-md border px-3 py-2 ${statusTone}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="inline-flex items-center gap-2 text-sm font-medium">
+                          <ProviderBrandLogo
+                            providerId={provider.providerId}
+                            className="size-4 shrink-0"
+                          />
+                          <span>{provider.displayName}</span>
+                        </p>
+                        <p className="truncate text-[11px] text-text-muted">
+                          {provider.statusMessage ??
+                            provider.backend?.label ??
+                            'Ready to configure'}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="shrink-0">
+                        {statusLabel}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                      <Badge
+                        variant={pluginStatus === 'unsupported' ? 'outline' : 'secondary'}
+                        className={
+                          pluginStatus === 'unsupported'
+                            ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                            : undefined
+                        }
+                      >
+                        Plugins: {formatCliExtensionCapabilityStatus(pluginStatus)}
+                      </Badge>
+                      <Badge variant="secondary">
+                        MCP: {formatCliExtensionCapabilityStatus(extensionCapabilities.mcp.status)}
+                      </Badge>
+                      <Badge variant="secondary">
+                        Skills: {extensionCapabilities.skills.ownership}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div className="mx-4 mt-3 flex items-start gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
         <Info className="mt-0.5 size-4 shrink-0 text-emerald-300" />
@@ -225,7 +418,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
         </div>
       </div>
     );
-  }, [cliStatus, cliStatusLoading, openDashboard]);
+  }, [cliProviderStatusLoading, cliStatus, cliStatusLoading, openDashboard]);
 
   // Browser mode guard
   if (!api.plugins && !api.mcpRegistry && !api.skills) {
@@ -267,7 +460,8 @@ export const ExtensionStoreView = (): React.JSX.Element => {
             {!cliInstalled && (
               <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-400">
                 <AlertTriangle className="size-4 shrink-0" />
-                Claude CLI is required to install or uninstall extensions. Install it from Settings.
+                The configured runtime is required to install or uninstall extensions. Install or
+                repair it from the Dashboard.
               </div>
             )}
             {/* Active sessions warning */}
@@ -296,20 +490,31 @@ export const ExtensionStoreView = (): React.JSX.Element => {
                   ))}
                 </TabsList>
                 {tabState.activeSubTab === 'mcp-servers' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCustomMcpDialogOpen(true)}
-                    className="mb-1 whitespace-nowrap"
-                  >
-                    <Plus className="mr-1 size-3.5" />
-                    Add Custom
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={mcpMutationDisableReason ? 0 : -1}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCustomMcpDialogOpen(true)}
+                          className="mb-1 whitespace-nowrap"
+                          disabled={Boolean(mcpMutationDisableReason)}
+                        >
+                          <Plus className="mr-1 size-3.5" />
+                          Add Custom
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {mcpMutationDisableReason && (
+                      <TooltipContent>{mcpMutationDisableReason}</TooltipContent>
+                    )}
+                  </Tooltip>
                 )}
               </div>
 
               <TabsContent value="plugins" className="mt-0 pt-4">
                 <PluginsPanel
+                  projectPath={projectPath}
                   pluginFilters={tabState.pluginFilters}
                   pluginSort={tabState.pluginSort}
                   selectedPluginId={tabState.selectedPluginId}
@@ -326,6 +531,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
 
               <TabsContent value="mcp-servers" className="mt-0 pt-4">
                 <McpServersPanel
+                  projectPath={projectPath}
                   mcpSearchQuery={tabState.mcpSearchQuery}
                   mcpSearch={tabState.mcpSearch}
                   mcpSearchResults={tabState.mcpSearchResults}
@@ -337,7 +543,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
               </TabsContent>
 
               <TabsContent value="api-keys" className="mt-0 pt-4">
-                <ApiKeysPanel />
+                <ApiKeysPanel projectPath={projectPath} projectLabel={projectLabel} />
               </TabsContent>
 
               <TabsContent value="skills" className="mt-0 pt-4">
@@ -358,6 +564,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
             <CustomMcpServerDialog
               open={customMcpDialogOpen}
               onClose={() => setCustomMcpDialogOpen(false)}
+              projectPath={projectPath}
             />
           </div>
         </div>

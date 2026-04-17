@@ -16,6 +16,7 @@
 // runtime which is unavailable in standalone (pure Node.js) mode. Standalone
 // error tracking can be added later with @sentry/node if needed.
 
+import { createRecentProjectsFeature } from '@features/recent-projects/main';
 import { createLogger } from '@shared/utils/logger';
 
 import { LocalFileSystemProvider } from './services/infrastructure/LocalFileSystemProvider';
@@ -130,6 +131,11 @@ async function start(): Promise<void> {
 
   // Create HTTP server
   httpServer = new HttpServer();
+  const recentProjectsFeature = createRecentProjectsFeature({
+    getActiveContext: () => localContext,
+    getLocalContext: () => localContext,
+    logger: createLogger('Feature:RecentProjects'),
+  });
 
   // Wire file watcher events to SSE broadcast
   localContext.fileWatcher.on('file-change', (event: unknown) => {
@@ -157,6 +163,7 @@ async function start(): Promise<void> {
     subagentResolver: localContext.subagentResolver,
     chunkBuilder: localContext.chunkBuilder,
     dataCache: localContext.dataCache,
+    recentProjectsFeature,
     updaterService: updaterServiceStub,
     sshConnectionManager: sshConnectionManagerStub,
   };

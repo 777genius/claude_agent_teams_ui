@@ -105,7 +105,7 @@ function isApiKeyProviderId(providerId: CliProviderId): providerId is ApiKeyProv
 
 function findPreferredApiKeyEntry(apiKeys: ApiKeyEntry[], envVarName: string): ApiKeyEntry | null {
   const matches = apiKeys.filter((entry) => entry.envVarName === envVarName);
-  return matches.find((entry) => entry.scope === 'user') ?? matches[0] ?? null;
+  return matches.find((entry) => entry.scope === 'user') ?? null;
 }
 
 function getConnectionDescription(provider: CliProviderStatus): string {

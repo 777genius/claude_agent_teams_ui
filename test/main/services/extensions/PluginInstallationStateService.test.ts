@@ -25,47 +25,150 @@ describe('PluginInstallationStateService', () => {
   });
 
   describe('getInstalledPlugins', () => {
-    it('parses installed_plugins.json version 2 format', async () => {
-      const installedData = {
-        version: 2,
-        plugins: {
-          'context7@claude-plugins-official': [
-            {
-              scope: 'user',
-              installPath: '/Users/test/.claude/plugins/cache/claude-plugins-official/context7/1.0.0',
-              version: '1.0.0',
-              installedAt: '2026-03-01T11:14:21.926Z',
+    it('returns user-scoped plugins enabled in user settings', async () => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
+        const normalizedPath = String(filePath);
+        if (normalizedPath.endsWith('/plugins/installed_plugins.json')) {
+          return JSON.stringify({
+            version: 2,
+            plugins: {
+              'context7@claude-plugins-official': [
+                {
+                  scope: 'user',
+                  installPath:
+                    '/Users/test/.claude/plugins/cache/claude-plugins-official/context7/1.0.0',
+                  version: '1.0.0',
+                  installedAt: '2026-03-01T11:14:21.926Z',
+                },
+              ],
+              'typescript-lsp@claude-plugins-official': [
+                {
+                  scope: 'project',
+                  version: '1.0.0',
+                  installedAt: '2026-03-03T10:00:00.000Z',
+                },
+              ],
             },
-          ],
-          'typescript-lsp@claude-plugins-official': [
-            {
-              scope: 'user',
-              version: '1.0.0',
-              installedAt: '2026-03-02T10:00:00.000Z',
-            },
-            {
-              scope: 'project',
-              version: '1.0.0',
-              installedAt: '2026-03-03T10:00:00.000Z',
-            },
-          ],
-        },
-      };
+          });
+        }
 
-      mockedFs.readFile.mockResolvedValue(JSON.stringify(installedData));
+        if (normalizedPath === '/tmp/mock-claude/settings.json') {
+          return JSON.stringify({
+            enabledPlugins: {
+              'context7@claude-plugins-official': true,
+            },
+          });
+        }
+
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
 
       const entries = await service.getInstalledPlugins();
 
-      expect(entries).toHaveLength(3);
-      expect(entries[0].pluginId).toBe('context7@claude-plugins-official');
-      expect(entries[0].scope).toBe('user');
-      expect(entries[0].version).toBe('1.0.0');
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        pluginId: 'context7@claude-plugins-official',
+        scope: 'user',
+        version: '1.0.0',
+      });
+    });
 
-      expect(entries[1].pluginId).toBe('typescript-lsp@claude-plugins-official');
-      expect(entries[1].scope).toBe('user');
+    it('includes project and local scopes only for the active project', async () => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
+        const normalizedPath = String(filePath);
+        if (normalizedPath.endsWith('/plugins/installed_plugins.json')) {
+          return JSON.stringify({
+            version: 2,
+            plugins: {
+              'context7@claude-plugins-official': [
+                {
+                  scope: 'user',
+                  version: '1.0.0',
+                  installedAt: '2026-03-01T11:14:21.926Z',
+                },
+              ],
+              'typescript-lsp@claude-plugins-official': [
+                {
+                  scope: 'project',
+                  version: '1.1.0',
+                  installedAt: '2026-03-03T10:00:00.000Z',
+                },
+              ],
+              'formatter@claude-plugins-official': [
+                {
+                  scope: 'local',
+                  version: '2.0.0',
+                  installedAt: '2026-03-04T10:00:00.000Z',
+                },
+              ],
+            },
+          });
+        }
 
-      expect(entries[2].pluginId).toBe('typescript-lsp@claude-plugins-official');
-      expect(entries[2].scope).toBe('project');
+        if (normalizedPath === '/tmp/mock-claude/settings.json') {
+          return JSON.stringify({
+            enabledPlugins: {
+              'context7@claude-plugins-official': true,
+            },
+          });
+        }
+
+        if (normalizedPath === '/tmp/project-a/.claude/settings.json') {
+          return JSON.stringify({
+            enabledPlugins: {
+              'typescript-lsp@claude-plugins-official': true,
+            },
+          });
+        }
+
+        if (normalizedPath === '/tmp/project-a/.claude/settings.local.json') {
+          return JSON.stringify({
+            enabledPlugins: {
+              'formatter@claude-plugins-official': true,
+            },
+          });
+        }
+
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+
+      const entries = await service.getInstalledPlugins('/tmp/project-a');
+
+      expect(entries.map((entry) => [entry.pluginId, entry.scope])).toEqual([
+        ['context7@claude-plugins-official', 'user'],
+        ['typescript-lsp@claude-plugins-official', 'project'],
+        ['formatter@claude-plugins-official', 'local'],
+      ]);
+    });
+
+    it('does not leak another project scope into the current project', async () => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
+        const normalizedPath = String(filePath);
+        if (normalizedPath.endsWith('/plugins/installed_plugins.json')) {
+          return JSON.stringify({
+            version: 2,
+            plugins: {
+              'typescript-lsp@claude-plugins-official': [
+                {
+                  scope: 'project',
+                  version: '1.1.0',
+                  installedAt: '2026-03-03T10:00:00.000Z',
+                },
+              ],
+            },
+          });
+        }
+
+        if (normalizedPath.endsWith('/settings.json')) {
+          return JSON.stringify({ enabledPlugins: {} });
+        }
+
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+
+      const entries = await service.getInstalledPlugins('/tmp/project-b');
+
+      expect(entries).toEqual([]);
     });
 
     it('returns empty array when file does not exist', async () => {
@@ -78,22 +181,55 @@ describe('PluginInstallationStateService', () => {
     });
 
     it('returns empty array for unexpected version', async () => {
-      mockedFs.readFile.mockResolvedValue(JSON.stringify({ version: 1, plugins: {} }));
+      mockedFs.readFile.mockImplementation(async (filePath) => {
+        const normalizedPath = String(filePath);
+        if (normalizedPath.endsWith('/plugins/installed_plugins.json')) {
+          return JSON.stringify({ version: 1, plugins: {} });
+        }
+        if (normalizedPath.endsWith('/settings.json')) {
+          return JSON.stringify({ enabledPlugins: {} });
+        }
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
 
       const entries = await service.getInstalledPlugins();
       expect(entries).toEqual([]);
     });
 
     it('caches within TTL', async () => {
-      mockedFs.readFile.mockResolvedValue(
-        JSON.stringify({ version: 2, plugins: {} }),
-      );
+      mockedFs.readFile.mockImplementation(async (filePath) => {
+        const normalizedPath = String(filePath);
+        if (normalizedPath.endsWith('/plugins/installed_plugins.json')) {
+          return JSON.stringify({ version: 2, plugins: {} });
+        }
+        if (normalizedPath.endsWith('/settings.json')) {
+          return JSON.stringify({ enabledPlugins: {} });
+        }
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
 
       await service.getInstalledPlugins();
       await service.getInstalledPlugins();
 
-      // Only one read
-      expect(mockedFs.readFile).toHaveBeenCalledTimes(1);
+      expect(mockedFs.readFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('caches results independently per project path', async () => {
+      mockedFs.readFile.mockImplementation(async (filePath) => {
+        const normalizedPath = String(filePath);
+        if (normalizedPath.endsWith('/plugins/installed_plugins.json')) {
+          return JSON.stringify({ version: 2, plugins: {} });
+        }
+        if (normalizedPath.endsWith('/settings.json')) {
+          return JSON.stringify({ enabledPlugins: {} });
+        }
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+
+      await service.getInstalledPlugins('/tmp/project-a');
+      await service.getInstalledPlugins('/tmp/project-b');
+
+      expect(mockedFs.readFile).toHaveBeenCalledTimes(8);
     });
   });
 
@@ -140,15 +276,22 @@ describe('PluginInstallationStateService', () => {
 
   describe('invalidateCache', () => {
     it('forces re-read after invalidation', async () => {
-      mockedFs.readFile.mockResolvedValue(
-        JSON.stringify({ version: 2, plugins: {} }),
-      );
+      mockedFs.readFile.mockImplementation(async (filePath) => {
+        const normalizedPath = String(filePath);
+        if (normalizedPath.endsWith('/plugins/installed_plugins.json')) {
+          return JSON.stringify({ version: 2, plugins: {} });
+        }
+        if (normalizedPath.endsWith('/settings.json')) {
+          return JSON.stringify({ enabledPlugins: {} });
+        }
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
 
       await service.getInstalledPlugins();
       service.invalidateCache();
       await service.getInstalledPlugins();
 
-      expect(mockedFs.readFile).toHaveBeenCalledTimes(2);
+      expect(mockedFs.readFile).toHaveBeenCalledTimes(4);
     });
   });
 });

@@ -21,12 +21,14 @@ import { safeSendToRenderer } from '@main/utils/safeWebContentsSend';
 import { stripMarkdown } from '@main/utils/textFormatting';
 import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { createLogger } from '@shared/utils/logger';
-import { type BrowserWindow, Notification } from 'electron';
+import { Notification as ElectronNotification } from 'electron';
 import { EventEmitter } from 'events';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 
 import { type DetectedError } from '../error/ErrorMessageBuilder';
+
+import type { BrowserWindow, NotificationConstructorOptions } from 'electron';
 
 const logger = createLogger('Service:NotificationManager');
 import {
@@ -93,6 +95,22 @@ const THROTTLE_MS = 5000;
 /** Path to notifications storage file */
 const NOTIFICATIONS_PATH = path.join(getHomeDir(), '.claude', 'claude-devtools-notifications.json');
 
+type NotificationEventName = 'click' | 'close' | 'show' | 'failed';
+
+interface NotificationInstance {
+  on(event: NotificationEventName, listener: (...args: unknown[]) => void): void;
+  show(): void;
+}
+
+interface NotificationClass {
+  new (options: NotificationConstructorOptions): NotificationInstance;
+  isSupported(): boolean;
+}
+
+function getNotificationClass(): NotificationClass | null {
+  return (ElectronNotification as NotificationClass | undefined) ?? null;
+}
+
 // =============================================================================
 // NotificationManager Class
 // =============================================================================
@@ -110,7 +128,7 @@ export class NotificationManager extends EventEmitter {
    * and click handlers stop working after ~1-2 minutes.
    * @see https://blog.bloomca.me/2025/02/22/electron-mac-notifications.html
    */
-  private activeNotifications = new Set<Notification>();
+  private activeNotifications = new Set<NotificationInstance>();
   /** Promise that resolves when async initialization is complete.
    *  Used by addError() to wait for notifications to be loaded from disk
    *  before writing, preventing a race where save overwrites unloaded data. */
@@ -378,13 +396,14 @@ export class NotificationManager extends EventEmitter {
    * Closes over `stored` (StoredNotification) so click handler has full data.
    */
   private showErrorNativeNotification(stored: StoredNotification): void {
-    if (!this.isNativeNotificationSupported()) return;
+    const NotificationClass = getNotificationClass();
+    if (!NotificationClass || !this.isNativeNotificationSupported()) return;
 
     const config = this.configManager.getConfig();
     const isMac = process.platform === 'darwin';
     const truncatedMessage = stripMarkdown(stored.message).slice(0, 200);
     const iconPath = isMac ? undefined : getAppIconPath();
-    const notification = new Notification({
+    const notification = new NotificationClass({
       title: 'Claude Code Error',
       ...(isMac ? { subtitle: stored.context.projectName } : {}),
       body: isMac ? truncatedMessage : `${stored.context.projectName}\n${truncatedMessage}`,
@@ -408,7 +427,7 @@ export class NotificationManager extends EventEmitter {
       logger.debug(`[notification] shown: "Claude Code Error" — ${stored.context.projectName}`);
     });
     notification.on('failed', (_, error) => {
-      logger.warn(`[notification] failed: ${error}`);
+      logger.warn(`[notification] failed: ${String(error)}`);
       cleanup();
     });
 
@@ -423,7 +442,8 @@ export class NotificationManager extends EventEmitter {
     stored: StoredNotification,
     payload: TeamNotificationPayload
   ): void {
-    if (!this.isNativeNotificationSupported()) {
+    const NotificationClass = getNotificationClass();
+    if (!NotificationClass || !this.isNativeNotificationSupported()) {
       logger.warn('[team-toast] native notifications not supported — skipping');
       return;
     }
@@ -438,7 +458,7 @@ export class NotificationManager extends EventEmitter {
         `[team-toast] creating: title="${payload.teamDisplayName}" summary="${payload.summary ?? ''}" bodyLen=${truncatedBody.length}`
       );
 
-      const notification = new Notification({
+      const notification = new NotificationClass({
         title: payload.teamDisplayName,
         ...(isMac ? { subtitle: payload.summary } : {}),
         body: !isMac && payload.summary ? `${payload.summary}\n${truncatedBody}` : truncatedBody,
@@ -491,8 +511,9 @@ export class NotificationManager extends EventEmitter {
    * Guard: checks if Electron's Notification API is available.
    */
   private isNativeNotificationSupported(): boolean {
+    const Notification = getNotificationClass();
     if (
-      typeof Notification === 'undefined' ||
+      !Notification ||
       typeof Notification.isSupported !== 'function' ||
       !Notification.isSupported()
     ) {
@@ -511,7 +532,8 @@ export class NotificationManager extends EventEmitter {
    * Returns a result object indicating success or failure reason.
    */
   sendTestNotification(): { success: boolean; error?: string } {
-    if (!this.isNativeNotificationSupported()) {
+    const NotificationClass = getNotificationClass();
+    if (!NotificationClass || !this.isNativeNotificationSupported()) {
       logger.warn('[test-notification] native notifications not supported');
       return { success: false, error: 'Native notifications are not supported on this platform' };
     }
@@ -519,7 +541,7 @@ export class NotificationManager extends EventEmitter {
     const isMac = process.platform === 'darwin';
     const iconPath = isMac ? undefined : getAppIconPath();
     logger.debug(`[test-notification] creating Notification (platform=${process.platform})`);
-    const notification = new Notification({
+    const notification = new NotificationClass({
       title: 'Test Notification',
       ...(isMac ? { subtitle: 'Claude Agent Teams UI' } : {}),
       body: isMac
@@ -541,7 +563,7 @@ export class NotificationManager extends EventEmitter {
       logger.debug('[notification] test notification shown successfully');
     });
     notification.on('failed', (_, error) => {
-      logger.warn(`[notification] test notification failed: ${error}`);
+      logger.warn(`[notification] test notification failed: ${String(error)}`);
       cleanup();
     });
 

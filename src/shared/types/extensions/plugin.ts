@@ -70,7 +70,7 @@ export function inferCapabilities(item: PluginCatalogItem): PluginCapability[] {
 export interface PluginInstallRequest {
   pluginId: string; // canonical key — main resolves qualifiedName from catalog
   scope: InstallScope;
-  projectPath?: string; // required for 'project' scope
+  projectPath?: string; // required for repo-scoped installs ('project' or 'local')
 }
 
 // ── Filters (renderer-only concern) ────────────────────────────────────────

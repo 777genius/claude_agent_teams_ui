@@ -3,8 +3,8 @@
  * Uses CSS display-toggle to keep all tabs mounted (preserving state).
  */
 
+import { TeamGraphTab } from '@features/agent-graph/renderer';
 import { TabUIProvider } from '@renderer/contexts/TabUIContext';
-import { TeamGraphTab } from '@renderer/features/agent-graph/ui/TeamGraphTab';
 
 import { DashboardView } from '../dashboard/DashboardView';
 import { ExtensionStoreView } from '../extensions/ExtensionStoreView';

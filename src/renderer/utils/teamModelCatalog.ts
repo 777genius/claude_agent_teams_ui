@@ -1,6 +1,19 @@
-import type { CliProviderId, TeamProviderId } from '@shared/types';
+import type { CliProviderId, CliProviderStatus, TeamProviderId } from '@shared/types';
+import {
+  filterVisibleProviderRuntimeModels,
+  GPT_5_1_CODEX_MINI_UI_DISABLED_MODEL,
+  GPT_5_2_CODEX_UI_DISABLED_MODEL,
+  GPT_5_3_CODEX_SPARK_UI_DISABLED_MODEL,
+} from '@shared/utils/providerModelVisibility';
+
+export {
+  GPT_5_1_CODEX_MINI_UI_DISABLED_MODEL,
+  GPT_5_2_CODEX_UI_DISABLED_MODEL,
+  GPT_5_3_CODEX_SPARK_UI_DISABLED_MODEL,
+} from '@shared/utils/providerModelVisibility';
 
 type SupportedProviderId = CliProviderId | TeamProviderId;
+type RuntimeAwareProviderStatus = Pick<CliProviderStatus, 'providerId' | 'authMethod' | 'backend'>;
 
 export interface TeamProviderModelOption {
   value: string;
@@ -10,10 +23,12 @@ export interface TeamProviderModelOption {
 }
 
 export const TEAM_MODEL_UI_DISABLED_BADGE_LABEL = 'Disabled';
-export const GPT_5_1_CODEX_MINI_UI_DISABLED_MODEL = 'gpt-5.1-codex-mini';
-export const GPT_5_3_CODEX_SPARK_UI_DISABLED_MODEL = 'gpt-5.3-codex-spark';
 export const GPT_5_1_CODEX_MINI_UI_DISABLED_REASON =
   'Temporarily disabled for team agents - this model has been less reliable with task and reply tool contracts.';
+export const GPT_5_1_CODEX_MAX_CHATGPT_UI_DISABLED_REASON =
+  'Temporarily disabled for team agents when using Codex ChatGPT subscription - this model has been observed returning "Not available with Codex ChatGPT subscription".';
+export const GPT_5_2_CODEX_UI_DISABLED_REASON =
+  'Temporarily disabled for team agents - this model has been observed returning "Not available with Codex ChatGPT subscription".';
 export const GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON =
   'Temporarily disabled for team agents - this model has been less reliable with bootstrap, task, and reply tool contracts.';
 
@@ -66,7 +81,12 @@ const TEAM_PROVIDER_MODEL_OPTIONS: Record<SupportedProviderId, readonly TeamProv
         uiDisabledReason: GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON,
       },
       { value: 'gpt-5.2', label: 'GPT-5.2', badgeLabel: '5.2' },
-      { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex', badgeLabel: '5.2-codex' },
+      {
+        value: 'gpt-5.2-codex',
+        label: 'GPT-5.2 Codex',
+        badgeLabel: '5.2-codex',
+        uiDisabledReason: GPT_5_2_CODEX_UI_DISABLED_REASON,
+      },
       {
         value: 'gpt-5.1-codex-mini',
         label: 'GPT-5.1 Codex Mini',
@@ -197,13 +217,42 @@ export function sortTeamProviderModels(
   });
 }
 
+export function isCodexChatGptSubscriptionProviderStatus(
+  providerStatus?: RuntimeAwareProviderStatus | null
+): boolean {
+  if (providerStatus?.providerId !== 'codex') {
+    return false;
+  }
+
+  const endpointLabel = providerStatus.backend?.endpointLabel?.toLowerCase() ?? '';
+  return (
+    providerStatus.authMethod === 'oauth_token' &&
+    (providerStatus.backend?.kind === 'adapter' ||
+      endpointLabel.includes('chatgpt.com/backend-api/codex/responses'))
+  );
+}
+
+function isRuntimeHiddenTeamModel(
+  providerId: SupportedProviderId,
+  model: string,
+  providerStatus?: RuntimeAwareProviderStatus | null
+): boolean {
+  return (
+    providerId === 'codex' &&
+    model === 'gpt-5.1-codex-max' &&
+    isCodexChatGptSubscriptionProviderStatus(providerStatus)
+  );
+}
+
 export function getVisibleTeamProviderModels(
   providerId: SupportedProviderId,
-  models: readonly string[]
+  models: readonly string[],
+  providerStatus?: RuntimeAwareProviderStatus | null
 ): string[] {
-  return sortTeamProviderModels(providerId, models).filter(
-    (model) => !isTeamModelUiDisabled(providerId, model)
-  );
+  return sortTeamProviderModels(
+    providerId,
+    filterVisibleProviderRuntimeModels(providerId, models)
+  ).filter((model) => !isRuntimeHiddenTeamModel(providerId, model, providerStatus));
 }
 
 export function getTeamModelUiDisabledReason(
@@ -211,6 +260,26 @@ export function getTeamModelUiDisabledReason(
   model: string | undefined
 ): string | null {
   return getKnownTeamProviderModelOption(providerId, model)?.uiDisabledReason ?? null;
+}
+
+export function getRuntimeAwareTeamModelUiDisabledReason(
+  providerId: SupportedProviderId | undefined,
+  model: string | undefined,
+  providerStatus?: RuntimeAwareProviderStatus | null
+): string | null {
+  const staticReason = getTeamModelUiDisabledReason(providerId, model);
+  if (staticReason) {
+    return staticReason;
+  }
+
+  const trimmed = model?.trim();
+  if (!providerId || !trimmed) {
+    return null;
+  }
+
+  return isRuntimeHiddenTeamModel(providerId, trimmed, providerStatus)
+    ? GPT_5_1_CODEX_MAX_CHATGPT_UI_DISABLED_REASON
+    : null;
 }
 
 export function isTeamModelUiDisabled(

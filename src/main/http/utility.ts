@@ -14,12 +14,12 @@ import { createLogger } from '@shared/utils/logger';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 
+import { readAgentConfigs } from '../services/parsing/AgentConfigReader';
 import {
   type ClaudeMdFileInfo,
-  readAgentConfigs,
   readAllClaudeMdFiles,
   readDirectoryClaudeMd,
-} from '../services';
+} from '../services/parsing/ClaudeMdReader';
 import { validateFilePath } from '../utils/pathValidation';
 import { countTokens } from '../utils/tokenizer';
 
@@ -30,13 +30,20 @@ const logger = createLogger('HTTP:utility');
 /** Cached app version — read once from package.json, not every request. */
 let cachedVersion: string | null = null;
 
+function resolvePackageJsonPath(): string {
+  if (typeof __dirname === 'string' && __dirname.length > 0) {
+    return path.resolve(__dirname, '../../../package.json');
+  }
+
+  return path.resolve(process.cwd(), 'package.json');
+}
+
 export function registerUtilityRoutes(app: FastifyInstance): void {
   // App version (cached — no file I/O after first call)
   app.get('/api/version', async () => {
     if (cachedVersion) return cachedVersion;
     try {
-      const pkgPath = path.resolve(__dirname, '../../../package.json');
-      const content = await fsp.readFile(pkgPath, 'utf8');
+      const content = await fsp.readFile(resolvePackageJsonPath(), 'utf8');
       const pkg = JSON.parse(content) as { version: string };
       cachedVersion = pkg.version;
       return cachedVersion;

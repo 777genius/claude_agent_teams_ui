@@ -19,6 +19,12 @@ process.env.UV_THREADPOOL_SIZE ??= '16';
 // Sentry must be the first import to capture early errors.
 import './sentry';
 
+import {
+  createRecentProjectsFeature,
+  type RecentProjectsFeatureFacade,
+  registerRecentProjectsIpc,
+  removeRecentProjectsIpc,
+} from '@features/recent-projects/main';
 import { JsonScheduleRepository } from '@main/services/schedule/JsonScheduleRepository';
 import { ScheduledTaskExecutor } from '@main/services/schedule/ScheduledTaskExecutor';
 import { SchedulerService } from '@main/services/schedule/SchedulerService';
@@ -54,13 +60,14 @@ import {
 import { shouldSuppressDesktopNotificationForInboxText } from '@shared/utils/idleNotificationSemantics';
 import { parseInboxJson } from '@shared/utils/inboxNoise';
 import { createLogger } from '@shared/utils/logger';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { existsSync } from 'fs';
 import { join } from 'path';
 
 import { cleanupEditorState, setEditorMainWindow } from './ipc/editor';
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { setReviewMainWindow } from './ipc/review';
+import { setTmuxMainWindow } from './ipc/tmux';
 import {
   ApiKeyService,
   ExtensionFacadeService,
@@ -77,6 +84,7 @@ import {
   SkillsCatalogService,
   SkillsMutationService,
   SkillsWatcherService,
+  createExtensionsRuntimeAdapter,
 } from './services/extensions';
 import { startEventLoopLagMonitor } from './services/infrastructure/EventLoopLagMonitor';
 import { HttpServer } from './services/infrastructure/HttpServer';
@@ -103,8 +111,8 @@ import {
 } from './utils/safeWebContentsSend';
 import { syncTelemetryFlag } from './sentry';
 import {
-  BoardTaskActivityRecordSource,
   BoardTaskActivityDetailService,
+  BoardTaskActivityRecordSource,
   BoardTaskActivityService,
   BoardTaskExactLogDetailService,
   BoardTaskExactLogsService,
@@ -400,6 +408,7 @@ let contextRegistry: ServiceContextRegistry;
 let notificationManager: NotificationManager;
 let updaterService: UpdaterService;
 let sshConnectionManager: SshConnectionManager;
+let recentProjectsFeature: RecentProjectsFeatureFacade;
 let teamDataService: TeamDataService;
 let teamProvisioningService: TeamProvisioningService;
 let cliInstallerService: CliInstallerService;
@@ -864,8 +873,9 @@ async function initializeServices(): Promise<void> {
   const officialMcpRegistry = new OfficialMcpRegistryService();
   const glamaMcpService = new GlamaMcpEnrichmentService();
   const mcpAggregator = new McpCatalogAggregator(officialMcpRegistry, glamaMcpService);
-  const mcpStateService = new McpInstallationStateService();
-  const mcpHealthDiagnosticsService = new McpHealthDiagnosticsService();
+  const extensionsRuntimeAdapter = createExtensionsRuntimeAdapter();
+  const mcpStateService = new McpInstallationStateService(extensionsRuntimeAdapter);
+  const mcpHealthDiagnosticsService = new McpHealthDiagnosticsService(extensionsRuntimeAdapter);
   const skillsCatalogService = new SkillsCatalogService();
   const skillsMutationService = new SkillsMutationService();
   skillsWatcherService = new SkillsWatcherService();
@@ -877,8 +887,11 @@ async function initializeServices(): Promise<void> {
   );
 
   // Install services — resolve binary dynamically via ClaudeBinaryResolver
-  const pluginInstallService = new PluginInstallService(pluginCatalogService);
-  const mcpInstallService = new McpInstallService(mcpAggregator);
+  const pluginInstallService = new PluginInstallService(
+    pluginCatalogService,
+    extensionsRuntimeAdapter
+  );
+  const mcpInstallService = new McpInstallService(mcpAggregator, extensionsRuntimeAdapter);
   const apiKeyService = new ApiKeyService();
   await apiKeyService.syncProcessEnv(RUNTIME_MANAGED_API_KEY_ENV_VARS);
   // warmup() and ensureInstalled() are deferred to after window creation
@@ -928,6 +941,11 @@ async function initializeServices(): Promise<void> {
   });
 
   teamProvisioningService.setMainWindow(mainWindow);
+  recentProjectsFeature = createRecentProjectsFeature({
+    getActiveContext: () => contextRegistry.getActive(),
+    getLocalContext: () => contextRegistry.get('local'),
+    logger: createLogger('Feature:RecentProjects'),
+  });
 
   // startProcessHealthPolling() is deferred to after window creation
   // (did-finish-load handler) to avoid thread pool contention at startup.
@@ -981,6 +999,7 @@ async function initializeServices(): Promise<void> {
     crossTeamService,
     teamBackupService ?? undefined
   );
+  registerRecentProjectsIpc(ipcMain, recentProjectsFeature);
 
   // Forward SSH state changes to renderer and HTTP SSE clients
   sshConnectionManager.on('state-change', (status: unknown) => {
@@ -1029,6 +1048,7 @@ async function startHttpServer(
         subagentResolver: activeContext.subagentResolver,
         chunkBuilder: activeContext.chunkBuilder,
         dataCache: activeContext.dataCache,
+        recentProjectsFeature,
         updaterService,
         sshConnectionManager,
         teamProvisioningService,
@@ -1125,6 +1145,7 @@ function shutdownServices(): void {
 
   // Remove IPC handlers
   removeIpcHandlers();
+  removeRecentProjectsIpc(ipcMain);
 
   // Dispose backup service timers
   teamBackupService?.dispose();
@@ -1396,6 +1417,7 @@ function createWindow(): void {
     if (cliInstallerService) {
       cliInstallerService.setMainWindow(null);
     }
+    setTmuxMainWindow(null);
     if (ptyTerminalService) {
       ptyTerminalService.setMainWindow(null);
     }
@@ -1429,6 +1451,7 @@ function createWindow(): void {
   if (cliInstallerService) {
     cliInstallerService.setMainWindow(mainWindow);
   }
+  setTmuxMainWindow(mainWindow);
   if (ptyTerminalService) {
     ptyTerminalService.setMainWindow(mainWindow);
   }

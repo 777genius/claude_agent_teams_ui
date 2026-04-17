@@ -9,6 +9,7 @@
 // ─── Components ──────────────────────────────────────────────────────────────
 export { GraphView } from './ui/GraphView';
 export type { GraphViewProps } from './ui/GraphView';
+export { ACTIVITY_ANCHOR_LAYOUT, ACTIVITY_LANE } from './layout/activityLane';
 
 // ─── Port Interfaces (for adapters in host project) ─────────────────────────
 export type { GraphDataPort } from './ports/GraphDataPort';
@@ -21,6 +22,9 @@ export type {
   GraphEdge,
   GraphParticle,
   GraphActivityItem,
+  GraphOwnerSlotAssignment,
+  GraphLayoutPort,
+  GraphLayoutVersion,
   GraphNodeKind,
   GraphNodeState,
   GraphLaunchVisualState,

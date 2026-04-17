@@ -1,3 +1,4 @@
+import { isEnhancedAIChunk } from '@main/types';
 import {
   describeBoardTaskActivityLabel,
   formatBoardTaskActivityTaskLabel,
@@ -6,21 +7,21 @@ import {
   describeBoardTaskActivityActorLabel,
   describeBoardTaskActivityContextLines,
 } from '@shared/utils/boardTaskActivityPresentation';
-import { isEnhancedAIChunk } from '@main/types';
 
-import { BoardTaskActivityRecordSource } from './BoardTaskActivityRecordSource';
 import { BoardTaskExactLogChunkBuilder } from '../exact/BoardTaskExactLogChunkBuilder';
 import { BoardTaskExactLogDetailSelector } from '../exact/BoardTaskExactLogDetailSelector';
 import { BoardTaskExactLogStrictParser } from '../exact/BoardTaskExactLogStrictParser';
 
+import { BoardTaskActivityRecordSource } from './BoardTaskActivityRecordSource';
+
+import type { BoardTaskExactLogBundleCandidate } from '../exact/BoardTaskExactLogTypes';
 import type { BoardTaskActivityRecord } from './BoardTaskActivityRecord';
+import type { ContentBlock, EnhancedChunk, ParsedMessage, ToolUseResultData } from '@main/types';
 import type {
   BoardTaskActivityDetail,
   BoardTaskActivityDetailMetadataRow,
   BoardTaskActivityDetailResult,
 } from '@shared/types';
-import type { BoardTaskExactLogBundleCandidate } from '../exact/BoardTaskExactLogTypes';
-import type { ContentBlock, EnhancedChunk, ParsedMessage, ToolUseResultData } from '@main/types';
 
 const READ_ONLY_TOOL_NAMES = new Set(['task_get', 'task_get_comment']);
 
@@ -236,7 +237,7 @@ function cloneBlock<T extends ContentBlock>(block: T): T {
     } as T;
   }
 
-  return { ...block } as T;
+  return { ...block };
 }
 
 function sanitizeToolResultContent(

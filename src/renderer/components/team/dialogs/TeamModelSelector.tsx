@@ -11,23 +11,26 @@ import {
 } from '@renderer/components/ui/tooltip';
 import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
+import { getAnthropicDefaultTeamModel } from '@shared/utils/anthropicModelDefaults';
 import {
   GEMINI_UI_DISABLED_BADGE_LABEL,
   GEMINI_UI_DISABLED_REASON,
   isGeminiUiFrozen,
 } from '@renderer/utils/geminiUiFreeze';
 import {
+  getAvailableTeamProviderModelOptions,
+  getTeamModelUiDisabledReason,
+  normalizeTeamModelForUi,
+  TEAM_MODEL_UI_DISABLED_BADGE_LABEL,
+} from '@renderer/utils/teamModelAvailability';
+import {
   doesTeamModelCarryProviderBrand,
   getProviderScopedTeamModelLabel,
   getTeamModelLabel as getCatalogTeamModelLabel,
-  getTeamModelUiDisabledReason,
   getTeamProviderLabel as getCatalogTeamProviderLabel,
-  getTeamProviderModelOptions,
-  normalizeTeamModelForUi,
-  TEAM_MODEL_UI_DISABLED_BADGE_LABEL,
 } from '@renderer/utils/teamModelCatalog';
 import { extractProviderScopedBaseModel } from '@renderer/utils/teamModelContext';
-import { Info } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 
 export { getProviderScopedTeamModelLabel } from '@renderer/utils/teamModelCatalog';
 
@@ -105,9 +108,9 @@ export function computeEffectiveTeamModel(
   }
 
   const base = extractProviderScopedBaseModel(selectedModel, providerId);
-  if (limitContext) return base;
+  if (limitContext) return base || getAnthropicDefaultTeamModel(true);
   if (base === 'haiku') return base;
-  return base ? `${base}[1m]` : 'opus[1m]';
+  return base ? `${base}[1m]` : getAnthropicDefaultTeamModel(limitContext);
 }
 
 export interface TeamModelSelectorProps {
@@ -117,6 +120,7 @@ export interface TeamModelSelectorProps {
   onValueChange: (value: string) => void;
   id?: string;
   disableGeminiOption?: boolean;
+  modelIssueReasonByValue?: Partial<Record<string, string | null | undefined>>;
 }
 
 export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
@@ -126,8 +130,10 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
   onValueChange,
   id,
   disableGeminiOption = false,
+  modelIssueReasonByValue,
 }) => {
   const cliStatus = useStore((s) => s.cliStatus);
+  const cliStatusLoading = useStore((s) => s.cliStatusLoading);
   const multimodelEnabled = useStore((s) => s.appConfig?.general?.multimodelEnabled ?? true);
   const multimodelAvailable = multimodelEnabled || cliStatus?.flavor === 'agent_teams_orchestrator';
 
@@ -135,7 +141,7 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
     disableGeminiOption && isGeminiUiFrozen() && providerId === 'gemini' ? 'anthropic' : providerId;
   const defaultModelTooltip = useMemo(() => {
     if (effectiveProviderId === 'anthropic') {
-      return 'Default model from Claude CLI (/model).\nUses the runtime default for the selected provider.';
+      return 'Uses the Claude team default model.\nResolves to Opus 1M, or Opus 200K when Limit context is enabled.';
     }
     return 'Uses the runtime default for the selected provider.';
   }, [effectiveProviderId]);
@@ -181,13 +187,20 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
 
     return statusBadge;
   };
-  const runtimeModels = useMemo(
+  const runtimeProviderStatus = useMemo(
     () =>
-      cliStatus?.providers.find((provider) => provider.providerId === effectiveProviderId)
-        ?.models ?? [],
+      cliStatus?.providers.find((provider) => provider.providerId === effectiveProviderId) ?? null,
     [cliStatus?.providers, effectiveProviderId]
   );
-  const normalizedValue = normalizeTeamModelForUi(effectiveProviderId, value);
+  const shouldAwaitRuntimeModelList =
+    effectiveProviderId !== 'anthropic' &&
+    (cliStatus == null || cliStatusLoading) &&
+    runtimeProviderStatus == null;
+  const normalizedValue = normalizeTeamModelForUi(
+    effectiveProviderId,
+    value,
+    runtimeProviderStatus
+  );
 
   useEffect(() => {
     if (normalizedValue !== value) {
@@ -196,22 +209,11 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
   }, [normalizedValue, onValueChange, value]);
 
   const modelOptions = useMemo(() => {
-    const fallback = getTeamProviderModelOptions(effectiveProviderId);
-    if (effectiveProviderId === 'anthropic' || runtimeModels.length === 0) {
-      return fallback.map((option) => ({
-        ...option,
-        label:
-          option.value === ''
-            ? option.label
-            : getProviderScopedTeamModelLabel(effectiveProviderId, option.value),
-      }));
+    if (shouldAwaitRuntimeModelList) {
+      return [{ value: '', label: 'Default', badgeLabel: 'Default' }];
     }
-    const dynamicOptions = runtimeModels.map((model) => ({
-      value: model,
-      label: getProviderScopedTeamModelLabel(effectiveProviderId, model),
-    }));
-    return [{ value: '', label: 'Default' }, ...dynamicOptions];
-  }, [effectiveProviderId, runtimeModels]);
+    return getAvailableTeamProviderModelOptions(effectiveProviderId, runtimeProviderStatus);
+  }, [effectiveProviderId, runtimeProviderStatus, shouldAwaitRuntimeModelList]);
 
   return (
     <div className="mb-5">
@@ -292,6 +294,12 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
             ) : null}
 
             <div className="p-3">
+              {shouldAwaitRuntimeModelList ? (
+                <p className="mb-2 text-[11px] text-[var(--color-text-muted)]">
+                  Explicit models load from the current runtime. Default remains available while the
+                  list is syncing.
+                </p>
+              ) : null}
               <div
                 className="grid gap-1.5 rounded-md bg-[var(--color-surface)]"
                 style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}
@@ -300,9 +308,24 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
                   (() => {
                     const modelDisabledReason = getTeamModelUiDisabledReason(
                       effectiveProviderId,
-                      opt.value
+                      opt.value,
+                      runtimeProviderStatus
                     );
-                    const modelSelectable = activeProviderSelectable && !modelDisabledReason;
+                    const availabilityStatus =
+                      opt.value === '' ? 'available' : (opt.availabilityStatus ?? 'available');
+                    const availabilityReason =
+                      opt.value === '' ? null : (opt.availabilityReason ?? null);
+                    const modelIssueReason =
+                      opt.value === '' ? null : (modelIssueReasonByValue?.[opt.value] ?? null);
+                    const hasModelIssue = Boolean(modelIssueReason);
+                    const modelSelectable =
+                      activeProviderSelectable &&
+                      !modelDisabledReason &&
+                      (opt.value === '' ||
+                        availabilityStatus == null ||
+                        availabilityStatus === 'available');
+                    const modelStatusMessage =
+                      modelIssueReason ?? modelDisabledReason ?? availabilityReason ?? null;
 
                     return (
                       <button
@@ -310,13 +333,18 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
                         type="button"
                         id={opt.value === normalizedValue ? id : undefined}
                         aria-disabled={!modelSelectable}
+                        title={modelStatusMessage ?? undefined}
                         className={cn(
                           'flex min-h-[44px] items-center justify-center gap-1.5 rounded-md border bg-[var(--color-surface)] px-3 py-2 text-center text-xs font-medium transition-[background-color,border-color,color,box-shadow] duration-150',
-                          normalizedValue === opt.value
-                            ? 'border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
-                            : modelSelectable
-                              ? 'border-[var(--color-border-subtle)] text-[var(--color-text-muted)] hover:border-[var(--color-border-emphasis)] hover:bg-[color-mix(in_srgb,var(--color-surface-raised)_62%,var(--color-surface)_38%)] hover:text-[var(--color-text-secondary)] hover:shadow-sm'
-                              : 'border-[var(--color-border-subtle)] text-[var(--color-text-muted)]',
+                          hasModelIssue && normalizedValue === opt.value
+                            ? 'border-red-500/60 bg-red-500/10 text-red-100 shadow-sm'
+                            : hasModelIssue
+                              ? 'border-red-500/40 bg-red-500/5 text-red-200 hover:border-red-400/60 hover:bg-red-500/10 hover:text-red-100'
+                              : normalizedValue === opt.value
+                                ? 'border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] text-[var(--color-text)] shadow-sm'
+                                : modelSelectable
+                                  ? 'border-[var(--color-border-subtle)] text-[var(--color-text-muted)] hover:border-[var(--color-border-emphasis)] hover:bg-[color-mix(in_srgb,var(--color-surface-raised)_62%,var(--color-surface)_38%)] hover:text-[var(--color-text-secondary)] hover:shadow-sm'
+                                  : 'border-[var(--color-border-subtle)] text-[var(--color-text-muted)]',
                           !modelSelectable && 'cursor-not-allowed opacity-45',
                           !modelDisabledReason && !activeProviderSelectable && 'pointer-events-none'
                         )}
@@ -349,7 +377,29 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
                               </TooltipProvider>
                             </span>
                           )}
-                          {modelDisabledReason && (
+                          {hasModelIssue && (
+                            <span
+                              className="flex items-center justify-center gap-1 text-[10px] font-normal text-red-300"
+                              title={modelIssueReason ?? undefined}
+                            >
+                              <AlertTriangle className="size-3 shrink-0" />
+                              <span>Issue</span>
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    asChild
+                                    onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                  >
+                                    <Info className="size-3 shrink-0 opacity-50 transition-opacity hover:opacity-80" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[240px] text-xs">
+                                    {modelIssueReason}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </span>
+                          )}
+                          {!hasModelIssue && modelDisabledReason && (
                             <span
                               className="flex items-center justify-center gap-1 text-[10px] font-normal text-[var(--color-text-muted)]"
                               title={modelDisabledReason}

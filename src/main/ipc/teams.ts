@@ -126,8 +126,8 @@ import {
 } from './guards';
 
 import type {
-  BoardTaskActivityService,
   BoardTaskActivityDetailService,
+  BoardTaskActivityService,
   BoardTaskExactLogDetailService,
   BoardTaskExactLogsService,
   BoardTaskLogStreamService,
@@ -145,8 +145,8 @@ import type {
   AttachmentFileData,
   AttachmentMeta,
   AttachmentPayload,
-  BoardTaskActivityEntry,
   BoardTaskActivityDetailResult,
+  BoardTaskActivityEntry,
   BoardTaskExactLogDetailResult,
   BoardTaskExactLogSummariesResponse,
   BoardTaskLogStreamResponse,
@@ -1497,11 +1497,15 @@ async function handlePrepareProvisioning(
   _event: IpcMainInvokeEvent,
   cwd: unknown,
   providerId: unknown,
-  providerIds: unknown
+  providerIds: unknown,
+  selectedModels: unknown,
+  limitContext: unknown
 ): Promise<IpcResult<TeamProvisioningPrepareResult>> {
   let validatedCwd: string | undefined;
   let validatedProviderId: TeamLaunchRequest['providerId'];
   let validatedProviderIds: ('anthropic' | 'codex' | 'gemini')[] | undefined;
+  let validatedSelectedModels: string[] | undefined;
+  let validatedLimitContext: boolean | undefined;
   if (cwd !== undefined) {
     if (typeof cwd !== 'string' || cwd.trim().length === 0) {
       return { success: false, error: 'cwd must be a non-empty string' };
@@ -1532,10 +1536,32 @@ async function handlePrepareProvisioning(
     }
     validatedProviderIds = normalized;
   }
+  if (selectedModels !== undefined) {
+    if (!Array.isArray(selectedModels)) {
+      return { success: false, error: 'selectedModels must be an array when provided' };
+    }
+    const normalized = Array.from(
+      new Set(
+        selectedModels
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      )
+    );
+    validatedSelectedModels = normalized;
+  }
+  if (limitContext !== undefined) {
+    if (typeof limitContext !== 'boolean') {
+      return { success: false, error: 'limitContext must be a boolean when provided' };
+    }
+    validatedLimitContext = limitContext;
+  }
   return wrapTeamHandler('prepareProvisioning', () =>
     getTeamProvisioningService().prepareForProvisioning(validatedCwd, {
       providerId: validatedProviderId,
       providerIds: validatedProviderIds,
+      modelIds: validatedSelectedModels,
+      limitContext: validatedLimitContext,
     })
   );
 }

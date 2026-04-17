@@ -24,6 +24,7 @@ import { drawAgents, drawCrossTeamNodes } from '../canvas/draw-agents';
 import { drawTasks, drawColumnHeaders } from '../canvas/draw-tasks';
 import { drawProcesses } from '../canvas/draw-processes';
 import { drawEffects, type VisualEffect } from '../canvas/draw-effects';
+import { drawHexagon } from '../canvas/draw-misc';
 import { BloomRenderer } from '../canvas/bloom-renderer';
 import { KanbanLayoutEngine } from '../layout/kanbanLayout';
 import {
@@ -36,6 +37,7 @@ import {
   updateTransientHandoffState,
 } from './transientHandoffs';
 import type { CameraTransform } from '../hooks/useGraphCamera';
+import { NODE } from '../constants/canvas-constants';
 
 // ─── Draw State (passed by ref, not by props — no React re-renders) ─────────
 
@@ -53,6 +55,14 @@ export interface GraphDrawState {
   hoveredEdgeId: string | null;
   focusNodeIds: ReadonlySet<string> | null;
   focusEdgeIds: ReadonlySet<string> | null;
+  dragPreview:
+    | {
+        nodeId: string;
+        x: number;
+        y: number;
+        color?: string | null;
+      }
+    | null;
 }
 
 export interface GraphCanvasHandle {
@@ -341,6 +351,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
             state.focusNodeIds,
             zoom
           );
+          if (state.dragPreview) {
+            drawOwnerSlotPreview(ctx, state.dragPreview, state.time);
+          }
 
           // 2d. Effects
           drawEffects(ctx, state.effects);
@@ -437,3 +450,47 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     </div>
   );
 });
+
+function drawOwnerSlotPreview(
+  ctx: CanvasRenderingContext2D,
+  preview: NonNullable<GraphDrawState['dragPreview']>,
+  time: number
+): void {
+  const radius = NODE.radiusMember;
+  const outerRadius = radius + 18;
+  const innerRadius = radius + 8;
+  const glowRadius = radius + 34;
+  const color = preview.color ?? '#8bd3ff';
+  const pulse = 0.35 + 0.15 * Math.sin(time * 6);
+
+  ctx.save();
+  ctx.globalAlpha = 0.7 + pulse;
+  ctx.setLineDash([8, 6]);
+  ctx.lineDashOffset = -time * 48;
+  ctx.lineWidth = 2.5;
+
+  drawHexagon(ctx, preview.x, preview.y, outerRadius);
+  ctx.strokeStyle = color;
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  drawHexagon(ctx, preview.x, preview.y, innerRadius);
+  ctx.fillStyle = 'rgba(120, 190, 255, 0.08)';
+  ctx.fill();
+
+  const glow = ctx.createRadialGradient(
+    preview.x,
+    preview.y,
+    radius * 0.45,
+    preview.x,
+    preview.y,
+    glowRadius
+  );
+  glow.addColorStop(0, 'rgba(120, 190, 255, 0.12)');
+  glow.addColorStop(1, 'rgba(120, 190, 255, 0)');
+  ctx.beginPath();
+  ctx.arc(preview.x, preview.y, glowRadius, 0, Math.PI * 2);
+  ctx.fillStyle = glow;
+  ctx.fill();
+  ctx.restore();
+}

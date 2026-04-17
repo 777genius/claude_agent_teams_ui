@@ -1,7 +1,8 @@
+import { killTmuxPaneForCurrentPlatformSync } from '@features/tmux-installer/main';
 import { ConfigManager } from '@main/services/infrastructure/ConfigManager';
 import { NotificationManager } from '@main/services/infrastructure/NotificationManager';
 import { getAppIconPath } from '@main/utils/appIcon';
-import { killProcessTree, spawnCli } from '@main/utils/childProcess';
+import { execCli, killProcessTree, spawnCli } from '@main/utils/childProcess';
 import { FileReadTimeoutError, readFileUtf8WithTimeout } from '@main/utils/fsRead';
 import {
   encodePath,
@@ -41,12 +42,14 @@ import {
 } from '@shared/utils/inboxNoise';
 import { isLeadAgentType, isLeadMember } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
+import { getAnthropicDefaultTeamModel } from '@shared/utils/anthropicModelDefaults';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
   parseAllTeammateMessages,
   type ParsedTeammateContent,
 } from '@shared/utils/teammateMessageParser';
 import { createCliAutoSuffixNameGuard, parseNumericSuffixName } from '@shared/utils/teamMemberName';
+import { isDefaultProviderModelSelection } from '@shared/utils/providerModelSelection';
 import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import {
   extractToolPreview,
@@ -65,6 +68,15 @@ import {
   type GeminiRuntimeAuthState,
   resolveGeminiRuntimeAuth,
 } from '../runtime/geminiRuntimeAuth';
+import {
+  buildProviderPreflightPingArgs,
+  buildProviderModelProbeArgs,
+  classifyProviderModelProbeFailure,
+  getProviderModelProbeExpectedOutput,
+  getProviderModelProbeTimeoutMs,
+  isProviderModelProbeSuccessOutput,
+  normalizeProviderModelProbeFailureReason,
+} from '../runtime/providerModelProbe';
 import { buildProviderAwareCliEnv } from '../runtime/providerAwareCliEnv';
 import { resolveTeamProviderId } from '../runtime/providerRuntimeEnv';
 
@@ -95,6 +107,7 @@ import {
 } from './TeamLaunchStateEvaluator';
 import { TeamLaunchStateStore } from './TeamLaunchStateStore';
 import { TeamMcpConfigBuilder } from './TeamMcpConfigBuilder';
+import { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
 import { TeamMembersMetaStore } from './TeamMembersMetaStore';
 import { TeamMetaStore } from './TeamMetaStore';
 import { TeamSentMessagesStore } from './TeamSentMessagesStore';
@@ -185,9 +198,6 @@ const STDOUT_RING_LIMIT = 64 * 1024;
 const LOG_PROGRESS_THROTTLE_MS = 300;
 const UI_LOGS_TAIL_LIMIT = 128 * 1024;
 const PROBE_CACHE_TTL_MS = 36 * 60 * 60 * 1000;
-const PREFLIGHT_TIMEOUT_MS = 60000;
-const PREFLIGHT_CODEX_TIMEOUT_MS = 45000;
-const PREFLIGHT_GEMINI_TIMEOUT_MS = 15000;
 const PREFLIGHT_BINARY_TIMEOUT_MS = 8000;
 const PREFLIGHT_AUTH_RETRY_DELAY_MS = 2000;
 const PREFLIGHT_AUTH_MAX_RETRIES = 2;
@@ -214,11 +224,6 @@ const HANDLED_STREAM_JSON_TYPES = new Set([
   'result',
   'system',
 ]);
-const PREFLIGHT_PING_PROMPT = 'Output only the single word PONG.';
-const PREFLIGHT_EXPECTED = 'PONG';
-const PREFLIGHT_CODEX_MODEL = 'gpt-5.4-mini';
-const PREFLIGHT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
-
 function assertAppDeterministicBootstrapEnabled(): void {
   if (process.env.CLAUDE_APP_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP === '1') {
     throw new Error(
@@ -260,41 +265,36 @@ function classifyDeterministicBootstrapFailure(reason: string): {
   };
 }
 
-function getPreflightPingModel(providerId: TeamProviderId | undefined): string {
-  switch (resolveTeamProviderId(providerId)) {
-    case 'codex':
-      return PREFLIGHT_CODEX_MODEL;
-    case 'gemini':
-      return PREFLIGHT_GEMINI_MODEL;
-    case 'anthropic':
-    default:
-      return 'haiku';
-  }
-}
-
 function getPreflightPingArgs(providerId: TeamProviderId | undefined): string[] {
-  return [
-    '-p',
-    PREFLIGHT_PING_PROMPT,
-    '--output-format',
-    'text',
-    '--model',
-    getPreflightPingModel(providerId),
-    '--max-turns',
-    '1',
-    '--no-session-persistence',
-  ];
+  return buildProviderPreflightPingArgs(providerId);
 }
 
 function getPreflightTimeoutMs(providerId: TeamProviderId | undefined): number {
-  switch (resolveTeamProviderId(providerId)) {
-    case 'codex':
-      return PREFLIGHT_CODEX_TIMEOUT_MS;
-    case 'gemini':
-      return PREFLIGHT_GEMINI_TIMEOUT_MS;
-    case 'anthropic':
-    default:
-      return PREFLIGHT_TIMEOUT_MS;
+  return getProviderModelProbeTimeoutMs(providerId);
+}
+
+interface ProviderModelListCommandResponse {
+  schemaVersion?: number;
+  providers?: Record<
+    string,
+    {
+      defaultModel?: string | null;
+      models?: (string | { id?: string; label?: string; description?: string })[];
+    }
+  >;
+}
+
+function extractJsonObjectFromCli<T>(raw: string): T {
+  const trimmed = raw.trim();
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1)) as T;
+    }
+    throw new Error('No JSON object found in CLI output');
   }
 }
 
@@ -305,6 +305,21 @@ function isProbeTimeoutMessage(message: string): boolean {
     lower.includes('timed out') ||
     lower.includes('did not complete') ||
     lower.includes('etimedout')
+  );
+}
+
+function isTransientModelProbeMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('etimedout') ||
+    lower.includes('econnreset') ||
+    lower.includes('429') ||
+    lower.includes('500') ||
+    lower.includes('502') ||
+    lower.includes('503') ||
+    lower.includes('504')
   );
 }
 
@@ -769,6 +784,36 @@ function createInitialMemberSpawnStatusEntry(): MemberSpawnStatusEntry {
   };
 }
 
+interface LiveTeamAgentRuntimeMetadata {
+  model?: string;
+}
+
+function stripWrappedCliFlagValue(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    const unwrapped = trimmed.slice(1, -1).trim();
+    return unwrapped.length > 0 ? unwrapped : undefined;
+  }
+  return trimmed;
+}
+
+function extractCliFlagValue(command: string, flagName: string): string | undefined {
+  const escapedFlag = flagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`(?:^|\\s)${escapedFlag}\\s+("([^"]*)"|'([^']*)'|([^\\s]+))`).exec(
+    command
+  );
+  if (!match) {
+    return undefined;
+  }
+  return stripWrappedCliFlagValue(match[2] ?? match[3] ?? match[4] ?? match[1]);
+}
+
 export function shouldAcceptDeterministicBootstrapEvent(params: {
   runId: string;
   teamName: string;
@@ -897,11 +942,17 @@ function buildEffectiveTeamMemberSpec(
 ): TeamMemberInput {
   const memberProviderId = normalizeTeamMemberProviderId(member.providerId);
   const defaultProviderId = normalizeTeamMemberProviderId(defaults.providerId);
-  const model = member.model?.trim() || defaults.model?.trim() || undefined;
+  const effectiveProviderId = memberProviderId ?? defaultProviderId ?? 'anthropic';
+  const model =
+    member.model?.trim() ||
+    (memberProviderId == null || memberProviderId === defaultProviderId
+      ? defaults.model?.trim()
+      : undefined) ||
+    undefined;
 
   return {
     ...member,
-    providerId: memberProviderId ?? defaultProviderId ?? 'anthropic',
+    providerId: effectiveProviderId,
     model,
     effort: member.effort ?? defaults.effort,
   };
@@ -1045,9 +1096,66 @@ function extractBootstrapFailureReason(text: string): string | null {
         lower.includes('lookup failure') ||
         lower.includes('validation error') ||
         lower.includes('api error'))) ||
+    lower.includes('model is not supported') ||
+    lower.includes('model is not available') ||
+    lower.includes('model not available') ||
+    lower.includes('model unavailable') ||
+    lower.includes('model not found') ||
+    lower.includes('unknown model') ||
+    lower.includes('invalid model') ||
+    lower.includes('unsupported model') ||
+    lower.includes('not supported when using codex with a chatgpt account') ||
     lower.includes('please check the provided tool list');
   if (!looksLikeBootstrapFailure) return null;
   return trimmed.slice(0, 280);
+}
+
+function extractTranscriptTextContent(value: unknown): string[] {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const parts: string[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as { type?: unknown; text?: unknown; content?: unknown };
+    if (record.type === 'text' && typeof record.text === 'string' && record.text.trim()) {
+      parts.push(record.text.trim());
+      continue;
+    }
+    parts.push(...extractTranscriptTextContent(record.content));
+  }
+  return parts;
+}
+
+function extractTranscriptMessageText(record: unknown): string | null {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+  const normalizedRecord = record as {
+    text?: unknown;
+    content?: unknown;
+    message?: unknown;
+    toolUseResult?: unknown;
+  };
+  if (typeof normalizedRecord.text === 'string' && normalizedRecord.text.trim()) {
+    return normalizedRecord.text.trim();
+  }
+  const fromContent = extractTranscriptTextContent(normalizedRecord.content);
+  if (fromContent.length > 0) {
+    return fromContent.join('\n');
+  }
+  const fromToolUseResult = extractTranscriptTextContent(normalizedRecord.toolUseResult);
+  if (fromToolUseResult.length > 0) {
+    return fromToolUseResult.join('\n');
+  }
+  if (normalizedRecord.message) {
+    return extractTranscriptMessageText(normalizedRecord.message);
+  }
+  return null;
 }
 
 function normalizeMemberDiagnosticText(memberName: string, text: string): string {
@@ -2090,6 +2198,7 @@ function normalizeSameTeamText(text: string): string {
 
 export class TeamProvisioningService {
   private static readonly CLAUDE_LOG_LINES_LIMIT = 50_000;
+  private static readonly BOOTSTRAP_FAILURE_TAIL_BYTES = 128 * 1024;
   private static readonly RECENT_CROSS_TEAM_DELIVERY_TTL_MS = 10 * 60 * 1000;
   private static readonly PENDING_INBOX_RELAY_TTL_MS = 2 * 60 * 1000;
   private static readonly SAME_TEAM_NATIVE_DELIVERY_GRACE_MS = 15_000;
@@ -2114,6 +2223,7 @@ export class TeamProvisioningService {
     NativeSameTeamFingerprint[]
   >();
   private readonly launchStateStore = new TeamLaunchStateStore();
+  private readonly memberLogsFinder: TeamMemberLogsFinder;
   private teamChangeEmitter: ((event: TeamChangeEvent) => void) | null = null;
   private helpOutputCache: string | null = null;
   private helpOutputCacheTime = 0;
@@ -2143,7 +2253,13 @@ export class TeamProvisioningService {
     _sentMessagesStore: TeamSentMessagesStore = new TeamSentMessagesStore(),
     private readonly mcpConfigBuilder: TeamMcpConfigBuilder = new TeamMcpConfigBuilder(),
     private readonly teamMetaStore: TeamMetaStore = new TeamMetaStore()
-  ) {}
+  ) {
+    this.memberLogsFinder = new TeamMemberLogsFinder(
+      this.configReader,
+      this.inboxReader,
+      this.membersMetaStore
+    );
+  }
 
   setCrossTeamSender(
     sender:
@@ -3333,16 +3449,19 @@ export class TeamProvisioningService {
   }> {
     const runId = this.getTrackedRunId(teamName);
     if (!runId) {
-      return this.reconcilePersistedLaunchState(teamName).then(({ snapshot, statuses }) => ({
-        statuses,
-        runId: null,
-        teamLaunchState: snapshot?.teamLaunchState,
-        launchPhase: snapshot?.launchPhase,
-        expectedMembers: snapshot?.expectedMembers,
-        updatedAt: snapshot?.updatedAt,
-        summary: snapshot?.summary,
-        source: snapshot ? 'persisted' : 'persisted',
-      }));
+      return this.reconcilePersistedLaunchState(teamName).then(({ snapshot, statuses }) => {
+        this.attachLiveRuntimeMetadataToStatuses(teamName, statuses);
+        return {
+          statuses,
+          runId: null,
+          teamLaunchState: snapshot?.teamLaunchState,
+          launchPhase: snapshot?.launchPhase,
+          expectedMembers: snapshot?.expectedMembers,
+          updatedAt: snapshot?.updatedAt,
+          summary: snapshot?.summary,
+          source: snapshot ? 'persisted' : 'persisted',
+        };
+      });
     }
     const run = this.runs.get(runId);
     if (!run) {
@@ -3363,6 +3482,7 @@ export class TeamProvisioningService {
     });
     const snapshot = persisted ?? liveSnapshot;
     const statuses = snapshotToMemberSpawnStatuses(snapshot);
+    this.attachLiveRuntimeMetadataToStatuses(teamName, statuses);
     return {
       statuses,
       runId,
@@ -3463,6 +3583,10 @@ export class TeamProvisioningService {
     run: ProvisioningRun,
     options?: { force?: boolean }
   ): Promise<void> {
+    if (!run.expectedMembers || run.expectedMembers.length === 0) {
+      return;
+    }
+    await this.reconcileBootstrapTranscriptFailures(run);
     if (this.shouldSkipMemberSpawnAudit(run)) {
       return;
     }
@@ -3476,6 +3600,32 @@ export class TeamProvisioningService {
     }
     run.lastMemberSpawnAuditAt = now;
     await this.auditMemberSpawnStatuses(run);
+  }
+
+  private async reconcileBootstrapTranscriptFailures(run: ProvisioningRun): Promise<void> {
+    for (const memberName of run.expectedMembers ?? []) {
+      const current = run.memberSpawnStatuses.get(memberName);
+      if (
+        !current ||
+        current.launchState === 'failed_to_start' ||
+        current.launchState === 'confirmed_alive' ||
+        current.hardFailure === true ||
+        current.agentToolAccepted !== true
+      ) {
+        continue;
+      }
+      const acceptedAtMs =
+        current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+      const transcriptFailureReason = await this.findBootstrapTranscriptFailureReason(
+        run.teamName,
+        memberName,
+        Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
+      );
+      if (!transcriptFailureReason) {
+        continue;
+      }
+      this.setMemberSpawnStatus(run, memberName, 'error', transcriptFailureReason);
+    }
   }
 
   private static readonly CONTEXT_EMIT_THROTTLE_MS = 2000;
@@ -3523,7 +3673,13 @@ export class TeamProvisioningService {
 
   async prepareForProvisioning(
     cwd?: string,
-    opts?: { forceFresh?: boolean; providerId?: TeamProviderId; providerIds?: TeamProviderId[] }
+    opts?: {
+      forceFresh?: boolean;
+      providerId?: TeamProviderId;
+      providerIds?: TeamProviderId[];
+      modelIds?: string[];
+      limitContext?: boolean;
+    }
   ): Promise<TeamProvisioningPrepareResult> {
     const targetCwdForValidation = cwd?.trim() || process.cwd();
     await this.validatePrepareCwd(targetCwdForValidation);
@@ -3551,7 +3707,11 @@ export class TeamProvisioningService {
     }
 
     const warnings: string[] = [];
+    const details: string[] = [];
     const blockingMessages: string[] = [];
+    const selectedModelIds = Array.from(
+      new Set((opts?.modelIds ?? []).map((modelId) => modelId.trim()).filter(Boolean))
+    );
 
     for (const providerId of providerIds) {
       const cached = this.getFreshCachedProbeResult(targetCwdForValidation, providerId);
@@ -3571,32 +3731,47 @@ export class TeamProvisioningService {
       }
 
       if (!probeResult.warning) {
+        if (selectedModelIds.length > 0) {
+          const modelVerification = await this.verifySelectedProviderModels({
+            claudePath: probeResult.claudePath,
+            cwd: targetCwd,
+            providerId,
+            modelIds: selectedModelIds,
+            limitContext: opts?.limitContext === true,
+          });
+          details.push(...modelVerification.details);
+          warnings.push(...modelVerification.warnings);
+          blockingMessages.push(...modelVerification.blockingMessages);
+        }
         continue;
       }
 
-      const prefixedWarning =
-        providerIds.length > 1 ? `${providerLabel}: ${probeResult.warning}` : probeResult.warning;
-      const isAuthFailure = this.isAuthFailureWarning(probeResult.warning, 'probe');
-      if (authSource === 'configured_api_key_missing') {
-        blockingMessages.push(prefixedWarning);
-      } else if (
-        (authSource === 'none' ||
-          authSource === 'codex_runtime' ||
-          authSource === 'gemini_runtime') &&
-        isAuthFailure
-      ) {
-        blockingMessages.push(prefixedWarning);
-      } else if (isBinaryProbeWarning(probeResult.warning)) {
-        blockingMessages.push(prefixedWarning);
-      } else {
-        // Preflight warnings (including timeouts) should not block provisioning.
-        warnings.push(prefixedWarning);
+      {
+        const prefixedWarning =
+          providerIds.length > 1 ? `${providerLabel}: ${probeResult.warning}` : probeResult.warning;
+        const isAuthFailure = this.isAuthFailureWarning(probeResult.warning, 'probe');
+        if (authSource === 'configured_api_key_missing') {
+          blockingMessages.push(prefixedWarning);
+        } else if (
+          (authSource === 'none' ||
+            authSource === 'codex_runtime' ||
+            authSource === 'gemini_runtime') &&
+          isAuthFailure
+        ) {
+          blockingMessages.push(prefixedWarning);
+        } else if (isBinaryProbeWarning(probeResult.warning)) {
+          blockingMessages.push(prefixedWarning);
+        } else {
+          // Preflight warnings (including timeouts) should not block provisioning.
+          warnings.push(prefixedWarning);
+        }
       }
     }
 
     if (blockingMessages.length > 0) {
       return {
         ready: false,
+        details: details.length > 0 ? details : undefined,
         message:
           blockingMessages.length === 1
             ? blockingMessages[0]
@@ -3607,6 +3782,7 @@ export class TeamProvisioningService {
 
     return {
       ready: true,
+      details: details.length > 0 ? details : undefined,
       message:
         providerIds.length > 1
           ? warnings.length > 0
@@ -3617,6 +3793,252 @@ export class TeamProvisioningService {
             : 'CLI is warmed up and ready to launch',
       warnings: warnings.length > 0 ? warnings : undefined,
     };
+  }
+
+  private async verifySelectedProviderModels({
+    claudePath,
+    cwd,
+    providerId,
+    modelIds,
+    limitContext,
+  }: {
+    claudePath: string;
+    cwd: string;
+    providerId: TeamProviderId;
+    modelIds: string[];
+    limitContext: boolean;
+  }): Promise<{
+    details: string[];
+    warnings: string[];
+    blockingMessages: string[];
+  }> {
+    const details: string[] = [];
+    const warnings: string[] = [];
+    const blockingMessages: string[] = [];
+
+    if (modelIds.length === 0) {
+      return { details, warnings, blockingMessages };
+    }
+
+    const { env } = await this.buildProvisioningEnv(providerId);
+    const probeOutcomeByResolvedModelId = new Map<
+      string,
+      { kind: 'ready' | 'warning' | 'unavailable'; reason?: string }
+    >();
+    let resolvedDefaultModelId: string | null | undefined;
+
+    const recordOutcome = (
+      requestedModelId: string,
+      outcome: { kind: 'ready' | 'warning' | 'unavailable'; reason?: string }
+    ): void => {
+      if (outcome.kind === 'ready') {
+        details.push(`Selected model ${requestedModelId} verified for launch.`);
+        return;
+      }
+      if (outcome.kind === 'unavailable') {
+        blockingMessages.push(
+          `Selected model ${requestedModelId} is unavailable. ${outcome.reason ?? 'Model verification failed'}`
+        );
+        return;
+      }
+      warnings.push(
+        `Selected model ${requestedModelId} could not be verified. ${outcome.reason ?? 'Model verification failed'}`
+      );
+    };
+
+    for (const modelId of modelIds) {
+      const label = modelId.trim();
+      if (!label) {
+        continue;
+      }
+
+      let targetModelId = label;
+      if (isDefaultProviderModelSelection(label)) {
+        if (resolvedDefaultModelId === undefined) {
+          try {
+            resolvedDefaultModelId = await this.resolveProviderDefaultModel(
+              claudePath,
+              cwd,
+              providerId,
+              env,
+              limitContext
+            );
+          } catch {
+            resolvedDefaultModelId = null;
+          }
+        }
+        if (!resolvedDefaultModelId) {
+          recordOutcome(label, {
+            kind: 'warning',
+            reason: 'Could not resolve the runtime default model',
+          });
+          continue;
+        }
+        targetModelId = resolvedDefaultModelId;
+      }
+
+      const cachedOutcome = probeOutcomeByResolvedModelId.get(targetModelId);
+      if (cachedOutcome) {
+        recordOutcome(label, cachedOutcome);
+        continue;
+      }
+
+      try {
+        const result = await this.spawnProbe(
+          claudePath,
+          buildProviderModelProbeArgs(targetModelId),
+          cwd,
+          env,
+          getProviderModelProbeTimeoutMs(providerId),
+          {
+            resolveOnOutputMatch: ({ stdout, stderr }) =>
+              isProviderModelProbeSuccessOutput(`${stdout}\n${stderr}`),
+          }
+        );
+        const combinedOutput = buildCombinedLogs(result.stdout, result.stderr).trim();
+        if (result.exitCode === 0 && isProviderModelProbeSuccessOutput(combinedOutput)) {
+          const outcome = { kind: 'ready' as const };
+          probeOutcomeByResolvedModelId.set(targetModelId, outcome);
+          recordOutcome(label, outcome);
+          continue;
+        }
+
+        const reason = combinedOutput || `Probe exited with code ${result.exitCode ?? 'unknown'}.`;
+        const normalizedReason = normalizeProviderModelProbeFailureReason(reason);
+        if (classifyProviderModelProbeFailure(reason) === 'unavailable') {
+          const outcome = { kind: 'unavailable' as const, reason: normalizedReason };
+          probeOutcomeByResolvedModelId.set(targetModelId, outcome);
+          recordOutcome(label, outcome);
+        } else {
+          const outcome = { kind: 'warning' as const, reason: normalizedReason };
+          probeOutcomeByResolvedModelId.set(targetModelId, outcome);
+          recordOutcome(label, outcome);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message.trim() : String(error).trim();
+        const normalizedMessage = normalizeProviderModelProbeFailureReason(message);
+        if (
+          classifyProviderModelProbeFailure(message) === 'unavailable' &&
+          !isTransientModelProbeMessage(message)
+        ) {
+          const outcome = { kind: 'unavailable' as const, reason: normalizedMessage };
+          probeOutcomeByResolvedModelId.set(targetModelId, outcome);
+          recordOutcome(label, outcome);
+        } else {
+          const outcome = { kind: 'warning' as const, reason: normalizedMessage };
+          probeOutcomeByResolvedModelId.set(targetModelId, outcome);
+          recordOutcome(label, outcome);
+        }
+      }
+    }
+
+    return { details, warnings, blockingMessages };
+  }
+
+  private async resolveProviderDefaultModel(
+    claudePath: string,
+    cwd: string,
+    providerId: TeamProviderId,
+    env: NodeJS.ProcessEnv,
+    limitContext: boolean
+  ): Promise<string | null> {
+    if (providerId === 'anthropic') {
+      return getAnthropicDefaultTeamModel(limitContext);
+    }
+
+    const { stdout } = await execCli(claudePath, ['model', 'list', '--json', '--provider', 'all'], {
+      cwd,
+      env,
+      timeout: 10_000,
+    });
+    const parsed = extractJsonObjectFromCli<ProviderModelListCommandResponse>(stdout);
+    const defaultModel = parsed.providers?.[providerId]?.defaultModel;
+    return typeof defaultModel === 'string' && defaultModel.trim().length > 0
+      ? defaultModel.trim()
+      : null;
+  }
+
+  private async materializeEffectiveTeamMemberSpecs(params: {
+    claudePath: string;
+    cwd: string;
+    members: TeamCreateRequest['members'];
+    defaults: {
+      providerId?: TeamProviderId;
+      model?: string;
+      effort?: TeamCreateRequest['effort'];
+    };
+    primaryProviderId?: TeamProviderId;
+    primaryEnv?: ProvisioningEnvResolution;
+    limitContext?: boolean;
+  }): Promise<TeamCreateRequest['members']> {
+    const envByProvider = new Map<TeamProviderId, Promise<ProvisioningEnvResolution>>();
+    const defaultModelByProvider = new Map<TeamProviderId, Promise<string>>();
+    const normalizedPrimaryProviderId = resolveTeamProviderId(params.primaryProviderId);
+
+    const getProvisioningEnv = (providerId: TeamProviderId): Promise<ProvisioningEnvResolution> => {
+      if (normalizedPrimaryProviderId === providerId && params.primaryEnv != null) {
+        return Promise.resolve(params.primaryEnv);
+      }
+
+      const cached = envByProvider.get(providerId);
+      if (cached) {
+        return cached;
+      }
+
+      const created = this.buildProvisioningEnv(providerId);
+      envByProvider.set(providerId, created);
+      return created;
+    };
+
+    const getResolvedDefaultModel = (providerId: TeamProviderId): Promise<string> => {
+      const cached = defaultModelByProvider.get(providerId);
+      if (cached) {
+        return cached;
+      }
+
+      const providerLabel = getTeamProviderLabel(providerId);
+      const created = (async () => {
+        const envResolution = await getProvisioningEnv(providerId);
+        if (envResolution.warning) {
+          throw new Error(envResolution.warning);
+        }
+
+        const resolvedDefaultModel = await this.resolveProviderDefaultModel(
+          params.claudePath,
+          params.cwd,
+          providerId,
+          envResolution.env,
+          params.limitContext === true
+        );
+        const normalized = resolvedDefaultModel?.trim();
+        if (!normalized) {
+          throw new Error(
+            `Could not resolve the runtime default model for ${providerLabel} teammates. Select an explicit model and retry.`
+          );
+        }
+        return normalized;
+      })();
+
+      defaultModelByProvider.set(providerId, created);
+      return created;
+    };
+
+    const effectiveMembers: TeamCreateRequest['members'] = [];
+    for (const member of params.members) {
+      const effectiveMember = buildEffectiveTeamMemberSpec(member, params.defaults);
+      const providerId = normalizeTeamMemberProviderId(effectiveMember.providerId) ?? 'anthropic';
+      if (providerId === 'anthropic' || effectiveMember.model?.trim()) {
+        effectiveMembers.push(effectiveMember);
+        continue;
+      }
+
+      effectiveMembers.push({
+        ...effectiveMember,
+        model: await getResolvedDefaultModel(providerId),
+      });
+    }
+
+    return effectiveMembers;
   }
 
   private getFreshCachedProbeResult(
@@ -4473,10 +4895,23 @@ export class TeamProvisioningService {
         throw new Error('Claude CLI not found; install it or provide a valid path');
       }
 
-      const effectiveMemberSpecs = buildEffectiveTeamMemberSpecs(request.members, {
-        providerId: request.providerId,
-        model: request.model,
-        effort: request.effort,
+      const provisioningEnv = await this.buildProvisioningEnv(request.providerId);
+      const { env: shellEnv, geminiRuntimeAuth, warning: envWarning } = provisioningEnv;
+      if (envWarning) {
+        throw new Error(envWarning);
+      }
+      const effectiveMemberSpecs = await this.materializeEffectiveTeamMemberSpecs({
+        claudePath,
+        cwd: request.cwd,
+        members: request.members,
+        defaults: {
+          providerId: request.providerId,
+          model: request.model,
+          effort: request.effort,
+        },
+        primaryProviderId: request.providerId,
+        primaryEnv: provisioningEnv,
+        limitContext: request.limitContext,
       });
       const runId = randomUUID();
       const startedAt = nowIso();
@@ -4581,14 +5016,6 @@ export class TeamProvisioningService {
       const initialUserPrompt = request.prompt?.trim() ?? '';
       const promptSize = getPromptSizeSummary(initialUserPrompt);
       let child: ReturnType<typeof spawn>;
-      const {
-        env: shellEnv,
-        geminiRuntimeAuth,
-        warning: envWarning,
-      } = await this.buildProvisioningEnv(request.providerId);
-      if (envWarning) {
-        throw new Error(envWarning);
-      }
       shellEnv.CLAUDE_ENABLE_DETERMINISTIC_TEAM_BOOTSTRAP = '1';
       const teammateModeDecision = await resolveDesktopTeammateModeDecision(request.extraCliArgs);
       if (teammateModeDecision.forceProcessTeammates) {
@@ -4680,10 +5107,16 @@ export class TeamProvisioningService {
         });
         await this.membersMetaStore.writeMembers(
           request.teamName,
-          request.members.map((m) => ({
+          effectiveMemberSpecs.map((m) => ({
             name: m.name.trim(),
             role: m.role?.trim() || undefined,
             workflow: m.workflow?.trim() || undefined,
+            providerId: normalizeOptionalTeamProviderId(m.providerId),
+            model: m.model?.trim() || undefined,
+            effort:
+              m.effort === 'low' || m.effort === 'medium' || m.effort === 'high'
+                ? m.effort
+                : undefined,
             agentType: 'general-purpose' as const,
             color: getMemberColorByName(m.name.trim()),
             joinedAt: Date.now(),
@@ -5017,16 +5450,30 @@ export class TeamProvisioningService {
       const runId = randomUUID();
       const startedAt = nowIso();
 
-      const effectiveMemberSpecs = buildEffectiveTeamMemberSpecs(expectedMemberSpecs, {
-        providerId: request.providerId,
-        model: request.model,
-        effort: request.effort,
+      const provisioningEnv = await this.buildProvisioningEnv(request.providerId);
+      const { env: shellEnv, geminiRuntimeAuth, warning: envWarning } = provisioningEnv;
+      if (envWarning) {
+        throw new Error(envWarning);
+      }
+
+      const effectiveMemberSpecs = await this.materializeEffectiveTeamMemberSpecs({
+        claudePath,
+        cwd: request.cwd,
+        members: expectedMemberSpecs,
+        defaults: {
+          providerId: request.providerId,
+          model: request.model,
+          effort: request.effort,
+        },
+        primaryProviderId: request.providerId,
+        primaryEnv: provisioningEnv,
+        limitContext: request.limitContext,
       });
 
       // Build a synthetic TeamCreateRequest for reuse by shared infrastructure
       const syntheticRequest: TeamCreateRequest = {
         teamName: request.teamName,
-        members: expectedMemberSpecs,
+        members: effectiveMemberSpecs,
         cwd: request.cwd,
         providerId: request.providerId,
         model: request.model,
@@ -5165,14 +5612,6 @@ export class TeamProvisioningService {
       );
       const promptSize = getPromptSizeSummary(prompt);
       let child: ReturnType<typeof spawn>;
-      const {
-        env: shellEnv,
-        geminiRuntimeAuth,
-        warning: envWarning,
-      } = await this.buildProvisioningEnv(request.providerId);
-      if (envWarning) {
-        throw new Error(envWarning);
-      }
       shellEnv.CLAUDE_ENABLE_DETERMINISTIC_TEAM_BOOTSTRAP = '1';
       const teammateModeDecision = await resolveDesktopTeammateModeDecision(request.extraCliArgs);
       if (teammateModeDecision.forceProcessTeammates) {
@@ -6559,12 +6998,34 @@ export class TeamProvisioningService {
   }
 
   private hasLiveTeamAgentProcess(teamName: string, memberName: string): boolean {
-    return this.getLiveTeamAgentNames(teamName).has(memberName);
+    return this.getLiveTeamAgentRuntimeMetadata(teamName).has(memberName);
+  }
+
+  private attachLiveRuntimeMetadataToStatuses(
+    teamName: string,
+    statuses: Record<string, MemberSpawnStatusEntry>
+  ): void {
+    for (const [memberName, metadata] of this.getLiveTeamAgentRuntimeMetadata(teamName).entries()) {
+      const current = statuses[memberName];
+      if (!current || !metadata.model) {
+        continue;
+      }
+      statuses[memberName] = {
+        ...current,
+        runtimeModel: metadata.model,
+      };
+    }
   }
 
   private getLiveTeamAgentNames(teamName: string): Set<string> {
+    return new Set(this.getLiveTeamAgentRuntimeMetadata(teamName).keys());
+  }
+
+  private getLiveTeamAgentRuntimeMetadata(
+    teamName: string
+  ): Map<string, LiveTeamAgentRuntimeMetadata> {
     if (process.platform === 'win32') {
-      return new Set();
+      return new Map();
     }
 
     let output = '';
@@ -6574,11 +7035,11 @@ export class TeamProvisioningService {
         stdio: ['ignore', 'pipe', 'ignore'],
       });
     } catch {
-      return new Set();
+      return new Map();
     }
 
     const teamMarker = `--team-name ${teamName}`;
-    const names = new Set<string>();
+    const metadataByAgent = new Map<string, LiveTeamAgentRuntimeMetadata>();
     for (const line of output.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed.includes(teamMarker)) continue;
@@ -6586,10 +7047,13 @@ export class TeamProvisioningService {
       if (!match) continue;
       const agentName = match[1]?.trim();
       if (agentName) {
-        names.add(agentName);
+        const model = extractCliFlagValue(trimmed, '--model');
+        metadataByAgent.set(agentName, {
+          ...(model ? { model } : {}),
+        });
       }
     }
-    return names;
+    return metadataByAgent;
   }
 
   private async clearPersistedLaunchState(teamName: string): Promise<void> {
@@ -6715,7 +7179,7 @@ export class TeamProvisioningService {
     const bootstrapSnapshot = await readBootstrapLaunchSnapshot(teamName);
     const persisted = await this.launchStateStore.read(teamName);
     const preferredSnapshot = choosePreferredLaunchSnapshot(bootstrapSnapshot, persisted);
-    if (preferredSnapshot) {
+    if (preferredSnapshot && preferredSnapshot === bootstrapSnapshot) {
       return {
         snapshot: preferredSnapshot,
         statuses: snapshotToMemberSpawnStatuses(preferredSnapshot),
@@ -6800,6 +7264,8 @@ export class TeamProvisioningService {
       const heartbeatReason = heartbeatMessage
         ? extractBootstrapFailureReason(heartbeatMessage.text)
         : null;
+      const acceptedAtMs =
+        current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
       current.runtimeAlive = runtimeAlive;
       current.lastRuntimeAliveAt = runtimeAlive ? now : current.lastRuntimeAliveAt;
       current.sources = {
@@ -6822,8 +7288,18 @@ export class TeamProvisioningService {
         current.hardFailure = false;
         current.hardFailureReason = undefined;
       }
-      const acceptedAtMs =
-        current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+      if (!current.bootstrapConfirmed && !current.hardFailure) {
+        const transcriptFailureReason = await this.findBootstrapTranscriptFailureReason(
+          teamName,
+          expected,
+          Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
+        );
+        if (transcriptFailureReason) {
+          current.hardFailure = true;
+          current.hardFailureReason = transcriptFailureReason;
+          current.sources.hardFailureSignal = true;
+        }
+      }
       const graceExpired =
         current.agentToolAccepted === true &&
         Number.isFinite(acceptedAtMs) &&
@@ -6865,6 +7341,139 @@ export class TeamProvisioningService {
       snapshot: reconciled,
       statuses: snapshotToMemberSpawnStatuses(reconciled),
     };
+  }
+
+  private async findBootstrapTranscriptFailureReason(
+    teamName: string,
+    memberName: string,
+    sinceMs: number | null
+  ): Promise<string | null> {
+    let summaries: Awaited<ReturnType<TeamMemberLogsFinder['findMemberLogs']>>;
+    try {
+      summaries = await this.memberLogsFinder.findMemberLogs(teamName, memberName, sinceMs);
+    } catch {
+      return null;
+    }
+
+    for (const summary of summaries) {
+      if (!summary.filePath) continue;
+      const reason = await this.readRecentBootstrapFailureReason(
+        summary.filePath,
+        sinceMs,
+        memberName
+      );
+      if (reason) {
+        return reason;
+      }
+    }
+
+    return this.findBootstrapFailureReasonInProjectRoot(teamName, memberName, sinceMs);
+  }
+
+  private async readRecentBootstrapFailureReason(
+    filePath: string,
+    sinceMs: number | null,
+    memberName?: string
+  ): Promise<string | null> {
+    let handle: fs.promises.FileHandle | null = null;
+    const normalizedMemberName = memberName?.trim().toLowerCase() || null;
+    try {
+      handle = await fs.promises.open(filePath, 'r');
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size <= 0) {
+        return null;
+      }
+      const start = Math.max(0, stat.size - TeamProvisioningService.BOOTSTRAP_FAILURE_TAIL_BYTES);
+      const buffer = Buffer.alloc(stat.size - start);
+      if (buffer.length === 0) {
+        return null;
+      }
+      await handle.read(buffer, 0, buffer.length, start);
+      const lines = buffer.toString('utf8').split('\n');
+      if (start > 0) {
+        lines.shift();
+      }
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        const line = lines[index]?.trim();
+        if (!line) continue;
+        let parsed: { timestamp?: unknown } | null = null;
+        try {
+          parsed = JSON.parse(line) as { timestamp?: unknown };
+        } catch {
+          continue;
+        }
+        const timestampMs =
+          typeof parsed.timestamp === 'string' ? Date.parse(parsed.timestamp) : Number.NaN;
+        if (sinceMs != null && Number.isFinite(timestampMs) && timestampMs < sinceMs) {
+          continue;
+        }
+        if (normalizedMemberName) {
+          const parsedAgentName =
+            typeof (parsed as { agentName?: unknown }).agentName === 'string'
+              ? (parsed as { agentName?: string }).agentName?.trim().toLowerCase() || null
+              : null;
+          if (parsedAgentName && parsedAgentName !== normalizedMemberName) {
+            continue;
+          }
+        }
+        const text = extractTranscriptMessageText(parsed);
+        if (!text) continue;
+        const reason = extractBootstrapFailureReason(text);
+        if (reason) {
+          return reason;
+        }
+      }
+    } catch {
+      return null;
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+
+    return null;
+  }
+
+  private async findBootstrapFailureReasonInProjectRoot(
+    teamName: string,
+    memberName: string,
+    sinceMs: number | null
+  ): Promise<string | null> {
+    let config: Awaited<ReturnType<TeamConfigReader['getConfig']>>;
+    try {
+      config = await this.configReader.getConfig(teamName);
+    } catch {
+      return null;
+    }
+    const projectPath = config?.projectPath?.trim();
+    if (!projectPath) {
+      return null;
+    }
+
+    const projectDir = path.join(getProjectsBasePath(), extractBaseDir(encodePath(projectPath)));
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(projectDir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+
+    const jsonlFiles = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+      .sort((left, right) => right.name.localeCompare(left.name));
+    for (const entry of jsonlFiles) {
+      if (config?.leadSessionId && entry.name === `${config.leadSessionId}.jsonl`) {
+        continue;
+      }
+      const reason = await this.readRecentBootstrapFailureReason(
+        path.join(projectDir, entry.name),
+        sinceMs,
+        memberName
+      );
+      if (reason) {
+        return reason;
+      }
+    }
+
+    return null;
   }
 
   private captureSendMessages(run: ProvisioningRun, content: Record<string, unknown>[]): void {
@@ -7304,7 +7913,7 @@ export class TeamProvisioningService {
         continue;
       }
       try {
-        execFileSync('tmux', ['kill-pane', '-t', paneId], { stdio: 'ignore' });
+        killTmuxPaneForCurrentPlatformSync(paneId);
         logger.info(`[${teamName}] Killed teammate pane ${name} (${paneId}) during stop`);
       } catch (error) {
         logger.debug(
@@ -11605,7 +12214,9 @@ export class TeamProvisioningService {
       }
 
       const pongCandidate = pingProbe.stdout.trim() || pingProbe.stderr.trim();
-      const isPong = new RegExp(`\\b${PREFLIGHT_EXPECTED}\\b`, 'i').test(pongCandidate);
+      const isPong = new RegExp(`\\b${getProviderModelProbeExpectedOutput()}\\b`, 'i').test(
+        pongCandidate
+      );
       if (!isPong) {
         return {
           warning:

@@ -101,6 +101,7 @@ export interface MembersEditorSectionProps {
   softDeleteMembers?: boolean;
   memberWarningById?: Record<string, string | null | undefined>;
   disableGeminiOption?: boolean;
+  memberModelIssueById?: Record<string, string | null | undefined>;
 }
 
 export const MembersEditorSection = ({
@@ -128,6 +129,7 @@ export const MembersEditorSection = ({
   softDeleteMembers = false,
   memberWarningById,
   disableGeminiOption = false,
+  memberModelIssueById,
 }: MembersEditorSectionProps): React.JSX.Element => {
   const [jsonEditorOpen, setJsonEditorOpen] = useState(false);
   const [jsonText, setJsonText] = useState('');
@@ -316,6 +318,7 @@ export const MembersEditorSection = ({
                 modelLockReason={modelLockReason}
                 warningText={memberWarningById?.[member.id] ?? null}
                 disableGeminiOption={disableGeminiOption}
+                modelIssueText={memberModelIssueById?.[member.id] ?? null}
               />
             ))}
             {softDeleteMembers && removedMembers.length > 0 ? (
@@ -356,6 +359,7 @@ export const MembersEditorSection = ({
                       isRemoved
                       warningText={null}
                       disableGeminiOption={disableGeminiOption}
+                      modelIssueText={null}
                     />
                   ))}
                 </div>

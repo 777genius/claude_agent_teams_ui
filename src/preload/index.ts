@@ -1,3 +1,5 @@
+import { createRecentProjectsBridge } from '@features/recent-projects/preload';
+import { createTmuxInstallerBridge } from '@features/tmux-installer/preload';
 import { WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL } from '@shared/constants';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
@@ -13,6 +15,7 @@ import {
   CLI_INSTALLER_INSTALL,
   CLI_INSTALLER_INVALIDATE_STATUS,
   CLI_INSTALLER_PROGRESS,
+  CLI_INSTALLER_VERIFY_PROVIDER_MODELS,
   CONTEXT_CHANGED,
   CONTEXT_GET_ACTIVE,
   CONTEXT_LIST,
@@ -184,7 +187,6 @@ import {
   TERMINAL_RESIZE,
   TERMINAL_SPAWN,
   TERMINAL_WRITE,
-  TMUX_GET_STATUS,
   UPDATER_CHECK,
   UPDATER_DOWNLOAD,
   UPDATER_INSTALL,
@@ -243,6 +245,7 @@ import type {
   ClaudeRootInfo,
   CliInstallationStatus,
   CliInstallerProgress,
+  CliProviderId,
   ConflictCheckResult,
   ContextInfo,
   CreateScheduleInput,
@@ -300,7 +303,6 @@ import type {
   TeamTask,
   TeamTaskStatus,
   TeamUpdateConfigRequest,
-  TmuxStatus,
   ToolApprovalEvent,
   ToolApprovalFileContent,
   ToolApprovalSettings,
@@ -448,6 +450,7 @@ ipcRenderer.on(
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 const electronAPI: ElectronAPI = {
+  ...createRecentProjectsBridge(),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getProjects: () => ipcRenderer.invoke('get-projects'),
   getSessions: (projectId: string) => ipcRenderer.invoke('get-sessions', projectId),
@@ -855,13 +858,17 @@ const electronAPI: ElectronAPI = {
     prepareProvisioning: async (
       cwd?: string,
       providerId?: TeamLaunchRequest['providerId'],
-      providerIds?: TeamLaunchRequest['providerId'][]
+      providerIds?: TeamLaunchRequest['providerId'][],
+      selectedModels?: string[],
+      limitContext?: boolean
     ) => {
       return invokeIpcWithResult<TeamProvisioningPrepareResult>(
         TEAM_PREPARE_PROVISIONING,
         cwd,
         providerId,
-        providerIds
+        providerIds,
+        selectedModels,
+        limitContext
       );
     },
     createTeam: async (request: TeamCreateRequest) => {
@@ -1408,8 +1415,11 @@ const electronAPI: ElectronAPI = {
     getStatus: async (): Promise<CliInstallationStatus> => {
       return invokeIpcWithResult<CliInstallationStatus>(CLI_INSTALLER_GET_STATUS);
     },
-    getProviderStatus: async (providerId: import('@shared/types').CliProviderId) => {
+    getProviderStatus: async (providerId: CliProviderId) => {
       return invokeIpcWithResult(CLI_INSTALLER_GET_PROVIDER_STATUS, providerId);
+    },
+    verifyProviderModels: async (providerId: CliProviderId) => {
+      return invokeIpcWithResult(CLI_INSTALLER_VERIFY_PROVIDER_MODELS, providerId);
     },
     install: async (): Promise<void> => {
       return invokeIpcWithResult<void>(CLI_INSTALLER_INSTALL);
@@ -1431,11 +1441,7 @@ const electronAPI: ElectronAPI = {
     },
   },
 
-  tmux: {
-    getStatus: async (): Promise<TmuxStatus> => {
-      return invokeIpcWithResult<TmuxStatus>(TMUX_GET_STATUS);
-    },
-  },
+  tmux: createTmuxInstallerBridge({ ipcRenderer, invokeIpcWithResult }),
 
   // ===== Terminal API =====
   terminal: {
@@ -1572,7 +1578,8 @@ const electronAPI: ElectronAPI = {
       invokeIpcWithResult<McpCatalogItem | null>(MCP_REGISTRY_GET_BY_ID, registryId),
     getInstalled: (projectPath?: string) =>
       invokeIpcWithResult<InstalledMcpEntry[]>(MCP_REGISTRY_GET_INSTALLED, projectPath),
-    diagnose: () => invokeIpcWithResult<McpServerDiagnostic[]>(MCP_REGISTRY_DIAGNOSE),
+    diagnose: (projectPath?: string) =>
+      invokeIpcWithResult<McpServerDiagnostic[]>(MCP_REGISTRY_DIAGNOSE, projectPath),
     install: (request: McpInstallRequest) =>
       invokeIpcWithResult<OperationResult>(MCP_REGISTRY_INSTALL, request),
     installCustom: (request: McpCustomInstallRequest) =>
@@ -1616,8 +1623,8 @@ const electronAPI: ElectronAPI = {
     list: () => invokeIpcWithResult<ApiKeyEntry[]>(API_KEYS_LIST),
     save: (request: ApiKeySaveRequest) => invokeIpcWithResult<ApiKeyEntry>(API_KEYS_SAVE, request),
     delete: (id: string) => invokeIpcWithResult<void>(API_KEYS_DELETE, id),
-    lookup: (envVarNames: string[]) =>
-      invokeIpcWithResult<ApiKeyLookupResult[]>(API_KEYS_LOOKUP, envVarNames),
+    lookup: (envVarNames: string[], projectPath?: string) =>
+      invokeIpcWithResult<ApiKeyLookupResult[]>(API_KEYS_LOOKUP, envVarNames, projectPath),
     getStorageStatus: () => invokeIpcWithResult<ApiKeyStorageStatus>(API_KEYS_STORAGE_STATUS),
   },
 

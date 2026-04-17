@@ -1,3 +1,5 @@
+import { STABLE_SLOT_GEOMETRY } from '../layout/stableSlotGeometry';
+
 /**
  * Canvas rendering constants for the agent graph visualization.
  * Adapted from agent-flow's canvas-constants.ts (Apache 2.0).
@@ -260,10 +262,12 @@ export const KANBAN_ZONE = {
   columnWidth: 180,
   /** Row height: pill (36) + gap (10) */
   rowHeight: 46,
+  /** Space reserved for column header label */
+  headerHeight: 20,
   /** Zone starts this far below member node center */
   offsetY: 70,
-  /** Column order: todo → wip → done → review → approved */
+  /** Column sequence: pending → wip → done → review → approved */
   columns: ['todo', 'wip', 'done', 'review', 'approved'] as const,
   /** Max tasks shown per column (overflow hidden) */
-  maxVisibleRows: 6,
+  maxVisibleRows: STABLE_SLOT_GEOMETRY.taskMaxVisibleRows,
 } as const;

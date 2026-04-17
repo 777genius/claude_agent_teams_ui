@@ -6,7 +6,11 @@ import {
 } from '@renderer/components/team/dialogs/TeamModelSelector';
 import {
   GPT_5_1_CODEX_MINI_UI_DISABLED_REASON,
+  GPT_5_1_CODEX_MAX_CHATGPT_UI_DISABLED_REASON,
+  GPT_5_2_CODEX_UI_DISABLED_REASON,
   GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON,
+  getAvailableTeamProviderModels,
+  getTeamModelSelectionError,
   getTeamModelUiDisabledReason,
   normalizeTeamModelForUi,
 } from '@renderer/utils/teamModelAvailability';
@@ -22,9 +26,12 @@ describe('formatTeamModelSummary', () => {
     expect(formatTeamModelSummary('codex', 'gpt-5.4', 'medium')).toBe('5.4 · Medium');
   });
 
-  it('marks 5.1 Codex Mini as disabled only for Codex team selection', () => {
+  it('marks the known disabled Codex models only for Codex team selection', () => {
     expect(getTeamModelUiDisabledReason('codex', 'gpt-5.1-codex-mini')).toBe(
       GPT_5_1_CODEX_MINI_UI_DISABLED_REASON
+    );
+    expect(getTeamModelUiDisabledReason('codex', 'gpt-5.2-codex')).toBe(
+      GPT_5_2_CODEX_UI_DISABLED_REASON
     );
     expect(getTeamModelUiDisabledReason('codex', 'gpt-5.3-codex-spark')).toBe(
       GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON
@@ -33,10 +40,72 @@ describe('formatTeamModelSummary', () => {
     expect(getTeamModelUiDisabledReason('anthropic', 'gpt-5.1-codex-mini')).toBeNull();
   });
 
+  it('disables 5.1 Codex Max only on the Codex ChatGPT subscription path', () => {
+    const chatgptCodexProviderStatus = {
+      providerId: 'codex' as const,
+      models: ['gpt-5.4', 'gpt-5.1-codex-max'],
+      authMethod: 'oauth_token' as const,
+      backend: {
+        kind: 'adapter',
+        label: 'Default adapter',
+        endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+      },
+      modelVerificationState: 'verified' as const,
+      modelAvailability: [],
+      authenticated: true,
+      supported: true,
+    };
+
+    expect(
+      getTeamModelUiDisabledReason('codex', 'gpt-5.1-codex-max', chatgptCodexProviderStatus)
+    ).toBe(GPT_5_1_CODEX_MAX_CHATGPT_UI_DISABLED_REASON);
+    expect(normalizeTeamModelForUi('codex', 'gpt-5.1-codex-max', chatgptCodexProviderStatus)).toBe(
+      ''
+    );
+    expect(
+      getTeamModelSelectionError('codex', 'gpt-5.1-codex-max', chatgptCodexProviderStatus)
+    ).toContain('Temporarily disabled for team agents when using Codex ChatGPT subscription');
+    expect(getTeamModelUiDisabledReason('codex', 'gpt-5.1-codex-max')).toBeNull();
+  });
+
   it('normalizes disabled Codex model selections back to default', () => {
     expect(normalizeTeamModelForUi('codex', 'gpt-5.1-codex-mini')).toBe('');
+    expect(normalizeTeamModelForUi('codex', 'gpt-5.2-codex')).toBe('');
     expect(normalizeTeamModelForUi('codex', 'gpt-5.3-codex-spark')).toBe('');
-    expect(normalizeTeamModelForUi('codex', 'gpt-5.4-mini')).toBe('gpt-5.4-mini');
+    expect(normalizeTeamModelForUi('codex', 'gpt-5.4-mini')).toBe('');
+  });
+
+  it('uses the runtime-reported Codex model list when provider status is available', () => {
+    const codexProviderStatus = {
+      providerId: 'codex' as const,
+      models: ['gpt-5.4', 'gpt-5.3-codex'],
+      authMethod: 'oauth_token' as const,
+      backend: {
+        kind: 'adapter',
+        label: 'Default adapter',
+        endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+      },
+      modelVerificationState: 'verified' as const,
+      modelAvailability: [
+        { modelId: 'gpt-5.4', status: 'available' as const, checkedAt: null },
+        { modelId: 'gpt-5.3-codex', status: 'available' as const, checkedAt: null },
+      ],
+      authenticated: true,
+      supported: true,
+    };
+
+    expect(getAvailableTeamProviderModels('codex', codexProviderStatus)).toEqual([
+      'gpt-5.4',
+      'gpt-5.3-codex',
+    ]);
+    expect(normalizeTeamModelForUi('codex', 'gpt-5.2-codex', codexProviderStatus)).toBe('');
+    expect(normalizeTeamModelForUi('codex', 'gpt-5.4', codexProviderStatus)).toBe('gpt-5.4');
+  });
+
+  it('waits for the runtime model list before validating explicit Codex selections', () => {
+    expect(getTeamModelSelectionError('codex', 'gpt-5.4')).toContain('waiting for Codex runtime verification');
+    expect(getTeamModelSelectionError('codex', '')).toBeNull();
+    expect(getTeamModelSelectionError('anthropic', 'opus')).toBeNull();
   });
 });
 
@@ -60,6 +129,7 @@ describe('computeEffectiveTeamModel', () => {
     expect(computeEffectiveTeamModel('opus', true, 'anthropic')).toBe('opus');
     expect(computeEffectiveTeamModel('opus[1m]', true, 'anthropic')).toBe('opus');
     expect(computeEffectiveTeamModel('opus[1m][1m]', true, 'anthropic')).toBe('opus');
+    expect(computeEffectiveTeamModel('', true, 'anthropic')).toBe('opus');
   });
 
   it('returns haiku as-is', () => {

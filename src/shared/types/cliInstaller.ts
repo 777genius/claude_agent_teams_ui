@@ -57,6 +57,35 @@ export interface CliExternalRuntimeDiagnostic {
   detailMessage?: string | null;
 }
 
+export type CliExtensionCapabilityStatus = 'supported' | 'read-only' | 'unsupported';
+export type CliExtensionOwnership = 'shared' | 'provider-scoped';
+
+export interface CliExtensionCapability {
+  status: CliExtensionCapabilityStatus;
+  ownership: CliExtensionOwnership;
+  reason?: string | null;
+}
+
+export interface CliExtensionCapabilities {
+  plugins: CliExtensionCapability;
+  mcp: CliExtensionCapability;
+  skills: CliExtensionCapability;
+  apiKeys: CliExtensionCapability;
+}
+
+export type CliProviderModelAvailabilityStatus =
+  | 'checking'
+  | 'available'
+  | 'unavailable'
+  | 'unknown';
+
+export interface CliProviderModelAvailability {
+  modelId: string;
+  status: CliProviderModelAvailabilityStatus;
+  reason?: string | null;
+  checkedAt?: string | null;
+}
+
 export interface CliProviderStatus {
   providerId: CliProviderId;
   displayName: string;
@@ -64,12 +93,15 @@ export interface CliProviderStatus {
   authenticated: boolean;
   authMethod: string | null;
   verificationState: 'verified' | 'unknown' | 'offline' | 'error';
+  modelVerificationState?: 'idle' | 'verifying' | 'verified';
   statusMessage?: string | null;
   models: string[];
+  modelAvailability?: CliProviderModelAvailability[];
   canLoginFromUi: boolean;
   capabilities: {
     teamLaunch: boolean;
     oneShot: boolean;
+    extensions: CliExtensionCapabilities;
   };
   selectedBackendId?: string | null;
   resolvedBackendId?: string | null;
@@ -172,6 +204,8 @@ export interface CliInstallerAPI {
   getStatus: () => Promise<CliInstallationStatus>;
   /** Get current runtime/auth status for a single provider */
   getProviderStatus: (providerId: CliProviderId) => Promise<CliProviderStatus | null>;
+  /** Start on-demand model verification for a single runtime provider */
+  verifyProviderModels: (providerId: CliProviderId) => Promise<CliProviderStatus | null>;
   /** Start install/update flow. Progress sent via onProgress events. */
   install: () => Promise<void>;
   /** Invalidate cached status (forces fresh check on next getStatus) */

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   collapseOverflowStacks,
   collapseOverflowStacksWithMeta,
-} from '@renderer/features/agent-graph/utils/collapseOverflowStacks';
+} from '@features/agent-graph/core/domain/collapseOverflowStacks';
 
 import type { GraphNode } from '@claude-teams/agent-graph';
 

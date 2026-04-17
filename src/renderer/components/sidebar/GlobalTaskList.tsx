@@ -21,6 +21,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Folder,
   ListTodo,
   Pin,
   Search,
@@ -56,7 +57,7 @@ function loadGroupingMode(): TaskGroupingMode {
   } catch {
     /* ignore */
   }
-  return 'none';
+  return 'project';
 }
 
 function saveGroupingMode(mode: TaskGroupingMode): void {
@@ -625,6 +626,7 @@ export const GlobalTaskList = ({
           projectGroups.map((group) => {
             if (group.tasks.length === 0) return null;
             const isGroupCollapsed = projectCollapsed.isCollapsed(group.projectKey);
+            const groupColor = projectColor(group.projectLabel);
             let lastTeam: string | null = null;
             return (
               <div key={group.projectKey}>
@@ -639,14 +641,12 @@ export const GlobalTaskList = ({
                   ) : (
                     <ChevronDown className="size-3 shrink-0 text-text-muted" />
                   )}
-                  <span
-                    className="inline-block size-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: projectColor(group.projectLabel).border }}
+                  <Folder
+                    className="size-3 shrink-0"
+                    style={{ color: groupColor.border }}
+                    aria-hidden="true"
                   />
-                  <span
-                    className="truncate"
-                    style={{ color: projectColor(group.projectLabel).text }}
-                  >
+                  <span className="truncate" style={{ color: groupColor.text }}>
                     {group.projectLabel}
                   </span>
                   <span className="ml-auto shrink-0 text-[10px] font-normal text-text-muted">

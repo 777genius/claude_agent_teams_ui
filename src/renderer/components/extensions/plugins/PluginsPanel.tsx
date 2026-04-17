@@ -2,7 +2,7 @@
  * PluginsPanel — search, filter, sort and browse the plugin catalog.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import { Badge } from '@renderer/components/ui/badge';
 import { Button } from '@renderer/components/ui/button';
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@renderer/components/ui/select';
 import { useStore } from '@renderer/store';
+import { getCliProviderExtensionCapability } from '@shared/utils/providerExtensionCapabilities';
 import { inferCapabilities, normalizeCategory } from '@shared/utils/extensionNormalizers';
 import { ArrowUpDown, Filter, Puzzle, Search } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -35,6 +36,7 @@ import type {
 } from '@shared/types/extensions';
 
 interface PluginsPanelProps {
+  projectPath: string | null;
   pluginFilters: PluginFilters;
   pluginSort: { field: PluginSortField; order: 'asc' | 'desc' };
   selectedPluginId: string | null;
@@ -111,6 +113,7 @@ function selectFilteredPlugins(
 }
 
 export const PluginsPanel = ({
+  projectPath,
   pluginFilters,
   pluginSort,
   selectedPluginId,
@@ -123,11 +126,12 @@ export const PluginsPanel = ({
   hasActiveFilters,
   setPluginSort,
 }: PluginsPanelProps): React.JSX.Element => {
-  const { catalog, loading, error } = useStore(
+  const { catalog, loading, error, cliStatus } = useStore(
     useShallow((s) => ({
       catalog: s.pluginCatalog,
       loading: s.pluginCatalogLoading,
       error: s.pluginCatalogError,
+      cliStatus: s.cliStatus,
     }))
   );
 
@@ -141,6 +145,18 @@ export const PluginsPanel = ({
       selectedPluginId ? (catalog.find((p) => p.pluginId === selectedPluginId) ?? null) : null,
     [catalog, selectedPluginId]
   );
+
+  useEffect(() => {
+    if (selectedPluginId && !loading && !selectedPlugin) {
+      setSelectedPluginId(null);
+    }
+  }, [loading, selectedPlugin, selectedPluginId, setSelectedPluginId]);
+
+  useEffect(() => {
+    if (error && selectedPluginId) {
+      setSelectedPluginId(null);
+    }
+  }, [error, selectedPluginId, setSelectedPluginId]);
 
   const sortValue = `${pluginSort.field}:${pluginSort.order}`;
   const activeFilterCount =
@@ -161,9 +177,27 @@ export const PluginsPanel = ({
     }
     return counts.size;
   }, [catalog]);
-
   return (
     <div className="flex flex-col gap-4">
+      {cliStatus?.flavor === 'agent_teams_orchestrator' &&
+        (() => {
+          const codexProvider = cliStatus.providers.find(
+            (provider) => provider.providerId === 'codex'
+          );
+          if (!codexProvider) return null;
+          const capability = getCliProviderExtensionCapability(codexProvider, 'plugins');
+          if (capability.status === 'supported') {
+            return null;
+          }
+
+          return (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+              In the multimodel runtime, plugins currently apply only to Anthropic sessions. Broader
+              plugin support across providers is in development.
+              {capability.reason ? ` ${capability.reason}` : ''}
+            </div>
+          );
+        })()}
       {/* Search + Sort + Installed only row */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="flex-1">
@@ -383,6 +417,7 @@ export const PluginsPanel = ({
         plugin={selectedPlugin}
         open={selectedPluginId !== null}
         onClose={() => setSelectedPluginId(null)}
+        projectPath={projectPath}
       />
     </div>
   );

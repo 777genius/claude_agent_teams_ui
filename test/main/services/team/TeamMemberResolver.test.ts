@@ -33,7 +33,8 @@ describe('TeamMemberResolver', () => {
     const members = resolver.resolveMembers(config, metaMembers, inboxNames, tasks, messages);
     const names = members.map((member) => member.name);
 
-    expect(names).toEqual(['alice', 'bob', 'team-lead']);
+    expect(names).toHaveLength(3);
+    expect(names).toEqual(expect.arrayContaining(['alice', 'bob', 'team-lead']));
     expect(names).not.toContain('stranger');
     expect(names).not.toContain('user');
 

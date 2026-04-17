@@ -17,8 +17,9 @@ import { useDraftPersistence } from '@renderer/hooks/useDraftPersistence';
 import { useFileListCacheWarmer } from '@renderer/hooks/useFileListCacheWarmer';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { reconcileChips, removeChipTokenFromText } from '@renderer/utils/chipUtils';
+import { cn } from '@renderer/lib/utils';
 import { getMemberColorByName } from '@shared/constants/memberColors';
-import { ChevronDown, ChevronRight, Info, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Info, RotateCcw, Trash2 } from 'lucide-react';
 
 import type { MemberDraft } from './membersEditorTypes';
 import type { InlineChip } from '@renderer/types/inlineChip';
@@ -55,6 +56,7 @@ interface MemberDraftRowProps {
   onRestore?: (id: string) => void;
   warningText?: string | null;
   disableGeminiOption?: boolean;
+  modelIssueText?: string | null;
 }
 
 export const MemberDraftRow = ({
@@ -87,6 +89,7 @@ export const MemberDraftRow = ({
   onRestore,
   warningText,
   disableGeminiOption = false,
+  modelIssueText,
 }: MemberDraftRowProps): React.JSX.Element => {
   const { isLight } = useTheme();
   const memberColorSet = getTeamColorSet(
@@ -175,6 +178,7 @@ export const MemberDraftRow = ({
   const modelTooltipText = forceInheritedModelSettings
     ? 'Provider, model, and effort are inherited from the lead while sync is enabled.'
     : modelLockReason;
+  const hasModelIssue = Boolean(modelIssueText);
 
   return (
     <div
@@ -248,7 +252,11 @@ export const MemberDraftRow = ({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 w-full justify-start gap-1 overflow-hidden text-left"
+                    className={cn(
+                      'h-8 w-full justify-start gap-1 overflow-hidden text-left',
+                      hasModelIssue &&
+                        'border-red-500/50 bg-red-500/10 text-red-100 hover:border-red-400/60 hover:bg-red-500/15 hover:text-red-50'
+                    )}
                     aria-label={modelButtonAriaLabel}
                     disabled={lockProviderModel || isRemoved}
                     onClick={() => setModelExpanded((prev) => !prev)}
@@ -262,13 +270,21 @@ export const MemberDraftRow = ({
                       providerId={effectiveProviderId}
                       className="size-3.5 shrink-0"
                     />
-                    <span className="truncate">{modelButtonLabel}</span>
+                    <span className="min-w-0 flex-1 truncate">{modelButtonLabel}</span>
+                    {hasModelIssue ? (
+                      <AlertTriangle className="size-3.5 shrink-0 text-red-300" />
+                    ) : null}
                   </Button>
                 </span>
               </TooltipTrigger>
-              {modelTooltipText ? (
+              {modelTooltipText || modelIssueText ? (
                 <TooltipContent side="top" className="max-w-64 text-xs leading-relaxed">
-                  {modelTooltipText}
+                  {modelIssueText ? <p className="text-red-300">{modelIssueText}</p> : null}
+                  {modelTooltipText ? (
+                    <p className={modelIssueText ? 'mt-1 border-t border-white/10 pt-1' : ''}>
+                      {modelTooltipText}
+                    </p>
+                  ) : null}
                 </TooltipContent>
               ) : null}
             </Tooltip>
@@ -355,6 +371,9 @@ export const MemberDraftRow = ({
             }}
             id={`member-${member.id}-model`}
             disableGeminiOption={disableGeminiOption}
+            modelIssueReasonByValue={
+              effectiveModel?.trim() ? { [effectiveModel.trim()]: modelIssueText } : undefined
+            }
           />
           <EffortLevelSelector
             value={effectiveEffort ?? ''}
@@ -370,13 +389,6 @@ export const MemberDraftRow = ({
                 'Provider, model, and effort changes are disabled while the team is live. Reconnect the team to apply them safely.'}
             </p>
           )}
-          <div className="flex items-start gap-2 rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2">
-            <Info className="mt-0.5 size-3.5 shrink-0 text-sky-400" />
-            <p className="text-[11px] leading-relaxed text-sky-300">
-              If this teammate uses a different provider than the lead, they will be started in a
-              separate process automatically.
-            </p>
-          </div>
         </div>
       )}
     </div>

@@ -60,23 +60,26 @@ interface TimedCache<T> {
 // ── Service ────────────────────────────────────────────────────────────────
 
 export class PluginInstallationStateService {
-  private installedCache: TimedCache<InstalledPluginEntry[]> | null = null;
+  private installedCache = new Map<string, TimedCache<InstalledPluginEntry[]>>();
   private countsCache: TimedCache<Map<string, number>> | null = null;
 
   /**
-   * Get all installed plugins across all scopes.
-   * Returns merged list from installed_plugins.json with scope tags.
+   * Get installed plugins relevant to the active context.
+   * Always includes user scope. Project/local entries are only included when
+   * they are enabled for the active project.
    */
-  async getInstalledPlugins(_projectPath?: string): Promise<InstalledPluginEntry[]> {
-    if (
-      this.installedCache &&
-      Date.now() - this.installedCache.fetchedAt < INSTALLED_STATE_TTL_MS
-    ) {
-      return this.installedCache.data;
+  async getInstalledPlugins(projectPath?: string): Promise<InstalledPluginEntry[]> {
+    const normalizedProjectPath =
+      typeof projectPath === 'string' && path.isAbsolute(projectPath) ? projectPath : undefined;
+    const cacheKey = this.getInstalledCacheKey(normalizedProjectPath);
+    const cached = this.installedCache.get(cacheKey);
+
+    if (cached && Date.now() - cached.fetchedAt < INSTALLED_STATE_TTL_MS) {
+      return cached.data;
     }
 
-    const entries = await this.readInstalledPlugins();
-    this.installedCache = { data: entries, fetchedAt: Date.now() };
+    const entries = await this.buildInstalledEntriesForContext(normalizedProjectPath);
+    this.installedCache.set(cacheKey, { data: entries, fetchedAt: Date.now() });
     return entries;
   }
 
@@ -97,7 +100,7 @@ export class PluginInstallationStateService {
    * Invalidate all caches. Call after install/uninstall operations.
    */
   invalidateCache(): void {
-    this.installedCache = null;
+    this.installedCache.clear();
     this.countsCache = null;
   }
 
@@ -107,7 +110,81 @@ export class PluginInstallationStateService {
     return path.join(getClaudeBasePath(), 'plugins');
   }
 
-  private async readInstalledPlugins(): Promise<InstalledPluginEntry[]> {
+  private getInstalledCacheKey(projectPath?: string): string {
+    return projectPath ?? '__user__';
+  }
+
+  private async buildInstalledEntriesForContext(
+    projectPath?: string
+  ): Promise<InstalledPluginEntry[]> {
+    const installedMetadata = await this.readInstalledPluginMetadata();
+    const metadataByKey = new Map<string, InstalledPluginEntry[]>();
+
+    for (const entry of installedMetadata) {
+      const key = this.getPluginScopeKey(entry.pluginId, entry.scope);
+      const matches = metadataByKey.get(key) ?? [];
+      matches.push(entry);
+      metadataByKey.set(key, matches);
+    }
+
+    const userEnabled = await this.readEnabledPlugins(
+      path.join(getClaudeBasePath(), 'settings.json')
+    );
+    const projectEnabled = projectPath
+      ? await this.readEnabledPlugins(path.join(projectPath, '.claude', 'settings.json'))
+      : new Set<string>();
+    const localEnabled = projectPath
+      ? await this.readEnabledPlugins(path.join(projectPath, '.claude', 'settings.local.json'))
+      : new Set<string>();
+
+    return [
+      ...this.buildScopedEntries('user', userEnabled, metadataByKey),
+      ...this.buildScopedEntries('project', projectEnabled, metadataByKey),
+      ...this.buildScopedEntries('local', localEnabled, metadataByKey),
+    ];
+  }
+
+  private buildScopedEntries(
+    scope: InstallScope,
+    enabledPlugins: Set<string>,
+    metadataByKey: Map<string, InstalledPluginEntry[]>
+  ): InstalledPluginEntry[] {
+    return Array.from(enabledPlugins).map((pluginId) => {
+      const key = this.getPluginScopeKey(pluginId, scope);
+      const bestMatch = this.pickBestInstallationEntry(metadataByKey.get(key) ?? []);
+
+      return bestMatch
+        ? {
+            ...bestMatch,
+            pluginId,
+            scope,
+          }
+        : {
+            pluginId,
+            scope,
+          };
+    });
+  }
+
+  private getPluginScopeKey(pluginId: string, scope: InstallScope): string {
+    return `${pluginId}::${scope}`;
+  }
+
+  private pickBestInstallationEntry(entries: InstalledPluginEntry[]): InstalledPluginEntry | null {
+    if (entries.length === 0) {
+      return null;
+    }
+
+    return [...entries].sort((left, right) => {
+      const leftInstalledAt = Date.parse(left.installedAt ?? '');
+      const rightInstalledAt = Date.parse(right.installedAt ?? '');
+      const normalizedLeft = Number.isFinite(leftInstalledAt) ? leftInstalledAt : 0;
+      const normalizedRight = Number.isFinite(rightInstalledAt) ? rightInstalledAt : 0;
+      return normalizedRight - normalizedLeft;
+    })[0];
+  }
+
+  private async readInstalledPluginMetadata(): Promise<InstalledPluginEntry[]> {
     const filePath = path.join(this.getPluginsDir(), 'installed_plugins.json');
 
     try {
@@ -140,6 +217,31 @@ export class PluginInstallationStateService {
       }
       logger.error('Failed to read installed_plugins.json:', err);
       return [];
+    }
+  }
+
+  private async readEnabledPlugins(filePath: string): Promise<Set<string>> {
+    try {
+      const raw = await fs.readFile(filePath, 'utf-8');
+      const json = JSON.parse(raw) as {
+        enabledPlugins?: Record<string, boolean> | null;
+      };
+
+      if (!json.enabledPlugins || typeof json.enabledPlugins !== 'object') {
+        return new Set<string>();
+      }
+
+      return new Set(
+        Object.entries(json.enabledPlugins)
+          .filter(([, enabled]) => enabled === true)
+          .map(([pluginId]) => pluginId)
+      );
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return new Set<string>();
+      }
+      logger.error(`Failed to read plugin settings from ${filePath}:`, err);
+      return new Set<string>();
     }
   }
 

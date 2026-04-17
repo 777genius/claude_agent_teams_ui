@@ -12,6 +12,7 @@ import {
   CLI_INSTALLER_GET_STATUS,
   CLI_INSTALLER_INSTALL,
   CLI_INSTALLER_INVALIDATE_STATUS,
+  CLI_INSTALLER_VERIFY_PROVIDER_MODELS,
   // eslint-disable-next-line boundaries/element-types -- IPC channel constants shared between main and preload
 } from '@preload/constants/ipcChannels';
 import { getErrorMessage } from '@shared/utils/errorHandling';
@@ -49,6 +50,7 @@ export function initializeCliInstallerHandlers(installerService: CliInstallerSer
 export function registerCliInstallerHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(CLI_INSTALLER_GET_STATUS, handleGetStatus);
   ipcMain.handle(CLI_INSTALLER_GET_PROVIDER_STATUS, handleGetProviderStatus);
+  ipcMain.handle(CLI_INSTALLER_VERIFY_PROVIDER_MODELS, handleVerifyProviderModels);
   ipcMain.handle(CLI_INSTALLER_INSTALL, handleInstall);
   ipcMain.handle(CLI_INSTALLER_INVALIDATE_STATUS, handleInvalidateStatus);
 
@@ -61,6 +63,7 @@ export function registerCliInstallerHandlers(ipcMain: IpcMain): void {
 export function removeCliInstallerHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(CLI_INSTALLER_GET_STATUS);
   ipcMain.removeHandler(CLI_INSTALLER_GET_PROVIDER_STATUS);
+  ipcMain.removeHandler(CLI_INSTALLER_VERIFY_PROVIDER_MODELS);
   ipcMain.removeHandler(CLI_INSTALLER_INSTALL);
   ipcMain.removeHandler(CLI_INSTALLER_INVALIDATE_STATUS);
 
@@ -75,7 +78,12 @@ async function handleGetStatus(
   _event: IpcMainInvokeEvent
 ): Promise<IpcResult<CliInstallationStatus>> {
   try {
+    const latestSnapshot = service.getLatestStatusSnapshot();
     if (cachedStatus && Date.now() - cachedStatus.at < STATUS_CACHE_TTL_MS) {
+      if (latestSnapshot) {
+        cachedStatus = { value: latestSnapshot, at: Date.now() };
+        return { success: true, data: latestSnapshot };
+      }
       return { success: true, data: cachedStatus.value };
     }
 
@@ -172,9 +180,25 @@ async function handleInstall(_event: IpcMainInvokeEvent): Promise<IpcResult<void
   }
 }
 
+async function handleVerifyProviderModels(
+  _event: IpcMainInvokeEvent,
+  providerId: CliProviderId
+): Promise<IpcResult<CliProviderStatus | null>> {
+  try {
+    const status = await service.verifyProviderModels(providerId);
+    patchCachedProviderStatus(status);
+    return { success: true, data: status };
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    logger.error(`Error in cliInstaller:verifyProviderModels(${providerId}):`, msg);
+    return { success: false, error: msg };
+  }
+}
+
 function handleInvalidateStatus(_event: IpcMainInvokeEvent): IpcResult<void> {
   cachedStatus = null;
   providerStatusInFlight.clear();
   ClaudeBinaryResolver.clearCache();
+  service.invalidateStatusCache();
   return { success: true, data: undefined };
 }

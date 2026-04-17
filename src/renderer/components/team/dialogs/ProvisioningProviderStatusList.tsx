@@ -84,6 +84,21 @@ export function failIncompleteProviderChecks(
   );
 }
 
+type ProvisioningDetailSummary =
+  | 'CLI binary missing'
+  | 'Working directory missing'
+  | 'CLI binary could not be started'
+  | 'CLI preflight did not complete'
+  | 'Authentication required'
+  | 'Runtime provider is not configured'
+  | 'CLI preflight failed'
+  | 'Selected model verified'
+  | 'Selected model unavailable'
+  | 'Selected model verification timed out'
+  | 'Selected model check failed'
+  | 'Ready with notes'
+  | 'Needs attention';
+
 function getStatusLabel(status: ProvisioningProviderCheckStatus): string {
   switch (status) {
     case 'checking':
@@ -100,7 +115,10 @@ function getStatusLabel(status: ProvisioningProviderCheckStatus): string {
   }
 }
 
-function summarizeDetail(detail: string, status: ProvisioningProviderCheckStatus): string | null {
+function summarizeDetail(
+  detail: string,
+  status: ProvisioningProviderCheckStatus
+): ProvisioningDetailSummary | null {
   const lower = detail.toLowerCase();
 
   if (lower.includes('spawn ') && lower.includes(' enoent')) {
@@ -132,6 +150,34 @@ function summarizeDetail(detail: string, status: ProvisioningProviderCheckStatus
   if (lower.includes('claude cli preflight check failed')) {
     return 'CLI preflight failed';
   }
+  if (lower.includes('selected model') && lower.includes('verified for launch')) {
+    return 'Selected model verified';
+  }
+  if (lower.includes('selected model') && lower.includes('is unavailable')) {
+    return 'Selected model unavailable';
+  }
+  if (
+    lower.includes('selected model') &&
+    lower.includes('could not be verified') &&
+    lower.includes('timed out')
+  ) {
+    return 'Selected model verification timed out';
+  }
+  if (lower.includes('selected model') && lower.includes('could not be verified')) {
+    return 'Selected model check failed';
+  }
+  if (lower.includes(' - verified')) {
+    return 'Selected model verified';
+  }
+  if (lower.includes(' - unavailable -')) {
+    return 'Selected model unavailable';
+  }
+  if (lower.includes('timed out')) {
+    return 'Selected model verification timed out';
+  }
+  if (lower.includes(' - check failed -')) {
+    return 'Selected model check failed';
+  }
 
   if (status === 'notes') {
     return 'Ready with notes';
@@ -142,11 +188,171 @@ function summarizeDetail(detail: string, status: ProvisioningProviderCheckStatus
   return null;
 }
 
+function getModelDetailSummary(details: string[]): string | null {
+  let verifiedCount = 0;
+  let unavailableCount = 0;
+  let timedOutCount = 0;
+  let checkFailedCount = 0;
+  let checkingCount = 0;
+
+  for (const detail of details) {
+    const lower = detail.toLowerCase();
+    if (lower.includes(' - verified')) {
+      verifiedCount += 1;
+      continue;
+    }
+    if (lower.includes(' - unavailable -')) {
+      unavailableCount += 1;
+      continue;
+    }
+    if (lower.includes('timed out')) {
+      timedOutCount += 1;
+      continue;
+    }
+    if (lower.includes(' - check failed -')) {
+      checkFailedCount += 1;
+      continue;
+    }
+    if (lower.includes(' - checking...')) {
+      checkingCount += 1;
+    }
+  }
+
+  const parts: string[] = [];
+  if (unavailableCount > 0) {
+    parts.push(`${unavailableCount} model${unavailableCount === 1 ? '' : 's'} unavailable`);
+  }
+  if (checkFailedCount > 0) {
+    parts.push(`${checkFailedCount} model${checkFailedCount === 1 ? '' : 's'} check failed`);
+  }
+  if (timedOutCount > 0) {
+    parts.push(`${timedOutCount} model${timedOutCount === 1 ? '' : 's'} timed out`);
+  }
+  if (checkingCount > 0) {
+    parts.push(`${checkingCount} checking`);
+  }
+  if (verifiedCount > 0) {
+    parts.push(`${verifiedCount} verified`);
+  }
+
+  return parts.length > 0 ? `Selected model checks - ${parts.join(', ')}` : null;
+}
+
 function getDisplayStatusText(check: ProvisioningProviderCheck): string {
-  const summary = check.details.find(Boolean)
-    ? summarizeDetail(check.details[0], check.status)
-    : null;
+  const modelSummary = getModelDetailSummary(check.details);
+  if (modelSummary) {
+    return modelSummary;
+  }
+
+  const summarizedDetails = check.details
+    .map((detail) => summarizeDetail(detail, check.status))
+    .filter((detail): detail is ProvisioningDetailSummary => Boolean(detail));
+
+  const summary =
+    check.status === 'failed'
+      ? (summarizedDetails.find(
+          (detail) =>
+            detail === 'Selected model unavailable' ||
+            detail === 'Selected model check failed' ||
+            detail === 'Authentication required' ||
+            detail === 'CLI preflight failed' ||
+            detail === 'CLI binary could not be started'
+        ) ??
+        summarizedDetails[0] ??
+        null)
+      : (summarizedDetails[0] ?? null);
   return summary ?? getStatusLabel(check.status);
+}
+
+function getDetailTone(
+  detail: string,
+  status: ProvisioningProviderCheckStatus
+): 'success' | 'failure' | 'checking' | 'neutral' {
+  const summary = summarizeDetail(detail, status);
+  if (summary === 'Selected model verified') {
+    return 'success';
+  }
+  if (summary === 'Selected model verification timed out') {
+    return 'neutral';
+  }
+  if (
+    summary === 'Selected model unavailable' ||
+    summary === 'Selected model check failed' ||
+    summary === 'CLI binary missing' ||
+    summary === 'Working directory missing' ||
+    summary === 'CLI binary could not be started' ||
+    summary === 'CLI preflight did not complete' ||
+    summary === 'Authentication required' ||
+    summary === 'Runtime provider is not configured' ||
+    summary === 'CLI preflight failed' ||
+    summary === 'Needs attention'
+  ) {
+    return 'failure';
+  }
+  if (detail.toLowerCase().includes(' - checking...')) {
+    return 'checking';
+  }
+  return 'neutral';
+}
+
+function getDetailColorClass(detail: string, status: ProvisioningProviderCheckStatus): string {
+  switch (getDetailTone(detail, status)) {
+    case 'success':
+      return 'text-emerald-400';
+    case 'failure':
+      return 'text-red-300';
+    case 'checking':
+      return 'text-[var(--color-text-secondary)]';
+    case 'neutral':
+    default:
+      return 'text-[var(--color-text-muted)]';
+  }
+}
+
+export function getPrimaryProvisioningFailureDetail(
+  checks: ProvisioningProviderCheck[]
+): string | null {
+  for (const check of checks) {
+    if (check.status !== 'failed') {
+      continue;
+    }
+
+    const unavailableDetail = check.details.find((detail) =>
+      detail.toLowerCase().includes('selected model') &&
+      detail.toLowerCase().includes('is unavailable')
+        ? true
+        : detail.toLowerCase().includes(' - unavailable -')
+    );
+    if (unavailableDetail) {
+      return unavailableDetail;
+    }
+  }
+
+  for (const check of checks) {
+    if (check.status !== 'failed') {
+      continue;
+    }
+
+    const preferredFailure = check.details.find(
+      (detail) => getDetailTone(detail, check.status) === 'failure'
+    );
+    if (preferredFailure) {
+      return preferredFailure;
+    }
+
+    const nonSuccessDetail = check.details.find(
+      (detail) => getDetailTone(detail, check.status) !== 'success'
+    );
+    if (nonSuccessDetail) {
+      return nonSuccessDetail;
+    }
+
+    if (check.details.length > 0) {
+      return check.details[0];
+    }
+  }
+
+  return null;
 }
 
 export function shouldHideProvisioningProviderStatusList(
@@ -236,7 +442,10 @@ export const ProvisioningProviderStatusList = ({
             {visibleDetails.length > 0 ? (
               <div className="mt-0.5 space-y-0.5 pl-4">
                 {visibleDetails.map((detail) => (
-                  <p key={detail} className="text-[10px] text-[var(--color-text-muted)]">
+                  <p
+                    key={detail}
+                    className={`text-[10px] ${getDetailColorClass(detail, check.status)}`}
+                  >
                     {detail}
                   </p>
                 ))}

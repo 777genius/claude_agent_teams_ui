@@ -32,6 +32,8 @@ const ENV_KEY_RE = /^[A-Z_][A-Z0-9_]{0,100}$/i;
 interface ApiKeyFormDialogProps {
   open: boolean;
   editingKey: ApiKeyEntry | null;
+  currentProjectPath: string | null;
+  currentProjectLabel: string | null;
   onClose: () => void;
 }
 
@@ -45,6 +47,8 @@ const SCOPE_OPTIONS: { value: Scope; label: string }[] = [
 export const ApiKeyFormDialog = ({
   open,
   editingKey,
+  currentProjectPath,
+  currentProjectLabel,
   onClose,
 }: ApiKeyFormDialogProps): React.JSX.Element => {
   const saveApiKey = useStore((s) => s.saveApiKey);
@@ -57,6 +61,14 @@ export const ApiKeyFormDialog = ({
   const [scope, setScope] = useState<Scope>('user');
   const [error, setError] = useState<string | null>(null);
   const [envVarError, setEnvVarError] = useState<string | null>(null);
+  const editingProjectPath =
+    editingKey?.scope === 'project' ? (editingKey.projectPath ?? null) : null;
+  const effectiveProjectPath = editingProjectPath ?? currentProjectPath;
+  const effectiveProjectLabel =
+    effectiveProjectPath && effectiveProjectPath === currentProjectPath
+      ? currentProjectLabel
+      : effectiveProjectPath;
+  const canUseProjectScope = Boolean(effectiveProjectPath);
 
   // Reset form when dialog opens/closes or editing key changes
   useEffect(() => {
@@ -76,6 +88,12 @@ export const ApiKeyFormDialog = ({
       setEnvVarError(null);
     }
   }, [open, editingKey]);
+
+  useEffect(() => {
+    if (open && scope === 'project' && !canUseProjectScope) {
+      setScope('user');
+    }
+  }, [canUseProjectScope, open, scope]);
 
   const validateEnvVar = (v: string) => {
     if (!v.trim()) {
@@ -109,6 +127,10 @@ export const ApiKeyFormDialog = ({
       setError('Key value is required');
       return;
     }
+    if (scope === 'project' && !effectiveProjectPath) {
+      setError('Project-scoped API keys require an active project');
+      return;
+    }
 
     try {
       await saveApiKey({
@@ -117,6 +139,7 @@ export const ApiKeyFormDialog = ({
         envVarName: envVarName.trim(),
         value,
         scope,
+        projectPath: scope === 'project' ? (effectiveProjectPath ?? undefined) : undefined,
       });
       onClose();
     } catch (err) {
@@ -125,7 +148,13 @@ export const ApiKeyFormDialog = ({
   };
 
   const isEdit = editingKey !== null;
-  const canSubmit = name.trim() && envVarName.trim() && value && !envVarError && !apiKeySaving;
+  const canSubmit =
+    name.trim() &&
+    envVarName.trim() &&
+    value &&
+    !envVarError &&
+    !apiKeySaving &&
+    (scope !== 'project' || canUseProjectScope);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -212,12 +241,23 @@ export const ApiKeyFormDialog = ({
               </SelectTrigger>
               <SelectContent>
                 {SCOPE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                  <SelectItem
+                    key={opt.value}
+                    value={opt.value}
+                    disabled={opt.value === 'project' && !canUseProjectScope}
+                  >
+                    {opt.value === 'project'
+                      ? effectiveProjectPath
+                        ? `Project: ${effectiveProjectLabel}`
+                        : 'Project unavailable'
+                      : opt.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {scope === 'project' && effectiveProjectPath && (
+              <p className="text-xs text-text-muted">Bound to {effectiveProjectPath}</p>
+            )}
           </div>
 
           {/* Error display */}

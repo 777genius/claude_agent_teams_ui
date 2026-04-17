@@ -2,6 +2,7 @@ import {
   createCliAutoSuffixNameGuard,
   createCliProvisionerNameGuard,
 } from '@shared/utils/teamMemberName';
+import { getStableTeamOwnerId } from '@shared/utils/teamStableOwnerId';
 
 import type {
   InboxMessage,
@@ -122,6 +123,7 @@ export class TeamMemberResolver {
     const configMemberMap = new Map<
       string,
       {
+        agentId?: string;
         agentType?: string;
         role?: string;
         workflow?: string;
@@ -147,6 +149,7 @@ export class TeamMemberResolver {
                 ? configMember.provider
                 : undefined;
           configMemberMap.set(m.name.trim(), {
+            agentId: configMember.agentId,
             agentType: configMember.agentType,
             role: configMember.role,
             workflow: configMember.workflow,
@@ -163,6 +166,7 @@ export class TeamMemberResolver {
     const metaMemberMap = new Map<
       string,
       {
+        agentId?: string;
         agentType?: string;
         role?: string;
         workflow?: string;
@@ -177,6 +181,7 @@ export class TeamMemberResolver {
       for (const member of metaMembers) {
         if (typeof member?.name === 'string' && member.name.trim() !== '') {
           metaMemberMap.set(member.name.trim(), {
+            agentId: member.agentId,
             agentType: member.agentType,
             role: member.role,
             workflow: member.workflow,
@@ -226,8 +231,10 @@ export class TeamMemberResolver {
       const status = this.resolveStatus(latestMessage, currentTask !== null);
       const configMember = configMemberMap.get(name);
       const metaMember = metaMemberMap.get(name);
+      const agentId = configMember?.agentId ?? metaMember?.agentId;
       members.push({
         name,
+        agentId,
         status,
         currentTaskId: currentTask?.id ?? null,
         taskCount: ownedTasks.length,
@@ -245,7 +252,29 @@ export class TeamMemberResolver {
       });
     }
 
-    members.sort((a, b) => a.name.localeCompare(b.name));
+    const explicitConfigOrder = new Map<string, number>();
+    for (const [index, member] of config.members?.entries() ?? []) {
+      const stableOwnerId = getStableTeamOwnerId(member);
+      explicitConfigOrder.set(stableOwnerId, index);
+      explicitConfigOrder.set(member.name, index);
+    }
+
+    members.sort((a, b) => {
+      const aStableId = getStableTeamOwnerId(a);
+      const bStableId = getStableTeamOwnerId(b);
+      const aConfigIndex =
+        explicitConfigOrder.get(aStableId) ??
+        explicitConfigOrder.get(a.name) ??
+        Number.POSITIVE_INFINITY;
+      const bConfigIndex =
+        explicitConfigOrder.get(bStableId) ??
+        explicitConfigOrder.get(b.name) ??
+        Number.POSITIVE_INFINITY;
+      if (aConfigIndex !== bConfigIndex) {
+        return aConfigIndex - bConfigIndex;
+      }
+      return aStableId.localeCompare(bStableId);
+    });
     return members;
   }
 

@@ -9,6 +9,7 @@ export interface ApiKeyEntry {
   envVarName: string;
   maskedValue: string;
   scope: 'user' | 'project';
+  projectPath?: string;
   createdAt: string;
 }
 
@@ -19,6 +20,7 @@ export interface ApiKeySaveRequest {
   envVarName: string;
   value: string;
   scope: 'user' | 'project';
+  projectPath?: string;
 }
 
 /** Decrypted key lookup result (for auto-fill) */

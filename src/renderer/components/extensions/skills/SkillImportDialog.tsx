@@ -20,11 +20,15 @@ import {
   SelectValue,
 } from '@renderer/components/ui/select';
 import { useStore } from '@renderer/store';
+import { SKILL_ROOT_DEFINITIONS } from '@shared/utils/skillRoots';
 import { FileSearch, FolderOpen, X } from 'lucide-react';
 
+import { getSuggestedSkillFolderNameFromPath } from './skillFolderNameUtils';
 import { SkillReviewDialog } from './SkillReviewDialog';
+import { resolveSkillProjectPath } from './skillProjectUtils';
+import { validateSkillFolderName, validateSkillImportSourceDir } from './skillValidationUtils';
 
-import type { SkillReviewPreview } from '@shared/types/extensions';
+import type { SkillReviewPreview, SkillRootKind } from '@shared/types/extensions';
 
 function getFriendlyImportError(message: string): string {
   if (message.includes('valid skill file')) {
@@ -52,6 +56,7 @@ interface SkillImportDialogProps {
   open: boolean;
   projectPath: string | null;
   projectLabel: string | null;
+  allowCodexRootKind: boolean;
   onClose: () => void;
   onImported: (skillId: string | null) => void;
 }
@@ -60,6 +65,7 @@ export const SkillImportDialog = ({
   open,
   projectPath,
   projectLabel,
+  allowCodexRootKind,
   onClose,
   onImported,
 }: SkillImportDialogProps): React.JSX.Element => {
@@ -68,8 +74,9 @@ export const SkillImportDialog = ({
 
   const [sourceDir, setSourceDir] = useState('');
   const [folderName, setFolderName] = useState('');
+  const [folderNameEdited, setFolderNameEdited] = useState(false);
   const [scope, setScope] = useState<'user' | 'project'>('user');
-  const [rootKind, setRootKind] = useState<'claude' | 'cursor' | 'agents'>('claude');
+  const [rootKind, setRootKind] = useState<SkillRootKind>('claude');
   const [preview, setPreview] = useState<SkillReviewPreview | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -80,6 +87,7 @@ export const SkillImportDialog = ({
     if (!open) return;
     setSourceDir('');
     setFolderName('');
+    setFolderNameEdited(false);
     setScope(projectPath ? 'project' : 'user');
     setRootKind('claude');
     setPreview(null);
@@ -89,27 +97,73 @@ export const SkillImportDialog = ({
     setMutationError(null);
   }, [open, projectPath]);
 
+  useEffect(() => {
+    if (open) {
+      return;
+    }
+
+    setPreview(null);
+    setReviewOpen(false);
+    setReviewLoading(false);
+    setImportLoading(false);
+    setMutationError(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || folderNameEdited) {
+      return;
+    }
+    setFolderName(sourceDir.trim() ? getSuggestedSkillFolderNameFromPath(sourceDir) : '');
+  }, [folderNameEdited, open, sourceDir]);
+
+  useEffect(() => {
+    if (open && scope === 'project' && !projectPath) {
+      setScope('user');
+    }
+  }, [open, projectPath, scope]);
+
+  useEffect(() => {
+    if (open && rootKind === 'codex' && !allowCodexRootKind) {
+      setRootKind('claude');
+    }
+  }, [allowCodexRootKind, open, rootKind]);
+
+  const visibleRootDefinitions = SKILL_ROOT_DEFINITIONS.filter(
+    (definition) => definition.rootKind !== 'codex' || allowCodexRootKind
+  );
+
   async function handleChooseFolder(): Promise<void> {
     const selected = await api.config.selectFolders();
     const first = selected[0];
     if (!first) return;
     setSourceDir(first);
-    if (!folderName) {
-      const segments = first.split(/[\\/]/u).filter(Boolean);
-      setFolderName(segments.at(-1) ?? '');
-    }
   }
 
   async function handleReview(): Promise<void> {
+    const normalizedSourceDir = sourceDir.trim();
+    const normalizedFolderName = folderName.trim();
+    const sourceDirError = validateSkillImportSourceDir(sourceDir);
+    if (sourceDirError) {
+      setMutationError(sourceDirError);
+      return;
+    }
+
+    const folderNameError =
+      normalizedFolderName.length > 0 ? validateSkillFolderName(normalizedFolderName) : null;
+    if (folderNameError) {
+      setMutationError(folderNameError);
+      return;
+    }
+
     setReviewLoading(true);
     setMutationError(null);
     try {
       const nextPreview = await previewSkillImport({
-        sourceDir,
-        folderName: folderName || undefined,
+        sourceDir: normalizedSourceDir,
+        folderName: normalizedFolderName || undefined,
         scope,
         rootKind,
-        projectPath: scope === 'project' ? (projectPath ?? undefined) : undefined,
+        projectPath: resolveSkillProjectPath(scope, projectPath),
       });
       setPreview(nextPreview);
       setReviewOpen(true);
@@ -125,15 +179,18 @@ export const SkillImportDialog = ({
   }
 
   async function handleConfirmImport(): Promise<void> {
+    const normalizedSourceDir = sourceDir.trim();
+    const normalizedFolderName = folderName.trim();
+
     setImportLoading(true);
     setMutationError(null);
     try {
       const detail = await applySkillImport({
-        sourceDir,
-        folderName: folderName || undefined,
+        sourceDir: normalizedSourceDir,
+        folderName: normalizedFolderName || undefined,
         scope,
         rootKind,
-        projectPath: scope === 'project' ? (projectPath ?? undefined) : undefined,
+        projectPath: resolveSkillProjectPath(scope, projectPath),
         reviewPlanId: preview?.planId,
       });
       setReviewOpen(false);
@@ -190,7 +247,10 @@ export const SkillImportDialog = ({
                   <Input
                     id="skill-import-folder"
                     value={folderName}
-                    onChange={(event) => setFolderName(event.target.value)}
+                    onChange={(event) => {
+                      setFolderNameEdited(true);
+                      setFolderName(event.target.value);
+                    }}
                     placeholder="Defaults to source folder name"
                   />
                 </div>
@@ -226,17 +286,18 @@ export const SkillImportDialog = ({
                     <Label htmlFor="skill-import-root">Where to store it</Label>
                     <Select
                       value={rootKind}
-                      onValueChange={(value) =>
-                        setRootKind(value as 'claude' | 'cursor' | 'agents')
-                      }
+                      onValueChange={(value) => setRootKind(value as SkillRootKind)}
                     >
                       <SelectTrigger id="skill-import-root">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="claude">.claude</SelectItem>
-                        <SelectItem value="cursor">.cursor</SelectItem>
-                        <SelectItem value="agents">.agents</SelectItem>
+                        {visibleRootDefinitions.map((definition) => (
+                          <SelectItem key={definition.rootKind} value={definition.rootKind}>
+                            {definition.directoryName}
+                            {definition.audience === 'codex' ? ' - Codex only' : ' - Shared'}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -260,7 +321,7 @@ export const SkillImportDialog = ({
               </p>
               <Button
                 onClick={() => void handleReview()}
-                disabled={!sourceDir || reviewLoading || importLoading}
+                disabled={!sourceDir.trim() || reviewLoading || importLoading}
               >
                 <FileSearch className="mr-1.5 size-3.5" />
                 {reviewLoading ? 'Preparing...' : 'Review And Import'}

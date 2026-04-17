@@ -4,6 +4,7 @@
 
 import { api } from '@renderer/api';
 import { createLogger } from '@shared/utils/logger';
+import { createDefaultCliExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
 
 import type { AppState } from '../types';
 import type { CliInstallationStatus, CliProviderId, CliProviderStatus } from '@shared/types';
@@ -28,12 +29,15 @@ export function createLoadingMultimodelCliStatus(): CliInstallationStatus {
     authenticated: false,
     authMethod: null,
     verificationState: 'unknown' as const,
+    modelVerificationState: 'idle' as const,
     statusMessage: 'Checking...',
     models: [],
+    modelAvailability: [],
     canLoginFromUi: true,
     capabilities: {
       teamLaunch: false,
       oneShot: false,
+      extensions: createDefaultCliExtensionCapabilities(),
     },
     backend: null,
   }));
@@ -89,14 +93,14 @@ export interface CliInstallerSlice {
   fetchCliStatus: () => Promise<void>;
   fetchCliProviderStatus: (
     providerId: CliProviderId,
-    options?: { silent?: boolean; epoch?: number }
+    options?: { silent?: boolean; epoch?: number; verifyModels?: boolean }
   ) => Promise<void>;
   invalidateCliStatus: () => Promise<void>;
   installCli: () => void;
 }
 
 let cliStatusInFlight: Promise<void> | null = null;
-const cliProviderStatusInFlight = new Map<CliProviderId, Promise<void>>();
+const cliProviderStatusInFlight = new Map<string, Promise<void>>();
 let cliStatusEpoch = 0;
 const cliProviderStatusSeq = new Map<CliProviderId, number>();
 
@@ -257,7 +261,9 @@ export const createCliInstallerSlice: StateCreator<AppState, [], [], CliInstalle
     if (get().cliStatus && !get().cliStatus?.installed) {
       return;
     }
-    const inFlight = cliProviderStatusInFlight.get(providerId);
+    const verifyModels = options?.verifyModels === true;
+    const requestKey = `${providerId}:${verifyModels ? 'verify' : 'status'}`;
+    const inFlight = cliProviderStatusInFlight.get(requestKey);
     if (inFlight) return inFlight;
 
     const requestEpoch = options?.epoch ?? cliStatusEpoch;
@@ -277,7 +283,9 @@ export const createCliInstallerSlice: StateCreator<AppState, [], [], CliInstalle
       }
 
       try {
-        const providerStatus = await api.cliInstaller.getProviderStatus(providerId);
+        const providerStatus = verifyModels
+          ? await api.cliInstaller.verifyProviderModels(providerId)
+          : await api.cliInstaller.getProviderStatus(providerId);
         set((state) => {
           const nextLoading = silent
             ? state.cliProviderStatusLoading
@@ -343,11 +351,11 @@ export const createCliInstallerSlice: StateCreator<AppState, [], [], CliInstalle
           };
         });
       } finally {
-        cliProviderStatusInFlight.delete(providerId);
+        cliProviderStatusInFlight.delete(requestKey);
       }
     })();
 
-    cliProviderStatusInFlight.set(providerId, request);
+    cliProviderStatusInFlight.set(requestKey, request);
     return request;
   },
 

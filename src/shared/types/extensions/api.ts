@@ -52,7 +52,7 @@ export interface McpCatalogAPI {
   ) => Promise<{ servers: McpCatalogItem[]; nextCursor?: string }>;
   getById: (registryId: string) => Promise<McpCatalogItem | null>;
   getInstalled: (projectPath?: string) => Promise<InstalledMcpEntry[]>;
-  diagnose: () => Promise<McpServerDiagnostic[]>;
+  diagnose: (projectPath?: string) => Promise<McpServerDiagnostic[]>;
   install: (request: McpInstallRequest) => Promise<OperationResult>;
   installCustom: (request: McpCustomInstallRequest) => Promise<OperationResult>;
   uninstall: (name: string, scope?: string, projectPath?: string) => Promise<OperationResult>;
@@ -80,6 +80,6 @@ export interface ApiKeysAPI {
   list: () => Promise<ApiKeyEntry[]>;
   save: (request: ApiKeySaveRequest) => Promise<ApiKeyEntry>;
   delete: (id: string) => Promise<void>;
-  lookup: (envVarNames: string[]) => Promise<ApiKeyLookupResult[]>;
+  lookup: (envVarNames: string[], projectPath?: string) => Promise<ApiKeyLookupResult[]>;
   getStorageStatus: () => Promise<ApiKeyStorageStatus>;
 }

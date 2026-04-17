@@ -1,53 +1,20 @@
 /**
- * DashboardView - Main dashboard with "Productivity Luxury" aesthetic.
- * Inspired by Linear, Vercel, and Raycast design patterns.
- * Features:
- * - Subtle spotlight gradient
- * - Centralized command search with inline project filtering
- * - Border-first project cards with minimal backgrounds
+ * DashboardView - Main dashboard shell.
+ * Keeps only screen composition and delegates recent-projects logic to the feature slice.
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import { api } from '@renderer/api';
-import { Button } from '@renderer/components/ui/button';
+import { RecentProjectsSection } from '@features/recent-projects/renderer';
 import { useStore } from '@renderer/store';
-import { getWorktreeNavigationState } from '@renderer/store/utils/stateResetHelpers';
-import { formatProjectPath } from '@renderer/utils/pathDisplay';
-import {
-  buildTaskCountsByProject,
-  normalizePath,
-  type TaskStatusCounts,
-} from '@renderer/utils/pathNormalize';
-import { projectColor } from '@renderer/utils/projectColor';
 import { formatShortcut } from '@renderer/utils/stringUtils';
-import { createLogger } from '@shared/utils/logger';
+import { Command, Search, Users } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-
-const logger = createLogger('Component:DashboardView');
-import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
-import { formatDistanceToNow } from 'date-fns';
-import {
-  Command,
-  FolderGit2,
-  FolderOpen,
-  GitBranch,
-  GitFork,
-  Search,
-  Terminal,
-  Users,
-} from 'lucide-react';
 
 import { CliStatusBanner } from './CliStatusBanner';
 import { DashboardUpdateBanner } from './DashboardUpdateBanner';
 import { TmuxStatusBanner } from './TmuxStatusBanner';
-
-import type { RepositoryGroup } from '@renderer/types/data';
-import type { TeamSummary } from '@shared/types';
-
-// =============================================================================
-// Command Search Input
-// =============================================================================
+import { WebPreviewBanner } from './WebPreviewBanner';
 
 interface CommandSearchProps {
   value: string;
@@ -58,17 +25,16 @@ const CommandSearch = ({ value, onChange }: Readonly<CommandSearchProps>): React
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { openCommandPalette, selectedProjectId } = useStore(
-    useShallow((s) => ({
-      openCommandPalette: s.openCommandPalette,
-      selectedProjectId: s.selectedProjectId,
+    useShallow((state) => ({
+      openCommandPalette: state.openCommandPalette,
+      selectedProjectId: state.selectedProjectId,
     }))
   );
 
-  // Handle Cmd+K to open full command palette
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyK') {
-        e.preventDefault();
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.code === 'KeyK') {
+        event.preventDefault();
         openCommandPalette();
       }
     };
@@ -77,24 +43,24 @@ const CommandSearch = ({ value, onChange }: Readonly<CommandSearchProps>): React
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [openCommandPalette]);
 
-  // Focus search when the dashboard mounts (packaged Electron can skip native autoFocus).
   useLayoutEffect(() => {
-    const el = inputRef.current;
-    if (!el) {
+    const input = inputRef.current;
+    if (!input) {
       return;
     }
-    el.focus({ preventScroll: true });
-    const t = window.setTimeout(() => {
-      if (document.activeElement !== el) {
-        el.focus({ preventScroll: true });
+
+    input.focus({ preventScroll: true });
+    const timeoutId = window.setTimeout(() => {
+      if (document.activeElement !== input) {
+        input.focus({ preventScroll: true });
       }
     }, 50);
-    return () => window.clearTimeout(t);
+
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   return (
     <div className="relative w-full">
-      {/* Search container with glow effect on focus */}
       <div
         className={`relative flex items-center gap-3 rounded-sm border bg-surface-raised px-4 py-3 transition-all duration-200 ${
           isFocused
@@ -107,13 +73,12 @@ const CommandSearch = ({ value, onChange }: Readonly<CommandSearchProps>): React
           ref={inputRef}
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(event) => onChange(event.target.value)}
           placeholder="Search projects..."
           className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-muted"
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
         />
-        {/* Keyboard shortcut badge - opens full command palette */}
         <button
           onClick={() => openCommandPalette()}
           className="flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80"
@@ -135,712 +100,23 @@ const CommandSearch = ({ value, onChange }: Readonly<CommandSearchProps>): React
   );
 };
 
-// =============================================================================
-// Repository Card
-// =============================================================================
-
-interface RepositoryCardProps {
-  repo: RepositoryGroup;
-  onClick: () => void;
-  isHighlighted?: boolean;
-  taskCounts?: TaskStatusCounts;
-  tasksLoading?: boolean;
-  activeTeams?: TeamSummary[];
-}
-
-const RepositoryCard = ({
-  repo,
-  onClick,
-  isHighlighted,
-  taskCounts,
-  tasksLoading,
-  activeTeams,
-}: Readonly<RepositoryCardProps>): React.JSX.Element => {
-  const lastActivity = repo.mostRecentSession
-    ? formatDistanceToNow(new Date(repo.mostRecentSession), { addSuffix: true })
-    : 'No recent activity';
-
-  const worktreeCount = repo.worktrees.length;
-  const hasMultipleWorktrees = worktreeCount > 1;
-
-  // Get the path from the first worktree
-  const projectPath = repo.worktrees[0]?.path || '';
-  const formattedPath = formatProjectPath(projectPath);
-
-  // Git branch info from worktrees
-  const mainWorktree = repo.worktrees.find((w) => w.isMainWorktree) ?? repo.worktrees[0];
-  const mainBranch = mainWorktree?.gitBranch;
-
-  // Detect if this is a worktree project:
-  // 1. No main worktree in the group (isMainWorktree flag)
-  // 2. OR the shown worktree has a tool-created source
-  // 3. OR path-based fallback for .claude/worktrees/ directories
-  const WORKTREE_PATH_MARKERS = [
-    '/.claude/worktrees/',
-    '/.claude-worktrees/',
-    '/.auto-claude/worktrees/',
-    '/.21st/worktrees/',
-    '/.ccswitch/worktrees/',
-    '/.cursor/worktrees/',
-    '/vibe-kanban/worktrees/',
-    '/conductor/workspaces/',
-  ];
-
-  const shownWorktree = repo.worktrees[0];
-  const isWorktreeBySource =
-    shownWorktree?.source && !['git', 'unknown'].includes(shownWorktree.source);
-  const isWorktreeByPath =
-    shownWorktree && WORKTREE_PATH_MARKERS.some((m) => shownWorktree.path.includes(m));
-  const isWorktreeProject =
-    !repo.worktrees.some((w) => w.isMainWorktree) || isWorktreeBySource || isWorktreeByPath;
-
-  // Get the source label for worktree badge
-  const SOURCE_LABELS: Record<string, string> = {
-    'vibe-kanban': 'Vibe',
-    conductor: 'Conductor',
-    'auto-claude': 'Auto',
-    '21st': '21st',
-    'claude-desktop': 'Desktop',
-    'claude-code': 'Worktree',
-    ccswitch: 'ccswitch',
-  };
-  const worktreeSourceLabel = shownWorktree?.source && SOURCE_LABELS[shownWorktree.source];
-
-  const color = useMemo(() => projectColor(repo.name), [repo.name]);
-  const cardRef = useRef<HTMLButtonElement>(null);
-  const [isHovered, setIsHovered] = useState(false);
-
-  const handleOpenPath = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (projectPath) {
-        void api.openPath(projectPath, projectPath);
-      }
-    },
-    [projectPath]
-  );
-
-  return (
-    <button
-      ref={cardRef}
-      onClick={onClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      className={`group relative flex min-h-[120px] flex-col overflow-hidden rounded-lg border border-l-[3px] p-4 text-left transition-all duration-300 ${
-        isHighlighted
-          ? 'border-border-emphasis bg-surface-raised'
-          : 'bg-surface/50 border-border hover:border-border-emphasis hover:bg-surface-raised'
-      } `}
-      style={{
-        borderLeftColor: color.border,
-        boxShadow: isHovered ? `inset 3px 0 12px -4px ${color.glow}` : undefined,
-      }}
-    >
-      {/* Online indicator — top-right corner */}
-      {activeTeams && activeTeams.length > 0 && (
-        <span className="absolute right-3 top-3 inline-flex size-2.5">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-          <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
-        </span>
-      )}
-
-      {/* Icon + Project name */}
-      <div className="mb-1 flex items-center gap-2.5">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-overlay transition-colors duration-300 group-hover:border-border-emphasis">
-          {isWorktreeProject ? (
-            <GitFork
-              className="size-4 transition-colors group-hover:text-text"
-              style={{ color: color.icon }}
-            />
-          ) : (
-            <FolderGit2
-              className="size-4 transition-colors group-hover:text-text"
-              style={{ color: color.icon }}
-            />
-          )}
-        </div>
-        <h3 className="min-w-0 truncate text-sm font-medium text-text transition-colors duration-200 group-hover:text-text">
-          {repo.name}
-        </h3>
-        {isWorktreeProject && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[9px] font-medium text-purple-400">
-            {worktreeSourceLabel ?? 'Worktree'}
-          </span>
-        )}
-      </div>
-
-      {/* Project path - monospace, muted; folder icon opens in file manager */}
-      <div className="flex w-full min-w-0 items-center gap-1 font-mono text-[10px] text-text-muted">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={handleOpenPath}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ')
-                  handleOpenPath(e as unknown as React.MouseEvent);
-              }}
-              className="shrink-0 cursor-pointer rounded p-0.5 transition-colors hover:bg-white/5 hover:text-text-secondary"
-            >
-              <FolderOpen className="size-3" />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Open</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="truncate">{formattedPath}</span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="start">
-            <p className="font-mono text-[11px]">{projectPath}</p>
-          </TooltipContent>
-        </Tooltip>
-      </div>
-
-      {/* Git branch / worktree info */}
-      {mainBranch ? (
-        <div className="mb-auto mt-1 flex items-center gap-1.5 truncate">
-          <GitBranch className="size-3 shrink-0 text-text-muted" />
-          <span className="truncate text-[10px] text-text-secondary">{mainBranch}</span>
-          {hasMultipleWorktrees && (
-            <span className="shrink-0 rounded bg-surface-raised px-1 py-px text-[9px] text-text-muted">
-              +{worktreeCount - 1}
-            </span>
-          )}
-        </div>
-      ) : (
-        <div className="mb-auto" />
-      )}
-
-      {/* Meta row: worktrees, sessions, time */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {hasMultipleWorktrees && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-text-secondary">
-            <GitBranch className="size-3" />
-            {worktreeCount} worktrees
-          </span>
-        )}
-        <span className="text-[10px] text-text-secondary">{repo.totalSessions} sessions</span>
-        {taskCounts &&
-          (taskCounts.pending > 0 || taskCounts.inProgress > 0 || taskCounts.completed > 0) && (
-            <>
-              <span className="text-text-muted">·</span>
-              {taskCounts.inProgress > 0 && (
-                <span className="inline-flex items-center rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                  {taskCounts.inProgress} active
-                </span>
-              )}
-              {taskCounts.pending > 0 && (
-                <span className="inline-flex items-center rounded-full bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
-                  {taskCounts.pending} pending
-                </span>
-              )}
-              {taskCounts.completed > 0 && (
-                <span className="inline-flex items-center rounded-full bg-green-500/15 px-1.5 py-0.5 text-[10px] font-medium text-green-400">
-                  {taskCounts.completed} done
-                </span>
-              )}
-            </>
-          )}
-        <span className="text-text-muted">·</span>
-        <span className="text-[10px] text-text-muted">{lastActivity}</span>
-      </div>
-
-      {/* Tasks progress bar */}
-      {tasksLoading ? (
-        <div className="mt-2 w-full">
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 flex-1 animate-pulse overflow-hidden rounded-full bg-[var(--color-surface-raised)]" />
-            <div className="h-2.5 w-6 animate-pulse rounded bg-[var(--color-surface-raised)]" />
-          </div>
-        </div>
-      ) : (
-        taskCounts &&
-        (() => {
-          const pending = taskCounts.pending ?? 0;
-          const inProgress = taskCounts.inProgress ?? 0;
-          const completed = taskCounts.completed ?? 0;
-          const totalTasks = pending + inProgress + completed;
-          if (totalTasks === 0) return null;
-          const completedRatio = completed / totalTasks;
-          const progressPercent = Math.round(completedRatio * 100);
-          return (
-            <div className="mt-2 w-full space-y-1">
-              <div className="flex items-center gap-2">
-                <div
-                  className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-raised)]"
-                  role="progressbar"
-                  aria-valuenow={completed}
-                  aria-valuemin={0}
-                  aria-valuemax={totalTasks}
-                  aria-label={`Tasks ${completed}/${totalTasks} completed`}
-                >
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all duration-200"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-                <span className="shrink-0 text-[10px] font-medium tracking-tight text-[var(--color-text-muted)]">
-                  {completed}/{totalTasks}
-                </span>
-              </div>
-            </div>
-          );
-        })()
-      )}
-
-      {/* Active teams running in this project */}
-      {activeTeams && activeTeams.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
-          <Terminal className="size-3 shrink-0 text-emerald-400" />
-          {activeTeams.map((t) => (
-            <span
-              key={t.teamName}
-              className="inline-flex items-center rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400"
-            >
-              {t.displayName}
-            </span>
-          ))}
-        </div>
-      )}
-    </button>
-  );
-};
-
-// =============================================================================
-// Ghost Card (New Project)
-// =============================================================================
-
-interface WorktreeMatch {
-  repoId: string;
-  worktreeId: string;
-}
-
-function findMatchingWorktree(
-  groups: RepositoryGroup[],
-  selectedPath: string
-): WorktreeMatch | null {
-  const norm = normalizePath(selectedPath);
-  for (const repo of groups) {
-    for (const worktree of repo.worktrees) {
-      if (normalizePath(worktree.path) === norm) {
-        return { repoId: repo.id, worktreeId: worktree.id };
-      }
-    }
-  }
-  return null;
-}
-
-const NewProjectCard = (): React.JSX.Element => {
-  const { repositoryGroups, fetchRepositoryGroups, openTeamsTab } = useStore(
-    useShallow((s) => ({
-      repositoryGroups: s.repositoryGroups,
-      fetchRepositoryGroups: s.fetchRepositoryGroups,
-      openTeamsTab: s.openTeamsTab,
-    }))
-  );
-
-  const navigateToMatch = (match: WorktreeMatch): void => {
-    useStore.setState(getWorktreeNavigationState(match.repoId, match.worktreeId));
-    void useStore.getState().fetchSessionsInitial(match.worktreeId);
-  };
-
-  const handleClick = async (): Promise<void> => {
-    try {
-      const selectedPaths = await api.config.selectFolders();
-      if (!selectedPaths || selectedPaths.length === 0) {
-        return; // User cancelled
-      }
-
-      const selectedPath = selectedPaths[0];
-
-      // Match selected path against known repository worktrees (normalized comparison)
-      const match = findMatchingWorktree(repositoryGroups, selectedPath);
-      if (match) {
-        navigateToMatch(match);
-        openTeamsTab();
-        return;
-      }
-
-      // No match — refresh repository groups and retry
-      await fetchRepositoryGroups();
-      const refreshedGroups = useStore.getState().repositoryGroups;
-      const matchAfterRefresh = findMatchingWorktree(refreshedGroups, selectedPath);
-      if (matchAfterRefresh) {
-        navigateToMatch(matchAfterRefresh);
-        openTeamsTab();
-        return;
-      }
-
-      // Still no match — create a synthetic group for this new folder and navigate to it.
-      // This allows launching teams in projects that don't have Claude sessions yet.
-      // Persist the path so it survives app restarts.
-      await api.config.addCustomProjectPath(selectedPath);
-
-      const encodedId = selectedPath.replace(/[/\\]/g, '-');
-      const folderName = selectedPath.split(/[/\\]/).filter(Boolean).pop() ?? selectedPath;
-      const now = Date.now();
-
-      const syntheticGroup: RepositoryGroup = {
-        id: encodedId,
-        identity: null,
-        worktrees: [
-          {
-            id: encodedId,
-            path: selectedPath,
-            name: folderName,
-            isMainWorktree: true,
-            source: 'unknown',
-            sessions: [],
-            totalSessions: 0,
-            createdAt: now,
-          },
-        ],
-        name: folderName,
-        mostRecentSession: undefined,
-        totalSessions: 0,
-      };
-
-      useStore.setState((state) => ({
-        repositoryGroups: [syntheticGroup, ...state.repositoryGroups],
-      }));
-      navigateToMatch({ repoId: encodedId, worktreeId: encodedId });
-      openTeamsTab();
-    } catch (error) {
-      logger.error('Error selecting folder:', error);
-    }
-  };
-
-  return (
-    <button
-      className="hover:bg-surface/30 group relative flex min-h-[120px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-transparent p-4 transition-all duration-300 hover:border-border-emphasis"
-      onClick={handleClick}
-      title="Select a project folder"
-    >
-      <div className="mb-2 flex size-8 items-center justify-center rounded-md border border-dashed border-border transition-colors duration-300 group-hover:border-border-emphasis">
-        <FolderOpen className="size-4 text-text-muted transition-colors group-hover:text-text-secondary" />
-      </div>
-      <span className="text-xs text-text-muted transition-colors group-hover:text-text-secondary">
-        Select Folder
-      </span>
-    </button>
-  );
-};
-
-// =============================================================================
-// Projects Grid
-// =============================================================================
-
-interface ProjectsGridProps {
-  searchQuery: string;
-  maxProjects?: number;
-}
-
-const INITIAL_RECENT_PROJECTS = 11;
-const LOAD_MORE_STEP = 8;
-
-const ProjectsGrid = ({
-  searchQuery,
-  maxProjects = INITIAL_RECENT_PROJECTS,
-}: Readonly<ProjectsGridProps>): React.JSX.Element => {
-  const {
-    repositoryGroups,
-    repositoryGroupsLoading,
-    repositoryGroupsError,
-    fetchRepositoryGroups,
-    selectRepository,
-    globalTasks,
-    globalTasksLoading,
-    fetchAllTasks,
-    openTeamsTab,
-    teams,
-  } = useStore(
-    useShallow((s) => ({
-      repositoryGroups: s.repositoryGroups,
-      repositoryGroupsLoading: s.repositoryGroupsLoading,
-      repositoryGroupsError: s.repositoryGroupsError,
-      fetchRepositoryGroups: s.fetchRepositoryGroups,
-      selectRepository: s.selectRepository,
-      globalTasks: s.globalTasks,
-      globalTasksLoading: s.globalTasksLoading,
-      fetchAllTasks: s.fetchAllTasks,
-      openTeamsTab: s.openTeamsTab,
-      teams: s.teams,
-    }))
-  );
-
-  const hasFetchedTasksRef = React.useRef(false);
-  const [visibleProjects, setVisibleProjects] = useState(maxProjects);
-  const [aliveTeams, setAliveTeams] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (repositoryGroups.length === 0 && !repositoryGroupsLoading && !repositoryGroupsError) {
-      void fetchRepositoryGroups();
-    }
-  }, [
-    repositoryGroups.length,
-    repositoryGroupsLoading,
-    repositoryGroupsError,
-    fetchRepositoryGroups,
-  ]);
-
-  useEffect(() => {
-    if (repositoryGroups.length > 0 && !hasFetchedTasksRef.current && !repositoryGroupsLoading) {
-      hasFetchedTasksRef.current = true;
-      void fetchAllTasks();
-    }
-  }, [repositoryGroups.length, repositoryGroupsLoading, fetchAllTasks]);
-
-  // Fetch alive teams for online indicators
-  useEffect(() => {
-    let cancelled = false;
-    void api.teams
-      .aliveList()
-      .then((list) => {
-        if (!cancelled) setAliveTeams(list);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [teams]);
-
-  // Map: normalizedProjectPath → alive TeamSummary[]
-  const activeTeamsByProject = useMemo(() => {
-    const aliveSet = new Set(aliveTeams);
-    const map = new Map<string, TeamSummary[]>();
-    for (const team of teams) {
-      if (!aliveSet.has(team.teamName) || !team.projectPath) continue;
-      const key = normalizePath(team.projectPath);
-      const arr = map.get(key);
-      if (arr) {
-        arr.push(team);
-      } else {
-        map.set(key, [team]);
-      }
-    }
-    return map;
-  }, [teams, aliveTeams]);
-
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setVisibleProjects(maxProjects);
-    }
-  }, [searchQuery, maxProjects]);
-
-  const taskCountsMap = useMemo(() => buildTaskCountsByProject(globalTasks), [globalTasks]);
-
-  // Filter projects based on search query
-  const filteredRepos = useMemo(() => {
-    const query = searchQuery.toLowerCase().trim();
-    return repositoryGroups.filter((repo) => {
-      if (!query) return true;
-      // Match by name
-      if (repo.name.toLowerCase().includes(query)) return true;
-      // Match by path
-      const path = repo.worktrees[0]?.path || '';
-      if (path.toLowerCase().includes(query)) return true;
-      return false;
-    });
-  }, [repositoryGroups, searchQuery]);
-
-  const displayedRepos = useMemo(() => {
-    if (searchQuery.trim()) {
-      return filteredRepos;
-    }
-    return filteredRepos.slice(0, visibleProjects);
-  }, [filteredRepos, searchQuery, visibleProjects]);
-
-  const canLoadMore = !searchQuery.trim() && filteredRepos.length > visibleProjects;
-
-  if (repositoryGroupsLoading) {
-    // Organic widths per card — no repeating stamp
-    const titleWidths = [60, 66, 50, 55, 75, 45, 40, 65];
-    const pathWidths = [80, 75, 85, 66, 70, 80, 60, 72];
-
-    return (
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="skeleton-card flex min-h-[120px] flex-col rounded-sm border border-border p-4"
-            style={{
-              animationDelay: `${i * 80}ms`,
-              backgroundColor: 'var(--skeleton-base)',
-            }}
-          >
-            {/* Icon placeholder */}
-            <div
-              className="mb-3 size-8 rounded-sm"
-              style={{ backgroundColor: 'var(--skeleton-base-light)' }}
-            />
-            {/* Title placeholder */}
-            <div
-              className="mb-2 h-3.5 rounded-sm"
-              style={{
-                width: `${titleWidths[i]}%`,
-                backgroundColor: 'var(--skeleton-base-light)',
-              }}
-            />
-            {/* Path placeholder */}
-            <div
-              className="mb-auto h-2.5 rounded-sm"
-              style={{
-                width: `${pathWidths[i]}%`,
-                backgroundColor: 'var(--skeleton-base-dim)',
-              }}
-            />
-            {/* Meta row placeholder */}
-            <div className="mt-3 flex gap-2">
-              <div
-                className="h-2.5 w-16 rounded-sm"
-                style={{ backgroundColor: 'var(--skeleton-base-dim)' }}
-              />
-              <div
-                className="h-2.5 w-12 rounded-sm"
-                style={{ backgroundColor: 'var(--skeleton-base-dim)' }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (repositoryGroupsError && repositoryGroups.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-sm border border-dashed border-border px-8 py-16">
-        <div className="mb-1 flex size-12 items-center justify-center rounded-sm border border-border bg-surface-raised">
-          <FolderGit2 className="size-6 text-text-muted" />
-        </div>
-        <div className="text-center">
-          <p className="mb-1 text-sm text-text-secondary">Failed to load projects</p>
-          <p className="max-w-xl text-xs text-text-muted">{repositoryGroupsError}</p>
-        </div>
-        <button
-          onClick={() => void fetchRepositoryGroups()}
-          className="rounded-sm border border-border bg-surface-raised px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-border-emphasis hover:text-text"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (filteredRepos.length === 0 && searchQuery.trim()) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-sm border border-dashed border-border px-8 py-16">
-        <div className="mb-4 flex size-12 items-center justify-center rounded-sm border border-border bg-surface-raised">
-          <Search className="size-6 text-text-muted" />
-        </div>
-        <p className="mb-1 text-sm text-text-secondary">No projects found</p>
-        <p className="text-xs text-text-muted">No matches for &quot;{searchQuery}&quot;</p>
-      </div>
-    );
-  }
-
-  if (repositoryGroups.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-sm border border-dashed border-border px-8 py-16">
-        <div className="mb-4 flex size-12 items-center justify-center rounded-sm border border-border bg-surface-raised">
-          <FolderGit2 className="size-6 text-text-muted" />
-        </div>
-        <p className="mb-1 text-sm text-text-secondary">No projects found</p>
-        <p className="font-mono text-xs text-text-muted">~/.claude/projects/</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
-        {!searchQuery.trim() && <NewProjectCard />}
-        {displayedRepos.map((repo) => {
-          const counts = repo.worktrees.reduce(
-            (acc, wt) => {
-              const c = taskCountsMap.get(normalizePath(wt.path));
-              if (c) {
-                acc.pending += c.pending;
-                acc.inProgress += c.inProgress;
-                acc.completed += c.completed;
-              }
-              return acc;
-            },
-            { pending: 0, inProgress: 0, completed: 0 }
-          );
-          // Collect active teams for this project (deduplicated by teamName)
-          const seen = new Set<string>();
-          const repoActiveTeams: TeamSummary[] = [];
-          for (const wt of repo.worktrees) {
-            const matched = activeTeamsByProject.get(normalizePath(wt.path));
-            if (matched) {
-              for (const t of matched) {
-                if (!seen.has(t.teamName)) {
-                  seen.add(t.teamName);
-                  repoActiveTeams.push(t);
-                }
-              }
-            }
-          }
-          return (
-            <RepositoryCard
-              key={repo.id}
-              repo={repo}
-              onClick={() => {
-                selectRepository(repo.id);
-                openTeamsTab();
-              }}
-              isHighlighted={!!searchQuery.trim()}
-              taskCounts={globalTasksLoading ? undefined : counts}
-              tasksLoading={globalTasksLoading}
-              activeTeams={repoActiveTeams.length > 0 ? repoActiveTeams : undefined}
-            />
-          );
-        })}
-      </div>
-
-      {canLoadMore && (
-        <div className="flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setVisibleProjects((prev) => prev + LOAD_MORE_STEP)}
-          >
-            Load more
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// =============================================================================
-// Dashboard View
-// =============================================================================
-
 export const DashboardView = (): React.JSX.Element => {
   const [searchQuery, setSearchQuery] = useState('');
-  const openTeamsTab = useStore((s) => s.openTeamsTab);
+  const openTeamsTab = useStore((state) => state.openTeamsTab);
 
   return (
     <div className="relative flex-1 overflow-auto bg-surface">
-      {/* Spotlight gradient background */}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-[600px] bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(99,102,241,0.08),transparent)]"
         aria-hidden="true"
       />
 
-      {/* Content */}
       <div className="relative mx-auto max-w-5xl px-8 py-12">
-        {/* App update banner */}
+        <WebPreviewBanner />
         <DashboardUpdateBanner />
-
-        {/* CLI Status Banner */}
         <CliStatusBanner />
         <TmuxStatusBanner />
 
-        {/* Team select + Search */}
         <div className="mb-12 flex items-center justify-center gap-3">
           <button
             onClick={openTeamsTab}
@@ -855,7 +131,6 @@ export const DashboardView = (): React.JSX.Element => {
           </div>
         </div>
 
-        {/* Section header */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xs font-medium uppercase tracking-wider text-text-muted">
             {searchQuery.trim() ? 'Search Results' : 'Recent Projects'}
@@ -870,8 +145,7 @@ export const DashboardView = (): React.JSX.Element => {
           )}
         </div>
 
-        {/* Projects Grid */}
-        <ProjectsGrid searchQuery={searchQuery} />
+        <RecentProjectsSection searchQuery={searchQuery} />
       </div>
     </div>
   );

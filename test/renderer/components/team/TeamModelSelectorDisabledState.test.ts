@@ -61,27 +61,30 @@ vi.mock('@renderer/components/ui/tabs', () => {
   };
 });
 
+const storeState = {
+  cliStatus: null as unknown,
+  cliStatusLoading: false,
+  appConfig: { general: { multimodelEnabled: true } },
+  fetchCliProviderStatus: vi.fn().mockResolvedValue(undefined),
+};
+
 vi.mock('@renderer/store', () => ({
-  useStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      cliStatus: null,
-      appConfig: { general: { multimodelEnabled: true } },
-    }),
+  useStore: (selector: (state: unknown) => unknown) => selector(storeState),
 }));
 
 import { TeamModelSelector } from '@renderer/components/team/dialogs/TeamModelSelector';
-import {
-  GPT_5_1_CODEX_MINI_UI_DISABLED_REASON,
-  GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON,
-} from '@renderer/utils/teamModelAvailability';
 
 describe('TeamModelSelector disabled Codex models', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    storeState.cliStatus = null;
+    storeState.cliStatusLoading = false;
+    storeState.fetchCliProviderStatus.mockClear();
   });
 
-  it('renders 5.1 Codex Mini as disabled with an explanation tooltip', async () => {
+  it('shows only Default while Codex runtime models are still loading', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatusLoading = true;
     const host = document.createElement('div');
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -98,37 +101,10 @@ describe('TeamModelSelector disabled Codex models', () => {
       await Promise.resolve();
     });
 
-    expect(host.textContent).toContain('5.1 Codex Mini');
-    expect(host.textContent).toContain('Disabled');
-    expect(host.textContent).toContain(GPT_5_1_CODEX_MINI_UI_DISABLED_REASON);
-
-    await act(async () => {
-      root.unmount();
-      await Promise.resolve();
-    });
-  });
-
-  it('renders 5.3 Codex Spark as disabled with an explanation tooltip', async () => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-
-    await act(async () => {
-      root.render(
-        React.createElement(TeamModelSelector, {
-          providerId: 'codex',
-          onProviderChange: () => undefined,
-          value: '',
-          onValueChange: () => undefined,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('5.3 Codex Spark');
-    expect(host.textContent).toContain('Disabled');
-    expect(host.textContent).toContain(GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON);
+    expect(host.textContent).toContain('Default');
+    expect(host.textContent).toContain('Explicit models load from the current runtime');
+    expect(host.textContent).not.toContain('5.1 Codex Mini');
+    expect(host.textContent).not.toContain('5.3 Codex Spark');
 
     await act(async () => {
       root.unmount();
@@ -183,6 +159,256 @@ describe('TeamModelSelector disabled Codex models', () => {
     });
 
     expect(onValueChange).toHaveBeenCalledWith('');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('uses the runtime-reported Codex list and clears stale unsupported selections', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      providers: [
+        {
+          providerId: 'codex',
+          models: ['gpt-5.4', 'gpt-5.3-codex'],
+        },
+      ],
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onValueChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        React.createElement(TeamModelSelector, {
+          providerId: 'codex',
+          onProviderChange: () => undefined,
+          value: 'gpt-5.2-codex',
+          onValueChange,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(onValueChange).toHaveBeenCalledWith('');
+    expect(host.textContent).toContain('5.4');
+    expect(host.textContent).toContain('5.3 Codex');
+    expect(host.textContent).not.toContain('5.2 Codex');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('shows 5.2 Codex as a disabled tile when the runtime still reports it', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      providers: [
+        {
+          providerId: 'codex',
+          models: ['gpt-5.4', 'gpt-5.2-codex'],
+          modelVerificationState: 'idle',
+          modelAvailability: [],
+        },
+      ],
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onValueChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        React.createElement(TeamModelSelector, {
+          providerId: 'codex',
+          onProviderChange: () => undefined,
+          value: '',
+          onValueChange,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const disabledButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('5.2 Codex')
+    );
+
+    expect(disabledButton).not.toBeNull();
+    expect(disabledButton?.getAttribute('aria-disabled')).toBe('true');
+    expect(disabledButton?.textContent).toContain('Disabled');
+    expect(disabledButton?.getAttribute('title')).toContain(
+      'Not available with Codex ChatGPT subscription'
+    );
+
+    await act(async () => {
+      disabledButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onValueChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('shows 5.1 Codex Max as a disabled tile on the ChatGPT subscription path', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      providers: [
+        {
+          providerId: 'codex',
+          authMethod: 'oauth_token',
+          backend: {
+            kind: 'adapter',
+            label: 'Default adapter',
+            endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+          },
+          models: ['gpt-5.4', 'gpt-5.1-codex-max'],
+          modelVerificationState: 'idle',
+          modelAvailability: [],
+        },
+      ],
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onValueChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        React.createElement(TeamModelSelector, {
+          providerId: 'codex',
+          onProviderChange: () => undefined,
+          value: '',
+          onValueChange,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const disabledButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('5.1 Codex Max')
+    );
+
+    expect(disabledButton).not.toBeNull();
+    expect(disabledButton?.getAttribute('aria-disabled')).toBe('true');
+    expect(disabledButton?.textContent).toContain('Disabled');
+    expect(disabledButton?.getAttribute('title')).toContain(
+      'Not available with Codex ChatGPT subscription'
+    );
+
+    await act(async () => {
+      disabledButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onValueChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('keeps runtime model buttons selectable without starting automatic model probes', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      providers: [
+        {
+          providerId: 'codex',
+          models: ['gpt-5.4', 'gpt-5.4-mini'],
+          modelVerificationState: 'idle',
+          modelAvailability: [],
+        },
+      ],
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onValueChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        React.createElement(TeamModelSelector, {
+          providerId: 'codex',
+          onProviderChange: () => undefined,
+          value: '',
+          onValueChange,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(storeState.fetchCliProviderStatus).not.toHaveBeenCalled();
+
+    const gpt54Button = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('5.4')
+    );
+    expect(gpt54Button?.getAttribute('aria-disabled')).toBe('false');
+
+    await act(async () => {
+      gpt54Button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onValueChange).toHaveBeenCalledWith('gpt-5.4');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('highlights the specific model tile when preflight found a model issue', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      providers: [
+        {
+          providerId: 'codex',
+          models: ['gpt-5.4', 'gpt-5.2-codex'],
+          modelVerificationState: 'idle',
+          modelAvailability: [],
+        },
+      ],
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(TeamModelSelector, {
+          providerId: 'codex',
+          onProviderChange: () => undefined,
+          value: 'gpt-5.2-codex',
+          onValueChange: () => undefined,
+          modelIssueReasonByValue: {
+            'gpt-5.2-codex': 'Not available with Codex ChatGPT subscription',
+          },
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Issue');
+    const issueButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('5.2 Codex')
+    );
+    expect(issueButton?.className).toContain('border-red-500/40');
+    expect(issueButton?.getAttribute('title')).toBe(
+      'Not available with Codex ChatGPT subscription'
+    );
 
     await act(async () => {
       root.unmount();

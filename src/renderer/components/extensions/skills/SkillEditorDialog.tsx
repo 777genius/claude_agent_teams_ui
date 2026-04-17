@@ -23,6 +23,7 @@ import {
 import { Textarea } from '@renderer/components/ui/textarea';
 import { useMarkdownScrollSync } from '@renderer/hooks/useMarkdownScrollSync';
 import { useStore } from '@renderer/store';
+import { SKILL_ROOT_DEFINITIONS } from '@shared/utils/skillRoots';
 import { FileSearch, RotateCcw, X } from 'lucide-react';
 
 import { SkillCodeEditor } from './SkillCodeEditor';
@@ -32,11 +33,15 @@ import {
   readSkillTemplateContent,
   updateSkillTemplateFrontmatter,
 } from './skillDraftUtils';
+import { toSuggestedSkillFolderName } from './skillFolderNameUtils';
+import { resolveSkillProjectPath } from './skillProjectUtils';
 import { SkillReviewDialog } from './SkillReviewDialog';
+import { validateSkillFolderName } from './skillValidationUtils';
 
 import type {
   SkillDetail,
   SkillInvocationMode,
+  SkillRootKind,
   SkillReviewPreview,
 } from '@shared/types/extensions';
 
@@ -47,6 +52,7 @@ interface SkillEditorDialogProps {
   mode: EditorMode;
   projectPath: string | null;
   projectLabel: string | null;
+  allowCodexRootKind: boolean;
   detail: SkillDetail | null;
   onClose: () => void;
   onSaved: (skillId: string | null) => void;
@@ -60,21 +66,12 @@ function parseInitialDescription(detail: SkillDetail | null): string {
   return detail?.item.description ?? '';
 }
 
-function toSuggestedFolderName(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[^\x00-\x7F]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
-}
-
 export const SkillEditorDialog = ({
   open,
   mode,
   projectPath,
   projectLabel,
+  allowCodexRootKind,
   detail,
   onClose,
   onSaved,
@@ -86,7 +83,7 @@ export const SkillEditorDialog = ({
   const applySkillUpsert = useStore((s) => s.applySkillUpsert);
 
   const [scope, setScope] = useState<'user' | 'project'>('user');
-  const [rootKind, setRootKind] = useState<'claude' | 'cursor' | 'agents'>('claude');
+  const [rootKind, setRootKind] = useState<SkillRootKind>('claude');
   const [folderName, setFolderName] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -191,7 +188,7 @@ export const SkillEditorDialog = ({
         notes: nextNotes,
       });
     const rawInput = readSkillTemplateContent(nextRawContent);
-    const suggestedFolderName = toSuggestedFolderName(nextName || 'New Skill');
+    const suggestedFolderName = toSuggestedSkillFolderName(nextName || 'New Skill');
     const hasCustomMarkdown = mode === 'edit' && rawInput.hasUnstructuredBody;
 
     setScope(nextScope);
@@ -225,17 +222,51 @@ export const SkillEditorDialog = ({
     setReviewLoading(false);
     setSaveLoading(false);
     setMutationError(null);
-  }, [detail, mode, open, projectPath]);
+  }, [allowCodexRootKind, detail, mode, open, projectPath]);
+
+  useEffect(() => {
+    if (open) {
+      return;
+    }
+
+    setReviewPreview(null);
+    setReviewOpen(false);
+    setReviewLoading(false);
+    setSaveLoading(false);
+    setMutationError(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (open && mode === 'create' && scope === 'project' && !projectPath) {
+      setScope('user');
+    }
+  }, [mode, open, projectPath, scope]);
+
+  useEffect(() => {
+    if (open && mode === 'create' && rootKind === 'codex' && !allowCodexRootKind) {
+      setRootKind('claude');
+    }
+  }, [allowCodexRootKind, mode, open, rootKind]);
 
   useEffect(() => {
     rawContentRef.current = rawContent;
   }, [rawContent]);
 
+  const effectiveProjectPath = useMemo(
+    () =>
+      resolveSkillProjectPath(
+        scope,
+        projectPath,
+        mode === 'edit' ? detail?.item.projectRoot : undefined
+      ),
+    [detail?.item.projectRoot, mode, projectPath, scope]
+  );
+
   const request = useMemo(
     () => ({
       scope,
       rootKind,
-      projectPath: scope === 'project' ? (projectPath ?? undefined) : undefined,
+      projectPath: effectiveProjectPath,
       folderName,
       existingSkillId: mode === 'edit' ? detail?.item.id : undefined,
       files: buildSkillDraftFiles({
@@ -252,10 +283,10 @@ export const SkillEditorDialog = ({
       includeReferences,
       includeScripts,
       mode,
-      projectPath,
       rawContent,
       rootKind,
       scope,
+      effectiveProjectPath,
     ]
   );
   const draftFilePaths = useMemo(
@@ -268,6 +299,14 @@ export const SkillEditorDialog = ({
   );
 
   const canUseProjectScope = Boolean(projectPath);
+  const visibleRootDefinitions = useMemo(
+    () =>
+      SKILL_ROOT_DEFINITIONS.filter(
+        (definition) =>
+          definition.rootKind !== 'codex' || allowCodexRootKind || detail?.item.rootKind === 'codex'
+      ),
+    [allowCodexRootKind, detail?.item.rootKind]
+  );
   const instructionsLocked = manualRawEdit || customMarkdownDetected;
   const title = mode === 'create' ? 'Create skill' : 'Edit skill';
   const descriptionText =
@@ -285,7 +324,11 @@ export const SkillEditorDialog = ({
     if (!folderName.trim()) {
       return 'Choose a folder name for this skill.';
     }
-    if (scope === 'project' && !projectPath) {
+    const folderNameError = validateSkillFolderName(folderName);
+    if (folderNameError) {
+      return folderNameError;
+    }
+    if (scope === 'project' && !effectiveProjectPath) {
       return 'Project skills need an active project.';
     }
     return null;
@@ -402,18 +445,19 @@ export const SkillEditorDialog = ({
                     <Label htmlFor="skill-root">Where to store it</Label>
                     <Select
                       value={rootKind}
-                      onValueChange={(value) =>
-                        setRootKind(value as 'claude' | 'cursor' | 'agents')
-                      }
+                      onValueChange={(value) => setRootKind(value as SkillRootKind)}
                       disabled={mode === 'edit'}
                     >
                       <SelectTrigger id="skill-root">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="claude">.claude</SelectItem>
-                        <SelectItem value="cursor">.cursor</SelectItem>
-                        <SelectItem value="agents">.agents</SelectItem>
+                        {visibleRootDefinitions.map((definition) => (
+                          <SelectItem key={definition.rootKind} value={definition.rootKind}>
+                            {definition.directoryName}
+                            {definition.audience === 'codex' ? ' - Codex only' : ' - Shared'}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -438,7 +482,7 @@ export const SkillEditorDialog = ({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="skill-invocation">How Claude should use it</Label>
+                    <Label htmlFor="skill-invocation">How it should be used</Label>
                     <Select
                       value={invocationMode}
                       onValueChange={(value) => {
@@ -451,7 +495,7 @@ export const SkillEditorDialog = ({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="auto">Claude can use it automatically</SelectItem>
+                        <SelectItem value="auto">Can be used automatically</SelectItem>
                         <SelectItem value="manual-only">Only when you ask for it</SelectItem>
                       </SelectContent>
                     </Select>
@@ -468,7 +512,7 @@ export const SkillEditorDialog = ({
                         const nextValue = event.target.value;
                         setName(nextValue);
                         if (mode === 'create' && !folderNameEdited) {
-                          setFolderName(toSuggestedFolderName(nextValue || 'New Skill'));
+                          setFolderName(toSuggestedSkillFolderName(nextValue || 'New Skill'));
                         }
                         applyFormToRawContent({ name: nextValue });
                       }}
@@ -531,7 +575,7 @@ export const SkillEditorDialog = ({
 
                     <div className="grid gap-3">
                       <div className="space-y-2">
-                        <Label htmlFor="skill-when-to-use">When Claude should reach for this</Label>
+                        <Label htmlFor="skill-when-to-use">When to reach for this</Label>
                         <Textarea
                           id="skill-when-to-use"
                           value={whenToUse}
@@ -547,7 +591,7 @@ export const SkillEditorDialog = ({
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="skill-steps">Main steps Claude should follow</Label>
+                        <Label htmlFor="skill-steps">Main steps to follow</Label>
                         <Textarea
                           id="skill-steps"
                           value={steps}
@@ -622,7 +666,7 @@ export const SkillEditorDialog = ({
                       <div>
                         <p className="font-medium text-text">References</p>
                         <p className="mt-1 text-xs text-text-muted">
-                          Add supporting docs, links, or examples that Claude can look at.
+                          Add supporting docs, links, or examples the runtime can look at.
                         </p>
                       </div>
                     </label>
@@ -713,6 +757,7 @@ export const SkillEditorDialog = ({
                           size="sm"
                           onClick={() => {
                             setManualRawEdit(false);
+                            setCustomMarkdownDetected(false);
                             const nextRawContent = buildSkillTemplate({
                               name,
                               description,

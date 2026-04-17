@@ -3,7 +3,7 @@
  * Uses Radix UI Kit for all form elements.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
 import { Badge } from '@renderer/components/ui/badge';
@@ -25,54 +25,104 @@ import {
   SelectValue,
 } from '@renderer/components/ui/select';
 import { useStore } from '@renderer/store';
-import { sanitizeMcpServerName } from '@shared/utils/extensionNormalizers';
+import {
+  getDefaultMcpSharedScope,
+  getMcpScopeLabel,
+  isProjectScopedMcpScope,
+  isSharedMcpScope,
+} from '@shared/utils/mcpScopes';
+import {
+  getMcpInstallationSummaryLabel,
+  getMcpOperationKey,
+  getPreferredMcpInstallationEntry,
+  sanitizeMcpServerName,
+} from '@shared/utils/extensionNormalizers';
 import { ExternalLink, Lock, Plus, Star, Trash2, Wrench } from 'lucide-react';
 
 import { InstallButton } from '../common/InstallButton';
 import { SourceBadge } from '../common/SourceBadge';
 
-import type { McpCatalogItem, McpHeaderDef, McpServerDiagnostic } from '@shared/types/extensions';
+import type {
+  InstalledMcpEntry,
+  McpCatalogItem,
+  McpHeaderDef,
+  McpServerDiagnostic,
+} from '@shared/types/extensions';
 
 interface McpServerDetailDialogProps {
   server: McpCatalogItem | null;
   isInstalled: boolean;
+  installedEntry?: InstalledMcpEntry | null;
+  installedEntries?: InstalledMcpEntry[];
   diagnostic?: McpServerDiagnostic | null;
   diagnosticsLoading?: boolean;
+  projectPath: string | null;
   open: boolean;
   onClose: () => void;
 }
 
-type Scope = 'local' | 'user';
-
-const SCOPE_OPTIONS: { value: Scope; label: string }[] = [
-  { value: 'user', label: 'User (global)' },
-  { value: 'local', label: 'Local' },
-];
+type Scope = 'local' | 'user' | 'project' | 'global';
 
 export const McpServerDetailDialog = ({
   server,
   isInstalled,
+  installedEntry,
+  installedEntries = [],
   diagnostic,
   diagnosticsLoading,
+  projectPath,
   open,
   onClose,
 }: McpServerDetailDialogProps): React.JSX.Element => {
+  const cliStatus = useStore((s) => s.cliStatus);
+  const defaultSharedScope = getDefaultMcpSharedScope(cliStatus?.flavor);
+  const [scope, setScope] = useState<Scope>(defaultSharedScope);
+  const operationKey = server ? getMcpOperationKey(server.id, scope, projectPath) : null;
   const installProgress = useStore(
-    (s) => (server ? s.mcpInstallProgress[server.id] : undefined) ?? 'idle'
+    (s) => (operationKey ? s.mcpInstallProgress[operationKey] : undefined) ?? 'idle'
   );
   const installMcpServer = useStore((s) => s.installMcpServer);
   const uninstallMcpServer = useStore((s) => s.uninstallMcpServer);
-  const installError = useStore((s) => (server ? s.installErrors[server.id] : undefined));
+  const installError = useStore((s) => (operationKey ? s.installErrors[operationKey] : undefined));
   const stars = useStore((s) =>
     server?.repositoryUrl ? s.mcpGitHubStars[server.repositoryUrl] : undefined
   );
 
-  const [scope, setScope] = useState<Scope>('user');
   const [serverName, setServerName] = useState('');
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [headers, setHeaders] = useState<McpHeaderDef[]>([]);
   const [imgError, setImgError] = useState(false);
   const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
+  const autoFilledValuesRef = useRef<Record<string, string>>({});
+  const previousDefaultSharedScopeRef = useRef<Scope>(defaultSharedScope);
+  const normalizedInstalledEntries = installedEntries.length
+    ? installedEntries
+    : installedEntry
+      ? [installedEntry]
+      : [];
+  const scopeOptions: { value: Scope; label: string }[] = [
+    { value: defaultSharedScope, label: getMcpScopeLabel(defaultSharedScope, cliStatus?.flavor) },
+    ...(defaultSharedScope !== 'user' &&
+    normalizedInstalledEntries.some((entry) => entry.scope === 'user')
+      ? [{ value: 'user' as const, label: getMcpScopeLabel('user', cliStatus?.flavor) }]
+      : []),
+    { value: 'project', label: 'Project' },
+    { value: 'local', label: 'Local' },
+  ];
+  const preferredInstalledEntry = getPreferredMcpInstallationEntry(normalizedInstalledEntries);
+  const selectedInstalledEntry =
+    normalizedInstalledEntries.find((entry) => entry.scope === scope) ?? null;
+  const installSummaryLabel = getMcpInstallationSummaryLabel(normalizedInstalledEntries);
+  const envVarLookupNames =
+    server?.envVars
+      .map((entry) => entry.name)
+      .sort()
+      .join('\0') ?? '';
+  const statusSectionLabel =
+    cliStatus?.flavor === 'agent_teams_orchestrator' ? 'Runtime Status' : 'Claude Status';
+  const apiKeyLookupProjectPath = isProjectScopedMcpScope(scope)
+    ? (projectPath ?? undefined)
+    : undefined;
 
   // Initialize form when dialog opens or server changes
   useEffect(() => {
@@ -80,7 +130,6 @@ export const McpServerDetailDialog = ({
       return;
     }
 
-    setServerName(sanitizeMcpServerName(server.name));
     setEnvValues(Object.fromEntries(server.envVars.map((env) => [env.name, ''])));
     setHeaders(
       (server.authHeaders ?? []).map((header) => ({
@@ -93,65 +142,83 @@ export const McpServerDetailDialog = ({
         locked: true,
       }))
     );
-    setScope('user');
+    setServerName(preferredInstalledEntry?.name ?? sanitizeMcpServerName(server.name));
+    setScope((preferredInstalledEntry?.scope as Scope | undefined) ?? defaultSharedScope);
     setImgError(false);
     setAutoFilledFields(new Set());
-  }, [server?.id, open]);
+    autoFilledValuesRef.current = {};
+  }, [open, preferredInstalledEntry?.name, preferredInstalledEntry?.scope, server?.id]);
+
+  useEffect(() => {
+    if (!open) {
+      previousDefaultSharedScopeRef.current = defaultSharedScope;
+      return;
+    }
+
+    const previousDefaultSharedScope = previousDefaultSharedScopeRef.current;
+    if (
+      previousDefaultSharedScope !== defaultSharedScope &&
+      !preferredInstalledEntry &&
+      scope === previousDefaultSharedScope &&
+      isSharedMcpScope(scope)
+    ) {
+      setScope(defaultSharedScope);
+    }
+
+    previousDefaultSharedScopeRef.current = defaultSharedScope;
+  }, [defaultSharedScope, open, preferredInstalledEntry, scope]);
+
+  useEffect(() => {
+    if (!server || !open || !selectedInstalledEntry) {
+      return;
+    }
+
+    setServerName(selectedInstalledEntry.name);
+  }, [open, selectedInstalledEntry, server]);
+
+  useEffect(() => {
+    if (open && isProjectScopedMcpScope(scope) && !projectPath) {
+      setScope(defaultSharedScope);
+    }
+  }, [defaultSharedScope, open, projectPath, scope]);
 
   // Auto-fill env values from saved API keys
   useEffect(() => {
     if (!server || !open || server.envVars.length === 0 || !api.apiKeys) return;
 
     const envVarNames = server.envVars.map((e) => e.name);
-    void api.apiKeys.lookup(envVarNames).then(
+    void api.apiKeys.lookup(envVarNames, apiKeyLookupProjectPath).then(
       (results) => {
-        if (results.length === 0) return;
-        const filled = new Set<string>();
-        const values: Record<string, string> = {};
+        const previousAutoFilledValues = autoFilledValuesRef.current;
+        const nextAutoFilledValues: Record<string, string> = {};
         for (const r of results) {
-          values[r.envVarName] = r.value;
-          filled.add(r.envVarName);
+          nextAutoFilledValues[r.envVarName] = r.value;
         }
-        setEnvValues((prev) => ({ ...prev, ...values }));
-        setAutoFilledFields(filled);
+        setEnvValues((prev) => {
+          const next = { ...prev };
+
+          for (const [envVarName, previousValue] of Object.entries(previousAutoFilledValues)) {
+            if (!(envVarName in nextAutoFilledValues) && next[envVarName] === previousValue) {
+              next[envVarName] = '';
+            }
+          }
+
+          for (const [envVarName, nextValue] of Object.entries(nextAutoFilledValues)) {
+            if (!next[envVarName] || next[envVarName] === previousAutoFilledValues[envVarName]) {
+              next[envVarName] = nextValue;
+            }
+          }
+
+          return next;
+        });
+        setAutoFilledFields(new Set(Object.keys(nextAutoFilledValues)));
+        autoFilledValuesRef.current = nextAutoFilledValues;
       },
       () => {
         // Silently fail — auto-fill is supplementary
       }
     );
-  }, [server?.id, open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-fill env vars from saved API keys
-  useEffect(() => {
-    if (!server || server.envVars.length === 0 || !api.apiKeys) return;
-
-    const envVarNames = server.envVars.map((env) => env.name);
-    void api.apiKeys.lookup(envVarNames).then(
-      (results) => {
-        if (results.length === 0) return;
-        const filled = new Set<string>();
-        const updates: Record<string, string> = {};
-        for (const r of results) {
-          updates[r.envVarName] = r.value;
-          filled.add(r.envVarName);
-        }
-        setEnvValues((prev) => {
-          const next = { ...prev };
-          for (const [k, v] of Object.entries(updates)) {
-            // Only auto-fill if the field is empty
-            if (!next[k]) {
-              next[k] = v;
-            }
-          }
-          return next;
-        });
-        setAutoFilledFields(filled);
-      },
-      () => {
-        // Silently ignore lookup failures
-      }
-    );
-  }, [server?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [apiKeyLookupProjectPath, envVarLookupNames, open, server?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!server) return <></>;
 
@@ -169,7 +236,15 @@ export const McpServerDetailDialog = ({
   const missingRequiredHeaders = headers.some(
     (header) => header.isRequired && !header.value.trim()
   );
-  const installDisabled = !serverName.trim() || missingRequiredEnvVars || missingRequiredHeaders;
+  const isInstalledForScope = selectedInstalledEntry !== null;
+  const uninstallServerName = selectedInstalledEntry?.name ?? serverName;
+  const uninstallScope = selectedInstalledEntry?.scope ?? scope;
+  const scopeRequiresProjectPath = isProjectScopedMcpScope(scope) && !projectPath;
+  const installDisabled =
+    !serverName.trim() ||
+    missingRequiredEnvVars ||
+    missingRequiredHeaders ||
+    scopeRequiresProjectPath;
   const diagnosticBadgeClass =
     diagnostic?.status === 'connected'
       ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
@@ -184,13 +259,19 @@ export const McpServerDetailDialog = ({
       registryId: server.id,
       serverName,
       scope,
+      projectPath: isProjectScopedMcpScope(scope) ? (projectPath ?? undefined) : undefined,
       envValues,
       headers,
     });
   };
 
   const handleUninstall = () => {
-    uninstallMcpServer(server.id, serverName, scope);
+    uninstallMcpServer(
+      server.id,
+      uninstallServerName,
+      uninstallScope,
+      isProjectScopedMcpScope(uninstallScope) ? (projectPath ?? undefined) : undefined
+    );
   };
 
   const addHeader = () => {
@@ -233,7 +314,7 @@ export const McpServerDetailDialog = ({
                       className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                       variant="outline"
                     >
-                      Installed
+                      {installSummaryLabel ?? 'Installed'}
                     </Badge>
                   )}
                   {server.source !== 'official' && <SourceBadge source={server.source} />}
@@ -327,10 +408,10 @@ export const McpServerDetailDialog = ({
             does not describe them. If connection fails after install, check the provider docs.
           </div>
         )}
-        {(isInstalled || diagnosticsLoading) && (
+        {isInstalledForScope && (
           <div className="space-y-2 rounded-md border border-border bg-surface-raised px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-text">Claude Status</span>
+              <span className="text-sm font-medium text-text">{statusSectionLabel}</span>
               {diagnosticsLoading && !diagnostic ? (
                 <Badge
                   className="border-border bg-surface-raised text-text-muted"
@@ -366,7 +447,7 @@ export const McpServerDetailDialog = ({
         {canAutoInstall && (
           <div className="space-y-3 rounded-md border border-border bg-surface-raised p-4">
             <h4 className="text-sm font-medium text-text">
-              {isInstalled ? 'Manage Installation' : 'Install Server'}
+              {isInstalledForScope ? 'Manage Installation' : 'Install Server'}
             </h4>
 
             {/* Server name */}
@@ -380,6 +461,7 @@ export const McpServerDetailDialog = ({
                 onChange={(e) => setServerName(e.target.value)}
                 placeholder="my-server"
                 className="h-8 text-sm"
+                disabled={isInstalledForScope}
               />
             </div>
 
@@ -391,8 +473,12 @@ export const McpServerDetailDialog = ({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {SCOPE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
+                  {scopeOptions.map((opt) => (
+                    <SelectItem
+                      key={opt.value}
+                      value={opt.value}
+                      disabled={isProjectScopedMcpScope(opt.value) && !projectPath}
+                    >
                       {opt.label}
                     </SelectItem>
                   ))}
@@ -499,7 +585,8 @@ export const McpServerDetailDialog = ({
             <div className="flex justify-end pt-1">
               <InstallButton
                 state={installProgress}
-                isInstalled={isInstalled}
+                isInstalled={isInstalledForScope}
+                section="mcp"
                 onInstall={handleInstall}
                 onUninstall={handleUninstall}
                 disabled={installDisabled}

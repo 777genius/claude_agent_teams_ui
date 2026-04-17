@@ -57,8 +57,21 @@ Use path aliases for imports:
 - `@preload/*` → `src/preload/*`
 
 ## Features Architecture
-**All new features MUST be created in `src/renderer/features/<feature-name>/`.**
-See `src/renderer/features/CLAUDE.md` for the full guide on creating features with Clean Architecture, SOLID, and class-based patterns.
+**All new medium and large features should follow the canonical slice standard in [`docs/FEATURE_ARCHITECTURE_STANDARD.md`](docs/FEATURE_ARCHITECTURE_STANDARD.md).**
+
+Default location:
+- `src/features/<feature-name>/`
+
+Reference implementation:
+- `src/features/recent-projects`
+
+Feature-local guidance:
+- `src/features/CLAUDE.md`
+
+Legacy note:
+- `src/renderer/features/*` still exists for older renderer-only slices
+- do not use `src/renderer/features/*` as the default for new cross-process features
+- thin renderer-only slices may still stay local when they do not need `core/`, transport wiring, or multi-process boundaries
 
 ## Data Sources
 ~/.claude/projects/{encoded-path}/*.jsonl - Session files

@@ -5,9 +5,13 @@ export type {
   GraphNode,
   GraphEdge,
   GraphParticle,
+  GraphActivityItem,
   GraphNodeKind,
   GraphNodeState,
   GraphEdgeType,
   GraphParticleKind,
   GraphDomainRef,
+  GraphOwnerSlotAssignment,
+  GraphLayoutPort,
+  GraphLayoutVersion,
 } from './types';

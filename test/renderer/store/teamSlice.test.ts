@@ -221,6 +221,290 @@ describe('teamSlice actions', () => {
     expect(store.getState().warmTaskChangeSummaries).not.toHaveBeenCalled();
   });
 
+  it('commits owner slot drops in the current session while persistence is disabled', () => {
+    const store = createSliceStore();
+
+    store.getState().commitTeamGraphOwnerSlotDrop(
+      'my-team',
+      'agent-alice',
+      { ringIndex: 0, sectorIndex: 2 },
+      'agent-bob',
+      { ringIndex: 0, sectorIndex: 1 }
+    );
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 2 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+    });
+    expect(store.getState().graphLayoutSessionByTeam['my-team']).toEqual({
+      mode: 'manual',
+      signature: null,
+    });
+  });
+
+  it('replaces persisted slot assignments with defaults while persistence is disabled', () => {
+    const store = createSliceStore();
+    store.setState({
+      slotLayoutVersion: 'stable-slots-v1',
+      slotAssignmentsByTeam: {
+        'my-team': {
+          alice: { ringIndex: 0, sectorIndex: 3 },
+        },
+      },
+    });
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+    ]);
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+    });
+  });
+
+  it('seeds first-open cardinal slot defaults for small visible teams with no saved placements', () => {
+    const store = createSliceStore();
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+      { name: 'tom', agentId: 'agent-tom' },
+      { name: 'jack', agentId: 'agent-jack' },
+    ]);
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+      'agent-jack': { ringIndex: 0, sectorIndex: 2 },
+      'agent-tom': { ringIndex: 0, sectorIndex: 3 },
+    });
+  });
+
+  it('uses config member order instead of transient visible member array order for defaults', () => {
+    const store = createSliceStore();
+
+    store.getState().ensureTeamGraphSlotAssignments(
+      'my-team',
+      [
+        { name: 'jack', agentId: 'agent-jack' },
+        { name: 'tom', agentId: 'agent-tom' },
+        { name: 'alice', agentId: 'agent-alice' },
+        { name: 'bob', agentId: 'agent-bob' },
+      ],
+      [
+        { name: 'alice', agentId: 'agent-alice' },
+        { name: 'bob', agentId: 'agent-bob' },
+        { name: 'tom', agentId: 'agent-tom' },
+        { name: 'jack', agentId: 'agent-jack' },
+      ]
+    );
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+      'agent-tom': { ringIndex: 0, sectorIndex: 2 },
+      'agent-jack': { ringIndex: 0, sectorIndex: 3 },
+    });
+  });
+
+  it('ignores the lead member when deriving small-team cardinal defaults', () => {
+    const store = createSliceStore();
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'team-lead', agentId: 'lead-id' },
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+      { name: 'tom', agentId: 'agent-tom' },
+      { name: 'jack', agentId: 'agent-jack' },
+    ]);
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+      'agent-jack': { ringIndex: 0, sectorIndex: 2 },
+      'agent-tom': { ringIndex: 0, sectorIndex: 3 },
+    });
+  });
+
+  it('drops hidden persisted slot assignments and reseeds visible members while persistence is disabled', () => {
+    const store = createSliceStore();
+    store.setState({
+      slotLayoutVersion: 'stable-slots-v1',
+      slotAssignmentsByTeam: {
+        'my-team': {
+          'agent-hidden': { ringIndex: 2, sectorIndex: 4 },
+        },
+      },
+    });
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'hidden', agentId: 'agent-hidden', removedAt: '2026-04-16T08:00:00.000Z' },
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+    ]);
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+    });
+  });
+
+  it('resets stale slot assignments when slot layout version mismatches', () => {
+    const store = createSliceStore();
+    store.setState({
+      slotLayoutVersion: 'legacy-layout-version',
+      slotAssignmentsByTeam: {
+        'other-team': {
+          'agent-old': { ringIndex: 9, sectorIndex: 9 },
+        },
+        'my-team': {
+          alice: { ringIndex: 0, sectorIndex: 1 },
+        },
+      },
+    });
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+    ]);
+
+    expect(store.getState().slotLayoutVersion).toBe('stable-slots-v1');
+    expect(store.getState().slotAssignmentsByTeam).toEqual({
+      'my-team': {
+        'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      },
+    });
+  });
+
+  it('ignores hidden-member persisted slot assignments while persistence is disabled', () => {
+    const store = createSliceStore();
+    store.setState({
+      slotLayoutVersion: 'stable-slots-v1',
+      slotAssignmentsByTeam: {
+        'my-team': {
+          'agent-hidden': { ringIndex: 1, sectorIndex: 5 },
+          'agent-visible': { ringIndex: 0, sectorIndex: 2 },
+        },
+      },
+    });
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'visible', agentId: 'agent-visible' },
+    ]);
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-visible': { ringIndex: 0, sectorIndex: 0 },
+    });
+  });
+
+  it('reseeds defaults again while the team remains in default mode and visible owners change', () => {
+    const store = createSliceStore();
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+    ]);
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+      { name: 'tom', agentId: 'agent-tom' },
+      { name: 'jack', agentId: 'agent-jack' },
+    ]);
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+      'agent-jack': { ringIndex: 0, sectorIndex: 2 },
+      'agent-tom': { ringIndex: 0, sectorIndex: 3 },
+    });
+    expect(store.getState().graphLayoutSessionByTeam['my-team']).toEqual({
+      mode: 'default',
+      signature: 'agent-alice|agent-bob|agent-jack|agent-tom',
+    });
+  });
+
+  it('does not reshuffle existing owners after the team enters manual mode', () => {
+    const store = createSliceStore();
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+    ]);
+
+    store.getState().setTeamGraphOwnerSlotAssignment('my-team', 'agent-alice', {
+      ringIndex: 1,
+      sectorIndex: 4,
+    });
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+      { name: 'tom', agentId: 'agent-tom' },
+      { name: 'jack', agentId: 'agent-jack' },
+    ]);
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 1, sectorIndex: 4 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+    });
+    expect(store.getState().graphLayoutSessionByTeam['my-team']).toEqual({
+      mode: 'manual',
+      signature: 'agent-alice|agent-bob',
+    });
+  });
+
+  it('resets graph slot assignments back to defaults when reopening the graph surface', () => {
+    const store = createSliceStore();
+    store.setState({
+      teamDataCacheByName: {
+        'my-team': {
+          teamName: 'my-team',
+          config: { name: 'My Team' },
+          tasks: [],
+          members: [
+            { name: 'alice', agentId: 'agent-alice' },
+            { name: 'bob', agentId: 'agent-bob' },
+            { name: 'tom', agentId: 'agent-tom' },
+            { name: 'jack', agentId: 'agent-jack' },
+          ],
+          messages: [],
+          kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+          processes: [],
+        },
+      },
+    });
+
+    store.getState().ensureTeamGraphSlotAssignments('my-team', [
+      { name: 'alice', agentId: 'agent-alice' },
+      { name: 'bob', agentId: 'agent-bob' },
+      { name: 'tom', agentId: 'agent-tom' },
+      { name: 'jack', agentId: 'agent-jack' },
+    ]);
+
+    store.getState().commitTeamGraphOwnerSlotDrop(
+      'my-team',
+      'agent-alice',
+      { ringIndex: 0, sectorIndex: 2 },
+      'agent-jack',
+      { ringIndex: 0, sectorIndex: 0 }
+    );
+
+    store.getState().resetTeamGraphSlotAssignmentsToDefaults('my-team');
+
+    expect(store.getState().slotAssignmentsByTeam['my-team']).toEqual({
+      'agent-alice': { ringIndex: 0, sectorIndex: 0 },
+      'agent-bob': { ringIndex: 0, sectorIndex: 1 },
+      'agent-jack': { ringIndex: 0, sectorIndex: 2 },
+      'agent-tom': { ringIndex: 0, sectorIndex: 3 },
+    });
+    expect(store.getState().graphLayoutSessionByTeam['my-team']).toEqual({
+      mode: 'default',
+      signature: 'agent-alice|agent-bob|agent-jack|agent-tom',
+    });
+  });
+
   it('syncs both team and graph tab labels when the team display name changes', async () => {
     const store = createSliceStore();
     const getAllPaneTabs = vi.fn(() => [

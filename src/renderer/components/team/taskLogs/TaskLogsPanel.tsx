@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
+
 import { ExecutionSessionsSection } from './ExecutionSessionsSection';
 import { isBoardTaskActivityUiEnabled, isBoardTaskExactLogsUiEnabled } from './featureGates';
 import { TaskActivitySection } from './TaskActivitySection';
 import { TaskLogStreamSection } from './TaskLogStreamSection';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
 
 import type { TeamTaskWithKanban } from '@shared/types';
 

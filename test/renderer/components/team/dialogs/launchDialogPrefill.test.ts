@@ -208,4 +208,31 @@ describe('resolveLaunchDialogPrefill', () => {
       limitContext: false,
     });
   });
+
+  it('preserves literal [1m] suffixes for non-anthropic providers', () => {
+    const result = resolveLaunchDialogPrefill({
+      members: [],
+      savedRequest: null,
+      previousLaunchParams: {
+        providerId: 'codex',
+        model: 'custom-model[1m]',
+        effort: 'medium',
+      },
+      multimodelEnabled: true,
+      storedProviderId: 'anthropic',
+      storedEffort: 'medium',
+      storedLimitContext: false,
+      getStoredModel: createStoredModelGetter({
+        anthropic: 'haiku',
+        codex: 'gpt-5.4',
+      }),
+    });
+
+    expect(result).toEqual({
+      providerId: 'codex',
+      model: 'custom-model[1m]',
+      effort: 'medium',
+      limitContext: false,
+    });
+  });
 });

@@ -40,6 +40,20 @@ export function getWorktreeNavigationState(repoId: string, worktreeId: string): 
 }
 
 /**
+ * Clear the active project/worktree selection without resetting unrelated UI state.
+ * Used when a screen wants to remove the current project context entirely.
+ */
+export function getProjectSelectionResetState(): Partial<AppState> {
+  return {
+    selectedRepositoryId: null,
+    selectedWorktreeId: null,
+    selectedProjectId: null,
+    activeProjectId: null,
+    ...getSessionResetState(),
+  };
+}
+
+/**
  * Full state reset (session + project + repository + conversation).
  * Used when closing all tabs or resetting to initial state.
  */

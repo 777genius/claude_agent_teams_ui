@@ -4,10 +4,18 @@
  */
 
 import { api } from '@renderer/api';
-import { CLI_NOT_FOUND_MESSAGE } from '@shared/constants/cli';
+import { isProjectScopedMcpScope } from '@shared/utils/mcpScopes';
+import {
+  getExtensionActionDisableReason,
+  getMcpDiagnosticKey,
+  getMcpProjectStateKey,
+  getMcpOperationKey,
+  getPluginOperationKey,
+} from '@shared/utils/extensionNormalizers';
+
+import { findPaneByTabId, updatePane } from '../utils/paneHelpers';
 
 import type { AppState } from '../types';
-import { findPaneByTabId, updatePane } from '../utils/paneHelpers';
 import type {
   ApiKeyEntry,
   ApiKeySaveRequest,
@@ -49,16 +57,21 @@ export interface ExtensionsSlice {
   mcpBrowseLoading: boolean;
   mcpBrowseError: string | null;
   mcpInstalledServers: InstalledMcpEntry[];
+  mcpInstalledServersByProjectPath: Record<string, InstalledMcpEntry[]>;
   mcpInstalledProjectPath: string | null;
   mcpDiagnostics: Record<string, McpServerDiagnostic>;
+  mcpDiagnosticsByProjectPath: Record<string, Record<string, McpServerDiagnostic>>;
   mcpDiagnosticsLoading: boolean;
+  mcpDiagnosticsLoadingByProjectPath: Record<string, boolean>;
   mcpDiagnosticsError: string | null;
+  mcpDiagnosticsErrorByProjectPath: Record<string, string | null>;
   mcpDiagnosticsLastCheckedAt: number | null;
+  mcpDiagnosticsLastCheckedAtByProjectPath: Record<string, number | null>;
 
   // ── Install progress ──
   pluginInstallProgress: Record<string, ExtensionOperationState>;
   mcpInstallProgress: Record<string, ExtensionOperationState>;
-  installErrors: Record<string, string>; // keyed by pluginId or registryId
+  installErrors: Record<string, string>; // keyed by scoped operation key
 
   // ── API Keys ──
   apiKeys: ApiKeyEntry[];
@@ -88,7 +101,7 @@ export interface ExtensionsSlice {
   fetchPluginReadme: (pluginId: string) => void;
   mcpBrowse: (cursor?: string) => Promise<void>;
   mcpFetchInstalled: (projectPath?: string) => Promise<void>;
-  runMcpDiagnostics: () => Promise<void>;
+  runMcpDiagnostics: (projectPath?: string) => Promise<void>;
   fetchSkillsCatalog: (projectPath?: string) => Promise<void>;
   fetchSkillDetail: (skillId: string, projectPath?: string) => Promise<void>;
   previewSkillUpsert: (request: SkillUpsertRequest) => Promise<SkillReviewPreview>;
@@ -126,8 +139,11 @@ export interface ExtensionsSlice {
 // Slice Creator
 // =============================================================================
 
-let pluginFetchInFlight: Promise<void> | null = null;
-let mcpDiagnosticsInFlight: Promise<void> | null = null;
+let pluginFetchInFlight: { key: string; promise: Promise<void> } | null = null;
+let pluginCatalogRequestSeq = 0;
+const pluginSuccessResetTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const mcpSuccessResetTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const mcpDiagnosticsInFlightByKey = new Map<string, Promise<void>>();
 let skillsCatalogRequestSeq = 0;
 let skillsDetailRequestSeq = 0;
 const latestSkillsCatalogRequestByKey = new Map<string, number>();
@@ -139,19 +155,196 @@ function hasAnyLoading(loadingMap: Record<string, boolean>): boolean {
   return Object.values(loadingMap).some(Boolean);
 }
 
+function getPluginCatalogKey(projectPath?: string): string {
+  return projectPath ?? '__user__';
+}
+
+function buildPluginIdSet(catalog: EnrichedPlugin[]): Set<string> {
+  return new Set(catalog.map((plugin) => plugin.pluginId));
+}
+
+function isPluginOperationKeyForPlugin(operationKey: string, pluginId: string): boolean {
+  return operationKey.startsWith(`plugin:${pluginId}:`);
+}
+
+function clearPluginOperationState(
+  pluginIds: Set<string>,
+  pluginInstallProgress: Record<string, ExtensionOperationState>,
+  installErrors: Record<string, string>
+): {
+  pluginInstallProgress: Record<string, ExtensionOperationState>;
+  installErrors: Record<string, string>;
+} {
+  if (pluginIds.size === 0) {
+    return { pluginInstallProgress, installErrors };
+  }
+
+  const nextPluginInstallProgress = { ...pluginInstallProgress };
+  const nextInstallErrors = { ...installErrors };
+  const pluginIdsList = Array.from(pluginIds);
+
+  for (const operationKey of Object.keys(nextPluginInstallProgress)) {
+    if (pluginIdsList.some((pluginId) => isPluginOperationKeyForPlugin(operationKey, pluginId))) {
+      delete nextPluginInstallProgress[operationKey];
+    }
+  }
+
+  for (const operationKey of Object.keys(nextInstallErrors)) {
+    if (pluginIdsList.some((pluginId) => isPluginOperationKeyForPlugin(operationKey, pluginId))) {
+      delete nextInstallErrors[operationKey];
+    }
+  }
+
+  return {
+    pluginInstallProgress: nextPluginInstallProgress,
+    installErrors: nextInstallErrors,
+  };
+}
+
+function clearPluginSuccessResetTimer(operationKey: string): void {
+  const timer = pluginSuccessResetTimers.get(operationKey);
+  if (!timer) {
+    return;
+  }
+
+  clearTimeout(timer);
+  pluginSuccessResetTimers.delete(operationKey);
+}
+
+function clearPluginSuccessResetTimers(pluginIds: Set<string>): void {
+  const pluginIdsList = Array.from(pluginIds);
+  for (const operationKey of Array.from(pluginSuccessResetTimers.keys())) {
+    if (pluginIdsList.some((pluginId) => isPluginOperationKeyForPlugin(operationKey, pluginId))) {
+      clearPluginSuccessResetTimer(operationKey);
+    }
+  }
+}
+
+function schedulePluginSuccessReset(
+  operationKey: string,
+  set: Parameters<StateCreator<AppState, [], [], ExtensionsSlice>>[0]
+): void {
+  clearPluginSuccessResetTimer(operationKey);
+  const timer = setTimeout(() => {
+    pluginSuccessResetTimers.delete(operationKey);
+    set((prev) => {
+      if (prev.pluginInstallProgress[operationKey] !== 'success') {
+        return {};
+      }
+
+      return {
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'idle' },
+      };
+    });
+  }, SUCCESS_DISPLAY_MS);
+  pluginSuccessResetTimers.set(operationKey, timer);
+}
+
+function getCustomMcpOperationKey(
+  serverName: string,
+  scope: InstallScope,
+  projectPath?: string | null
+): string {
+  if (scope === 'project' || scope === 'local') {
+    return `mcp-custom:${serverName}:${scope}:${getMcpProjectStateKey(projectPath)}`;
+  }
+  return `mcp-custom:${serverName}:${scope}`;
+}
+
+function isProjectScopedMcpOperationKey(operationKey: string): boolean {
+  return (
+    operationKey.includes(':project:') ||
+    operationKey.endsWith(':project') ||
+    operationKey.includes(':local:') ||
+    operationKey.endsWith(':local')
+  );
+}
+
+function clearMcpSuccessResetTimer(operationKey: string): void {
+  const timer = mcpSuccessResetTimers.get(operationKey);
+  if (!timer) {
+    return;
+  }
+
+  clearTimeout(timer);
+  mcpSuccessResetTimers.delete(operationKey);
+}
+
+function scheduleMcpSuccessReset(
+  operationKey: string,
+  set: Parameters<StateCreator<AppState, [], [], ExtensionsSlice>>[0]
+): void {
+  clearMcpSuccessResetTimer(operationKey);
+  const timer = setTimeout(() => {
+    mcpSuccessResetTimers.delete(operationKey);
+    set((prev) => {
+      if (prev.mcpInstallProgress[operationKey] !== 'success') {
+        return {};
+      }
+
+      return {
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'idle' },
+      };
+    });
+  }, SUCCESS_DISPLAY_MS);
+  mcpSuccessResetTimers.set(operationKey, timer);
+}
+
+function clearMcpProjectScopedOperationState(
+  mcpInstallProgress: Record<string, ExtensionOperationState>,
+  installErrors: Record<string, string>
+): {
+  mcpInstallProgress: Record<string, ExtensionOperationState>;
+  installErrors: Record<string, string>;
+} {
+  const nextMcpInstallProgress = { ...mcpInstallProgress };
+  const nextInstallErrors = { ...installErrors };
+
+  for (const operationKey of Object.keys(nextMcpInstallProgress)) {
+    if (
+      (operationKey.startsWith('mcp:') || operationKey.startsWith('mcp-custom:')) &&
+      isProjectScopedMcpOperationKey(operationKey)
+    ) {
+      delete nextMcpInstallProgress[operationKey];
+    }
+  }
+
+  for (const operationKey of Object.keys(nextInstallErrors)) {
+    if (
+      (operationKey.startsWith('mcp:') || operationKey.startsWith('mcp-custom:')) &&
+      isProjectScopedMcpOperationKey(operationKey)
+    ) {
+      delete nextInstallErrors[operationKey];
+    }
+  }
+
+  return {
+    mcpInstallProgress: nextMcpInstallProgress,
+    installErrors: nextInstallErrors,
+  };
+}
+
+function clearMcpProjectScopedSuccessResetTimers(): void {
+  for (const operationKey of Array.from(mcpSuccessResetTimers.keys())) {
+    if (isProjectScopedMcpOperationKey(operationKey)) {
+      clearMcpSuccessResetTimer(operationKey);
+    }
+  }
+}
+
 function getSkillsCatalogKey(projectPath?: string): string {
   return projectPath ?? USER_SKILLS_CATALOG_KEY;
 }
 
+function upsertApiKeyEntry(entries: ApiKeyEntry[], entry: ApiKeyEntry): ApiKeyEntry[] {
+  const nextEntries = entries.filter((candidate) => candidate.id !== entry.id);
+  return [entry, ...nextEntries];
+}
+
 /** Duration to show "success" state before returning to idle */
 const SUCCESS_DISPLAY_MS = 2_000;
-const CLI_AUTH_REQUIRED_MESSAGE =
-  'Claude CLI is installed but not signed in. Go to the Dashboard and sign in to enable plugin installs.';
-const CLI_HEALTHCHECK_FAILED_MESSAGE =
-  'Claude CLI was found but failed its startup health check. Open the Dashboard to repair or reinstall it before retrying.';
-const CLI_STATUS_UNKNOWN_MESSAGE =
-  'Unable to verify Claude CLI status. Open the Dashboard and check the CLI before retrying.';
-
+const PROJECT_SCOPE_REQUIRED_MESSAGE =
+  'Project- and local-scoped plugins require an active project in the Extensions tab.';
 export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSlice> = (
   set,
   get
@@ -169,11 +362,16 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
   mcpBrowseLoading: false,
   mcpBrowseError: null,
   mcpInstalledServers: [],
+  mcpInstalledServersByProjectPath: {},
   mcpInstalledProjectPath: null,
   mcpDiagnostics: {},
+  mcpDiagnosticsByProjectPath: {},
   mcpDiagnosticsLoading: false,
+  mcpDiagnosticsLoadingByProjectPath: {},
   mcpDiagnosticsError: null,
+  mcpDiagnosticsErrorByProjectPath: {},
   mcpDiagnosticsLastCheckedAt: null,
+  mcpDiagnosticsLastCheckedAtByProjectPath: {},
 
   pluginInstallProgress: {},
   mcpInstallProgress: {},
@@ -202,42 +400,95 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
   // ── Plugin catalog fetch ──
   fetchPluginCatalog: async (projectPath?: string, forceRefresh?: boolean) => {
     if (!api.plugins) return;
+    const requestKey = getPluginCatalogKey(projectPath);
 
     // Dedup concurrent requests
-    if (pluginFetchInFlight && !forceRefresh) {
-      await pluginFetchInFlight;
+    if (pluginFetchInFlight && !forceRefresh && pluginFetchInFlight.key === requestKey) {
+      await pluginFetchInFlight.promise;
       return;
     }
 
+    const requestSeq = ++pluginCatalogRequestSeq;
     set({ pluginCatalogLoading: true, pluginCatalogError: null });
 
-    const promise = (async () => {
+    let currentPromise: Promise<void> | null = null;
+    currentPromise = (async () => {
       try {
         const result = await api.plugins!.getAll(projectPath, forceRefresh);
-        set({
-          pluginCatalog: result,
-          pluginCatalogLoading: false,
-          pluginCatalogProjectPath: projectPath ?? null,
+        set((prev) => {
+          if (requestSeq !== pluginCatalogRequestSeq) {
+            return {};
+          }
+
+          const nextProjectPath = projectPath ?? null;
+          const isSameProjectContext = prev.pluginCatalogProjectPath === nextProjectPath;
+          const pluginIdsToClear = isSameProjectContext
+            ? new Set<string>()
+            : new Set([...buildPluginIdSet(prev.pluginCatalog), ...buildPluginIdSet(result)]);
+          const nextOperationState = clearPluginOperationState(
+            pluginIdsToClear,
+            prev.pluginInstallProgress,
+            prev.installErrors
+          );
+          clearPluginSuccessResetTimers(pluginIdsToClear);
+
+          return {
+            pluginCatalog: result,
+            pluginCatalogLoading: false,
+            pluginCatalogError: null,
+            pluginCatalogProjectPath: nextProjectPath,
+            pluginInstallProgress: nextOperationState.pluginInstallProgress,
+            installErrors: nextOperationState.installErrors,
+          };
         });
       } catch (err) {
-        set({
-          pluginCatalogLoading: false,
-          pluginCatalogError: err instanceof Error ? err.message : 'Failed to load plugins',
+        set((prev) => {
+          if (requestSeq !== pluginCatalogRequestSeq) {
+            return {};
+          }
+
+          const nextProjectPath = projectPath ?? null;
+          const isSameProjectContext = prev.pluginCatalogProjectPath === nextProjectPath;
+          const nextOperationState = clearPluginOperationState(
+            isSameProjectContext ? new Set<string>() : buildPluginIdSet(prev.pluginCatalog),
+            prev.pluginInstallProgress,
+            prev.installErrors
+          );
+          clearPluginSuccessResetTimers(
+            isSameProjectContext ? new Set<string>() : buildPluginIdSet(prev.pluginCatalog)
+          );
+
+          return {
+            pluginCatalog: isSameProjectContext ? prev.pluginCatalog : [],
+            pluginCatalogLoading: false,
+            pluginCatalogError: err instanceof Error ? err.message : 'Failed to load plugins',
+            pluginCatalogProjectPath: nextProjectPath,
+            pluginInstallProgress: nextOperationState.pluginInstallProgress,
+            installErrors: nextOperationState.installErrors,
+          };
         });
       } finally {
-        pluginFetchInFlight = null;
+        if (currentPromise && pluginFetchInFlight?.promise === currentPromise) {
+          pluginFetchInFlight = null;
+        }
       }
     })();
 
-    pluginFetchInFlight = promise;
-    await promise;
+    pluginFetchInFlight = { key: requestKey, promise: currentPromise };
+    await currentPromise;
   },
 
   // ── Plugin README fetch ──
   fetchPluginReadme: (pluginId: string) => {
     if (!api.plugins) return;
     const state = get();
-    if (pluginId in state.pluginReadmes || state.pluginReadmeLoading[pluginId]) return;
+    const cachedReadme = state.pluginReadmes[pluginId];
+    if (
+      (cachedReadme !== undefined && cachedReadme !== null) ||
+      state.pluginReadmeLoading[pluginId]
+    ) {
+      return;
+    }
 
     set((prev) => ({
       pluginReadmeLoading: { ...prev.pluginReadmeLoading, [pluginId]: true },
@@ -297,48 +548,106 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
 
     try {
       const installed = await api.mcpRegistry.getInstalled(projectPath);
-      set({
-        mcpInstalledServers: installed,
-        mcpInstalledProjectPath: projectPath ?? null,
+      set((prev) => {
+        const nextProjectPath = projectPath ?? null;
+        const stateKey = getMcpProjectStateKey(nextProjectPath);
+        const isSameProjectContext = prev.mcpInstalledProjectPath === nextProjectPath;
+        const nextOperationState = isSameProjectContext
+          ? {
+              mcpInstallProgress: prev.mcpInstallProgress,
+              installErrors: prev.installErrors,
+            }
+          : clearMcpProjectScopedOperationState(prev.mcpInstallProgress, prev.installErrors);
+
+        if (!isSameProjectContext) {
+          clearMcpProjectScopedSuccessResetTimers();
+        }
+
+        return {
+          mcpInstalledServers: installed,
+          mcpInstalledServersByProjectPath: {
+            ...prev.mcpInstalledServersByProjectPath,
+            [stateKey]: installed,
+          },
+          mcpInstalledProjectPath: nextProjectPath,
+          mcpInstallProgress: nextOperationState.mcpInstallProgress,
+          installErrors: nextOperationState.installErrors,
+        };
       });
     } catch {
       // Silently fail — installed state is supplementary
     }
   },
 
-  runMcpDiagnostics: async () => {
+  runMcpDiagnostics: async (projectPath?: string) => {
     const mcpRegistry = api.mcpRegistry;
     if (!mcpRegistry) return;
+    const projectStateKey = getMcpProjectStateKey(projectPath);
 
-    if (mcpDiagnosticsInFlight) {
-      await mcpDiagnosticsInFlight;
+    const existing = mcpDiagnosticsInFlightByKey.get(projectStateKey);
+    if (existing) {
+      await existing;
       return;
     }
 
-    set({ mcpDiagnosticsLoading: true, mcpDiagnosticsError: null });
+    set((prev) => ({
+      mcpDiagnosticsLoading: true,
+      mcpDiagnosticsError: null,
+      mcpDiagnosticsLoadingByProjectPath: {
+        ...prev.mcpDiagnosticsLoadingByProjectPath,
+        [projectStateKey]: true,
+      },
+      mcpDiagnosticsErrorByProjectPath: {
+        ...prev.mcpDiagnosticsErrorByProjectPath,
+        [projectStateKey]: null,
+      },
+    }));
 
     const promise = (async () => {
       try {
-        const diagnostics = await mcpRegistry.diagnose();
+        const diagnostics = await mcpRegistry.diagnose(projectPath);
+        const diagnosticsRecord = Object.fromEntries(
+          diagnostics.map((entry) => [getMcpDiagnosticKey(entry.name, entry.scope), entry] as const)
+        );
+        const checkedAt = Date.now();
         set({
-          mcpDiagnostics: Object.fromEntries(
-            diagnostics.map((entry) => [entry.name, entry] as const)
-          ),
+          mcpDiagnostics: diagnosticsRecord,
           mcpDiagnosticsLoading: false,
-          mcpDiagnosticsLastCheckedAt: Date.now(),
+          mcpDiagnosticsByProjectPath: {
+            ...get().mcpDiagnosticsByProjectPath,
+            [projectStateKey]: diagnosticsRecord,
+          },
+          mcpDiagnosticsLoadingByProjectPath: {
+            ...get().mcpDiagnosticsLoadingByProjectPath,
+            [projectStateKey]: false,
+          },
+          mcpDiagnosticsLastCheckedAt: checkedAt,
+          mcpDiagnosticsLastCheckedAtByProjectPath: {
+            ...get().mcpDiagnosticsLastCheckedAtByProjectPath,
+            [projectStateKey]: checkedAt,
+          },
         });
       } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to check MCP server health';
         set({
           mcpDiagnosticsLoading: false,
-          mcpDiagnosticsError:
-            err instanceof Error ? err.message : 'Failed to check MCP server health',
+          mcpDiagnosticsError: errorMessage,
+          mcpDiagnosticsLoadingByProjectPath: {
+            ...get().mcpDiagnosticsLoadingByProjectPath,
+            [projectStateKey]: false,
+          },
+          mcpDiagnosticsErrorByProjectPath: {
+            ...get().mcpDiagnosticsErrorByProjectPath,
+            [projectStateKey]: errorMessage,
+          },
         });
       } finally {
-        mcpDiagnosticsInFlight = null;
+        mcpDiagnosticsInFlightByKey.delete(projectStateKey);
       }
     })();
 
-    mcpDiagnosticsInFlight = promise;
+    mcpDiagnosticsInFlightByKey.set(projectStateKey, promise);
     await promise;
   },
 
@@ -560,6 +869,21 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
   installPlugin: async (request: PluginInstallRequest) => {
     if (!api.plugins) return;
 
+    const catalogProjectPathAtOperationStart = get().pluginCatalogProjectPath ?? undefined;
+    const effectiveProjectPath =
+      request.scope !== 'user'
+        ? (request.projectPath ?? get().pluginCatalogProjectPath ?? undefined)
+        : request.projectPath;
+    const operationKey = getPluginOperationKey(
+      request.pluginId,
+      request.scope,
+      effectiveProjectPath
+    );
+    const effectiveRequest =
+      effectiveProjectPath === request.projectPath
+        ? request
+        : { ...request, projectPath: effectiveProjectPath };
+
     const preflightState = get();
     if (preflightState.cliStatus === null || preflightState.cliStatusLoading) {
       try {
@@ -571,60 +895,62 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
 
     const cliStatus = get().cliStatus;
     const preflightError =
-      cliStatus === null
-        ? CLI_STATUS_UNKNOWN_MESSAGE
-        : !cliStatus.installed
-          ? cliStatus.binaryPath && cliStatus.launchError
-            ? CLI_HEALTHCHECK_FAILED_MESSAGE
-            : CLI_NOT_FOUND_MESSAGE
-          : !cliStatus.authLoggedIn
-            ? CLI_AUTH_REQUIRED_MESSAGE
-            : null;
+      effectiveRequest.scope !== 'user' && !effectiveRequest.projectPath
+        ? PROJECT_SCOPE_REQUIRED_MESSAGE
+        : getExtensionActionDisableReason({
+            isInstalled: false,
+            cliStatus,
+            cliStatusLoading: get().cliStatusLoading,
+            section: 'plugins',
+          });
 
     if (preflightError) {
+      clearPluginSuccessResetTimer(operationKey);
       set((prev) => ({
-        pluginInstallProgress: { ...prev.pluginInstallProgress, [request.pluginId]: 'error' },
-        installErrors: { ...prev.installErrors, [request.pluginId]: preflightError },
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: preflightError },
       }));
       return;
     }
 
+    clearPluginSuccessResetTimer(operationKey);
     set((prev) => ({
-      pluginInstallProgress: { ...prev.pluginInstallProgress, [request.pluginId]: 'pending' },
-      installErrors: { ...prev.installErrors, [request.pluginId]: '' },
+      pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'pending' },
+      installErrors: { ...prev.installErrors, [operationKey]: '' },
     }));
 
     try {
-      const result = await api.plugins.install(request);
+      const result = await api.plugins.install(effectiveRequest);
       if (result.state === 'error') {
         set((prev) => ({
-          pluginInstallProgress: { ...prev.pluginInstallProgress, [request.pluginId]: 'error' },
+          pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'error' },
           installErrors: {
             ...prev.installErrors,
-            [request.pluginId]: result.error ?? 'Install failed',
+            [operationKey]: result.error ?? 'Install failed',
           },
         }));
         return;
       }
 
       set((prev) => ({
-        pluginInstallProgress: { ...prev.pluginInstallProgress, [request.pluginId]: 'success' },
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'success' },
       }));
 
       // Refresh catalog to pick up new installed state
-      void get().fetchPluginCatalog(get().pluginCatalogProjectPath ?? undefined, true);
+      void get().fetchPluginCatalog(
+        effectiveRequest.scope !== 'user'
+          ? effectiveRequest.projectPath
+          : catalogProjectPathAtOperationStart,
+        true
+      );
 
-      // Return to idle after brief success display
-      setTimeout(() => {
-        set((prev) => ({
-          pluginInstallProgress: { ...prev.pluginInstallProgress, [request.pluginId]: 'idle' },
-        }));
-      }, SUCCESS_DISPLAY_MS);
+      schedulePluginSuccessReset(operationKey, set);
     } catch (err) {
+      clearPluginSuccessResetTimer(operationKey);
       const message = err instanceof Error ? err.message : 'Install failed';
       set((prev) => ({
-        pluginInstallProgress: { ...prev.pluginInstallProgress, [request.pluginId]: 'error' },
-        installErrors: { ...prev.installErrors, [request.pluginId]: message },
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: message },
       }));
     }
   },
@@ -633,140 +959,222 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
   uninstallPlugin: async (pluginId: string, scope?: InstallScope, projectPath?: string) => {
     if (!api.plugins) return;
 
+    const catalogProjectPathAtOperationStart = get().pluginCatalogProjectPath ?? undefined;
+    const effectiveScope = scope ?? 'user';
+    const effectiveProjectPath =
+      effectiveScope !== 'user'
+        ? (projectPath ?? get().pluginCatalogProjectPath ?? undefined)
+        : projectPath;
+    const operationKey = getPluginOperationKey(pluginId, effectiveScope, effectiveProjectPath);
+    if (effectiveScope !== 'user' && !effectiveProjectPath) {
+      clearPluginSuccessResetTimer(operationKey);
+      set((prev) => ({
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: PROJECT_SCOPE_REQUIRED_MESSAGE },
+      }));
+      return;
+    }
+
+    const preflightState = get();
+    if (preflightState.cliStatus === null || preflightState.cliStatusLoading) {
+      try {
+        await preflightState.fetchCliStatus();
+      } catch {
+        // fetchCliStatus stores the error in cliStatusError; map to a user-facing uninstall error below.
+      }
+    }
+
+    const uninstallDisableReason = getExtensionActionDisableReason({
+      isInstalled: true,
+      cliStatus: get().cliStatus,
+      cliStatusLoading: get().cliStatusLoading,
+      section: 'plugins',
+    });
+    if (uninstallDisableReason) {
+      clearPluginSuccessResetTimer(operationKey);
+      set((prev) => ({
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: uninstallDisableReason },
+      }));
+      return;
+    }
+
+    clearPluginSuccessResetTimer(operationKey);
     set((prev) => ({
-      pluginInstallProgress: { ...prev.pluginInstallProgress, [pluginId]: 'pending' },
+      pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'pending' },
     }));
 
     try {
-      const result = await api.plugins.uninstall(pluginId, scope, projectPath);
+      const result = await api.plugins.uninstall(pluginId, scope, effectiveProjectPath);
       if (result.state === 'error') {
         set((prev) => ({
-          pluginInstallProgress: { ...prev.pluginInstallProgress, [pluginId]: 'error' },
-          installErrors: { ...prev.installErrors, [pluginId]: result.error ?? 'Uninstall failed' },
+          pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'error' },
+          installErrors: {
+            ...prev.installErrors,
+            [operationKey]: result.error ?? 'Uninstall failed',
+          },
         }));
         return;
       }
 
       set((prev) => ({
-        pluginInstallProgress: { ...prev.pluginInstallProgress, [pluginId]: 'success' },
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'success' },
       }));
 
       // Refresh catalog
-      void get().fetchPluginCatalog(get().pluginCatalogProjectPath ?? undefined, true);
+      void get().fetchPluginCatalog(
+        effectiveScope !== 'user' ? effectiveProjectPath : catalogProjectPathAtOperationStart,
+        true
+      );
 
-      setTimeout(() => {
-        set((prev) => ({
-          pluginInstallProgress: { ...prev.pluginInstallProgress, [pluginId]: 'idle' },
-        }));
-      }, SUCCESS_DISPLAY_MS);
+      schedulePluginSuccessReset(operationKey, set);
     } catch (err) {
+      clearPluginSuccessResetTimer(operationKey);
       const message = err instanceof Error ? err.message : 'Uninstall failed';
       set((prev) => ({
-        pluginInstallProgress: { ...prev.pluginInstallProgress, [pluginId]: 'error' },
-        installErrors: { ...prev.installErrors, [pluginId]: message },
+        pluginInstallProgress: { ...prev.pluginInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: message },
       }));
     }
   },
 
   // ── MCP install ──
   installMcpServer: async (request: McpInstallRequest) => {
+    const operationKey = getMcpOperationKey(request.registryId, request.scope, request.projectPath);
     if (!api.mcpRegistry) {
+      clearMcpSuccessResetTimer(operationKey);
       set((prev) => ({
-        mcpInstallProgress: { ...prev.mcpInstallProgress, [request.registryId]: 'error' },
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
         installErrors: {
           ...prev.installErrors,
-          [request.registryId]: 'MCP Registry not available',
+          [operationKey]: 'MCP Registry not available',
         },
       }));
       return;
     }
 
+    const preflightState = get();
+    if (preflightState.cliStatus === null || preflightState.cliStatusLoading) {
+      try {
+        await preflightState.fetchCliStatus();
+      } catch {
+        // fetchCliStatus stores the error in cliStatusError; map to a user-facing install error below.
+      }
+    }
+
+    const installDisableReason = getExtensionActionDisableReason({
+      isInstalled: false,
+      cliStatus: get().cliStatus,
+      cliStatusLoading: get().cliStatusLoading,
+      section: 'mcp',
+    });
+    if (installDisableReason) {
+      clearMcpSuccessResetTimer(operationKey);
+      set((prev) => ({
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: installDisableReason },
+      }));
+      return;
+    }
+
+    clearMcpSuccessResetTimer(operationKey);
     set((prev) => ({
-      mcpInstallProgress: { ...prev.mcpInstallProgress, [request.registryId]: 'pending' },
+      mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'pending' },
     }));
 
     try {
       const result = await api.mcpRegistry.install(request);
       if (result.state === 'error') {
         set((prev) => ({
-          mcpInstallProgress: { ...prev.mcpInstallProgress, [request.registryId]: 'error' },
+          mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
           installErrors: {
             ...prev.installErrors,
-            [request.registryId]: result.error ?? 'Install failed',
+            [operationKey]: result.error ?? 'Install failed',
           },
         }));
         return;
       }
 
       await Promise.all([
-        get().mcpFetchInstalled(get().mcpInstalledProjectPath ?? undefined),
-        get().runMcpDiagnostics(),
+        get().mcpFetchInstalled(request.projectPath),
+        get().runMcpDiagnostics(request.projectPath),
       ]);
 
       set((prev) => ({
-        mcpInstallProgress: { ...prev.mcpInstallProgress, [request.registryId]: 'success' },
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'success' },
       }));
 
-      setTimeout(() => {
-        set((prev) => ({
-          mcpInstallProgress: { ...prev.mcpInstallProgress, [request.registryId]: 'idle' },
-        }));
-      }, SUCCESS_DISPLAY_MS);
+      scheduleMcpSuccessReset(operationKey, set);
     } catch (err) {
+      clearMcpSuccessResetTimer(operationKey);
       const message = err instanceof Error ? err.message : 'Install failed';
       set((prev) => ({
-        mcpInstallProgress: { ...prev.mcpInstallProgress, [request.registryId]: 'error' },
-        installErrors: { ...prev.installErrors, [request.registryId]: message },
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: message },
       }));
     }
   },
 
   // ── MCP custom install ──
   installCustomMcpServer: async (request: McpCustomInstallRequest) => {
-    if (!api.mcpRegistry) {
-      const progressKey = `custom:${request.serverName}`;
-      set((prev) => ({
-        mcpInstallProgress: { ...prev.mcpInstallProgress, [progressKey]: 'error' },
-        installErrors: { ...prev.installErrors, [progressKey]: 'MCP Registry not available' },
-      }));
-      return;
-    }
-
-    const progressKey = `custom:${request.serverName}`;
-    set((prev) => ({
-      mcpInstallProgress: { ...prev.mcpInstallProgress, [progressKey]: 'pending' },
-    }));
-
+    const operationScope = request.scope;
+    const progressKey = getCustomMcpOperationKey(
+      request.serverName,
+      operationScope,
+      request.projectPath
+    );
     try {
+      if (!api.mcpRegistry) {
+        throw new Error('MCP Registry not available');
+      }
+
+      const preflightState = get();
+      if (preflightState.cliStatus === null || preflightState.cliStatusLoading) {
+        try {
+          await preflightState.fetchCliStatus();
+        } catch {
+          // fetchCliStatus stores the error in cliStatusError; map to a user-facing install error below.
+        }
+      }
+
+      const installDisableReason = getExtensionActionDisableReason({
+        isInstalled: false,
+        cliStatus: get().cliStatus,
+        cliStatusLoading: get().cliStatusLoading,
+        section: 'mcp',
+      });
+      if (installDisableReason) {
+        throw new Error(installDisableReason);
+      }
+
+      clearMcpSuccessResetTimer(progressKey);
+      set((prev) => ({
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [progressKey]: 'pending' },
+      }));
+
       const result = await api.mcpRegistry.installCustom(request);
       if (result.state === 'error') {
-        set((prev) => ({
-          mcpInstallProgress: { ...prev.mcpInstallProgress, [progressKey]: 'error' },
-          installErrors: { ...prev.installErrors, [progressKey]: result.error ?? 'Install failed' },
-        }));
-        return;
+        throw new Error(result.error ?? 'Install failed');
       }
 
       await Promise.all([
-        get().mcpFetchInstalled(get().mcpInstalledProjectPath ?? undefined),
-        get().runMcpDiagnostics(),
+        get().mcpFetchInstalled(request.projectPath),
+        get().runMcpDiagnostics(request.projectPath),
       ]);
 
       set((prev) => ({
         mcpInstallProgress: { ...prev.mcpInstallProgress, [progressKey]: 'success' },
       }));
 
-      setTimeout(() => {
-        set((prev) => ({
-          mcpInstallProgress: { ...prev.mcpInstallProgress, [progressKey]: 'idle' },
-        }));
-      }, SUCCESS_DISPLAY_MS);
+      scheduleMcpSuccessReset(progressKey, set);
     } catch (err) {
+      clearMcpSuccessResetTimer(progressKey);
       const message = err instanceof Error ? err.message : 'Install failed';
       set((prev) => ({
         mcpInstallProgress: { ...prev.mcpInstallProgress, [progressKey]: 'error' },
         installErrors: { ...prev.installErrors, [progressKey]: message },
       }));
+      throw err instanceof Error ? err : new Error(message);
     }
   },
 
@@ -777,50 +1185,76 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
     scope?: string,
     projectPath?: string
   ) => {
+    const operationScope: InstallScope =
+      scope === 'global' || scope === 'user' || isProjectScopedMcpScope(scope) ? scope : 'user';
+    const operationKey = getMcpOperationKey(registryId, operationScope, projectPath);
     if (!api.mcpRegistry) {
+      clearMcpSuccessResetTimer(operationKey);
       set((prev) => ({
-        mcpInstallProgress: { ...prev.mcpInstallProgress, [registryId]: 'error' },
-        installErrors: { ...prev.installErrors, [registryId]: 'MCP Registry not available' },
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: 'MCP Registry not available' },
       }));
       return;
     }
 
+    const preflightState = get();
+    if (preflightState.cliStatus === null || preflightState.cliStatusLoading) {
+      try {
+        await preflightState.fetchCliStatus();
+      } catch {
+        // fetchCliStatus stores the error in cliStatusError; map to a user-facing uninstall error below.
+      }
+    }
+
+    const uninstallDisableReason = getExtensionActionDisableReason({
+      isInstalled: true,
+      cliStatus: get().cliStatus,
+      cliStatusLoading: get().cliStatusLoading,
+      section: 'mcp',
+    });
+    if (uninstallDisableReason) {
+      clearMcpSuccessResetTimer(operationKey);
+      set((prev) => ({
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: uninstallDisableReason },
+      }));
+      return;
+    }
+
+    clearMcpSuccessResetTimer(operationKey);
     set((prev) => ({
-      mcpInstallProgress: { ...prev.mcpInstallProgress, [registryId]: 'pending' },
+      mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'pending' },
     }));
 
     try {
       const result = await api.mcpRegistry.uninstall(name, scope, projectPath);
       if (result.state === 'error') {
         set((prev) => ({
-          mcpInstallProgress: { ...prev.mcpInstallProgress, [registryId]: 'error' },
+          mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
           installErrors: {
             ...prev.installErrors,
-            [registryId]: result.error ?? 'Uninstall failed',
+            [operationKey]: result.error ?? 'Uninstall failed',
           },
         }));
         return;
       }
 
       await Promise.all([
-        get().mcpFetchInstalled(get().mcpInstalledProjectPath ?? undefined),
-        get().runMcpDiagnostics(),
+        get().mcpFetchInstalled(projectPath),
+        get().runMcpDiagnostics(projectPath),
       ]);
 
       set((prev) => ({
-        mcpInstallProgress: { ...prev.mcpInstallProgress, [registryId]: 'success' },
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'success' },
       }));
 
-      setTimeout(() => {
-        set((prev) => ({
-          mcpInstallProgress: { ...prev.mcpInstallProgress, [registryId]: 'idle' },
-        }));
-      }, SUCCESS_DISPLAY_MS);
+      scheduleMcpSuccessReset(operationKey, set);
     } catch (err) {
+      clearMcpSuccessResetTimer(operationKey);
       const message = err instanceof Error ? err.message : 'Uninstall failed';
       set((prev) => ({
-        mcpInstallProgress: { ...prev.mcpInstallProgress, [registryId]: 'error' },
-        installErrors: { ...prev.installErrors, [registryId]: message },
+        mcpInstallProgress: { ...prev.mcpInstallProgress, [operationKey]: 'error' },
+        installErrors: { ...prev.installErrors, [operationKey]: message },
       }));
     }
   },
@@ -857,10 +1291,29 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
 
     set({ apiKeySaving: true, apiKeysError: null });
     try {
-      await api.apiKeys.save(request);
-      // Refresh the list to get updated masked values
-      const keys = await api.apiKeys.list();
-      set({ apiKeys: keys, apiKeySaving: false });
+      const savedKey = await api.apiKeys.save(request);
+      const warnings: string[] = [];
+
+      try {
+        const keys = await api.apiKeys.list();
+        set({ apiKeys: keys });
+      } catch (listError) {
+        warnings.push(
+          listError instanceof Error
+            ? `API key saved, but failed to refresh key list. ${listError.message}`
+            : 'API key saved, but failed to refresh key list.'
+        );
+        set((prev) => ({
+          apiKeys: upsertApiKeyEntry(prev.apiKeys, savedKey),
+        }));
+      }
+
+      await get().fetchCliStatus();
+      const refreshError = get().cliStatusError;
+      if (refreshError) {
+        warnings.push(`API key saved, but failed to refresh provider status. ${refreshError}`);
+      }
+      set({ apiKeySaving: false, apiKeysError: warnings.length > 0 ? warnings.join(' ') : null });
     } catch (err) {
       set({
         apiKeySaving: false,
@@ -879,6 +1332,13 @@ export const createExtensionsSlice: StateCreator<AppState, [], [], ExtensionsSli
       set((prev) => ({
         apiKeys: prev.apiKeys.filter((k) => k.id !== id),
       }));
+      await get().fetchCliStatus();
+      const refreshError = get().cliStatusError;
+      set({
+        apiKeysError: refreshError
+          ? `API key deleted, but failed to refresh provider status. ${refreshError}`
+          : null,
+      });
     } catch (err) {
       set({
         apiKeysError: err instanceof Error ? err.message : 'Failed to delete API key',

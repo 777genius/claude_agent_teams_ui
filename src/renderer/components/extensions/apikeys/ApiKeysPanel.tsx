@@ -2,7 +2,7 @@
  * ApiKeysPanel — grid of saved API keys with add button and empty state.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
@@ -15,16 +15,26 @@ import { ApiKeyFormDialog } from './ApiKeyFormDialog';
 
 import type { ApiKeyEntry } from '@shared/types/extensions';
 
-export const ApiKeysPanel = (): React.JSX.Element => {
-  const { apiKeys, apiKeysLoading, apiKeysError, storageStatus, fetchStorageStatus } = useStore(
-    useShallow((s) => ({
-      apiKeys: s.apiKeys,
-      apiKeysLoading: s.apiKeysLoading,
-      apiKeysError: s.apiKeysError,
-      storageStatus: s.apiKeyStorageStatus,
-      fetchStorageStatus: s.fetchApiKeyStorageStatus,
-    }))
-  );
+interface ApiKeysPanelProps {
+  projectPath: string | null;
+  projectLabel: string | null;
+}
+
+export const ApiKeysPanel = ({
+  projectPath,
+  projectLabel,
+}: ApiKeysPanelProps): React.JSX.Element => {
+  const { apiKeys, apiKeysLoading, apiKeysError, storageStatus, fetchStorageStatus, cliStatus } =
+    useStore(
+      useShallow((s) => ({
+        apiKeys: s.apiKeys,
+        apiKeysLoading: s.apiKeysLoading,
+        apiKeysError: s.apiKeysError,
+        storageStatus: s.apiKeyStorageStatus,
+        fetchStorageStatus: s.fetchApiKeyStorageStatus,
+        cliStatus: s.cliStatus,
+      }))
+    );
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<ApiKeyEntry | null>(null);
@@ -49,9 +59,82 @@ export const ApiKeysPanel = (): React.JSX.Element => {
   };
 
   const isOsKeychain = storageStatus?.encryptionMethod === 'os-keychain';
+  const providerKeyCards = useMemo(() => {
+    if (!cliStatus?.providers?.length) {
+      return [];
+    }
+
+    return (
+      [
+        {
+          providerId: 'anthropic',
+          label: 'Anthropic runtime',
+          envVar: 'ANTHROPIC_API_KEY',
+        },
+        {
+          providerId: 'codex',
+          label: 'Codex runtime',
+          envVar: 'OPENAI_API_KEY',
+        },
+      ] as const
+    ).flatMap((item) => {
+      const provider = cliStatus.providers.find((entry) => entry.providerId === item.providerId);
+      if (!provider) {
+        return [];
+      }
+
+      return [
+        {
+          ...item,
+          authenticated: provider.authenticated,
+          apiKeyConfigured: provider.connection?.apiKeyConfigured ?? false,
+          sourceLabel: provider.connection?.apiKeySourceLabel ?? null,
+          statusMessage: provider.statusMessage ?? null,
+        },
+      ];
+    });
+  }, [cliStatus]);
 
   return (
     <div className="flex flex-col gap-4">
+      {providerKeyCards.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {providerKeyCards.map((provider) => (
+            <div
+              key={provider.providerId}
+              className="bg-surface-raised/30 rounded-lg border border-border p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-text">{provider.label}</p>
+                  <p className="mt-0.5 font-mono text-[11px] text-text-muted">{provider.envVar}</p>
+                </div>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] ${
+                    provider.authenticated
+                      ? 'bg-emerald-500/10 text-emerald-300'
+                      : provider.apiKeyConfigured
+                        ? 'bg-blue-500/10 text-blue-300'
+                        : 'bg-amber-500/10 text-amber-300'
+                  }`}
+                >
+                  {provider.authenticated
+                    ? 'Connected'
+                    : provider.apiKeyConfigured
+                      ? 'Key configured'
+                      : 'Key missing'}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-text-muted">
+                {provider.sourceLabel
+                  ? `Current source: ${provider.sourceLabel}.`
+                  : 'No stored or environment key detected for this provider.'}
+                {provider.statusMessage ? ` ${provider.statusMessage}` : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
       {/* Header row */}
       <div className="flex items-center justify-between">
         <p className="flex items-center gap-1.5 text-sm text-text-secondary">
@@ -138,7 +221,13 @@ export const ApiKeysPanel = (): React.JSX.Element => {
       )}
 
       {/* Form dialog */}
-      <ApiKeyFormDialog open={dialogOpen} editingKey={editingKey} onClose={handleDialogClose} />
+      <ApiKeyFormDialog
+        open={dialogOpen}
+        editingKey={editingKey}
+        currentProjectPath={projectPath}
+        currentProjectLabel={projectLabel}
+        onClose={handleDialogClose}
+      />
     </div>
   );
 };

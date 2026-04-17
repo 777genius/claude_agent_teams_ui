@@ -239,8 +239,13 @@ function getMcpHealthDiagnostics(): McpHealthDiagnosticsService {
   return mcpHealthDiagnostics;
 }
 
-async function handleMcpDiagnose(): Promise<IpcResult<McpServerDiagnostic[]>> {
-  return wrapHandler('mcpDiagnose', () => getMcpHealthDiagnostics().diagnose());
+async function handleMcpDiagnose(
+  _event: IpcMainInvokeEvent,
+  projectPath?: string
+): Promise<IpcResult<McpServerDiagnostic[]>> {
+  return wrapHandler('mcpDiagnose', () =>
+    getMcpHealthDiagnostics().diagnose(typeof projectPath === 'string' ? projectPath : undefined)
+  );
 }
 
 // ── Install/Uninstall Handlers ────────────────────────────────────────────
@@ -416,11 +421,15 @@ async function handleApiKeysDelete(
 
 async function handleApiKeysLookup(
   _event: IpcMainInvokeEvent,
-  envVarNames?: string[]
+  envVarNames?: string[],
+  projectPath?: string
 ): Promise<IpcResult<ApiKeyLookupResult[]>> {
   return wrapHandler('apiKeysLookup', () => {
     if (!Array.isArray(envVarNames)) throw new Error('envVarNames array is required');
-    return getApiKeyService().lookup(envVarNames);
+    return getApiKeyService().lookup(
+      envVarNames,
+      typeof projectPath === 'string' ? projectPath : undefined
+    );
   });
 }
 

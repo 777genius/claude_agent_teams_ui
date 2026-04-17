@@ -170,7 +170,8 @@ function createApiKeyMisconfiguredProvider(
     connection: {
       supportsOAuth: true,
       supportsApiKey: true,
-      configurableAuthModes: providerId === 'anthropic' ? ['auto', 'oauth', 'api_key'] : ['oauth', 'api_key'],
+      configurableAuthModes:
+        providerId === 'anthropic' ? ['auto', 'oauth', 'api_key'] : ['oauth', 'api_key'],
       configuredAuthMode: 'api_key',
       apiKeyBetaAvailable: providerId === 'codex' ? true : undefined,
       apiKeyBetaEnabled: providerId === 'codex' ? true : undefined,
@@ -181,9 +182,7 @@ function createApiKeyMisconfiguredProvider(
   };
 }
 
-function createApiKeyModeProviderIssue(
-  providerId: 'anthropic' | 'codex'
-): Record<string, unknown> {
+function createApiKeyModeProviderIssue(providerId: 'anthropic' | 'codex'): Record<string, unknown> {
   return {
     ...createApiKeyMisconfiguredProvider(providerId),
     statusMessage:
@@ -191,8 +190,8 @@ function createApiKeyModeProviderIssue(
         ? 'Anthropic API key was rejected by the runtime.'
         : 'OpenAI API key was rejected by the runtime.',
     connection: {
-      ...((createApiKeyMisconfiguredProvider(providerId) as { connection: Record<string, unknown> })
-        .connection),
+      ...(createApiKeyMisconfiguredProvider(providerId) as { connection: Record<string, unknown> })
+        .connection,
       apiKeyConfigured: true,
       apiKeySource: 'stored',
       apiKeySourceLabel:
@@ -284,12 +283,43 @@ describe('CLI status visibility during completed install state', () => {
     });
   });
 
+  it('keeps the dashboard Extensions button visible before authentication completes', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = createInstalledCliStatus({
+      authLoggedIn: false,
+    });
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(React.createElement(CliStatusBanner));
+      await Promise.resolve();
+    });
+
+    const extensionsButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Extensions')
+    );
+    expect(extensionsButton).not.toBeNull();
+
+    await act(async () => {
+      extensionsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(storeState.openExtensionsTab).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
   it('preserves dashboard runtime backend refresh errors for the manage dialog', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliInstallerState = 'idle';
-    storeState.fetchCliProviderStatus = vi.fn(() =>
-      Promise.reject(new Error('refresh failed'))
-    );
+    storeState.fetchCliProviderStatus = vi.fn(() => Promise.reject(new Error('refresh failed')));
 
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -338,6 +368,130 @@ describe('CLI status visibility during completed install state', () => {
 
     expect(host.textContent).toContain('Checking authentication...');
     expect(host.textContent).not.toContain('Verifying authentication...');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('does not fall back to direct-Claude auth copy when only hidden multimodel providers are available', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliInstallerState = 'idle';
+    storeState.cliStatus = createInstalledCliStatus({
+      flavor: 'agent_teams_orchestrator',
+      authLoggedIn: true,
+      providers: [
+        {
+          providerId: 'gemini',
+          displayName: 'Gemini',
+          supported: true,
+          authenticated: true,
+          authMethod: 'cli_oauth_personal',
+          verificationState: 'verified',
+          statusMessage: 'Resolved to CLI SDK',
+          models: [],
+          canLoginFromUi: true,
+          capabilities: {
+            teamLaunch: true,
+            oneShot: true,
+          },
+        },
+      ],
+    });
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(React.createElement(CliStatusBanner));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).not.toContain('Authenticated');
+    expect(host.textContent).not.toContain('Providers:');
+    expect((host.firstElementChild as HTMLElement | null)?.getAttribute('style')).toContain(
+      '245, 158, 11'
+    );
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('keeps the dashboard banner in warning state when only hidden providers are authenticated', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliInstallerState = 'idle';
+    storeState.cliStatus = createInstalledCliStatus({
+      flavor: 'agent_teams_orchestrator',
+      authLoggedIn: true,
+      showVersionDetails: false,
+      showBinaryPath: false,
+      supportsSelfUpdate: false,
+      providers: [
+        {
+          providerId: 'anthropic',
+          displayName: 'Anthropic',
+          supported: true,
+          authenticated: false,
+          authMethod: null,
+          verificationState: 'unknown',
+          statusMessage: 'Authentication required',
+          models: [],
+          canLoginFromUi: true,
+          capabilities: {
+            teamLaunch: true,
+            oneShot: true,
+          },
+        },
+        {
+          providerId: 'codex',
+          displayName: 'Codex',
+          supported: true,
+          authenticated: false,
+          authMethod: null,
+          verificationState: 'unknown',
+          statusMessage: 'Authentication required',
+          models: [],
+          canLoginFromUi: true,
+          capabilities: {
+            teamLaunch: true,
+            oneShot: true,
+          },
+        },
+        {
+          providerId: 'gemini',
+          displayName: 'Gemini',
+          supported: true,
+          authenticated: true,
+          authMethod: 'cli_oauth_personal',
+          verificationState: 'verified',
+          statusMessage: 'Resolved to CLI SDK',
+          models: [],
+          canLoginFromUi: true,
+          capabilities: {
+            teamLaunch: true,
+            oneShot: true,
+          },
+        },
+      ],
+    });
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(React.createElement(CliStatusBanner));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Providers: 0/2 connected');
+    expect((host.firstElementChild as HTMLElement | null)?.getAttribute('style')).toContain(
+      '245, 158, 11'
+    );
 
     await act(async () => {
       root.unmount();
@@ -413,9 +567,7 @@ describe('CLI status visibility during completed install state', () => {
   it('preserves settings runtime backend refresh errors for the manage dialog', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliInstallerState = 'idle';
-    storeState.fetchCliProviderStatus = vi.fn(() =>
-      Promise.reject(new Error('refresh failed'))
-    );
+    storeState.fetchCliProviderStatus = vi.fn(() => Promise.reject(new Error('refresh failed')));
 
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -445,7 +597,7 @@ describe('CLI status visibility during completed install state', () => {
     });
   });
 
-  it('hides the settings Extensions button when the runtime is not authenticated yet', async () => {
+  it('keeps the settings Extensions button visible when the runtime is installed but not authenticated yet', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliStatus = createInstalledCliStatus({
       authLoggedIn: false,
@@ -460,7 +612,17 @@ describe('CLI status visibility during completed install state', () => {
       await Promise.resolve();
     });
 
-    expect(host.textContent).not.toContain('Extensions');
+    const extensionsButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Extensions')
+    );
+    expect(extensionsButton).not.toBeNull();
+
+    await act(async () => {
+      extensionsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(storeState.openExtensionsTab).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       root.unmount();
@@ -490,8 +652,8 @@ describe('CLI status visibility during completed install state', () => {
     expect(host.textContent).not.toContain('Already logged in?');
     expect(host.textContent).not.toContain('Login');
 
-    const manageButton = Array.from(host.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Manage Providers')
+    const manageButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Manage Providers')
     );
     expect(manageButton).not.toBeUndefined();
 
@@ -531,6 +693,76 @@ describe('CLI status visibility during completed install state', () => {
     expect(host.textContent).toContain('Manage Providers');
     expect(host.textContent).not.toContain('Already logged in?');
     expect(host.textContent).not.toContain('Login');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('shows runtime model availability badges on the dashboard', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliInstallerState = 'idle';
+    storeState.cliStatus = createInstalledCliStatus({
+      flavor: 'agent_teams_orchestrator',
+      displayName: 'agent_teams_orchestrator',
+      supportsSelfUpdate: false,
+      showVersionDetails: false,
+      showBinaryPath: false,
+      authLoggedIn: true,
+      providers: [
+        {
+          providerId: 'codex',
+          displayName: 'Codex',
+          supported: true,
+          authenticated: true,
+          authMethod: 'oauth_token',
+          verificationState: 'verified',
+          modelVerificationState: 'verified',
+          statusMessage: null,
+          models: ['gpt-5.4', 'gpt-5.1-codex-max', 'gpt-5.2-codex'],
+          modelAvailability: [
+            { modelId: 'gpt-5.4', status: 'available', checkedAt: '2026-04-16T12:00:00.000Z' },
+            {
+              modelId: 'gpt-5.1-codex-max',
+              status: 'unavailable',
+              reason: 'The requested model is not available for your account.',
+              checkedAt: '2026-04-16T12:00:00.000Z',
+            },
+            {
+              modelId: 'gpt-5.2-codex',
+              status: 'unavailable',
+              reason: 'The requested model is not available for your account.',
+              checkedAt: '2026-04-16T12:00:00.000Z',
+            },
+          ],
+          canLoginFromUi: true,
+          capabilities: {
+            teamLaunch: true,
+            oneShot: true,
+          },
+          backend: {
+            kind: 'openai',
+            label: 'OpenAI',
+            endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+          },
+        },
+      ],
+    });
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(React.createElement(CliStatusBanner));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('5.4');
+    expect(host.textContent).not.toContain('5.1-codex-max');
+    expect(host.textContent).not.toContain('5.2-codex');
+    expect(host.textContent).not.toContain('Unavailable');
 
     await act(async () => {
       root.unmount();

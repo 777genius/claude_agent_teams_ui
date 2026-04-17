@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, GraphParticle } from './types';
+import type { GraphNode, GraphEdge, GraphParticle, GraphLayoutPort } from './types';
 
 /**
  * Data provider port — supplies graph state to the visualization.
@@ -17,4 +17,6 @@ export interface GraphDataPort {
   teamColor?: string;
   /** Whether the team lead process is alive */
   isAlive?: boolean;
+  /** Stable owner-slot layout hints supplied by the host app */
+  layout?: GraphLayoutPort;
 }

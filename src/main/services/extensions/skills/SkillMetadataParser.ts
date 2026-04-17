@@ -117,7 +117,7 @@ export class SkillMetadataParser {
         code: 'has-scripts',
         message:
           'This skill includes a scripts directory. Review bundled scripts before trusting it.',
-        severity: 'warning',
+        severity: 'info',
       });
     }
 

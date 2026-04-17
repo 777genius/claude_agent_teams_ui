@@ -85,6 +85,22 @@ describe('PluginInstallService', () => {
       );
     });
 
+    it('adds local scope flag and cwd for local installs', async () => {
+      mockExecCli.mockResolvedValue({ stdout: '', stderr: '' });
+
+      await service.install({
+        pluginId: 'context7',
+        scope: 'local',
+        projectPath: '/tmp/test-project',
+      });
+
+      expect(mockExecCli).toHaveBeenCalledWith(
+        '/usr/local/bin/claude',
+        ['plugin', 'install', '-s', 'local', 'context7@claude-plugins-official'],
+        expect.objectContaining({ cwd: '/tmp/test-project' }),
+      );
+    });
+
     it('returns error if plugin not found in catalog', async () => {
       catalog = createMockCatalog({
         resolvePlugin: vi.fn().mockResolvedValue(null) as PluginCatalogService['resolvePlugin'],
@@ -121,6 +137,22 @@ describe('PluginInstallService', () => {
       expect(result.state).toBe('error');
       expect(result.error).toContain('Command failed');
     });
+
+    it('rejects project scope when projectPath is missing', async () => {
+      const result = await service.install({ pluginId: 'context7', scope: 'project' });
+
+      expect(result.state).toBe('error');
+      expect(result.error).toContain('projectPath is required');
+      expect(mockExecCli).not.toHaveBeenCalled();
+    });
+
+    it('rejects local scope when projectPath is missing', async () => {
+      const result = await service.install({ pluginId: 'context7', scope: 'local' });
+
+      expect(result.state).toBe('error');
+      expect(result.error).toContain('local-scoped');
+      expect(mockExecCli).not.toHaveBeenCalled();
+    });
   });
 
   // ── uninstall ───────────────────────────────────────────────────────────────
@@ -151,6 +183,18 @@ describe('PluginInstallService', () => {
       );
     });
 
+    it('adds scope flag for local scope', async () => {
+      mockExecCli.mockResolvedValue({ stdout: '', stderr: '' });
+
+      await service.uninstall('context7', 'local', '/tmp/test-project');
+
+      expect(mockExecCli).toHaveBeenCalledWith(
+        '/usr/local/bin/claude',
+        ['plugin', 'uninstall', '-s', 'local', 'context7@claude-plugins-official'],
+        expect.objectContaining({ cwd: '/tmp/test-project' }),
+      );
+    });
+
     it('returns error if plugin not in catalog', async () => {
       catalog = createMockCatalog({
         resolvePlugin: vi.fn().mockResolvedValue(null) as PluginCatalogService['resolvePlugin'],
@@ -170,6 +214,22 @@ describe('PluginInstallService', () => {
 
       expect(result.state).toBe('error');
       expect(result.error).toContain('Cannot uninstall');
+    });
+
+    it('rejects project scope when projectPath is missing', async () => {
+      const result = await service.uninstall('context7', 'project');
+
+      expect(result.state).toBe('error');
+      expect(result.error).toContain('projectPath is required');
+      expect(mockExecCli).not.toHaveBeenCalled();
+    });
+
+    it('rejects local scope when projectPath is missing', async () => {
+      const result = await service.uninstall('context7', 'local');
+
+      expect(result.state).toBe('error');
+      expect(result.error).toContain('local-scoped');
+      expect(mockExecCli).not.toHaveBeenCalled();
     });
   });
 });

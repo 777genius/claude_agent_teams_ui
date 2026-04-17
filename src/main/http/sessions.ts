@@ -13,7 +13,7 @@
 import { createLogger } from '@shared/utils/logger';
 
 import { coercePageLimit, validateProjectId, validateSessionId } from '../ipc/guards';
-import { DataCache } from '../services';
+import { DataCache } from '../services/infrastructure/DataCache';
 
 import type { SessionsByIdsOptions, SessionsPaginationOptions } from '../types';
 import type { HttpServices } from './index';

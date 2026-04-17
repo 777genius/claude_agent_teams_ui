@@ -12,8 +12,9 @@ import { Checkbox } from '@renderer/components/ui/checkbox';
 import { Label } from '@renderer/components/ui/label';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
+import { cn } from '@renderer/lib/utils';
 import { getMemberColorByName } from '@shared/constants/memberColors';
-import { ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Info } from 'lucide-react';
 
 import { Button } from '../../ui/button';
 
@@ -32,6 +33,7 @@ interface LeadModelRowProps {
   onSyncModelsWithTeammatesChange: (value: boolean) => void;
   warningText?: string | null;
   disableGeminiOption?: boolean;
+  modelIssueText?: string | null;
 }
 
 export const LeadModelRow = ({
@@ -47,6 +49,7 @@ export const LeadModelRow = ({
   onSyncModelsWithTeammatesChange,
   warningText,
   disableGeminiOption = false,
+  modelIssueText,
 }: LeadModelRowProps): React.JSX.Element => {
   const { isLight } = useTheme();
   const [modelExpanded, setModelExpanded] = useState(false);
@@ -55,6 +58,7 @@ export const LeadModelRow = ({
     ? getProviderScopedTeamModelLabel(providerId, model.trim())
     : 'Default';
   const modelButtonAriaLabel = `${getTeamProviderLabel(providerId)} provider, ${modelButtonLabel}`;
+  const hasModelIssue = Boolean(modelIssueText);
 
   return (
     <div
@@ -99,7 +103,11 @@ export const LeadModelRow = ({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 w-full justify-start gap-1 overflow-hidden text-left"
+            className={cn(
+              'h-8 w-full justify-start gap-1 overflow-hidden text-left',
+              hasModelIssue &&
+                'border-red-500/50 bg-red-500/10 text-red-100 hover:border-red-400/60 hover:bg-red-500/15 hover:text-red-50'
+            )}
             aria-label={modelButtonAriaLabel}
             onClick={() => setModelExpanded((prev) => !prev)}
           >
@@ -109,7 +117,8 @@ export const LeadModelRow = ({
               <ChevronRight className="size-3.5" />
             )}
             <ProviderBrandLogo providerId={providerId} className="size-3.5 shrink-0" />
-            <span className="truncate">{modelButtonLabel}</span>
+            <span className="min-w-0 flex-1 truncate">{modelButtonLabel}</span>
+            {hasModelIssue ? <AlertTriangle className="size-3.5 shrink-0 text-red-300" /> : null}
           </Button>
         </div>
       </div>
@@ -130,6 +139,7 @@ export const LeadModelRow = ({
             onValueChange={onModelChange}
             id="lead-model"
             disableGeminiOption={disableGeminiOption}
+            modelIssueReasonByValue={model.trim() ? { [model.trim()]: modelIssueText } : undefined}
           />
           <EffortLevelSelector
             value={effort ?? ''}

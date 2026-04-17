@@ -2,8 +2,8 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { GraphBlockingEdgePopover } from '@features/agent-graph/renderer/ui/GraphBlockingEdgePopover';
 import { useStore } from '@renderer/store';
-import { GraphBlockingEdgePopover } from '@renderer/features/agent-graph/ui/GraphBlockingEdgePopover';
 
 import type { GraphEdge, GraphNode } from '@claude-teams/agent-graph';
 

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { recordRecentProjectOpenPaths } from '@features/recent-projects/renderer';
 import { cn } from '@renderer/lib/utils';
 import { useStore } from '@renderer/store';
 import {
@@ -38,6 +39,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { WorktreeBadge } from '../common/WorktreeBadge';
 import { Combobox, type ComboboxOption } from '../ui/combobox';
 
+import { resolveEffectiveSelectedRepositoryId } from './dateGroupedSessionsSelection';
 import { SESSION_PROVIDER_IDS, SessionFiltersPopover } from './SessionFiltersPopover';
 import { SessionItem } from './SessionItem';
 
@@ -300,12 +302,36 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     fetchProjects,
   ]);
 
+  const effectiveSelectedWorktreeId =
+    selectedWorktreeId ?? activeProjectId ?? selectedProjectId ?? null;
+  const effectiveSelectedRepositoryId = useMemo(
+    () =>
+      resolveEffectiveSelectedRepositoryId({
+        repositoryGroups,
+        selectedRepositoryId,
+        effectiveSelectedWorktreeId,
+      }),
+    [effectiveSelectedWorktreeId, repositoryGroups, selectedRepositoryId]
+  );
+
+  const activeProjectValue =
+    viewMode === 'grouped'
+      ? effectiveSelectedRepositoryId
+      : (activeProjectId ?? selectedProjectId ?? null);
+
   // Project combobox options
   const projectComboboxOptions = useMemo((): ComboboxOption[] => {
     const items =
       viewMode === 'grouped'
-        ? repositoryGroups.filter((r) => r.totalSessions > 0)
-        : projects.filter((p) => (p.totalSessions ?? p.sessions.length) > 0);
+        ? repositoryGroups.filter(
+            (repo) => repo.totalSessions > 0 || repo.id === effectiveSelectedRepositoryId
+          )
+        : projects.filter(
+            (project) =>
+              (project.totalSessions ?? project.sessions.length) > 0 ||
+              project.id === activeProjectValue
+          );
+
     return items.map((item) => {
       const sessionCount =
         viewMode === 'grouped'
@@ -323,18 +349,28 @@ export const DateGroupedSessions = (): React.JSX.Element => {
         meta: { sessionCount, path },
       };
     });
-  }, [viewMode, repositoryGroups, projects]);
-
-  const activeProjectValue = viewMode === 'grouped' ? selectedRepositoryId : activeProjectId;
+  }, [activeProjectValue, effectiveSelectedRepositoryId, projects, repositoryGroups, viewMode]);
 
   const handleProjectValueChange = (id: string): void => {
-    if (viewMode === 'grouped') selectRepository(id);
-    else setActiveProject(id);
+    if (viewMode === 'grouped') {
+      const repositoryGroup = repositoryGroups.find((repo) => repo.id === id);
+      if (repositoryGroup) {
+        recordRecentProjectOpenPaths(repositoryGroup.worktrees.map((worktree) => worktree.path));
+      }
+      selectRepository(id);
+      return;
+    }
+
+    const project = projects.find((candidate) => candidate.id === id);
+    if (project?.path) {
+      recordRecentProjectOpenPaths([project.path]);
+    }
+    setActiveProject(id);
   };
 
   // Worktree state
-  const activeRepo = repositoryGroups.find((r) => r.id === selectedRepositoryId);
-  const activeWorktree = activeRepo?.worktrees.find((w) => w.id === selectedWorktreeId);
+  const activeRepo = repositoryGroups.find((r) => r.id === effectiveSelectedRepositoryId);
+  const activeWorktree = activeRepo?.worktrees.find((w) => w.id === effectiveSelectedWorktreeId);
   const worktrees = (activeRepo?.worktrees ?? []).filter(
     (w) => (w.totalSessions ?? w.sessions.length) > 0
   );
@@ -345,6 +381,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
   const worktreeName = activeWorktree?.name ?? 'main';
 
   const handleSelectWorktree = (worktree: Worktree): void => {
+    recordRecentProjectOpenPaths([worktree.path]);
     selectWorktree(worktree.id);
     setIsWorktreeDropdownOpen(false);
   };
@@ -684,7 +721,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                 {mainWorktree && (
                   <WorktreeItem
                     worktree={mainWorktree}
-                    isSelected={mainWorktree.id === selectedWorktreeId}
+                    isSelected={mainWorktree.id === effectiveSelectedWorktreeId}
                     onSelect={() => handleSelectWorktree(mainWorktree)}
                   />
                 )}
@@ -705,7 +742,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                       <WorktreeItem
                         key={worktree.id}
                         worktree={worktree}
-                        isSelected={worktree.id === selectedWorktreeId}
+                        isSelected={worktree.id === effectiveSelectedWorktreeId}
                         onSelect={() => handleSelectWorktree(worktree)}
                       />
                     ))}

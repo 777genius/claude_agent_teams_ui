@@ -93,7 +93,16 @@ describe('ClaudeMultimodelBridgeService', () => {
                 authMethod: 'oauth_token',
                 verificationState: 'verified',
                 canLoginFromUi: true,
-                capabilities: { teamLaunch: true, oneShot: true },
+                capabilities: {
+                  teamLaunch: true,
+                  oneShot: true,
+                  extensions: {
+                    plugins: { status: 'supported', ownership: 'shared', reason: null },
+                    mcp: { status: 'supported', ownership: 'shared', reason: null },
+                    skills: { status: 'supported', ownership: 'shared', reason: null },
+                    apiKeys: { status: 'supported', ownership: 'shared', reason: null },
+                  },
+                },
                 backend: { kind: 'anthropic', label: 'Anthropic' },
               },
               codex: {
@@ -102,7 +111,20 @@ describe('ClaudeMultimodelBridgeService', () => {
                 verificationState: 'verified',
                 canLoginFromUi: true,
                 statusMessage: 'Not connected',
-                capabilities: { teamLaunch: true, oneShot: true },
+                capabilities: {
+                  teamLaunch: true,
+                  oneShot: true,
+                  extensions: {
+                    plugins: {
+                      status: 'unsupported',
+                      ownership: 'shared',
+                      reason: 'Anthropic only',
+                    },
+                    mcp: { status: 'supported', ownership: 'shared', reason: null },
+                    skills: { status: 'supported', ownership: 'shared', reason: null },
+                    apiKeys: { status: 'supported', ownership: 'shared', reason: null },
+                  },
+                },
                 backend: { kind: 'openai', label: 'OpenAI' },
               },
             },
@@ -166,6 +188,15 @@ describe('ClaudeMultimodelBridgeService', () => {
       authenticated: false,
       models: ['gpt-5-codex'],
       statusMessage: 'Not connected',
+      capabilities: {
+        extensions: {
+          plugins: {
+            status: 'unsupported',
+            ownership: 'shared',
+            reason: 'Anthropic only',
+          },
+        },
+      },
     });
     expect(providers[2]).toMatchObject({
       providerId: 'gemini',
@@ -222,5 +253,44 @@ describe('ClaudeMultimodelBridgeService', () => {
       verificationState: 'error',
     });
     expect(provider.statusMessage).toContain('ANTHROPIC_API_KEY');
+  });
+
+  it('falls back conservatively when the runtime omits extension capability metadata', async () => {
+    execCliMock.mockResolvedValue({
+      stdout: JSON.stringify({
+        providers: {
+          codex: {
+            supported: true,
+            authenticated: true,
+            verificationState: 'verified',
+            canLoginFromUi: true,
+            capabilities: {
+              teamLaunch: true,
+              oneShot: true,
+            },
+          },
+        },
+      }),
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const { ClaudeMultimodelBridgeService } =
+      await import('@main/services/runtime/ClaudeMultimodelBridgeService');
+    const service = new ClaudeMultimodelBridgeService();
+
+    const provider = await service.getProviderStatus('/mock/agent_teams_orchestrator', 'codex');
+
+    expect(provider).toMatchObject({
+      providerId: 'codex',
+      capabilities: {
+        extensions: {
+          plugins: { status: 'unsupported' },
+          mcp: { status: 'read-only' },
+          skills: { status: 'supported' },
+          apiKeys: { status: 'supported' },
+        },
+      },
+    });
   });
 });

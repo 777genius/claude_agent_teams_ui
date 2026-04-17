@@ -72,15 +72,15 @@ import { TrashDialog } from './kanban/TrashDialog';
 import { MemberDetailDialog } from './members/MemberDetailDialog';
 import { type MemberActivityFilter, type MemberDetailTab } from './members/memberDetailTypes';
 
-import type { TeamMessagesPanelMode } from '@renderer/types/teamMessagesPanelMode';
 import type { AddMemberEntry } from './dialogs/AddMemberDialog';
+import type { TeamMessagesPanelMode } from '@renderer/types/teamMessagesPanelMode';
 import type { ComponentProps, CSSProperties } from 'react';
 
 const ProjectEditorOverlay = lazy(() =>
   import('./editor/ProjectEditorOverlay').then((m) => ({ default: m.ProjectEditorOverlay }))
 );
 const TeamGraphOverlay = lazy(() =>
-  import('@renderer/features/agent-graph/ui/TeamGraphOverlay').then((m) => ({
+  import('@features/agent-graph/renderer').then((m) => ({
     default: m.TeamGraphOverlay,
   }))
 );

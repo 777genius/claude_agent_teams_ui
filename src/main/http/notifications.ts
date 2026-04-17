@@ -14,7 +14,7 @@ import { getErrorMessage } from '@shared/utils/errorHandling';
 import { createLogger } from '@shared/utils/logger';
 
 import { coercePageLimit, validateNotificationId } from '../ipc/guards';
-import { NotificationManager } from '../services';
+import { NotificationManager } from '../services/infrastructure/NotificationManager';
 
 import type { FastifyInstance } from 'fastify';
 

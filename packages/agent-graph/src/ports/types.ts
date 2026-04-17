@@ -48,6 +48,19 @@ export interface GraphActivityItem {
   authorLabel?: string;
 }
 
+export type GraphLayoutVersion = 'stable-slots-v1';
+
+export interface GraphOwnerSlotAssignment {
+  ringIndex: number;
+  sectorIndex: number;
+}
+
+export interface GraphLayoutPort {
+  version: GraphLayoutVersion;
+  ownerOrder: string[];
+  slotAssignments: Record<string, GraphOwnerSlotAssignment>;
+}
+
 // ─── Graph Node ──────────────────────────────────────────────────────────────
 
 export interface GraphNode {
@@ -71,6 +84,8 @@ export interface GraphNode {
   spawnStatus?: 'offline' | 'waiting' | 'spawning' | 'online' | 'error';
   /** Shared launch-stage visual derived by the host app */
   launchVisualState?: GraphLaunchVisualState;
+  /** Shared launch-stage text shown beside the node during launch only */
+  launchStatusLabel?: string;
   /** Context window usage ratio (0..1), available for lead only */
   contextUsage?: number;
   /** Current task ID this member is working on */

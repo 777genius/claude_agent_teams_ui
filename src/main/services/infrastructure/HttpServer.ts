@@ -25,15 +25,20 @@ const logger = createLogger('Service:HttpServer');
  */
 function resolveRendererPath(): string | null {
   const candidates = [
-    // Electron production (asarUnpack): app.asar.unpacked/out/renderer (real filesystem)
-    join(__dirname, '../../out/renderer').replace('app.asar', 'app.asar.unpacked'),
-    // Electron production (asar fallback): app.asar/out/renderer
-    join(__dirname, '../../out/renderer'),
-    // Standalone: dist-standalone/index.cjs → ../out/renderer
-    join(__dirname, '../out/renderer'),
     // Fallback: relative to cwd (dev mode, standalone)
     join(process.cwd(), 'out/renderer'),
   ];
+
+  if (typeof __dirname === 'string') {
+    candidates.unshift(
+      // Standalone: dist-standalone/index.cjs → ../out/renderer
+      join(__dirname, '../out/renderer'),
+      // Electron production (asar fallback): app.asar/out/renderer
+      join(__dirname, '../../out/renderer'),
+      // Electron production (asarUnpack): app.asar.unpacked/out/renderer (real filesystem)
+      join(__dirname, '../../out/renderer').replace('app.asar', 'app.asar.unpacked')
+    );
+  }
 
   // Allow explicit override via env
   if (process.env.RENDERER_PATH) {

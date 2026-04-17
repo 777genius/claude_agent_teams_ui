@@ -39,6 +39,7 @@ export interface TeamUpdateConfigRequest {
 
 export interface TeamSummaryMember {
   name: string;
+  agentId?: string;
   role?: string;
   color?: string;
 }
@@ -679,6 +680,7 @@ export type UpdateKanbanPatch =
 
 export interface ResolvedTeamMember {
   name: string;
+  agentId?: string;
   status: MemberStatus;
   currentTaskId: string | null;
   taskCount: number;
@@ -906,6 +908,8 @@ export interface MemberSpawnStatusEntry {
   firstSpawnAcceptedAt?: string;
   /** ISO timestamp of the latest confirmed heartbeat/bootstrap message. */
   lastHeartbeatAt?: string;
+  /** Live runtime model observed from the teammate process, when available. */
+  runtimeModel?: string;
   /** ISO timestamp of the last status change. */
   updatedAt: string;
 }
@@ -988,6 +992,7 @@ export interface TeamCreateResponse {
 export interface TeamProvisioningPrepareResult {
   ready: boolean;
   message: string;
+  details?: string[];
   warnings?: string[];
 }
 
@@ -1038,7 +1043,7 @@ export interface MemberSubagentSummary {
   isOngoing: boolean;
 }
 
-export type MemberLogKind = 'subagent' | 'lead_session';
+export type MemberLogKind = 'subagent' | 'lead_session' | 'member_session';
 
 export interface MemberLogSummaryBase {
   kind: MemberLogKind;
@@ -1069,7 +1074,14 @@ export interface MemberLeadSessionLogSummary extends MemberLogSummaryBase {
   kind: 'lead_session';
 }
 
-export type MemberLogSummary = MemberSubagentLogSummary | MemberLeadSessionLogSummary;
+export interface MemberSessionLogSummary extends MemberLogSummaryBase {
+  kind: 'member_session';
+}
+
+export type MemberLogSummary =
+  | MemberSubagentLogSummary
+  | MemberLeadSessionLogSummary
+  | MemberSessionLogSummary;
 
 export interface FileLineStats {
   added: number;

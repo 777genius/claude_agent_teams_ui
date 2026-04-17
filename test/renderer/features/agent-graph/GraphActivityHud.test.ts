@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { GraphActivityHud } from '@renderer/features/agent-graph/ui/GraphActivityHud';
+import { GraphActivityHud } from '@features/agent-graph/renderer/ui/GraphActivityHud';
 
 import type { GraphNode } from '@claude-teams/agent-graph';
 import type { InboxMessage } from '@shared/types/team';
@@ -17,20 +17,34 @@ const teamState = {
     tasks: [],
     messages: [],
   },
-  teamDataCacheByName: {
-    'demo-team': {
-      members: [
-        { name: 'team-lead', agentType: 'team-lead' },
-        { name: 'jack', agentType: 'developer' },
-      ],
-      tasks: [],
-      messages: [],
-    },
-  } as Record<string, { members: Array<Record<string, unknown>>; tasks: unknown[]; messages: unknown[] }>,
+  teamDataCacheByName: new Map<
+    string,
+    { members: Record<string, unknown>[]; tasks: unknown[]; messages: unknown[] }
+  >([
+    [
+      'demo-team',
+      {
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'jack', agentType: 'developer' },
+        ],
+        tasks: [],
+        messages: [],
+      },
+    ],
+  ]),
   teams: [],
 };
 
 const buildInlineActivityEntries = vi.fn();
+const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'offsetWidth'
+);
+const originalOffsetHeightDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'offsetHeight'
+);
 
 vi.mock('@renderer/store', () => ({
   useStore: (selector: (state: typeof teamState) => unknown) => selector(teamState),
@@ -38,7 +52,7 @@ vi.mock('@renderer/store', () => ({
 
 vi.mock('@renderer/store/slices/teamSlice', () => ({
   selectTeamDataForName: (_state: typeof teamState, teamName: string) =>
-    teamState.teamDataCacheByName[teamName] ??
+    teamState.teamDataCacheByName.get(teamName) ??
     (teamState.selectedTeamName === teamName ? teamState.selectedTeamData : null),
 }));
 
@@ -79,7 +93,7 @@ vi.mock('@renderer/components/team/activity/activityMessageContext', () => ({
   resolveMessageRenderProps: () => ({}),
 }));
 
-vi.mock('@renderer/features/agent-graph/utils/buildInlineActivityEntries', () => ({
+vi.mock('@features/agent-graph/core/domain/buildInlineActivityEntries', () => ({
   buildInlineActivityEntries: (...args: unknown[]) => buildInlineActivityEntries(...args),
   getGraphLeadMemberName: () => 'team-lead',
 }));
@@ -88,10 +102,35 @@ describe('GraphActivityHud', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     buildInlineActivityEntries.mockReset();
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() {
+        return 296;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() {
+        return 220;
+      },
+    });
   });
 
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.unstubAllGlobals();
+    if (originalOffsetWidthDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', originalOffsetWidthDescriptor);
+    } else {
+      delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
+    }
+    if (originalOffsetHeightDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', originalOffsetHeightDescriptor);
+    } else {
+      delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    }
   });
 
   it('opens the member profile on the Activity tab when +N more is clicked', async () => {
@@ -187,7 +226,18 @@ describe('GraphActivityHud', () => {
         React.createElement(GraphActivityHud, {
           teamName: 'demo-team',
           nodes: [node],
-          getActivityAnchorScreenPlacement: () => ({ x: 40, y: 80, scale: 1, visible: true }),
+          getActivityWorldRect: () => ({
+            left: 40,
+            top: 80,
+            right: 336,
+            bottom: 372,
+            width: 296,
+            height: 292,
+          }),
+          getCameraZoom: () => 1,
+          worldToScreen: (x: number, y: number) => ({ x, y }),
+          getNodeWorldPosition: () => ({ x: 120, y: 40 }),
+          getViewportSize: () => ({ width: 1200, height: 800 }),
           focusNodeIds: null,
           onOpenMemberProfile,
         })
@@ -209,6 +259,93 @@ describe('GraphActivityHud', () => {
       initialTab: 'activity',
       initialActivityFilter: 'all',
     });
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('pins the activity lane to the provided world rect without post-hoc repositioning', async () => {
+    const message: InboxMessage = {
+      from: 'team-lead',
+      to: 'jack',
+      text: 'Latest log',
+      summary: 'Latest log',
+      timestamp: '2026-04-13T13:36:00.000Z',
+      read: false,
+      messageId: 'msg-latest',
+    };
+    buildInlineActivityEntries.mockReturnValue(
+      new Map([
+        [
+          'member:demo-team:jack',
+          [
+            {
+              ownerNodeId: 'member:demo-team:jack',
+              graphItem: {
+                id: 'item-1',
+                kind: 'inbox_message',
+                timestamp: message.timestamp,
+                title: message.summary ?? '',
+              },
+              message,
+            },
+          ],
+        ],
+      ])
+    );
+
+    const node: GraphNode = {
+      id: 'member:demo-team:jack',
+      kind: 'member',
+      label: 'jack',
+      state: 'active',
+      domainRef: { kind: 'member', teamName: 'demo-team', memberName: 'jack' },
+      activityItems: [
+        {
+          id: 'item-1',
+          kind: 'inbox_message',
+          timestamp: message.timestamp,
+          title: 'Latest log',
+        },
+      ],
+      activityOverflowCount: 0,
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const nodeWorld = { x: 320, y: 300 };
+    const laneRect = {
+      left: 120,
+      top: 340,
+      right: 416,
+      bottom: 632,
+      width: 296,
+      height: 292,
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(GraphActivityHud, {
+          teamName: 'demo-team',
+          nodes: [node],
+          getActivityWorldRect: () => laneRect,
+          getCameraZoom: () => 1,
+          getNodeWorldPosition: () => nodeWorld,
+          getViewportSize: () => ({ width: 1200, height: 800 }),
+          worldToScreen: (x: number, y: number) => ({ x, y }),
+          focusNodeIds: null,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const shell = host.querySelector('.z-10');
+    expect(shell).not.toBeNull();
+    expect((shell as HTMLDivElement).style.left).toBe(`${laneRect.left}px`);
+    expect((shell as HTMLDivElement).style.top).toBe(`${laneRect.top}px`);
 
     await act(async () => {
       root.unmount();

@@ -66,6 +66,12 @@ export const ApiKeyCard = ({ apiKey, onEdit }: ApiKeyCardProps): React.JSX.Eleme
         </Badge>
       </div>
 
+      {apiKey.scope === 'project' && apiKey.projectPath && (
+        <p className="truncate text-xs text-text-muted" title={apiKey.projectPath}>
+          {apiKey.projectPath}
+        </p>
+      )}
+
       {/* Env var name */}
       <div className="flex items-center gap-1.5">
         <code className="rounded bg-surface-raised px-1.5 py-0.5 text-xs text-blue-400">

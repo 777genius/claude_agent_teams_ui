@@ -17,6 +17,11 @@ type MemberSpawnStatusCollection =
   | Map<string, MemberSpawnStatusEntry>
   | undefined;
 
+interface FailedSpawnDetail {
+  name: string;
+  reason: string | null;
+}
+
 const ACTIVE_PROVISIONING_STATES = new Set([
   'validating',
   'spawning',
@@ -25,6 +30,73 @@ const ACTIVE_PROVISIONING_STATES = new Set([
   'finalizing',
   'verifying',
 ]);
+
+function getFailedSpawnDetails(
+  memberSpawnStatuses: MemberSpawnStatusCollection
+): FailedSpawnDetail[] {
+  if (!memberSpawnStatuses) {
+    return [];
+  }
+  const entries =
+    memberSpawnStatuses instanceof Map
+      ? [...memberSpawnStatuses.entries()]
+      : Object.entries(memberSpawnStatuses);
+
+  return entries
+    .filter(([, entry]) => entry.launchState === 'failed_to_start' || entry.status === 'error')
+    .map(([name, entry]) => ({
+      name,
+      reason:
+        typeof entry.hardFailureReason === 'string' && entry.hardFailureReason.trim().length > 0
+          ? entry.hardFailureReason.trim()
+          : typeof entry.error === 'string' && entry.error.trim().length > 0
+            ? entry.error.trim()
+            : null,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function truncateFailureReason(reason: string, maxLength = 160): string {
+  const normalized = reason.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function buildFailedSpawnPanelMessage(
+  failedSpawnDetails: readonly FailedSpawnDetail[]
+): string | null {
+  if (failedSpawnDetails.length === 0) {
+    return null;
+  }
+  if (failedSpawnDetails.length === 1) {
+    const [failed] = failedSpawnDetails;
+    return failed.reason
+      ? `${failed.name} failed to start - ${truncateFailureReason(failed.reason, 220)}`
+      : `${failed.name} failed to start`;
+  }
+  const listedFailures = failedSpawnDetails
+    .slice(0, 2)
+    .map((failed) =>
+      failed.reason ? `${failed.name} - ${truncateFailureReason(failed.reason, 120)}` : failed.name
+    )
+    .join('; ');
+  const remainingCount = failedSpawnDetails.length - Math.min(failedSpawnDetails.length, 2);
+  return `Failed teammates: ${listedFailures}${remainingCount > 0 ? `; +${remainingCount} more` : ''}`;
+}
+
+function buildFailedSpawnCompactDetail(
+  failedSpawnDetails: readonly FailedSpawnDetail[]
+): string | null {
+  if (failedSpawnDetails.length === 0) {
+    return null;
+  }
+  if (failedSpawnDetails.length === 1) {
+    return `${failedSpawnDetails[0].name} failed to start`;
+  }
+  return `${failedSpawnDetails.length} teammates failed to start`;
+}
 
 export interface TeamProvisioningPresentation {
   progress: TeamProvisioningProgress;
@@ -99,6 +171,9 @@ export function buildTeamProvisioningPresentation({
     memberSpawnStatuses,
     memberSpawnSnapshot,
   });
+  const failedSpawnDetails = getFailedSpawnDetails(memberSpawnStatuses);
+  const failedSpawnPanelMessage = buildFailedSpawnPanelMessage(failedSpawnDetails);
+  const failedSpawnCompactDetail = buildFailedSpawnCompactDetail(failedSpawnDetails);
 
   const { allTeammatesConfirmedAlive, hasMembersStillJoining, remainingJoinCount } =
     getLaunchJoinState({
@@ -135,7 +210,7 @@ export function buildTeamProvisioningPresentation({
       hasMembersStillJoining,
       remainingJoinCount,
       panelTitle: 'Launch failed',
-      panelMessage: progress.error ?? null,
+      panelMessage: progress.error ?? failedSpawnPanelMessage ?? null,
       panelTone: 'error',
       defaultLiveOutputOpen: true,
       compactTitle: 'Launch failed',
@@ -151,7 +226,8 @@ export function buildTeamProvisioningPresentation({
         : `${remainingJoinCount} teammates still joining`;
     const readyCompactDetail =
       failedSpawnCount > 0
-        ? `${failedSpawnCount} teammate${failedSpawnCount === 1 ? '' : 's'} failed to start`
+        ? (failedSpawnCompactDetail ??
+          `${failedSpawnCount} teammate${failedSpawnCount === 1 ? '' : 's'} failed to start`)
         : hasMembersStillJoining
           ? joiningPhrase
           : expectedTeammateCount === 0
@@ -159,7 +235,7 @@ export function buildTeamProvisioningPresentation({
             : `All ${expectedTeammateCount} teammates joined`;
     const readyDetailMessage =
       failedSpawnCount > 0
-        ? progress.message
+        ? (failedSpawnPanelMessage ?? progress.message)
         : expectedTeammateCount === 0
           ? 'Team provisioned - lead online'
           : allTeammatesConfirmedAlive
@@ -229,15 +305,19 @@ export function buildTeamProvisioningPresentation({
       hasMembersStillJoining,
       remainingJoinCount,
       panelTitle: 'Launching team',
-      panelMessage: progress.message,
-      panelMessageSeverity: progress.messageSeverity,
+      panelMessage:
+        failedSpawnCount > 0 ? (failedSpawnPanelMessage ?? progress.message) : progress.message,
+      panelMessageSeverity: failedSpawnCount > 0 ? 'warning' : progress.messageSeverity,
       defaultLiveOutputOpen: true,
       compactTitle: 'Launching team',
       compactDetail:
-        expectedTeammateCount > 0 && progressStepIndex >= 2
-          ? `${heartbeatConfirmedCount}/${expectedTeammateCount} teammates confirmed`
-          : progress.message,
-      compactTone: 'default',
+        failedSpawnCount > 0
+          ? (failedSpawnCompactDetail ??
+            `${failedSpawnCount} teammate${failedSpawnCount === 1 ? '' : 's'} failed to start`)
+          : expectedTeammateCount > 0 && progressStepIndex >= 2
+            ? `${heartbeatConfirmedCount}/${expectedTeammateCount} teammates confirmed`
+            : progress.message,
+      compactTone: failedSpawnCount > 0 ? 'warning' : 'default',
     };
   }
 

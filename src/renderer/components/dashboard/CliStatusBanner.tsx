@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, isElectronMode } from '@renderer/api';
 import { confirm } from '@renderer/components/common/ConfirmDialog';
 import { ProviderBrandLogo } from '@renderer/components/common/ProviderBrandLogo';
+import { ProviderModelBadges } from '@renderer/components/runtime/ProviderModelBadges';
 import {
   formatProviderStatusText,
   getProviderConnectionModeSummary,
@@ -32,10 +33,7 @@ import { useStore } from '@renderer/store';
 import { createLoadingMultimodelCliStatus } from '@renderer/store/slices/cliInstallerSlice';
 import { formatBytes } from '@renderer/utils/formatters';
 import { filterMainScreenCliProviders } from '@renderer/utils/geminiUiFreeze';
-import {
-  getTeamModelBadgeLabel,
-  getVisibleTeamProviderModels,
-} from '@renderer/utils/teamModelCatalog';
+import { isMultimodelRuntimeStatus } from '@renderer/utils/multimodelProviderVisibility';
 import {
   AlertTriangle,
   CheckCircle,
@@ -266,37 +264,6 @@ function getProviderTerminalLogoutCommand(provider: CliProviderStatus): {
   };
 }
 
-function formatModelBadgeLabel(providerId: CliProviderId, model: string): string {
-  return getTeamModelBadgeLabel(providerId, model) ?? model;
-}
-
-const ModelBadges = ({
-  providerId,
-  models,
-}: {
-  readonly providerId: CliProviderId;
-  readonly models: string[];
-}): React.JSX.Element => {
-  const visibleModels = getVisibleTeamProviderModels(providerId, models);
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {visibleModels.map((model) => (
-        <span
-          key={model}
-          className="rounded-md border px-1.5 py-px font-mono text-[10px] leading-4"
-          style={{
-            borderColor: 'var(--color-border-subtle)',
-            backgroundColor: 'rgba(255, 255, 255, 0.03)',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
-          {formatModelBadgeLabel(providerId, model)}
-        </span>
-      ))}
-    </div>
-  );
-};
-
 const ProviderDetailSkeleton = (): React.JSX.Element => {
   return (
     <div className="mt-1 space-y-2">
@@ -355,7 +322,11 @@ function formatRuntimeAuthSummary(
   cliStatus: NonNullable<ReturnType<typeof useCliInstaller>['cliStatus']>,
   visibleProviders: readonly CliProviderStatus[]
 ): string | null {
-  if (cliStatus.flavor === 'agent_teams_orchestrator' && visibleProviders.length > 0) {
+  if (isMultimodelRuntimeStatus(cliStatus)) {
+    if (visibleProviders.length === 0) {
+      return null;
+    }
+
     if (
       visibleProviders.every(
         (provider) => provider.statusMessage === 'Checking...' && !provider.authenticated
@@ -385,12 +356,18 @@ function isCheckingMultimodelStatus(
   visibleProviders: readonly CliProviderStatus[]
 ): boolean {
   return (
-    cliStatus.flavor === 'agent_teams_orchestrator' &&
+    isMultimodelRuntimeStatus(cliStatus) &&
     visibleProviders.length > 0 &&
     visibleProviders.every(
       (provider) => provider.statusMessage === 'Checking...' && !provider.authenticated
     )
   );
+}
+
+function hasVisibleAuthenticatedMultimodelProvider(
+  visibleProviders: readonly CliProviderStatus[]
+): boolean {
+  return visibleProviders.some((provider) => provider.authenticated);
 }
 
 const InstalledBanner = ({
@@ -416,6 +393,7 @@ const InstalledBanner = ({
     () => filterMainScreenCliProviders(cliStatus.providers),
     [cliStatus.providers]
   );
+  const canOpenExtensions = cliStatus.installed;
   const runtimeLabel = formatRuntimeLabel(cliStatus);
   const runtimeAuthSummary = formatRuntimeAuthSummary(cliStatus, visibleProviders);
 
@@ -500,8 +478,8 @@ const InstalledBanner = ({
               disabled={isBusy || cliStatusLoading || multimodelBusy}
             />
           </div>
-          {/* Extensions button — only when installed + authenticated */}
-          {cliStatus.authLoggedIn && (
+          {/* Extensions button — available whenever the runtime is installed */}
+          {canOpenExtensions && (
             <button
               onClick={openExtensionsTab}
               className="flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-white/5"
@@ -659,7 +637,12 @@ const InstalledBanner = ({
                 </div>
                 {!showSkeleton && provider.models.length > 0 && (
                   <div className="col-span-2">
-                    <ModelBadges providerId={provider.providerId} models={provider.models} />
+                    <ProviderModelBadges
+                      providerId={provider.providerId}
+                      models={provider.models}
+                      modelAvailability={provider.modelAvailability}
+                      providerStatus={provider}
+                    />
                   </div>
                 )}
               </div>
@@ -873,6 +856,16 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
     if (isCheckingMultimodelStatus(cliStatus, visibleCliProviders)) return 'info';
     if (cliStatus.authStatusChecking) return 'info';
     if (!cliStatus.installed) return 'error';
+    if (isMultimodelRuntimeStatus(cliStatus) && visibleCliProviders.length === 0) {
+      return 'warning';
+    }
+    if (
+      isMultimodelRuntimeStatus(cliStatus) &&
+      visibleCliProviders.length > 0 &&
+      !hasVisibleAuthenticatedMultimodelProvider(visibleCliProviders)
+    ) {
+      return 'warning';
+    }
     if (cliStatus.installed && !cliStatus.authLoggedIn) return 'warning';
     if (cliStatus.updateAvailable) return 'info';
     return 'success';

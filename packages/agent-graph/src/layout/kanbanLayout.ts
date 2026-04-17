@@ -8,9 +8,9 @@
  */
 
 import type { GraphNode } from '../ports/types';
-import { KANBAN_ZONE } from '../constants/canvas-constants';
+import { KANBAN_ZONE, TASK_PILL } from '../constants/canvas-constants';
 import { COLORS } from '../constants/colors';
-import { resolveActivityLaneSide } from './activityLane';
+import type { SlotFrame, StableRect } from './stableSlots';
 
 /** Column header info for rendering */
 export interface KanbanColumnHeader {
@@ -48,7 +48,7 @@ export function getOwnerKanbanBaseX(args: {
   columnWidth: number;
   leadX?: number | null;
 }): number {
-  const { ownerX, ownerKind, activeColumnCount, columnWidth, leadX } = args;
+  const { ownerX, ownerKind, activeColumnCount, columnWidth } = args;
   if (activeColumnCount <= 0) {
     return ownerX;
   }
@@ -57,17 +57,7 @@ export function getOwnerKanbanBaseX(args: {
     return ownerX - (activeColumnCount * columnWidth) / 2;
   }
 
-  const side = resolveActivityLaneSide({
-    nodeKind: ownerKind,
-    nodeX: ownerX,
-    leadX,
-  });
-
-  if (side === 'left') {
-    return ownerX;
-  }
-
-  return ownerX - (activeColumnCount - 1) * columnWidth;
+  return ownerX - ((activeColumnCount - 1) * columnWidth) / 2;
 }
 
 export class KanbanLayoutEngine {
@@ -78,26 +68,52 @@ export class KanbanLayoutEngine {
   static readonly #colTasks = new Map<string, GraphNode[]>();
 
   /** Zone info for rendering column headers — updated each layout() call */
-  static zones: KanbanZoneInfo[] = [];
+  static readonly zones: KanbanZoneInfo[] = [];
 
   /**
    * Position all task nodes in kanban columns relative to their owner.
    * Call AFTER d3-force settles member positions, BEFORE drawing.
    */
-  static layout(nodes: GraphNode[]): void {
+  static layout(
+    nodes: GraphNode[],
+    options?: {
+      memberSlotFrames?: readonly SlotFrame[];
+      leadSlotFrame?: SlotFrame | null;
+      unassignedTaskRect?: StableRect | null;
+    }
+  ): void {
     const nodeMap = this.#nodeMap;
     nodeMap.clear();
     for (const n of nodes) nodeMap.set(n.id, n);
     const leadX = nodes.find((node) => node.kind === 'lead')?.x ?? null;
+    const ownerSlotFrameByOwnerId = new Map(
+      (options?.memberSlotFrames ?? []).map((frame) => [frame.ownerId, frame] as const)
+    );
+    if (options?.leadSlotFrame) {
+      ownerSlotFrameByOwnerId.set(options.leadSlotFrame.ownerId, options.leadSlotFrame);
+    }
 
     const tasksByOwner = this.#tasksByOwner;
     tasksByOwner.clear();
     const unassigned = this.#unassigned;
     unassigned.length = 0;
+    const hasLayoutOwner = (ownerId: string): boolean => {
+      const owner = nodeMap.get(ownerId);
+      if (!owner) {
+        return false;
+      }
+      if (owner.kind === 'lead') {
+        return ownerSlotFrameByOwnerId.has(ownerId);
+      }
+      if (owner.kind === 'member') {
+        return ownerSlotFrameByOwnerId.has(ownerId);
+      }
+      return false;
+    };
 
     for (const n of nodes) {
       if (n.kind !== 'task') continue;
-      if (n.ownerId) {
+      if (n.ownerId && hasLayoutOwner(n.ownerId)) {
         let group = tasksByOwner.get(n.ownerId);
         if (!group) {
           group = [];
@@ -110,16 +126,22 @@ export class KanbanLayoutEngine {
     }
 
     // Reset zones
-    this.zones = [];
+    this.zones.length = 0;
 
     for (const [ownerId, tasks] of tasksByOwner) {
       const owner = nodeMap.get(ownerId);
-      if (!owner || owner.x == null || owner.y == null) continue;
-      const zoneInfo = KanbanLayoutEngine.#layoutZone(tasks, owner, ownerId, leadX);
+      if (owner?.x == null || owner?.y == null) continue;
+      const zoneInfo = KanbanLayoutEngine.#layoutZone(
+        tasks,
+        owner,
+        ownerId,
+        leadX,
+        ownerSlotFrameByOwnerId.get(ownerId) ?? null
+      );
       if (zoneInfo) this.zones.push(zoneInfo);
     }
 
-    KanbanLayoutEngine.#layoutUnassigned(unassigned, nodes);
+    KanbanLayoutEngine.#layoutUnassigned(unassigned, nodes, options?.unassignedTaskRect ?? null);
   }
 
   // ─── Private ──────────────────────────────────────────────────────────────
@@ -128,13 +150,12 @@ export class KanbanLayoutEngine {
     tasks: GraphNode[],
     owner: GraphNode,
     ownerId: string,
-    leadX: number | null
+    leadX: number | null,
+    slotFrame: SlotFrame | null
   ): KanbanZoneInfo | null {
-    const { columnWidth, rowHeight, offsetY, columns } = KANBAN_ZONE;
-    const headerHeight = 20; // space for column header label
+    const { columnWidth, rowHeight, offsetY, columns, headerHeight } = KANBAN_ZONE;
     const ownerX = owner.x ?? 0;
     const ownerY = owner.y ?? 0;
-    const baseY = ownerY + offsetY;
 
     // Classify tasks into columns
     const colTasks = KanbanLayoutEngine.#colTasks;
@@ -157,15 +178,21 @@ export class KanbanLayoutEngine {
 
     if (activeColumns.length === 0) return null;
 
-    // Keep kanban columns on the open side of the owner, away from the reserved activity lane.
-    // This makes member lanes reserve real visual space instead of only affecting the force layout.
-    const baseX = getOwnerKanbanBaseX({
+    let baseX = getOwnerKanbanBaseX({
       ownerX,
       ownerKind: owner.kind,
       activeColumnCount: activeColumns.length,
       columnWidth,
       leadX,
     });
+    let baseY: number;
+
+    if (slotFrame) {
+      baseX = slotFrame.kanbanBandRect.left + TASK_PILL.width / 2;
+      baseY = slotFrame.kanbanBandRect.top;
+    } else {
+      baseY = ownerY + offsetY;
+    }
 
     // Build headers + position tasks
     const headers: KanbanColumnHeader[] = [];
@@ -190,8 +217,8 @@ export class KanbanLayoutEngine {
       for (const [rowIdx, task] of col.tasks.entries()) {
         const targetX = colX;
         const targetY = baseY + headerHeight + rowIdx * rowHeight;
-        task.x = task.x != null ? task.x + (targetX - task.x) * 0.15 : targetX;
-        task.y = task.y != null ? task.y + (targetY - task.y) * 0.15 : targetY;
+        task.x = slotFrame ? targetX : task.x != null ? task.x + (targetX - task.x) * 0.15 : targetX;
+        task.y = slotFrame ? targetY : task.y != null ? task.y + (targetY - task.y) * 0.15 : targetY;
         task.fx = task.x;
         task.fy = task.y;
         task.vx = 0;
@@ -215,10 +242,51 @@ export class KanbanLayoutEngine {
     }
   }
 
-  static #layoutUnassigned(tasks: GraphNode[], allNodes: GraphNode[]): void {
+  static #layoutUnassigned(
+    tasks: GraphNode[],
+    allNodes: GraphNode[],
+    unassignedTaskRect: StableRect | null
+  ): void {
     if (tasks.length === 0) return;
 
     const { columnWidth, rowHeight } = KANBAN_ZONE;
+
+    if (unassignedTaskRect) {
+      const cols = Math.min(Math.max(tasks.length, 1), 5);
+      const baseX = unassignedTaskRect.left + TASK_PILL.width / 2;
+      const baseY = unassignedTaskRect.top;
+      const overflowCount = tasks.reduce((sum, task) => sum + (task.overflowCount ?? 0), 0);
+
+      this.zones.push({
+        ownerId: '__unassigned__',
+        ownerX: 0,
+        ownerY: baseY - 48,
+        headers: [
+          {
+            label: 'Unassigned',
+            x: 0,
+            y: baseY,
+            color: COLORS.taskPending,
+            overflowCount,
+            overflowY: baseY + KANBAN_ZONE.maxVisibleRows * rowHeight,
+          },
+        ],
+      });
+
+      for (const [idx, task] of tasks.entries()) {
+        const col = idx % cols;
+        const row = Math.floor(idx / cols);
+        const targetX = baseX + col * columnWidth;
+        const targetY = baseY + row * rowHeight;
+        task.x = targetX;
+        task.y = targetY;
+        task.fx = targetX;
+        task.fy = targetY;
+        task.vx = 0;
+        task.vy = 0;
+      }
+      return;
+    }
 
     // Find the lowest Y of ALL positioned nodes (members + their owned tasks)
     let sumX = 0;

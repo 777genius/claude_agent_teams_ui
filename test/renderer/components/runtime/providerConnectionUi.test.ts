@@ -5,6 +5,7 @@ import {
   getProviderCredentialSummary,
   getProviderCurrentRuntimeSummary,
 } from '@renderer/components/runtime/providerConnectionUi';
+import { createDefaultCliExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
 
 import type { CliProviderStatus } from '@shared/types';
 
@@ -27,6 +28,7 @@ function createAnthropicProvider(
     capabilities: {
       teamLaunch: true,
       oneShot: true,
+      extensions: createDefaultCliExtensionCapabilities(),
     },
     selectedBackendId: null,
     resolvedBackendId: null,
@@ -64,6 +66,7 @@ function createCodexProvider(
     capabilities: {
       teamLaunch: true,
       oneShot: true,
+      extensions: createDefaultCliExtensionCapabilities(),
     },
     selectedBackendId: 'auto',
     resolvedBackendId: 'adapter',

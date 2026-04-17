@@ -41,8 +41,12 @@ import {
   normalizeCreateLaunchProviderForUi,
 } from '@renderer/utils/geminiUiFreeze';
 import { normalizePath } from '@renderer/utils/pathNormalize';
-import { normalizeTeamModelForUi } from '@renderer/utils/teamModelAvailability';
+import {
+  getTeamModelSelectionError,
+  normalizeTeamModelForUi,
+} from '@renderer/utils/teamModelAvailability';
 import { getTeamProviderLabel as getCatalogTeamProviderLabel } from '@renderer/utils/teamModelCatalog';
+import { DEFAULT_PROVIDER_MODEL_SELECTION } from '@shared/utils/providerModelSelection';
 import { isTeamProviderId, normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
 
@@ -50,15 +54,21 @@ import { AdvancedCliSection } from './AdvancedCliSection';
 import { OptionalSettingsSection } from './OptionalSettingsSection';
 import { ProjectPathSelector } from './ProjectPathSelector';
 import {
-  createInitialProviderChecks,
   failIncompleteProviderChecks,
   getProvisioningFailureHint,
+  getPrimaryProvisioningFailureDetail,
   getProvisioningProviderBackendSummary,
   type ProvisioningProviderCheck,
   ProvisioningProviderStatusList,
   shouldHideProvisioningProviderStatusList,
   updateProviderCheck,
 } from './ProvisioningProviderStatusList';
+import { getProvisioningModelIssue } from './provisioningModelIssues';
+import {
+  getProviderPrepareCachedSnapshot,
+  runProviderPrepareDiagnostics,
+  type ProviderPrepareDiagnosticsModelResult,
+} from './providerPrepareDiagnostics';
 import { SkipPermissionsCheckbox } from './SkipPermissionsCheckbox';
 import { computeEffectiveTeamModel } from './TeamModelSelector';
 import { getNextSuggestedTeamName } from './teamNameSets';
@@ -82,7 +92,6 @@ import type {
   TeamCreateRequest,
   TeamProviderId,
   TeamProvisioningMemberInput,
-  TeamProvisioningPrepareResult,
 } from '@shared/types';
 
 function getStoredTeamProvider(): TeamProviderId {
@@ -113,6 +122,32 @@ function isEphemeralRenderedProjectPath(projectPath: string | null | undefined):
 
 function getProviderLabel(providerId: TeamProviderId): string {
   return getCatalogTeamProviderLabel(providerId) ?? 'Anthropic';
+}
+
+function buildPrepareModelCacheKey(
+  cwd: string,
+  providerId: TeamProviderId,
+  backendSummary: string | null | undefined
+): string {
+  return `${cwd}::${providerId}::${backendSummary ?? ''}`;
+}
+
+function alignProvisioningChecks(
+  existingChecks: ProvisioningProviderCheck[],
+  providerIds: TeamProviderId[]
+): ProvisioningProviderCheck[] {
+  const existingByProviderId = new Map(
+    existingChecks.map((check) => [check.providerId, check] as const)
+  );
+  return providerIds.map(
+    (providerId) =>
+      existingByProviderId.get(providerId) ?? {
+        providerId,
+        status: 'pending',
+        backendSummary: null,
+        details: [],
+      }
+  );
 }
 
 export interface TeamCopyData {
@@ -486,6 +521,25 @@ export const CreateTeamDialog = ({
     );
     return new Map<TeamProviderId, string | null>(entries);
   }, [cliStatus?.providers]);
+  const runtimeBackendSummaryByProviderRef = useRef(runtimeBackendSummaryByProvider);
+  const prepareChecksRef = useRef<ProvisioningProviderCheck[]>([]);
+  const prepareModelResultsCacheRef = useRef(
+    new Map<string, Record<string, ProviderPrepareDiagnosticsModelResult>>()
+  );
+
+  useEffect(() => {
+    runtimeBackendSummaryByProviderRef.current = runtimeBackendSummaryByProvider;
+  }, [runtimeBackendSummaryByProvider]);
+
+  useEffect(() => {
+    prepareChecksRef.current = prepareChecks;
+  }, [prepareChecks]);
+
+  useEffect(() => {
+    if (!open) {
+      prepareModelResultsCacheRef.current.clear();
+    }
+  }, [open]);
 
   useEffect(() => {
     if (multimodelEnabled) {
@@ -534,65 +588,150 @@ export const CreateTeamDialog = ({
 
     let cancelled = false;
     const requestSeq = ++prepareRequestSeqRef.current;
+    const initialChecks = alignProvisioningChecks(
+      prepareChecksRef.current,
+      selectedMemberProviders
+    );
     setPrepareState('loading');
-    setPrepareMessage('Checking selected providers...');
+    setPrepareMessage('Checking selected providers in parallel...');
     setPrepareWarnings([]);
-    setPrepareChecks(createInitialProviderChecks(selectedMemberProviders));
+    setPrepareChecks(initialChecks);
 
     // Defer so file list fetch (triggered by project select) can run first
     const timer = setTimeout(() => {
       void (async () => {
-        let checks = createInitialProviderChecks(selectedMemberProviders);
-        let anyFailure = false;
-        let anyNotes = false;
-        const collectedWarnings: string[] = [];
+        let checks = initialChecks;
+        const providerPlans = selectedMemberProviders.map((providerId) => {
+          const selectedModelChecks = (() => {
+            const next = new Set<string>();
+            let hasDefaultSelection = false;
+            const supportsProviderDefaultCheck =
+              providerId === 'codex' ||
+              providerId === 'gemini' ||
+              (providerId === 'anthropic' && selectedProviderId === 'anthropic');
+            const leadModel = computeEffectiveTeamModel(
+              selectedModel,
+              limitContext,
+              selectedProviderId
+            );
+            if (selectedProviderId === providerId && selectedModel.trim()) {
+              if (leadModel?.trim()) {
+                next.add(leadModel.trim());
+              }
+            } else if (selectedProviderId === providerId && supportsProviderDefaultCheck) {
+              hasDefaultSelection = true;
+            }
+            for (const member of effectiveMemberDrafts) {
+              if (member.removedAt) {
+                continue;
+              }
+              const memberProviderId =
+                normalizeOptionalTeamProviderId(member.providerId) ?? selectedProviderId;
+              if (memberProviderId !== providerId) {
+                continue;
+              }
+              const memberModel = member.model?.trim();
+              if (memberModel) {
+                next.add(memberModel);
+              } else if (supportsProviderDefaultCheck) {
+                hasDefaultSelection = true;
+              }
+            }
+            if (supportsProviderDefaultCheck && hasDefaultSelection) {
+              next.add(DEFAULT_PROVIDER_MODEL_SELECTION);
+            }
+            return Array.from(next);
+          })();
+          const backendSummary = runtimeBackendSummaryByProviderRef.current.get(providerId) ?? null;
+          const cacheKey = buildPrepareModelCacheKey(effectiveCwd, providerId, backendSummary);
+          const cachedModelResultsById = prepareModelResultsCacheRef.current.get(cacheKey) ?? {};
+          const cachedSnapshot = getProviderPrepareCachedSnapshot({
+            providerId,
+            selectedModelIds: selectedModelChecks,
+            cachedModelResultsById,
+          });
+          return {
+            providerId,
+            selectedModelChecks,
+            backendSummary,
+            cacheKey,
+            cachedModelResultsById,
+            cachedSnapshot,
+          };
+        });
 
         try {
-          for (const providerId of selectedMemberProviders) {
-            checks = updateProviderCheck(checks, providerId, {
-              status: 'checking',
-              backendSummary: runtimeBackendSummaryByProvider.get(providerId) ?? null,
-              details: [],
+          for (const plan of providerPlans) {
+            checks = updateProviderCheck(checks, plan.providerId, {
+              status: plan.selectedModelChecks.length > 0 ? plan.cachedSnapshot.status : 'checking',
+              backendSummary: plan.backendSummary,
+              details: plan.cachedSnapshot.details,
             });
-            if (!cancelled && prepareRequestSeqRef.current === requestSeq) {
-              setPrepareChecks(checks);
-              setPrepareMessage(`Checking ${getProviderLabel(providerId)} runtime...`);
-            }
-
-            const prepResult: TeamProvisioningPrepareResult = await api.teams.prepareProvisioning(
-              effectiveCwd,
-              providerId,
-              [providerId]
-            );
-            const detailLines = [
-              ...(prepResult.warnings ?? []).filter(Boolean),
-              ...(!prepResult.ready && prepResult.message ? [prepResult.message] : []),
-            ];
-            if (prepResult.warnings?.length) {
+          }
+          if (!cancelled && prepareRequestSeqRef.current === requestSeq) {
+            setPrepareChecks(checks);
+          }
+          const providerResults = await Promise.all(
+            providerPlans.map(async (plan) => {
+              const prepResult = await runProviderPrepareDiagnostics({
+                cwd: effectiveCwd,
+                providerId: plan.providerId,
+                selectedModelIds: plan.selectedModelChecks,
+                prepareProvisioning: api.teams.prepareProvisioning,
+                limitContext,
+                cachedModelResultsById: plan.cachedModelResultsById,
+                onModelProgress: ({ details }) => {
+                  checks = updateProviderCheck(checks, plan.providerId, {
+                    status: 'checking',
+                    backendSummary: plan.backendSummary,
+                    details,
+                  });
+                  if (!cancelled && prepareRequestSeqRef.current === requestSeq) {
+                    setPrepareChecks(checks);
+                  }
+                },
+              });
+              return { ...plan, prepResult };
+            })
+          );
+          let anyFailure = false;
+          let anyNotes = false;
+          const collectedWarnings: string[] = [];
+          for (const plan of providerResults) {
+            if (plan.prepResult.warnings.length > 0) {
               anyNotes = true;
               collectedWarnings.push(
-                ...prepResult.warnings.map(
-                  (warning) => `${getProviderLabel(providerId)}: ${warning}`
+                ...plan.prepResult.warnings.map(
+                  (warning) => `${getProviderLabel(plan.providerId)}: ${warning}`
                 )
               );
             }
-            if (!prepResult.ready) {
+            if (plan.prepResult.status === 'failed') {
               anyFailure = true;
+            } else if (plan.prepResult.status === 'notes') {
+              anyNotes = true;
             }
-            checks = updateProviderCheck(checks, providerId, {
-              status: !prepResult.ready ? 'failed' : detailLines.length > 0 ? 'notes' : 'ready',
-              backendSummary: runtimeBackendSummaryByProvider.get(providerId) ?? null,
-              details: detailLines,
+            prepareModelResultsCacheRef.current.set(
+              plan.cacheKey,
+              plan.prepResult.modelResultsById
+            );
+            checks = updateProviderCheck(checks, plan.providerId, {
+              status: plan.prepResult.status,
+              backendSummary: plan.backendSummary,
+              details: plan.prepResult.details,
             });
-            if (!cancelled && prepareRequestSeqRef.current === requestSeq) {
-              setPrepareChecks(checks);
-            }
+          }
+          if (!cancelled && prepareRequestSeqRef.current === requestSeq) {
+            setPrepareChecks(checks);
           }
           if (cancelled || prepareRequestSeqRef.current !== requestSeq) return;
+          const failureMessage =
+            getPrimaryProvisioningFailureDetail(checks) ??
+            'Some selected providers need attention.';
           setPrepareState(anyFailure ? 'failed' : 'ready');
           setPrepareMessage(
             anyFailure
-              ? 'Some selected providers need attention.'
+              ? failureMessage
               : anyNotes
                 ? 'Selected providers are ready with notes.'
                 : 'Selected providers are ready.'
@@ -619,9 +758,11 @@ export const CreateTeamDialog = ({
     canCreate,
     launchTeam,
     effectiveCwd,
+    effectiveMemberDrafts,
+    limitContext,
+    selectedModel,
     selectedProviderId,
     selectedMemberProviders,
-    runtimeBackendSummaryByProvider,
   ]);
 
   useEffect(() => {
@@ -809,6 +950,13 @@ export const CreateTeamDialog = ({
     () => computeEffectiveTeamModel(selectedModel, limitContext, selectedProviderId),
     [selectedModel, limitContext, selectedProviderId]
   );
+  const runtimeProviderStatusById = useMemo(
+    () =>
+      new Map(
+        (cliStatus?.providers ?? []).map((provider) => [provider.providerId, provider] as const)
+      ),
+    [cliStatus?.providers]
+  );
 
   const sanitizedTeamName = sanitizeTeamName(teamName.trim());
   const teamNameInlineError = validateTeamNameInline(teamName);
@@ -854,11 +1002,76 @@ export const CreateTeamDialog = ({
     () => validateRequest(request, { requireCwd: launchTeam }),
     [request, launchTeam]
   );
+  const modelValidationError = useMemo(() => {
+    const leadError = getTeamModelSelectionError(
+      selectedProviderId,
+      selectedModel,
+      runtimeProviderStatusById.get(selectedProviderId)
+    );
+    if (leadError) {
+      return leadError;
+    }
+
+    for (const member of effectiveMemberDrafts) {
+      if (member.removedAt) {
+        continue;
+      }
+
+      const providerId = normalizeOptionalTeamProviderId(member.providerId) ?? selectedProviderId;
+      const memberError = getTeamModelSelectionError(
+        providerId,
+        member.model,
+        runtimeProviderStatusById.get(providerId)
+      );
+      if (!memberError) {
+        continue;
+      }
+
+      const memberName = member.name.trim();
+      return memberName ? `${memberName}: ${memberError}` : memberError;
+    }
+
+    return null;
+  }, [effectiveMemberDrafts, runtimeProviderStatusById, selectedModel, selectedProviderId]);
+  const leadModelIssueText = useMemo(() => {
+    const issue = getProvisioningModelIssue(
+      prepareChecks,
+      selectedProviderId,
+      effectiveModel ?? selectedModel
+    );
+    return issue?.reason ?? issue?.detail ?? null;
+  }, [effectiveModel, prepareChecks, selectedModel, selectedProviderId]);
+  const memberModelIssueById = useMemo(() => {
+    const next: Record<string, string> = {};
+    for (const member of effectiveMemberDrafts) {
+      if (member.removedAt) {
+        continue;
+      }
+      if (syncModelsWithLead && leadModelIssueText) {
+        next[member.id] = leadModelIssueText;
+        continue;
+      }
+      const providerId = normalizeOptionalTeamProviderId(member.providerId) ?? selectedProviderId;
+      const issue = getProvisioningModelIssue(prepareChecks, providerId, member.model);
+      const issueText = issue?.reason ?? issue?.detail ?? null;
+      if (issueText) {
+        next[member.id] = issueText;
+      }
+    }
+    return next;
+  }, [
+    effectiveMemberDrafts,
+    leadModelIssueText,
+    prepareChecks,
+    selectedProviderId,
+    syncModelsWithLead,
+  ]);
   const hasCreateFormErrors =
     !!teamNameInlineError ||
     isNameTakenByExistingTeam ||
     isNameProvisioning ||
-    !requestValidation.valid;
+    !requestValidation.valid ||
+    !!modelValidationError;
 
   const internalArgs = useMemo(() => {
     const args: string[] = [];
@@ -897,7 +1110,8 @@ export const CreateTeamDialog = ({
     [members, setMembers, setSyncModelsWithLead]
   );
 
-  const activeError = localError ?? provisioningErrorsByTeam[request.teamName] ?? null;
+  const activeError =
+    localError ?? modelValidationError ?? provisioningErrorsByTeam[request.teamName] ?? null;
   const canOpenExistingTeam =
     activeError?.includes('Team already exists') === true && request.teamName.length > 0;
 
@@ -926,6 +1140,10 @@ export const CreateTeamDialog = ({
       setFieldErrors(errors);
       const messages = Object.values(errors).filter(Boolean);
       setLocalError(messages.join(' · ') || 'Check form fields');
+      return;
+    }
+    if (modelValidationError) {
+      setLocalError(modelValidationError);
       return;
     }
     setFieldErrors({});
@@ -1040,45 +1258,6 @@ export const CreateTeamDialog = ({
           </div>
         ) : null}
 
-        {canCreate && launchTeam && prepareState === 'failed' ? (
-          <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-400" />
-              <div className="min-w-0 space-y-1">
-                <p className="font-medium text-red-300">
-                  CLI environment is not available — launch is blocked
-                </p>
-                <p className="text-red-300/80">
-                  {prepareMessage ?? 'Failed to prepare environment'}
-                </p>
-                {!shouldHideProvisioningProviderStatusList(prepareChecks, prepareMessage) ? (
-                  <ProvisioningProviderStatusList
-                    checks={prepareChecks}
-                    className="mt-1"
-                    suppressDetailsMatching={prepareMessage}
-                  />
-                ) : null}
-                {prepareWarnings.length > 0 && prepareChecks.length === 0 ? (
-                  <div className="space-y-0.5">
-                    {prepareWarnings.map((warning) => (
-                      <p
-                        key={warning}
-                        className="text-[11px]"
-                        style={{ color: 'var(--warning-text)' }}
-                      >
-                        {warning}
-                      </p>
-                    ))}
-                  </div>
-                ) : null}
-                <p className="text-[11px] text-[var(--color-text-muted)]">
-                  {getProvisioningFailureHint(prepareMessage, prepareChecks)}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         {!canCreate ? (
           <p
             className="rounded border p-2 text-xs"
@@ -1162,6 +1341,8 @@ export const CreateTeamDialog = ({
               syncModelsWithTeammates={syncModelsWithLead}
               onSyncModelsWithTeammatesChange={handleSyncModelsWithLeadChange}
               disableGeminiOption={isGeminiUiFrozen()}
+              leadModelIssueText={leadModelIssueText}
+              memberModelIssueById={memberModelIssueById}
               headerTop={
                 <div className="flex items-center gap-2">
                   <Checkbox
@@ -1418,6 +1599,48 @@ export const CreateTeamDialog = ({
                     ))}
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {canCreate && launchTeam && prepareState === 'failed' ? (
+              <div className="text-xs">
+                <div className="flex items-start gap-2 text-red-300">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium">
+                      CLI environment is not available - launch is blocked
+                    </p>
+                    <p className="mt-0.5 text-red-300/80">
+                      {prepareMessage ?? 'Failed to prepare environment'}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)] opacity-70">
+                      Pre-flight check to catch errors before launch
+                    </p>
+                  </div>
+                </div>
+                {!shouldHideProvisioningProviderStatusList(prepareChecks, prepareMessage) ? (
+                  <ProvisioningProviderStatusList
+                    checks={prepareChecks}
+                    className="mt-2"
+                    suppressDetailsMatching={prepareMessage}
+                  />
+                ) : null}
+                {prepareWarnings.length > 0 && prepareChecks.length === 0 ? (
+                  <div className="mt-1 space-y-0.5 pl-6">
+                    {prepareWarnings.map((warning) => (
+                      <p
+                        key={warning}
+                        className="text-[11px]"
+                        style={{ color: 'var(--warning-text)' }}
+                      >
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="mt-1 pl-6 text-[11px] text-[var(--color-text-muted)]">
+                  {getProvisioningFailureHint(prepareMessage, prepareChecks)}
+                </p>
               </div>
             ) : null}
           </div>

@@ -28,15 +28,15 @@ import { createLogger } from '@shared/utils/logger';
 
 import { validateConfigUpdatePayload } from '../ipc/configValidation';
 import { validateTriggerId } from '../ipc/guards';
-import {
-  ConfigManager,
-  type NotificationTrigger,
-  type TriggerContentType,
-  type TriggerMatchField,
-  type TriggerMode,
-  type TriggerTokenType,
-} from '../services';
+import { ConfigManager } from '../services/infrastructure/ConfigManager';
 
+import type {
+  NotificationTrigger,
+  TriggerContentType,
+  TriggerMatchField,
+  TriggerMode,
+  TriggerTokenType,
+} from '../services/infrastructure/ConfigManager';
 import type { TriggerColor } from '@shared/constants/triggerColors';
 import type { FastifyInstance } from 'fastify';
 

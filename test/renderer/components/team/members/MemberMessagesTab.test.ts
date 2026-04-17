@@ -159,4 +159,75 @@ describe('MemberMessagesTab', () => {
       await Promise.resolve();
     });
   });
+
+  it('hides load older messages when the member has no visible activity', async () => {
+    getMessagesPage.mockResolvedValue({
+      messages: [
+        {
+          from: 'team-lead',
+          to: 'alice',
+          text: 'Message for another member',
+          summary: 'Message for another member',
+          timestamp: '2026-04-13T13:34:00.000Z',
+          read: false,
+          messageId: 'msg-other-member',
+        },
+      ],
+      nextCursor: 'older-cursor',
+      hasMore: true,
+    });
+
+    const members: ResolvedTeamMember[] = [
+      {
+        name: 'team-lead',
+        status: 'active',
+        currentTaskId: null,
+        taskCount: 0,
+        lastActiveAt: null,
+        messageCount: 0,
+        agentType: 'team-lead',
+      },
+      {
+        name: 'jack',
+        status: 'active',
+        currentTaskId: null,
+        taskCount: 0,
+        lastActiveAt: null,
+        messageCount: 0,
+      },
+      {
+        name: 'alice',
+        status: 'active',
+        currentTaskId: null,
+        taskCount: 0,
+        lastActiveAt: null,
+        messageCount: 0,
+      },
+    ];
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberMessagesTab, {
+          messages: [],
+          teamName: 'demo-team',
+          memberName: 'jack',
+          members,
+          tasks: [],
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('No activity with this member');
+    expect(host.textContent).not.toContain('Load older messages');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
 });

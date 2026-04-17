@@ -5,6 +5,10 @@
  * Each route file mirrors the corresponding IPC handler.
  */
 
+import {
+  type RecentProjectsFeatureFacade,
+  registerRecentProjectsHttp,
+} from '@features/recent-projects/main';
 import { createLogger } from '@shared/utils/logger';
 
 import { registerConfigRoutes } from './config';
@@ -40,6 +44,7 @@ export interface HttpServices {
   subagentResolver: SubagentResolver;
   chunkBuilder: ChunkBuilder;
   dataCache: DataCache;
+  recentProjectsFeature?: RecentProjectsFeatureFacade;
   updaterService: UpdaterService;
   sshConnectionManager: SshConnectionManager;
   teamProvisioningService?: TeamProvisioningService;
@@ -63,6 +68,9 @@ export function registerHttpRoutes(
   registerUtilityRoutes(app);
   registerSshRoutes(app, services.sshConnectionManager, sshModeSwitchCallback);
   registerUpdaterRoutes(app, services);
+  if (services.recentProjectsFeature) {
+    registerRecentProjectsHttp(app, services.recentProjectsFeature);
+  }
   registerEventRoutes(app);
 
   logger.info('All HTTP routes registered');

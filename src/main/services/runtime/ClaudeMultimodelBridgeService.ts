@@ -1,6 +1,10 @@
 import { execCli } from '@main/utils/childProcess';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import { createLogger } from '@shared/utils/logger';
+import {
+  createDefaultCliExtensionCapabilities,
+  createLegacyRuntimeFallbackCliExtensionCapabilities,
+} from '@shared/utils/providerExtensionCapabilities';
 
 import { resolveGeminiRuntimeAuth } from './geminiRuntimeAuth';
 import { buildProviderAwareCliEnv } from './providerAwareCliEnv';
@@ -12,6 +16,19 @@ const logger = createLogger('ClaudeMultimodelBridgeService');
 
 const PROVIDER_STATUS_TIMEOUT_MS = 10_000;
 const PROVIDER_MODELS_TIMEOUT_MS = 10_000;
+
+interface RuntimeExtensionCapabilityResponse {
+  status?: 'supported' | 'read-only' | 'unsupported';
+  ownership?: 'shared' | 'provider-scoped';
+  reason?: string | null;
+}
+
+interface RuntimeExtensionCapabilitiesResponse {
+  plugins?: RuntimeExtensionCapabilityResponse;
+  mcp?: RuntimeExtensionCapabilityResponse;
+  skills?: RuntimeExtensionCapabilityResponse;
+  apiKeys?: RuntimeExtensionCapabilityResponse;
+}
 
 interface ProviderStatusCommandResponse {
   schemaVersion?: number;
@@ -27,6 +44,7 @@ interface ProviderStatusCommandResponse {
       capabilities?: {
         teamLaunch?: boolean;
         oneShot?: boolean;
+        extensions?: RuntimeExtensionCapabilitiesResponse;
       };
       backend?: {
         kind?: string;
@@ -84,6 +102,7 @@ interface UnifiedRuntimeStatusResponse {
       capabilities?: {
         teamLaunch?: boolean;
         oneShot?: boolean;
+        extensions?: RuntimeExtensionCapabilitiesResponse;
       };
       backend?: {
         kind?: string;
@@ -121,12 +140,15 @@ function createDefaultProviderStatus(providerId: CliProviderId): CliProviderStat
     authenticated: false,
     authMethod: null,
     verificationState: 'unknown',
+    modelVerificationState: 'idle',
     statusMessage: null,
     models: [],
+    modelAvailability: [],
     canLoginFromUi: true,
     capabilities: {
       teamLaunch: false,
       oneShot: false,
+      extensions: createLegacyRuntimeFallbackCliExtensionCapabilities(),
     },
     selectedBackendId: null,
     resolvedBackendId: null,
@@ -134,6 +156,41 @@ function createDefaultProviderStatus(providerId: CliProviderId): CliProviderStat
     externalRuntimeDiagnostics: [],
     backend: null,
     connection: null,
+  };
+}
+
+function mapRuntimeExtensionCapabilities(
+  capabilities?: RuntimeExtensionCapabilitiesResponse
+): CliProviderStatus['capabilities']['extensions'] {
+  const defaults = capabilities
+    ? createDefaultCliExtensionCapabilities()
+    : createLegacyRuntimeFallbackCliExtensionCapabilities();
+
+  return {
+    plugins: {
+      ...defaults.plugins,
+      status: capabilities?.plugins?.status ?? defaults.plugins.status,
+      ownership: capabilities?.plugins?.ownership ?? defaults.plugins.ownership,
+      reason: capabilities?.plugins?.reason ?? defaults.plugins.reason,
+    },
+    mcp: {
+      ...defaults.mcp,
+      status: capabilities?.mcp?.status ?? defaults.mcp.status,
+      ownership: capabilities?.mcp?.ownership ?? defaults.mcp.ownership,
+      reason: capabilities?.mcp?.reason ?? defaults.mcp.reason,
+    },
+    skills: {
+      ...defaults.skills,
+      status: capabilities?.skills?.status ?? defaults.skills.status,
+      ownership: capabilities?.skills?.ownership ?? defaults.skills.ownership,
+      reason: capabilities?.skills?.reason ?? defaults.skills.reason,
+    },
+    apiKeys: {
+      ...defaults.apiKeys,
+      status: capabilities?.apiKeys?.status ?? defaults.apiKeys.status,
+      ownership: capabilities?.apiKeys?.ownership ?? defaults.apiKeys.ownership,
+      reason: capabilities?.apiKeys?.reason ?? defaults.apiKeys.reason,
+    },
   };
 }
 
@@ -201,6 +258,7 @@ export class ClaudeMultimodelBridgeService {
       capabilities: {
         teamLaunch: runtimeStatus.capabilities?.teamLaunch === true,
         oneShot: runtimeStatus.capabilities?.oneShot === true,
+        extensions: mapRuntimeExtensionCapabilities(runtimeStatus.capabilities?.extensions),
       },
       selectedBackendId: runtimeStatus.selectedBackendId ?? null,
       resolvedBackendId: runtimeStatus.resolvedBackendId ?? null,
@@ -323,6 +381,7 @@ export class ClaudeMultimodelBridgeService {
         provider.capabilities = {
           teamLaunch: true,
           oneShot: true,
+          extensions: createDefaultCliExtensionCapabilities(),
         };
       }
     } catch (error) {
@@ -426,6 +485,7 @@ export class ClaudeMultimodelBridgeService {
             capabilities: {
               teamLaunch: runtimeStatus.capabilities?.teamLaunch === true,
               oneShot: runtimeStatus.capabilities?.oneShot === true,
+              extensions: mapRuntimeExtensionCapabilities(runtimeStatus.capabilities?.extensions),
             },
             backend: runtimeStatus.backend?.kind
               ? {

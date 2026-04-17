@@ -71,7 +71,7 @@ export function drawAgents(
       drawAvatar(ctx, x, y, r, node.label, color, node.kind === 'lead', node.avatarUrl);
 
       // Breathing animation + launch-stage effects
-      drawBreathing(ctx, x, y, r, node.state, time, node.spawnStatus, node.runtimeLabel);
+      drawBreathing(ctx, x, y, r, node.state, time, node.spawnStatus);
       drawLaunchStage(ctx, x, y, r, node.launchVisualState, time);
     }
 
@@ -122,7 +122,17 @@ export function drawAgents(
     if (!simplify) {
       // Name + role label (single line: "jack · developer")
       const labelText = node.role ? `${node.label} · ${node.role}` : node.label;
-      drawLabel(ctx, x, y, r, labelText, color, node.runtimeLabel);
+      drawLabel(
+        ctx,
+        x,
+        y,
+        r,
+        labelText,
+        color,
+        node.runtimeLabel,
+        node.launchStatusLabel,
+        node.launchVisualState
+      );
     }
 
     // TODO: Context ring disabled — LeadContextUsage.percent is unreliable
@@ -256,52 +266,87 @@ function drawLaunchStage(
   ctx.save();
   switch (visualState) {
     case 'waiting': {
-      const ringR = r + 7 + Math.sin(time * 3.2) * 1.2;
-      const pulseAlpha = 0.16 + 0.12 * (0.5 + 0.5 * Math.sin(time * 3.2));
+      const ringR = r + 8 + Math.sin(time * 3.2) * 1.4;
+      const pulseAlpha = 0.28 + 0.18 * (0.5 + 0.5 * Math.sin(time * 3.2));
+      const dotOrbit = r + 11;
       ctx.beginPath();
       ctx.arc(x, y, ringR, 0, Math.PI * 2);
       ctx.strokeStyle = hexWithAlpha('#d4d4d8', pulseAlpha);
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([4, 5]);
       ctx.stroke();
+      ctx.setLineDash([]);
+      for (let index = 0; index < 3; index += 1) {
+        const angle = time * 1.2 + (Math.PI * 2 * index) / 3;
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(angle) * dotOrbit, y + Math.sin(angle) * dotOrbit, 1.7, 0, Math.PI * 2);
+        ctx.fillStyle = hexWithAlpha('#e4e4e7', 0.72);
+        ctx.fill();
+      }
       break;
     }
     case 'spawning': {
       const ringR = r + 7;
-      const rotation = time * 2.4;
+      const rotation = time * 2.7;
       ctx.beginPath();
       ctx.arc(x, y, ringR, rotation, rotation + Math.PI * 1.15);
-      ctx.strokeStyle = hexWithAlpha('#f59e0b', 0.72);
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = hexWithAlpha('#f59e0b', 0.8);
+      ctx.lineWidth = 2.8;
       ctx.lineCap = 'round';
       ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(x, y, ringR + 4, rotation + Math.PI, rotation + Math.PI + Math.PI * 0.4);
+      ctx.strokeStyle = hexWithAlpha('#fbbf24', 0.65);
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, ringR + 12);
+      glow.addColorStop(0, hexWithAlpha('#f59e0b', 0.18));
+      glow.addColorStop(1, hexWithAlpha('#f59e0b', 0));
+      ctx.beginPath();
+      ctx.arc(x, y, ringR + 12, 0, Math.PI * 2);
+      ctx.fillStyle = glow;
+      ctx.fill();
       break;
     }
     case 'runtime_pending': {
       const ringR = r + 8;
       ctx.beginPath();
       ctx.arc(x, y, ringR, 0, Math.PI * 2);
-      ctx.strokeStyle = hexWithAlpha('#38bdf8', 0.4);
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = hexWithAlpha('#38bdf8', 0.48);
+      ctx.lineWidth = 1.9;
+      ctx.setLineDash([5, 4]);
       ctx.stroke();
+      ctx.setLineDash([]);
 
-      const orbit = time * 1.6;
-      const dotR = 2.2;
-      const dotX = x + Math.cos(orbit) * ringR;
-      const dotY = y + Math.sin(orbit) * ringR;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = hexWithAlpha('#67e8f9', 0.9);
-      ctx.fill();
+      const orbit = time * 1.8;
+      for (let index = 0; index < 2; index += 1) {
+        const angle = orbit + Math.PI * index;
+        const dotX = x + Math.cos(angle) * ringR;
+        const dotY = y + Math.sin(angle) * ringR;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 2.3, 0, Math.PI * 2);
+        ctx.fillStyle = hexWithAlpha(index === 0 ? '#67e8f9' : '#38bdf8', 0.92);
+        ctx.fill();
+      }
       break;
     }
     case 'settling': {
       const ringR = r + 6;
-      const arc = 0.65 + 0.08 * Math.sin(time * 2.2);
+      const arc = 0.72 + 0.08 * Math.sin(time * 2.2);
       const rotation = time * 1.25;
       ctx.beginPath();
+      ctx.arc(x, y, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = hexWithAlpha('#22c55e', 0.18);
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      ctx.beginPath();
       ctx.arc(x, y, ringR, rotation, rotation + Math.PI * arc);
-      ctx.strokeStyle = hexWithAlpha('#22c55e', 0.55);
-      ctx.lineWidth = 1.75;
+      ctx.strokeStyle = hexWithAlpha('#22c55e', 0.62);
+      ctx.lineWidth = 2.2;
       ctx.lineCap = 'round';
       ctx.stroke();
       break;
@@ -310,10 +355,15 @@ function drawLaunchStage(
       const ringR = r + 7 + Math.sin(time * 4) * 0.8;
       ctx.beginPath();
       ctx.arc(x, y, ringR, Math.PI * 0.2, Math.PI * 1.15);
-      ctx.strokeStyle = hexWithAlpha('#ef4444', 0.6);
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = hexWithAlpha('#ef4444', 0.72);
+      ctx.lineWidth = 2.4;
       ctx.lineCap = 'round';
       ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(x + ringR * 0.52, y - ringR * 0.5, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = hexWithAlpha('#f87171', 0.92);
+      ctx.fill();
       break;
     }
   }
@@ -467,12 +517,8 @@ function drawBreathing(
   r: number,
   state: string,
   time: number,
-  spawnStatus?: GraphNode['spawnStatus'],
-  runtimeLabel?: string
+  spawnStatus?: GraphNode['spawnStatus']
 ): void {
-  const hasRuntimeLabel = Boolean(runtimeLabel?.trim());
-  const serviceLabelY = y + r + AGENT_DRAW.labelYOffset + (hasRuntimeLabel ? 24 : 14);
-
   // Spawning: bright animated double ring + radial glow
   if (spawnStatus === 'spawning') {
     const ringR = r + AGENT_DRAW.orbitParticleOffset;
@@ -505,12 +551,6 @@ function drawBreathing(
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
-
-    // "connecting" label below name
-    ctx.font = '7px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = hexWithAlpha(COLORS.holoBase, 0.5 + 0.3 * Math.sin(time * 2));
-    ctx.fillText('connecting...', x, serviceLabelY);
     return;
   }
 
@@ -532,12 +572,6 @@ function drawBreathing(
     ctx.strokeStyle = hexWithAlpha(COLORS.waiting, pulse);
     ctx.lineWidth = 1.5;
     ctx.stroke();
-
-    // "waiting" label
-    ctx.font = '7px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = hexWithAlpha(COLORS.waiting, 0.4 + 0.2 * Math.sin(time * 1.5));
-    ctx.fillText('waiting...', x, serviceLabelY);
     return;
   }
 
@@ -649,7 +683,9 @@ function drawLabel(
   r: number,
   label: string,
   color: string,
-  runtimeLabel?: string
+  runtimeLabel?: string,
+  launchStatusLabel?: string,
+  launchVisualState?: GraphNode['launchVisualState']
 ): void {
   const labelY = y + r + AGENT_DRAW.labelYOffset;
   ctx.font = '9px monospace';
@@ -659,16 +695,27 @@ function drawLabel(
   ctx.fillText(label, x, labelY);
 
   const trimmedRuntimeLabel = runtimeLabel?.trim();
-  if (!trimmedRuntimeLabel) {
+  const trimmedLaunchStatusLabel = launchStatusLabel?.trim();
+  if (!trimmedRuntimeLabel && !trimmedLaunchStatusLabel) {
     return;
   }
 
-  ctx.font = '8px monospace';
-  ctx.fillStyle = hexWithAlpha(ensureHex(color), 0.72);
-  ctx.fillText(truncateRuntimeLabel(ctx, trimmedRuntimeLabel, r), x, labelY + 10);
+  let nextLineY = labelY + 10;
+  if (trimmedRuntimeLabel) {
+    ctx.font = '8px monospace';
+    ctx.fillStyle = hexWithAlpha(ensureHex(color), 0.72);
+    ctx.fillText(truncateSubLabel(ctx, trimmedRuntimeLabel, r), x, nextLineY);
+    nextLineY += 10;
+  }
+
+  if (trimmedLaunchStatusLabel) {
+    ctx.font = '7px monospace';
+    ctx.fillStyle = getLaunchStatusColor(launchVisualState);
+    ctx.fillText(truncateSubLabel(ctx, trimmedLaunchStatusLabel, r), x, nextLineY);
+  }
 }
 
-function truncateRuntimeLabel(ctx: CanvasRenderingContext2D, label: string, r: number): string {
+function truncateSubLabel(ctx: CanvasRenderingContext2D, label: string, r: number): string {
   const maxWidth = Math.max(132, r * AGENT_DRAW.labelWidthMultiplier * 2);
   if (ctx.measureText(label).width <= maxWidth) return label;
 
@@ -677,6 +724,23 @@ function truncateRuntimeLabel(ctx: CanvasRenderingContext2D, label: string, r: n
     out = out.slice(0, -1);
   }
   return `${out}…`;
+}
+
+function getLaunchStatusColor(visualState: GraphNode['launchVisualState']): string {
+  switch (visualState) {
+    case 'waiting':
+      return hexWithAlpha('#d4d4d8', 0.8);
+    case 'spawning':
+      return hexWithAlpha('#f59e0b', 0.9);
+    case 'runtime_pending':
+      return hexWithAlpha('#67e8f9', 0.9);
+    case 'settling':
+      return hexWithAlpha('#22c55e', 0.9);
+    case 'error':
+      return hexWithAlpha('#ef4444', 0.92);
+    default:
+      return hexWithAlpha(COLORS.holoBright, 0.75);
+  }
 }
 
 /**

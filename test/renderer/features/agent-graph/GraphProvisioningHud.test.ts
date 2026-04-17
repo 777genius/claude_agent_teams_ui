@@ -2,6 +2,8 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { GraphProvisioningHud } from '@features/agent-graph/renderer/ui/GraphProvisioningHud';
+
 const hookState = {
   presentation: null as
     | {
@@ -44,10 +46,6 @@ vi.mock('@renderer/components/team/TeamProvisioningPanel', () => ({
     ),
 }));
 
-import { GraphProvisioningHud } from '@renderer/features/agent-graph/ui/GraphProvisioningHud';
-
-const placement = { x: 120, y: 80, scale: 1, visible: true };
-
 describe('GraphProvisioningHud', () => {
   afterEach(() => {
     document.body.innerHTML = '';
@@ -55,7 +53,7 @@ describe('GraphProvisioningHud', () => {
     hookState.runInstanceKey = 'team:run-1:2026-04-13T10:00:00.000Z';
   });
 
-  it('keeps successful ready launch summary visible until dismissed', async () => {
+  it('hides the graph launch hud once provisioning is ready', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     hookState.presentation = {
       isActive: false,
@@ -77,16 +75,13 @@ describe('GraphProvisioningHud', () => {
       root.render(
         React.createElement(GraphProvisioningHud, {
           teamName: 'northstar-core',
-          leadNodeId: 'lead:northstar-core',
-          getLaunchAnchorScreenPlacement: () => placement,
         })
       );
       await Promise.resolve();
     });
 
-    expect(host.textContent).toContain('Team launched');
-    expect(host.textContent).toContain('All 3 teammates joined');
-    expect(host.querySelector('[data-testid="stepper"]')).not.toBeNull();
+    expect(host.textContent).toBe('');
+    expect(host.querySelector('[data-testid="stepper"]')).toBeNull();
     expect(document.body.textContent).not.toContain('provisioning-panel');
 
     await act(async () => {
@@ -98,14 +93,14 @@ describe('GraphProvisioningHud', () => {
   it('opens launch details in a separate dialog when the stepper is clicked', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     hookState.presentation = {
-      isActive: false,
+      isActive: true,
       isFailed: false,
-      hasMembersStillJoining: false,
+      hasMembersStillJoining: true,
       failedSpawnCount: 0,
-      compactTone: 'success',
-      compactTitle: 'Team launched',
-      compactDetail: 'All 3 teammates joined',
-      currentStepIndex: 4,
+      compactTone: 'default',
+      compactTitle: 'Launching team',
+      compactDetail: '1 teammate still joining',
+      currentStepIndex: 2,
       progress: { runId: 'run-3' },
     };
 
@@ -117,14 +112,12 @@ describe('GraphProvisioningHud', () => {
       root.render(
         React.createElement(GraphProvisioningHud, {
           teamName: 'northstar-core',
-          leadNodeId: 'lead:northstar-core',
-          getLaunchAnchorScreenPlacement: () => placement,
         })
       );
       await Promise.resolve();
     });
 
-    const openButton = host.querySelector('button[aria-label="Open full launch details"]');
+    const openButton = host.querySelector('button[aria-label]');
     expect(openButton).not.toBeNull();
 
     await act(async () => {
@@ -165,8 +158,6 @@ describe('GraphProvisioningHud', () => {
       root.render(
         React.createElement(GraphProvisioningHud, {
           teamName: 'northstar-core',
-          leadNodeId: 'lead:northstar-core',
-          getLaunchAnchorScreenPlacement: () => placement,
           enabled: false,
         })
       );

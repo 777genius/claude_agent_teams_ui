@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_PROVIDER_MODEL_SELECTION } from '@shared/utils/providerModelSelection';
 
 vi.mock('@main/services/team/ClaudeBinaryResolver', () => ({
   ClaudeBinaryResolver: { resolve: vi.fn() },
@@ -121,6 +122,187 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
       'anthropic',
       'codex',
     ]);
+  });
+
+  it('verifies the selected Codex model during prepare and records a success detail', async () => {
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'getCachedOrProbeResult').mockResolvedValue({
+      claudePath: '/fake/claude',
+      authSource: 'codex_runtime',
+    });
+    vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
+      env: {
+        PATH: '/usr/bin',
+        SHELL: '/bin/zsh',
+      },
+      authSource: 'codex_runtime',
+      geminiRuntimeAuth: null,
+    });
+    const spawnProbe = vi.spyOn(svc as any, 'spawnProbe').mockResolvedValue({
+      stdout: 'PONG',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const result = await svc.prepareForProvisioning(tempRoot, {
+      forceFresh: true,
+      providerId: 'codex',
+      modelIds: ['gpt-5.4'],
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.details).toContain('Selected model gpt-5.4 verified for launch.');
+    expect(spawnProbe).toHaveBeenCalledWith(
+      '/fake/claude',
+      expect.arrayContaining(['--model', 'gpt-5.4']),
+      tempRoot,
+      expect.any(Object),
+      60_000,
+      expect.any(Object)
+    );
+  });
+
+  it('verifies the resolved Codex default model during prepare', async () => {
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'getCachedOrProbeResult').mockResolvedValue({
+      claudePath: '/fake/claude',
+      authSource: 'codex_runtime',
+    });
+    vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
+      env: {
+        PATH: '/usr/bin',
+        SHELL: '/bin/zsh',
+      },
+      authSource: 'codex_runtime',
+      geminiRuntimeAuth: null,
+    });
+    vi.spyOn(svc as any, 'resolveProviderDefaultModel').mockResolvedValue('gpt-5.4-mini');
+    const spawnProbe = vi.spyOn(svc as any, 'spawnProbe').mockResolvedValue({
+      stdout: 'PONG',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const result = await svc.prepareForProvisioning(tempRoot, {
+      forceFresh: true,
+      providerId: 'codex',
+      modelIds: [DEFAULT_PROVIDER_MODEL_SELECTION],
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.details).toContain(
+      `Selected model ${DEFAULT_PROVIDER_MODEL_SELECTION} verified for launch.`
+    );
+    expect(spawnProbe).toHaveBeenCalledWith(
+      '/fake/claude',
+      expect.arrayContaining(['--model', 'gpt-5.4-mini']),
+      tempRoot,
+      expect.any(Object),
+      60_000,
+      expect.any(Object)
+    );
+  });
+
+  it('verifies the resolved Anthropic default model during prepare with limitContext', async () => {
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'getCachedOrProbeResult').mockResolvedValue({
+      claudePath: '/fake/claude',
+      authSource: 'oauth_token',
+    });
+    vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
+      env: {
+        PATH: '/usr/bin',
+        SHELL: '/bin/zsh',
+      },
+      authSource: 'oauth_token',
+      geminiRuntimeAuth: null,
+    });
+    const spawnProbe = vi.spyOn(svc as any, 'spawnProbe').mockResolvedValue({
+      stdout: 'PONG',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const result = await svc.prepareForProvisioning(tempRoot, {
+      forceFresh: true,
+      providerId: 'anthropic',
+      modelIds: [DEFAULT_PROVIDER_MODEL_SELECTION],
+      limitContext: true,
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.details).toContain(
+      `Selected model ${DEFAULT_PROVIDER_MODEL_SELECTION} verified for launch.`
+    );
+    expect(spawnProbe).toHaveBeenCalledWith(
+      '/fake/claude',
+      expect.arrayContaining(['--model', 'opus']),
+      tempRoot,
+      expect.any(Object),
+      60_000,
+      expect.any(Object)
+    );
+  });
+
+  it('fails prepare when the selected Codex model is unavailable', async () => {
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'getCachedOrProbeResult').mockResolvedValue({
+      claudePath: '/fake/claude',
+      authSource: 'codex_runtime',
+    });
+    vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
+      env: {
+        PATH: '/usr/bin',
+        SHELL: '/bin/zsh',
+      },
+      authSource: 'codex_runtime',
+      geminiRuntimeAuth: null,
+    });
+    vi.spyOn(svc as any, 'spawnProbe').mockRejectedValue(
+      new Error("The 'gpt-5.2-codex' model is not supported when using Codex with a ChatGPT account.")
+    );
+
+    const result = await svc.prepareForProvisioning(tempRoot, {
+      forceFresh: true,
+      providerId: 'codex',
+      modelIds: ['gpt-5.2-codex'],
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.message).toContain('Selected model gpt-5.2-codex is unavailable.');
+    expect(result.message).toContain('Not available with Codex ChatGPT subscription');
+  });
+
+  it('keeps timed out Codex model verification as a warning with a clean generic reason', async () => {
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'getCachedOrProbeResult').mockResolvedValue({
+      claudePath: '/fake/claude',
+      authSource: 'codex_runtime',
+    });
+    vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
+      env: {
+        PATH: '/usr/bin',
+        SHELL: '/bin/zsh',
+      },
+      authSource: 'codex_runtime',
+      geminiRuntimeAuth: null,
+    });
+    vi.spyOn(svc as any, 'spawnProbe').mockRejectedValue(
+      new Error(
+        'Timeout running: claude -p Output only the single word PONG. --output-format text --model gpt-5.3-codex --max-turns 1 --no-session-persistence'
+      )
+    );
+
+    const result = await svc.prepareForProvisioning(tempRoot, {
+      forceFresh: true,
+      providerId: 'codex',
+      modelIds: ['gpt-5.3-codex'],
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.warnings).toContain(
+      'Selected model gpt-5.3-codex could not be verified. Model verification timed out'
+    );
   });
 
   it('maps ANTHROPIC_AUTH_TOKEN into ANTHROPIC_API_KEY for headless preflight', async () => {

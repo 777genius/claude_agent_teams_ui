@@ -4,13 +4,13 @@
 
 export type SkillScope = 'user' | 'project';
 
-export type SkillRootKind = 'claude' | 'cursor' | 'agents';
+export type SkillRootKind = 'claude' | 'cursor' | 'agents' | 'codex';
 
 export type SkillSourceType = 'filesystem';
 
 export type SkillInvocationMode = 'auto' | 'manual-only';
 
-export type SkillIssueSeverity = 'warning' | 'error';
+export type SkillIssueSeverity = 'info' | 'warning' | 'error';
 
 export interface SkillDirectoryFlags {
   hasScripts: boolean;

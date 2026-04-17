@@ -33,9 +33,9 @@ export function useGraphInteraction(
     clickedNodeId.current = hit;
 
     if (hit) {
-      // Only allow drag on member/lead nodes, not tasks or processes
+      // Stable-slot layout keeps lead fixed in the center. Only members can be dragged between slots.
       const hitNode = nodes.find((n) => n.id === hit);
-      if (hitNode && (hitNode.kind === 'member' || hitNode.kind === 'lead')) {
+      if (hitNode?.kind === 'member') {
         dragNodeId.current = hit;
       }
     }

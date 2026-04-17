@@ -22,6 +22,11 @@ export { SkillsCatalogService } from './skills/SkillsCatalogService';
 export { SkillsMutationService } from './skills/SkillsMutationService';
 export { SkillsWatcherService } from './skills/SkillsWatcherService';
 export { SkillValidator } from './skills/SkillValidator';
+export {
+  ClaudeExtensionsAdapter,
+  createExtensionsRuntimeAdapter,
+  MultimodelExtensionsAdapter,
+} from './runtime/ExtensionsRuntimeAdapter';
 export { McpHealthDiagnosticsService } from './state/McpHealthDiagnosticsService';
 export { McpInstallationStateService } from './state/McpInstallationStateService';
 export { PluginInstallationStateService } from './state/PluginInstallationStateService';

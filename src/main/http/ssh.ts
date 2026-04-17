@@ -14,7 +14,7 @@
 
 import { createLogger } from '@shared/utils/logger';
 
-import { ConfigManager } from '../services';
+import { ConfigManager } from '../services/infrastructure/ConfigManager';
 
 import type {
   SshConnectionConfig,

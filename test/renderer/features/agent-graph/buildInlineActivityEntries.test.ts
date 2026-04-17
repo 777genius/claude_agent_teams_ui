@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildInlineActivityEntries,
   getGraphLeadMemberName,
-} from '@renderer/features/agent-graph/utils/buildInlineActivityEntries';
+} from '@features/agent-graph/core/domain/buildInlineActivityEntries';
 
 import type { InboxMessage, TeamData, TeamTaskWithKanban } from '@shared/types/team';
 
@@ -94,6 +94,43 @@ describe('buildInlineActivityEntries', () => {
     });
   });
 
+  it('keeps same-timestamp inbox items in stable source order inside newest-first lanes', () => {
+    const data = createBaseTeamData({
+      messages: [
+        {
+          from: 'team-lead',
+          to: 'alice',
+          text: 'Second in source order',
+          timestamp: '2026-03-28T19:00:01.000Z',
+          read: false,
+          messageId: 'msg-b',
+        },
+        {
+          from: 'team-lead',
+          to: 'alice',
+          text: 'First in source order',
+          timestamp: '2026-03-28T19:00:01.000Z',
+          read: false,
+          messageId: 'msg-a',
+        },
+      ],
+    });
+
+    const entries = buildInlineActivityEntries({
+      data,
+      teamName: 'my-team',
+      leadId: 'lead:my-team',
+      leadName: getGraphLeadMemberName(data, 'my-team'),
+      ownerNodeIds: new Set(['lead:my-team', 'member:my-team:alice', 'member:my-team:bob']),
+    });
+
+    const aliceEntries = entries.get('member:my-team:alice') ?? [];
+    expect(aliceEntries.map((entry) => entry.graphItem.id)).toEqual([
+      'activity:msg:my-team:msg-b',
+      'activity:msg:my-team:msg-a',
+    ]);
+  });
+
   it('builds synthetic comment messages that open with full task context and route owner-self comments to lead', () => {
     const data = createBaseTeamData({
       tasks: [
@@ -161,5 +198,73 @@ describe('buildInlineActivityEntries', () => {
       messageKind: 'task_comment_notification',
       taskRefs: [{ taskId: 'task-1', displayId: '#8fdd6803', teamName: 'my-team' }],
     });
+  });
+
+  it('routes comment activity to a member lane when task.owner is stored as stable owner id', () => {
+    const data = createBaseTeamData({
+      config: {
+        name: 'My Team',
+        members: [{ name: 'team-lead', agentId: 'lead-agent' }, { name: 'jack', agentId: 'agent-jack' }],
+        projectPath: '/repo',
+      },
+      tasks: [
+        {
+          id: 'task-stable-owner',
+          displayId: '#91',
+          subject: 'Stable owner routing',
+          owner: 'agent-jack',
+          status: 'in_progress',
+          comments: [
+            {
+              id: 'comment-stable-owner',
+              author: 'team-lead',
+              text: 'Проверь финальную сводку перед merge',
+              createdAt: '2026-03-28T19:00:03.000Z',
+              type: 'regular',
+            },
+          ],
+          reviewState: 'none',
+        } as unknown as TeamTaskWithKanban,
+      ],
+      members: [
+        {
+          name: 'team-lead',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+          agentType: 'team-lead',
+          agentId: 'lead-agent',
+        },
+        {
+          name: 'jack',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 1,
+          lastActiveAt: null,
+          messageCount: 0,
+          agentId: 'agent-jack',
+        },
+      ],
+    });
+
+    const entries = buildInlineActivityEntries({
+      data,
+      teamName: 'my-team',
+      leadId: 'lead:my-team',
+      leadName: getGraphLeadMemberName(data, 'my-team'),
+      ownerNodeIds: new Set(['lead:my-team', 'member:my-team:agent-jack']),
+    });
+
+    expect(entries.get('member:my-team:agent-jack')).toEqual([
+      expect.objectContaining({
+        graphItem: expect.objectContaining({
+          id: 'activity:comment:my-team:task-stable-owner:comment-stable-owner',
+          title: '#91 Stable owner routing',
+          taskId: 'task-stable-owner',
+        }),
+      }),
+    ]);
   });
 });

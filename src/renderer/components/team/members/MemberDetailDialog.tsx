@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import {
+  buildGraphMemberNodeIdForMember,
+  buildInlineActivityEntries,
+} from '@features/agent-graph/renderer';
 import { Button } from '@renderer/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from '@renderer/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
-import { buildInlineActivityEntries } from '@renderer/features/agent-graph/utils/buildInlineActivityEntries';
 import { useMemberStats } from '@renderer/hooks/useMemberStats';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { BarChart3, FileText, ListPlus, MessageSquare, UserMinus } from 'lucide-react';
@@ -88,7 +91,8 @@ export const MemberDetailDialog = ({
     const leadId = `lead:${teamName}`;
     const leadName =
       members.find((candidate) => isLeadMember(candidate))?.name ?? `${teamName}-lead`;
-    const ownerNodeId = member.name === leadName ? leadId : `member:${teamName}:${member.name}`;
+    const ownerNodeId =
+      member.name === leadName ? leadId : buildGraphMemberNodeIdForMember(teamName, member);
     const entries = buildInlineActivityEntries({
       data: {
         members,

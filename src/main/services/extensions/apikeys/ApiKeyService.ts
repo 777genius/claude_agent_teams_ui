@@ -39,6 +39,7 @@ interface StoredApiKey {
   encrypted?: boolean;
   encryptionMethod?: EncryptionMethod;
   scope: 'user' | 'project';
+  projectPath?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -73,6 +74,7 @@ export class ApiKeyService {
       envVarName: k.envVarName,
       maskedValue: this.mask(this.decrypt(k)),
       scope: k.scope,
+      projectPath: k.projectPath,
       createdAt: k.createdAt,
     }));
   }
@@ -86,6 +88,9 @@ export class ApiKeyService {
       );
     }
     if (!request.value) throw new Error('Key value is required');
+    if (request.scope === 'project' && (!request.projectPath || !request.projectPath.trim())) {
+      throw new Error('Project-scoped API keys require a project path');
+    }
 
     const keys = await this.readStore();
     const now = new Date().toISOString();
@@ -101,6 +106,7 @@ export class ApiKeyService {
         encryptedValue: value,
         encryptionMethod: method,
         scope: request.scope,
+        projectPath: request.scope === 'project' ? request.projectPath?.trim() : undefined,
         updatedAt: now,
       };
       delete keys[idx].encrypted;
@@ -112,6 +118,7 @@ export class ApiKeyService {
         encryptedValue: value,
         encryptionMethod: method,
         scope: request.scope,
+        projectPath: request.scope === 'project' ? request.projectPath?.trim() : undefined,
         createdAt: now,
       });
     }
@@ -124,6 +131,7 @@ export class ApiKeyService {
       envVarName: saved.envVarName,
       maskedValue: this.mask(request.value),
       scope: saved.scope,
+      projectPath: saved.projectPath,
       createdAt: saved.createdAt,
     };
   }
@@ -135,25 +143,36 @@ export class ApiKeyService {
     await this.writeStore(filtered);
   }
 
-  async lookup(envVarNames: string[]): Promise<ApiKeyLookupResult[]> {
+  async lookup(envVarNames: string[], projectPath?: string): Promise<ApiKeyLookupResult[]> {
     if (!envVarNames.length) return [];
     const keys = await this.readStore();
-    const nameSet = new Set(envVarNames);
-    return keys
-      .filter((k) => nameSet.has(k.envVarName))
-      .map((k) => ({
-        envVarName: k.envVarName,
-        value: this.decrypt(k),
-      }));
+    return Array.from(new Set(envVarNames)).flatMap((envVarName) => {
+      const preferred = this.pickPreferredKey(
+        keys.filter((key) => key.envVarName === envVarName),
+        projectPath
+      );
+      if (!preferred) {
+        return [];
+      }
+
+      return [
+        {
+          envVarName: preferred.envVarName,
+          value: this.decrypt(preferred),
+        },
+      ];
+    });
   }
 
-  async lookupPreferred(envVarName: string): Promise<ApiKeyLookupResult | null> {
+  async lookupPreferred(
+    envVarName: string,
+    projectPath?: string
+  ): Promise<ApiKeyLookupResult | null> {
     const keys = await this.readStore();
-    const matching = keys.filter((key) => key.envVarName === envVarName);
-    const preferred =
-      matching.find((key) => key.scope === 'user') ??
-      matching.find((key) => key.scope === 'project') ??
-      null;
+    const preferred = this.pickPreferredKey(
+      keys.filter((key) => key.envVarName === envVarName),
+      projectPath
+    );
 
     if (!preferred) {
       return null;
@@ -278,6 +297,20 @@ export class ApiKeyService {
   private resolveMethod(stored: StoredApiKey): EncryptionMethod {
     if (stored.encryptionMethod) return stored.encryptionMethod;
     return stored.encrypted ? 'safeStorage' : 'base64';
+  }
+
+  private pickPreferredKey(matching: StoredApiKey[], projectPath?: string): StoredApiKey | null {
+    const normalizedProjectPath = projectPath?.trim();
+    if (normalizedProjectPath) {
+      const projectMatch = matching.find(
+        (key) => key.scope === 'project' && key.projectPath === normalizedProjectPath
+      );
+      if (projectMatch) {
+        return projectMatch;
+      }
+    }
+
+    return matching.find((key) => key.scope === 'user') ?? null;
   }
 
   // ── AES-256-GCM local encryption ───────────────────────────────────────

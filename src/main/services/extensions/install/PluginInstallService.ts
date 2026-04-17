@@ -7,12 +7,14 @@
 
 import { ClaudeBinaryResolver } from '@main/services/team/ClaudeBinaryResolver';
 import { execCli } from '@main/utils/childProcess';
-import { buildEnrichedEnv } from '@main/utils/cliEnv';
 import { CLI_NOT_FOUND_MESSAGE } from '@shared/constants/cli';
 import { createLogger } from '@shared/utils/logger';
 import path from 'path';
 
+import { createExtensionsRuntimeAdapter } from '../runtime/ExtensionsRuntimeAdapter';
+
 import type { PluginCatalogService } from '../catalog/PluginCatalogService';
+import type { ExtensionsRuntimeAdapter } from '../runtime/ExtensionsRuntimeAdapter';
 import type { OperationResult, PluginInstallRequest } from '@shared/types/extensions';
 
 const logger = createLogger('Extensions:PluginInstall');
@@ -26,8 +28,15 @@ const VALID_SCOPES = new Set(['local', 'user', 'project']);
 const INSTALL_TIMEOUT_MS = 120_000; // plugins may clone repos
 const UNINSTALL_TIMEOUT_MS = 30_000;
 
+function scopeRequiresProjectPath(scope?: string): boolean {
+  return scope === 'project' || scope === 'local';
+}
+
 export class PluginInstallService {
-  constructor(private readonly catalogService: PluginCatalogService) {}
+  constructor(
+    private readonly catalogService: PluginCatalogService,
+    private readonly runtimeAdapter: ExtensionsRuntimeAdapter = createExtensionsRuntimeAdapter()
+  ) {}
 
   async install(request: PluginInstallRequest): Promise<OperationResult> {
     const { pluginId, scope, projectPath } = request;
@@ -45,6 +54,13 @@ export class PluginInstallService {
       return {
         state: 'error',
         error: 'projectPath must be an absolute path',
+      };
+    }
+
+    if (scopeRequiresProjectPath(scope) && !projectPath) {
+      return {
+        state: 'error',
+        error: `projectPath is required for ${scope}-scoped plugin installs`,
       };
     }
 
@@ -84,11 +100,12 @@ export class PluginInstallService {
           error: CLI_NOT_FOUND_MESSAGE,
         };
       }
+      const env = await this.runtimeAdapter.buildManagementCliEnv(claudeBinary);
 
       const { stdout, stderr } = await execCli(claudeBinary, args, {
         timeout: INSTALL_TIMEOUT_MS,
         cwd: projectPath,
-        env: buildEnrichedEnv(claudeBinary),
+        env,
       });
 
       if (stderr && !stdout) {
@@ -120,6 +137,13 @@ export class PluginInstallService {
       return {
         state: 'error',
         error: 'projectPath must be an absolute path',
+      };
+    }
+
+    if (scopeRequiresProjectPath(scope) && !projectPath) {
+      return {
+        state: 'error',
+        error: `projectPath is required for ${scope}-scoped plugin uninstalls`,
       };
     }
 
@@ -157,11 +181,12 @@ export class PluginInstallService {
           error: CLI_NOT_FOUND_MESSAGE,
         };
       }
+      const env = await this.runtimeAdapter.buildManagementCliEnv(claudeBinary);
 
       await execCli(claudeBinary, args, {
         timeout: UNINSTALL_TIMEOUT_MS,
         cwd: projectPath,
-        env: buildEnrichedEnv(claudeBinary),
+        env,
       });
       return { state: 'success' };
     } catch (err) {

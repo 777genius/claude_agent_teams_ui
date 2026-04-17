@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TeamGraphAdapter } from '@renderer/features/agent-graph/adapters/TeamGraphAdapter';
+import { TeamGraphAdapter } from '@features/agent-graph/renderer/adapters/TeamGraphAdapter';
 
 import type { InboxMessage, TeamData, TeamTaskWithKanban } from '@shared/types/team';
 import type { GraphDataPort } from '@claude-teams/agent-graph';
@@ -66,6 +66,65 @@ describe('TeamGraphAdapter particles', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('builds ownerOrder from config member order instead of transient member array order', () => {
+    const adapter = TeamGraphAdapter.create();
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        config: {
+          name: 'My Team',
+          members: [{ name: 'team-lead' }, { name: 'alice' }, { name: 'bob' }, { name: 'tom' }],
+          projectPath: '/repo',
+        },
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+          },
+          {
+            name: 'tom',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+          {
+            name: 'bob',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+        ],
+      }),
+      'my-team',
+      undefined,
+      undefined,
+      undefined,
+      new Set()
+    );
+
+    expect(graph.layout?.ownerOrder).toEqual([
+      'member:my-team:alice',
+      'member:my-team:bob',
+      'member:my-team:tom',
+    ]);
   });
 
   it('creates a message particle for a new incoming message from the newest message set', () => {
@@ -167,6 +226,195 @@ describe('TeamGraphAdapter particles', () => {
     );
 
     expect(graph.particles).toHaveLength(0);
+  });
+
+  it('fails closed when visible members would silently merge on duplicate stable owner ids', () => {
+    const adapter = TeamGraphAdapter.create();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        config: {
+          name: 'My Team',
+          members: [
+            { name: 'team-lead' },
+            { name: 'alice', agentId: 'shared-agent' },
+            { name: 'bob', agentId: 'shared-agent' },
+          ],
+          projectPath: '/repo',
+        },
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+            agentId: 'lead-agent',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentId: 'shared-agent',
+          },
+          {
+            name: 'bob',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentId: 'shared-agent',
+          },
+        ],
+      }),
+      'my-team'
+    );
+
+    expect(graph.nodes).toEqual([]);
+    expect(graph.edges).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[agent-graph] duplicate stable owner ids in team=my-team: shared-agent'
+    );
+
+    errorSpy.mockRestore();
+  });
+
+  it('prioritizes owners with saved slot assignments before config-only members in layout order', () => {
+    const adapter = TeamGraphAdapter.create();
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        config: {
+          name: 'My Team',
+          members: [
+            { name: 'team-lead', agentId: 'lead-agent' },
+            { name: 'bob', agentId: 'agent-bob' },
+            { name: 'alice', agentId: 'agent-alice' },
+          ],
+          projectPath: '/repo',
+        },
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+            agentId: 'lead-agent',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentId: 'agent-alice',
+          },
+          {
+            name: 'bob',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentId: 'agent-bob',
+          },
+        ],
+      }),
+      'my-team',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        'agent-alice': { ringIndex: 0, sectorIndex: 2 },
+      }
+    );
+
+    expect(graph.layout?.ownerOrder).toEqual([
+      'member:my-team:agent-alice',
+      'member:my-team:agent-bob',
+    ]);
+  });
+
+  it('keeps assigned owners ahead of config-only members even when the assigned owner is absent from config order', () => {
+    const adapter = TeamGraphAdapter.create();
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        config: {
+          name: 'My Team',
+          members: [
+            { name: 'team-lead', agentId: 'lead-agent' },
+            { name: 'bob', agentId: 'agent-bob' },
+          ],
+          projectPath: '/repo',
+        },
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+            agentId: 'lead-agent',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentId: 'agent-alice',
+          },
+          {
+            name: 'bob',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentId: 'agent-bob',
+          },
+        ],
+      }),
+      'my-team',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        'agent-alice': { ringIndex: 1, sectorIndex: 4 },
+      }
+    );
+
+    expect(graph.layout?.ownerOrder).toEqual([
+      'member:my-team:agent-alice',
+      'member:my-team:agent-bob',
+    ]);
   });
 
   it('does not replay old task comments that appear after the graph already opened', () => {
@@ -459,7 +707,7 @@ describe('TeamGraphAdapter particles', () => {
     const graph = adapter.adapt(next, 'my-team');
 
     expect(graph.particles).toHaveLength(2);
-    expect(graph.particles.map((particle) => particle.kind).sort()).toEqual([
+    expect(graph.particles.map((particle) => particle.kind).toSorted((a, b) => a.localeCompare(b))).toEqual([
       'inbox_message',
       'task_comment',
     ]);
@@ -547,6 +795,80 @@ describe('TeamGraphAdapter particles', () => {
     ]);
   });
 
+  it('resolves task and process owners by stable owner id aliases, not only member names', () => {
+    const adapter = TeamGraphAdapter.create();
+
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        config: {
+          name: 'My Team',
+          members: [
+            { name: 'team-lead', agentId: 'lead-agent' },
+            { name: 'alice', agentId: 'agent-alice' },
+          ],
+          projectPath: '/repo',
+        },
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+            agentId: 'lead-agent',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentId: 'agent-alice',
+          },
+        ],
+        tasks: [
+          {
+            id: 'task-owned-by-stable-id',
+            displayId: '#42',
+            subject: 'Stable owner task',
+            owner: 'agent-alice',
+            status: 'completed',
+            comments: [],
+            reviewState: 'none',
+          } as TeamTaskWithKanban,
+        ],
+        processes: [
+          {
+            id: 'proc-owned-by-stable-id',
+            label: 'Stable owner process',
+            pid: 4242,
+            registeredBy: 'agent-alice',
+            registeredAt: '2026-03-28T19:00:02.000Z',
+          },
+        ],
+      }),
+      'my-team'
+    );
+
+    expect(findNode(graph, 'task:my-team:task-owned-by-stable-id')).toMatchObject({
+      ownerId: 'member:my-team:agent-alice',
+      taskStatus: 'completed',
+    });
+    expect(findNode(graph, 'process:my-team:proc-owned-by-stable-id')).toMatchObject({
+      ownerId: 'member:my-team:agent-alice',
+    });
+    expect(
+      graph.edges.some(
+        (edge) =>
+          edge.id ===
+          'edge:own:member:my-team:agent-alice:task:my-team:task-owned-by-stable-id'
+      )
+    ).toBe(true);
+  });
+
   it('skips noisy idle inbox rows in the activity feed while keeping cross-team traffic on the lead lane', () => {
     const adapter = TeamGraphAdapter.create();
 
@@ -603,6 +925,123 @@ describe('TeamGraphAdapter particles', () => {
     expect(graph.particles.every((particle) => particle.kind === 'inbox_message')).toBe(true);
   });
 
+  it('keeps only one most relevant process rail per owner and prefers running over finished', () => {
+    const adapter = TeamGraphAdapter.create();
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+        ],
+        config: {
+          name: 'My Team',
+          members: [{ name: 'team-lead' }, { name: 'alice' }],
+          projectPath: '/repo',
+        },
+        processes: [
+          {
+            id: 'proc-finished',
+            label: 'Build API',
+            pid: 101,
+            registeredBy: 'alice',
+            registeredAt: '2026-03-28T19:00:01.000Z',
+            stoppedAt: '2026-03-28T19:00:10.000Z',
+          },
+          {
+            id: 'proc-running',
+            label: 'Watch dev server',
+            pid: 102,
+            registeredBy: 'alice',
+            registeredAt: '2026-03-28T19:00:02.000Z',
+          },
+        ],
+      }),
+      'my-team'
+    );
+
+    const processNodes = graph.nodes.filter((node) => node.kind === 'process');
+    expect(processNodes).toHaveLength(1);
+    expect(processNodes[0]).toMatchObject({
+      id: 'process:my-team:proc-running',
+      ownerId: 'member:my-team:alice',
+      label: 'Watch dev server',
+    });
+  });
+
+  it('falls back to the most recent finished process when no running process exists', () => {
+    const adapter = TeamGraphAdapter.create();
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+        ],
+        config: {
+          name: 'My Team',
+          members: [{ name: 'team-lead' }, { name: 'alice' }],
+          projectPath: '/repo',
+        },
+        processes: [
+          {
+            id: 'proc-old-finished',
+            label: 'Older finished process',
+            pid: 101,
+            registeredBy: 'alice',
+            registeredAt: '2026-03-28T19:00:01.000Z',
+            stoppedAt: '2026-03-28T19:00:10.000Z',
+          },
+          {
+            id: 'proc-new-finished',
+            label: 'Newest finished process',
+            pid: 102,
+            registeredBy: 'alice',
+            registeredAt: '2026-03-28T19:00:03.000Z',
+            stoppedAt: '2026-03-28T19:00:11.000Z',
+          },
+        ],
+      }),
+      'my-team'
+    );
+
+    const processNodes = graph.nodes.filter((node) => node.kind === 'process');
+    expect(processNodes).toHaveLength(1);
+    expect(processNodes[0]).toMatchObject({
+      id: 'process:my-team:proc-new-finished',
+      ownerId: 'member:my-team:alice',
+      label: 'Newest finished process',
+    });
+  });
+
   it('derives graph launch visuals from shared provisioning semantics', () => {
     const adapter = TeamGraphAdapter.create();
     const graph = adapter.adapt(
@@ -635,7 +1074,10 @@ describe('TeamGraphAdapter particles', () => {
       } as never
     );
 
-    expect(findNode(graph, 'member:my-team:alice')?.launchVisualState).toBe('runtime_pending');
+    expect(findNode(graph, 'member:my-team:alice')).toMatchObject({
+      launchVisualState: 'runtime_pending',
+      launchStatusLabel: 'connecting',
+    });
   });
 
   it('keeps confirmed teammates in settling visuals while launch is still joining', () => {
@@ -682,7 +1124,10 @@ describe('TeamGraphAdapter particles', () => {
       } as never
     );
 
-    expect(findNode(graph, 'member:my-team:alice')?.launchVisualState).toBe('settling');
+    expect(findNode(graph, 'member:my-team:alice')).toMatchObject({
+      launchVisualState: 'settling',
+      launchStatusLabel: 'joining team',
+    });
   });
 
   it('scopes inbox particle ids by team name to avoid cross-team collisions', () => {

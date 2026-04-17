@@ -1,9 +1,9 @@
 import { NODE } from '../constants/canvas-constants';
 import {
   ACTIVITY_ANCHOR_LAYOUT,
-  getActivityAnchorTarget,
-  getActivityLaneBounds,
+  resolveActivityLaneSide,
 } from './activityLane';
+import { createStableSlotLaunchAnchorLayout } from './stableSlotGeometry';
 
 export interface WorldBounds {
   left: number;
@@ -19,17 +19,9 @@ export interface LaunchAnchorScreenPlacement {
   visible: boolean;
 }
 
-export const LAUNCH_ANCHOR_LAYOUT = {
-  compactWidth: 336,
-  compactHeight: 132,
-  anchorCenterOffsetX: 336 / 2 + NODE.radiusLead + 40,
-  anchorCenterOffsetY: -(132 / 2 + NODE.radiusLead + 36),
-  collisionRadius: Math.ceil(Math.hypot(336 / 2, 132 / 2)) + 14,
-  viewportPadding: 12,
-  visiblePadding: 80,
-  minScale: 0,
-  maxScale: 1,
-} as const;
+export const LAUNCH_ANCHOR_LAYOUT = createStableSlotLaunchAnchorLayout({
+  radiusLead: NODE.radiusLead,
+});
 
 const LAUNCH_ANCHOR_PREFIX = '__launch_anchor__:';
 const ACTIVITY_ANCHOR_PREFIX = '__activity_anchor__:';
@@ -76,9 +68,38 @@ export const getLaunchHudBounds = getLaunchAnchorBounds;
 export const HANDOFF_ANCHOR_LAYOUT = ACTIVITY_ANCHOR_LAYOUT;
 export const getHandoffAnchorId = getActivityAnchorId;
 export const isHandoffAnchorId = isActivityAnchorId;
-export { getActivityAnchorTarget };
-export const getHandoffAnchorTarget = getActivityAnchorTarget;
-export const getHandoffAnchorBounds = getActivityLaneBounds;
+
+export function getHandoffAnchorTarget(args: {
+  nodeX: number;
+  nodeY: number;
+  nodeKind: 'lead' | 'member';
+  leadX?: number | null;
+}): { x: number; y: number } {
+  const { nodeX, nodeY, nodeKind, leadX } = args;
+  const side = resolveActivityLaneSide({ nodeKind, nodeX, leadX });
+  if (side === 'left') {
+    return {
+      x: nodeX + ACTIVITY_ANCHOR_LAYOUT.leadOffsetX,
+      y: nodeY + ACTIVITY_ANCHOR_LAYOUT.leadOffsetY,
+    };
+  }
+
+  return {
+    x: nodeX + ACTIVITY_ANCHOR_LAYOUT.memberOffsetX,
+    y: nodeY + ACTIVITY_ANCHOR_LAYOUT.memberOffsetY,
+  };
+}
+
+export function getHandoffAnchorBounds(anchorX: number, anchorY: number): WorldBounds {
+  const halfWidth = ACTIVITY_ANCHOR_LAYOUT.reservedWidth / 2;
+  const halfHeight = ACTIVITY_ANCHOR_LAYOUT.reservedHeight / 2;
+  return {
+    left: anchorX - halfWidth,
+    top: anchorY - halfHeight,
+    right: anchorX + halfWidth,
+    bottom: anchorY + halfHeight,
+  };
+}
 
 export function getLaunchAnchorScreenPlacement(args: {
   anchorX: number;

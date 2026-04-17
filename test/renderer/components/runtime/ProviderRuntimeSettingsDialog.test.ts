@@ -149,6 +149,7 @@ vi.mock('@renderer/components/common/ProviderBrandLogo', () => ({
 }));
 
 import { ProviderRuntimeSettingsDialog } from '@renderer/components/runtime/ProviderRuntimeSettingsDialog';
+import { createDefaultCliExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
 
 function createCodexProvider(
   overrides?: Partial<CliProviderStatus['connection']> & {
@@ -169,6 +170,7 @@ function createCodexProvider(
     capabilities: {
       teamLaunch: true,
       oneShot: true,
+      extensions: createDefaultCliExtensionCapabilities(),
     },
     selectedBackendId: 'auto',
     resolvedBackendId: 'adapter',
@@ -210,6 +212,7 @@ function createAnthropicProvider(
     capabilities: {
       teamLaunch: true,
       oneShot: true,
+      extensions: createDefaultCliExtensionCapabilities(),
     },
     selectedBackendId: null,
     resolvedBackendId: null,
@@ -241,6 +244,7 @@ function createGeminiProvider(): CliProviderStatus {
     capabilities: {
       teamLaunch: true,
       oneShot: true,
+      extensions: createDefaultCliExtensionCapabilities(),
     },
     selectedBackendId: 'auto',
     resolvedBackendId: 'api',

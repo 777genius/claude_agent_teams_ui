@@ -16,12 +16,12 @@ import { AlertCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 
 import { TaskActivityLinkedToolCard } from './TaskActivityLinkedToolCard';
 
+import type { AIGroupDisplayItem, LinkedToolItem } from '@renderer/types/groups';
 import type {
   BoardTaskActivityDetail,
   BoardTaskActivityEntry,
   BoardTaskActivityTaskRef,
 } from '@shared/types';
-import type { AIGroupDisplayItem, LinkedToolItem } from '@renderer/types/groups';
 
 interface TaskActivitySectionProps {
   teamName: string;
@@ -80,6 +80,14 @@ type ActivityDetailState =
   | { status: 'error'; error: string }
   | { status: 'ok'; detail: BoardTaskActivityDetail };
 
+type ActivityMetadataProps = Readonly<{
+  detail: BoardTaskActivityDetail;
+}>;
+
+type ActivityDetailPanelProps = Readonly<{
+  detailState: ActivityDetailState;
+}>;
+
 function normalizeDetail(detail: BoardTaskActivityDetail): BoardTaskActivityDetail {
   if (!detail.logDetail) {
     return detail;
@@ -117,11 +125,7 @@ function getFirstRenderableLinkedTool(detail: BoardTaskActivityDetail): LinkedTo
   return null;
 }
 
-function ActivityMetadata({
-  detail,
-}: {
-  detail: BoardTaskActivityDetail;
-}): React.JSX.Element | null {
+const ActivityMetadata = ({ detail }: ActivityMetadataProps): React.JSX.Element | null => {
   const hasMetadata = detail.metadataRows.length > 0;
   const hasContext = detail.contextLines.length > 0;
 
@@ -155,16 +159,12 @@ function ActivityMetadata({
       ) : null}
     </div>
   );
-}
+};
 
-function ActivityDetailPanel({
-  detailState,
-}: {
-  detailState: ActivityDetailState;
-}): React.JSX.Element {
+const ActivityDetailPanel = ({ detailState }: ActivityDetailPanelProps): React.JSX.Element => {
   if (detailState.status === 'loading') {
     return (
-      <div className="border-[var(--color-border)]/20 bg-[var(--color-bg-elevated)]/18 flex items-center gap-2 rounded-md border px-3 py-3 text-xs text-[var(--color-text-muted)]">
+      <div className="border-[var(--color-border)]/20 bg-[var(--color-bg-elevated)]/18 flex items-center gap-2 rounded-md border p-3 text-xs text-[var(--color-text-muted)]">
         <Loader2 size={12} className="animate-spin" />
         Loading activity details...
       </div>
@@ -182,7 +182,7 @@ function ActivityDetailPanel({
 
   if (detailState.status === 'missing') {
     return (
-      <div className="border-[var(--color-border)]/20 bg-[var(--color-bg-elevated)]/18 rounded-md border px-3 py-3 text-xs text-[var(--color-text-muted)]">
+      <div className="border-[var(--color-border)]/20 bg-[var(--color-bg-elevated)]/18 rounded-md border p-3 text-xs text-[var(--color-text-muted)]">
         Detailed transcript context is no longer available for this activity.
       </div>
     );
@@ -202,7 +202,7 @@ function ActivityDetailPanel({
       {linkedTool ? <TaskActivityLinkedToolCard linkedTool={linkedTool} /> : null}
     </div>
   );
-}
+};
 
 const Row = ({
   detailState,

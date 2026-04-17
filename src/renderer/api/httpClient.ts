@@ -6,6 +6,7 @@
  * to run in a regular browser connected to an HTTP server.
  */
 
+import type { DashboardRecentProjectsPayload } from '@features/recent-projects/contracts';
 import type {
   AppConfig,
   AttachmentFileData,
@@ -20,6 +21,7 @@ import type {
   ConfigAPI,
   ContextInfo,
   ConversationGroup,
+  CreateScheduleInput,
   CreateTaskRequest,
   CrossTeamAPI,
   ElectronAPI,
@@ -70,6 +72,7 @@ import type {
   TriggerTestResult,
   UpdateKanbanPatch,
   UpdaterAPI,
+  UpdateSchedulePatch,
   WaterfallData,
   WslClaudeRootCandidate,
 } from '@shared/types';
@@ -213,6 +216,9 @@ export class HttpAPIClient implements ElectronAPI {
   // ---------------------------------------------------------------------------
 
   getAppVersion = (): Promise<string> => this.get<string>('/api/version');
+
+  getDashboardRecentProjects = (): Promise<DashboardRecentProjectsPayload> =>
+    this.get<DashboardRecentProjectsPayload>('/api/dashboard/recent-projects');
 
   getProjects = (): Promise<Project[]> => this.get<Project[]>('/api/projects');
 
@@ -711,7 +717,9 @@ export class HttpAPIClient implements ElectronAPI {
     prepareProvisioning: async (
       _cwd?: string,
       _providerId?: TeamLaunchRequest['providerId'],
-      _providerIds?: TeamLaunchRequest['providerId'][]
+      _providerIds?: TeamLaunchRequest['providerId'][],
+      _selectedModels?: string[],
+      _limitContext?: boolean
     ): Promise<TeamProvisioningPrepareResult> => {
       throw new Error('Team provisioning is not available in browser mode');
     },
@@ -1111,6 +1119,7 @@ export class HttpAPIClient implements ElectronAPI {
       providers: [],
     }),
     getProviderStatus: async (): Promise<null> => null,
+    verifyProviderModels: async (): Promise<null> => null,
     install: async (): Promise<void> => {
       console.warn('[HttpAPIClient] CLI installer not available in browser mode');
     },
@@ -1122,14 +1131,58 @@ export class HttpAPIClient implements ElectronAPI {
 
   tmux: TmuxAPI = {
     getStatus: async (): Promise<TmuxStatus> => ({
-      available: true,
-      version: null,
-      binaryPath: null,
       platform: 'unknown',
-      nativeSupported: true,
+      nativeSupported: false,
       checkedAt: new Date().toISOString(),
+      host: {
+        available: false,
+        version: null,
+        binaryPath: null,
+        error: null,
+      },
+      effective: {
+        available: false,
+        location: null,
+        version: null,
+        binaryPath: null,
+        runtimeReady: false,
+        detail: 'tmux diagnostics are not available in browser mode.',
+      },
       error: null,
+      autoInstall: {
+        supported: false,
+        strategy: 'manual',
+        packageManagerLabel: null,
+        requiresTerminalInput: false,
+        requiresAdmin: false,
+        requiresRestart: false,
+        mayOpenExternalWindow: false,
+        reasonIfUnsupported: 'tmux installation is only available in Electron mode.',
+        manualHints: [],
+      },
     }),
+    getInstallerSnapshot: async () => ({
+      phase: 'idle',
+      strategy: null,
+      message: null,
+      detail: 'tmux installer is not available in browser mode.',
+      error: null,
+      canCancel: false,
+      acceptsInput: false,
+      inputPrompt: null,
+      inputSecret: false,
+      logs: [],
+      updatedAt: new Date().toISOString(),
+    }),
+    install: async (): Promise<void> => {
+      throw new Error('tmux installer is not available in browser mode');
+    },
+    cancelInstall: async (): Promise<void> => {},
+    submitInstallerInput: async (): Promise<void> => {},
+    invalidateStatus: async (): Promise<void> => {},
+    onProgress: (): (() => void) => {
+      return () => {};
+    },
   };
 
   // ---------------------------------------------------------------------------
@@ -1218,42 +1271,48 @@ export class HttpAPIClient implements ElectronAPI {
     },
   };
 
-  schedules = {
+  schedules: ElectronAPI['schedules'] = {
     list: async () => {
       console.warn('Schedules not available in browser mode');
       return [] as Schedule[];
     },
-    get: async () => {
+    get: async (_id: string): Promise<Schedule | null> => {
       console.warn('Schedules not available in browser mode');
       return null;
     },
-    create: async () => {
+    create: async (_input: CreateScheduleInput): Promise<Schedule> => {
       throw new Error('Schedules not available in browser mode');
     },
-    update: async () => {
+    update: async (_id: string, _patch: UpdateSchedulePatch): Promise<Schedule> => {
       throw new Error('Schedules not available in browser mode');
     },
-    delete: async () => {
+    delete: async (_id: string): Promise<void> => {
       throw new Error('Schedules not available in browser mode');
     },
-    pause: async () => {
+    pause: async (_id: string): Promise<void> => {
       throw new Error('Schedules not available in browser mode');
     },
-    resume: async () => {
+    resume: async (_id: string): Promise<void> => {
       throw new Error('Schedules not available in browser mode');
     },
-    triggerNow: async () => {
+    triggerNow: async (_id: string): Promise<ScheduleRun> => {
       throw new Error('Schedules not available in browser mode');
     },
-    getRuns: async () => {
+    getRuns: async (
+      _scheduleId: string,
+      _opts?: { limit?: number; offset?: number }
+    ): Promise<ScheduleRun[]> => {
       console.warn('Schedules not available in browser mode');
       return [] as ScheduleRun[];
     },
-    getRunLogs: async () => {
+    getRunLogs: async (
+      _scheduleId: string,
+      _runId: string
+    ): Promise<{ stdout: string; stderr: string }> => {
       console.warn('Schedules not available in browser mode');
       return { stdout: '', stderr: '' };
     },
-    onScheduleChange: () => {
+    onScheduleChange: (): (() => void) => {
       return () => {};
     },
   };

@@ -10,13 +10,17 @@ import { extractProviderScopedBaseModel } from '@renderer/utils/teamModelContext
 import { IpcError, unwrapIpc } from '@renderer/utils/unwrapIpc';
 import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { DEFAULT_TOOL_APPROVAL_SETTINGS } from '@shared/types/team';
+import { isLeadMember } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
 import { getTaskKanbanColumn } from '@shared/utils/reviewState';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
+import { buildTeamGraphDefaultLayoutSeed } from '@shared/utils/teamGraphDefaultLayout';
+import { getStableTeamOwnerId } from '@shared/utils/teamStableOwnerId';
 
 import { getWorktreeNavigationState } from '../utils/stateResetHelpers';
 
 import type { AppState } from '../types';
+import type { GraphOwnerSlotAssignment } from '@claude-teams/agent-graph';
 import type { AppConfig } from '@renderer/types/data';
 import type { TeamMessagesPanelMode } from '@renderer/types/teamMessagesPanelMode';
 import type {
@@ -52,6 +56,8 @@ import type {
 } from '@shared/types';
 import type { StateCreator } from 'zustand';
 
+const GRAPH_STABLE_SLOT_LAYOUT_VERSION = 'stable-slots-v1' as const;
+const DISABLE_PERSISTED_TEAM_GRAPH_SLOT_ASSIGNMENTS = true;
 const logger = createLogger('teamSlice');
 
 const TEAM_GET_DATA_TIMEOUT_MS = 30_000;
@@ -81,6 +87,17 @@ const memberSpawnUiEqualLastWarnAtByTeam = new Map<string, number>();
 interface RefreshTeamDataOptions {
   withDedup?: boolean;
 }
+
+type TeamGraphSlotAssignments = Record<string, GraphOwnerSlotAssignment>;
+type TeamGraphMemberSeedInput = Pick<TeamData['members'][number], 'name' | 'agentId' | 'removedAt'>;
+type TeamGraphConfigMemberSeedInput = Pick<
+  NonNullable<TeamData['config']['members']>[number],
+  'name' | 'agentId' | 'removedAt'
+>;
+type TeamGraphLayoutSessionState = {
+  mode: 'default' | 'manual';
+  signature: string | null;
+};
 
 export function isTeamDataRefreshPending(teamName: string): boolean {
   return (
@@ -355,6 +372,7 @@ function areMemberSpawnStatusEntriesEqual(
     left.error === right.error &&
     left.livenessSource === right.livenessSource &&
     left.runtimeAlive === right.runtimeAlive &&
+    left.runtimeModel === right.runtimeModel &&
     left.bootstrapConfirmed === right.bootstrapConfirmed &&
     left.hardFailure === right.hardFailure
   );
@@ -936,6 +954,129 @@ export function selectTeamDataForName(
   );
 }
 
+function migrateStableSlotAssignmentsForMembers(
+  assignments: TeamGraphSlotAssignments | undefined,
+  members: readonly TeamGraphMemberSeedInput[]
+): { assignments: TeamGraphSlotAssignments; changed: boolean } {
+  const nextAssignments: TeamGraphSlotAssignments = { ...(assignments ?? {}) };
+  let changed = false;
+
+  for (const member of members) {
+    const fallbackKey = member.name.trim();
+    const stableOwnerId = getStableTeamOwnerId(member);
+    const fallbackAssignment = nextAssignments[fallbackKey];
+    const stableAssignment = nextAssignments[stableOwnerId];
+
+    if (stableOwnerId !== fallbackKey && fallbackAssignment && !stableAssignment) {
+      nextAssignments[stableOwnerId] = fallbackAssignment;
+      delete nextAssignments[fallbackKey];
+      changed = true;
+      continue;
+    }
+
+    if (stableOwnerId !== fallbackKey && fallbackAssignment && stableAssignment) {
+      delete nextAssignments[fallbackKey];
+      changed = true;
+    }
+  }
+
+  return { assignments: nextAssignments, changed };
+}
+
+function seedStableSlotAssignmentsForMembers(
+  assignments: TeamGraphSlotAssignments,
+  members: readonly TeamGraphMemberSeedInput[],
+  configMembers: readonly TeamGraphConfigMemberSeedInput[] = []
+): { assignments: TeamGraphSlotAssignments; changed: boolean } {
+  const defaultSeed = buildTeamGraphDefaultLayoutSeed(members, configMembers);
+  if (
+    defaultSeed.orderedVisibleOwnerIds.length === 0 ||
+    Object.keys(defaultSeed.assignments).length === 0
+  ) {
+    return { assignments, changed: false };
+  }
+
+  const visibleStableOwnerIds = defaultSeed.orderedVisibleOwnerIds;
+  const hasAnyVisibleAssignments = visibleStableOwnerIds.some(
+    (stableOwnerId) => assignments[stableOwnerId] != null
+  );
+  if (hasAnyVisibleAssignments) {
+    return { assignments, changed: false };
+  }
+
+  const nextAssignments: TeamGraphSlotAssignments = { ...assignments };
+  visibleStableOwnerIds.forEach((stableOwnerId) => {
+    nextAssignments[stableOwnerId] = defaultSeed.assignments[stableOwnerId]!;
+  });
+
+  return { assignments: nextAssignments, changed: true };
+}
+
+function areTeamGraphSlotAssignmentsEqual(
+  left: TeamGraphSlotAssignments | undefined,
+  right: TeamGraphSlotAssignments | undefined
+): boolean {
+  const leftEntries = Object.entries(left ?? {});
+  const rightEntries = Object.entries(right ?? {});
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+
+  for (const [stableOwnerId, leftAssignment] of leftEntries) {
+    const rightAssignment = right?.[stableOwnerId];
+    if (
+      !rightAssignment ||
+      rightAssignment.ringIndex !== leftAssignment.ringIndex ||
+      rightAssignment.sectorIndex !== leftAssignment.sectorIndex
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function normalizeTeamGraphSlotAssignmentsForVisibleOwners(
+  assignments: TeamGraphSlotAssignments | undefined,
+  visibleOwnerIds: readonly string[]
+): TeamGraphSlotAssignments {
+  if (visibleOwnerIds.length === 0 || !assignments) {
+    return {};
+  }
+
+  const normalizedAssignments: TeamGraphSlotAssignments = {};
+  for (const stableOwnerId of visibleOwnerIds) {
+    const assignment = assignments[stableOwnerId];
+    if (!assignment) {
+      continue;
+    }
+    normalizedAssignments[stableOwnerId] = assignment;
+  }
+  return normalizedAssignments;
+}
+
+function pruneTeamGraphSlotAssignmentsForVisibleOwners(
+  assignments: TeamGraphSlotAssignments | undefined,
+  visibleOwnerIds: readonly string[]
+): TeamGraphSlotAssignments | undefined {
+  const normalizedAssignments = normalizeTeamGraphSlotAssignmentsForVisibleOwners(
+    assignments,
+    visibleOwnerIds
+  );
+  return Object.keys(normalizedAssignments).length > 0 ? normalizedAssignments : undefined;
+}
+
+export function getDefaultTeamGraphSlotAssignmentsForMembers(
+  members: readonly TeamGraphMemberSeedInput[],
+  configMembers: readonly TeamGraphConfigMemberSeedInput[] = []
+): TeamGraphSlotAssignments {
+  return buildTeamGraphDefaultLayoutSeed(members, configMembers).assignments;
+}
+
+export function isTeamGraphSlotPersistenceDisabled(): boolean {
+  return DISABLE_PERSISTED_TEAM_GRAPH_SLOT_ASSIGNMENTS;
+}
+
 function isVisibleInActiveTeamSurface(
   state: Pick<AppState, 'paneLayout'>,
   teamName: string | null | undefined
@@ -997,6 +1138,9 @@ export interface TeamSlice {
   selectedTeamData: TeamData | null;
   /** Team-scoped detailed cache used by multi-pane views like agent graph. */
   teamDataCacheByName: Record<string, TeamData>;
+  slotLayoutVersion: string;
+  slotAssignmentsByTeam: Record<string, TeamGraphSlotAssignments>;
+  graphLayoutSessionByTeam: Record<string, TeamGraphLayoutSessionState>;
   selectedTeamLoading: boolean;
   selectedTeamLoadNonce: number;
   selectedTeamError: string | null;
@@ -1039,6 +1183,30 @@ export interface TeamSlice {
   openTeamsTab: () => void;
   openTeamTab: (teamName: string, projectPath?: string, taskId?: string) => void;
   clearKanbanFilter: () => void;
+  ensureTeamGraphSlotAssignments: (
+    teamName: string,
+    members: readonly TeamGraphMemberSeedInput[],
+    configMembers?: readonly TeamGraphConfigMemberSeedInput[]
+  ) => void;
+  setTeamGraphOwnerSlotAssignment: (
+    teamName: string,
+    stableOwnerId: string,
+    assignment: GraphOwnerSlotAssignment
+  ) => void;
+  commitTeamGraphOwnerSlotDrop: (
+    teamName: string,
+    stableOwnerId: string,
+    assignment: GraphOwnerSlotAssignment,
+    displacedStableOwnerId?: string,
+    displacedAssignment?: GraphOwnerSlotAssignment
+  ) => void;
+  swapTeamGraphOwnerSlots: (
+    teamName: string,
+    stableOwnerId: string,
+    otherStableOwnerId: string
+  ) => void;
+  clearTeamGraphSlotAssignments: (teamName?: string) => void;
+  resetTeamGraphSlotAssignmentsToDefaults: (teamName: string) => void;
   setSelectedTeamTaskChangePresence: (
     teamName: string,
     taskId: string,
@@ -1289,6 +1457,9 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   selectedTeamName: null,
   selectedTeamData: null,
   teamDataCacheByName: {},
+  slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+  slotAssignmentsByTeam: {},
+  graphLayoutSessionByTeam: {},
   selectedTeamLoading: false,
   selectedTeamLoadNonce: 0,
   selectedTeamError: null,
@@ -1706,6 +1877,343 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
 
   clearKanbanFilter: () => {
     set({ kanbanFilterQuery: null });
+  },
+
+  ensureTeamGraphSlotAssignments: (teamName, members, configMembers = []) => {
+    set((state) => {
+      const nextState: Partial<TeamSlice> = {};
+      let changed = false;
+
+      let nextSlotAssignmentsByTeam = state.slotAssignmentsByTeam;
+      let nextGraphLayoutSessionByTeam = state.graphLayoutSessionByTeam;
+      if (state.slotLayoutVersion !== GRAPH_STABLE_SLOT_LAYOUT_VERSION) {
+        nextState.slotLayoutVersion = GRAPH_STABLE_SLOT_LAYOUT_VERSION;
+        nextSlotAssignmentsByTeam = {};
+        nextGraphLayoutSessionByTeam = {};
+        changed = true;
+      }
+
+      const defaultSeed = buildTeamGraphDefaultLayoutSeed(members, configMembers);
+      const visibleAssignments = pruneTeamGraphSlotAssignmentsForVisibleOwners(
+        nextSlotAssignmentsByTeam[teamName],
+        defaultSeed.orderedVisibleOwnerIds
+      );
+      const currentSession = nextGraphLayoutSessionByTeam[teamName];
+
+      if (DISABLE_PERSISTED_TEAM_GRAPH_SLOT_ASSIGNMENTS) {
+        if (currentSession?.mode === 'manual') {
+          if (
+            !areTeamGraphSlotAssignmentsEqual(
+              nextSlotAssignmentsByTeam[teamName],
+              visibleAssignments
+            )
+          ) {
+            nextSlotAssignmentsByTeam = { ...nextSlotAssignmentsByTeam };
+            if (visibleAssignments) {
+              nextSlotAssignmentsByTeam[teamName] = visibleAssignments;
+            } else {
+              delete nextSlotAssignmentsByTeam[teamName];
+            }
+            changed = true;
+          }
+        } else {
+          if (
+            !areTeamGraphSlotAssignmentsEqual(
+              nextSlotAssignmentsByTeam[teamName],
+              visibleAssignments
+            ) ||
+            !areTeamGraphSlotAssignmentsEqual(visibleAssignments, defaultSeed.assignments)
+          ) {
+            nextSlotAssignmentsByTeam = { ...nextSlotAssignmentsByTeam };
+            if (Object.keys(defaultSeed.assignments).length === 0) {
+              delete nextSlotAssignmentsByTeam[teamName];
+            } else {
+              nextSlotAssignmentsByTeam[teamName] = defaultSeed.assignments;
+            }
+            changed = true;
+          }
+          if (
+            currentSession?.mode !== 'default' ||
+            currentSession?.signature !== defaultSeed.signature
+          ) {
+            nextGraphLayoutSessionByTeam = {
+              ...nextGraphLayoutSessionByTeam,
+              [teamName]: {
+                mode: 'default',
+                signature: defaultSeed.signature,
+              },
+            };
+            changed = true;
+          }
+        }
+
+        if (!changed) {
+          return {};
+        }
+
+        nextState.slotAssignmentsByTeam = nextSlotAssignmentsByTeam;
+        nextState.graphLayoutSessionByTeam = nextGraphLayoutSessionByTeam;
+        return nextState;
+      }
+
+      const currentAssignments = nextSlotAssignmentsByTeam[teamName];
+      const migrated = migrateStableSlotAssignmentsForMembers(currentAssignments, members);
+      const seeded = seedStableSlotAssignmentsForMembers(
+        migrated.assignments,
+        members,
+        configMembers
+      );
+      if (migrated.changed || seeded.changed) {
+        nextSlotAssignmentsByTeam = {
+          ...nextSlotAssignmentsByTeam,
+          [teamName]: seeded.assignments,
+        };
+        changed = true;
+      }
+
+      if (!changed) {
+        return {};
+      }
+
+      nextState.slotAssignmentsByTeam = nextSlotAssignmentsByTeam;
+      if (nextGraphLayoutSessionByTeam !== state.graphLayoutSessionByTeam) {
+        nextState.graphLayoutSessionByTeam = nextGraphLayoutSessionByTeam;
+      }
+      return nextState;
+    });
+  },
+
+  setTeamGraphOwnerSlotAssignment: (teamName, stableOwnerId, assignment) => {
+    set((state) => {
+      const currentAssignments = state.slotAssignmentsByTeam[teamName] ?? {};
+      const existing = currentAssignments[stableOwnerId];
+      const occupiedByOther = Object.entries(currentAssignments).find(
+        ([otherStableOwnerId, otherAssignment]) =>
+          otherStableOwnerId !== stableOwnerId &&
+          otherAssignment.ringIndex === assignment.ringIndex &&
+          otherAssignment.sectorIndex === assignment.sectorIndex
+      );
+      if (
+        existing?.ringIndex === assignment.ringIndex &&
+        existing?.sectorIndex === assignment.sectorIndex &&
+        state.slotLayoutVersion === GRAPH_STABLE_SLOT_LAYOUT_VERSION
+      ) {
+        return {};
+      }
+      if (occupiedByOther) {
+        logger.warn(
+          `[graph-layout] refusing occupied slot assignment team=${teamName} owner=${stableOwnerId} target=${assignment.ringIndex}:${assignment.sectorIndex} occupiedBy=${occupiedByOther[0]}`
+        );
+        return {};
+      }
+
+      return {
+        slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+        slotAssignmentsByTeam: {
+          ...state.slotAssignmentsByTeam,
+          [teamName]: {
+            ...currentAssignments,
+            [stableOwnerId]: assignment,
+          },
+        },
+        graphLayoutSessionByTeam: {
+          ...state.graphLayoutSessionByTeam,
+          [teamName]: {
+            mode: 'manual',
+            signature: state.graphLayoutSessionByTeam[teamName]?.signature ?? null,
+          },
+        },
+      };
+    });
+  },
+
+  commitTeamGraphOwnerSlotDrop: (
+    teamName,
+    stableOwnerId,
+    assignment,
+    displacedStableOwnerId,
+    displacedAssignment
+  ) => {
+    set((state) => {
+      const currentAssignments = state.slotAssignmentsByTeam[teamName] ?? {};
+      const existing = currentAssignments[stableOwnerId];
+      const nextAssignments: TeamGraphSlotAssignments = {
+        ...currentAssignments,
+        [stableOwnerId]: assignment,
+      };
+
+      if (
+        existing?.ringIndex === assignment.ringIndex &&
+        existing?.sectorIndex === assignment.sectorIndex &&
+        !displacedStableOwnerId &&
+        state.slotLayoutVersion === GRAPH_STABLE_SLOT_LAYOUT_VERSION
+      ) {
+        return {};
+      }
+
+      if (displacedStableOwnerId && displacedAssignment) {
+        nextAssignments[displacedStableOwnerId] = displacedAssignment;
+      }
+
+      const occupiedByConflict = Object.entries(nextAssignments).find(
+        ([ownerId, nextAssignment]) => {
+          if (ownerId === stableOwnerId || ownerId === displacedStableOwnerId) {
+            return false;
+          }
+          return (
+            (nextAssignment.ringIndex === assignment.ringIndex &&
+              nextAssignment.sectorIndex === assignment.sectorIndex) ||
+            (displacedAssignment != null &&
+              nextAssignment.ringIndex === displacedAssignment.ringIndex &&
+              nextAssignment.sectorIndex === displacedAssignment.sectorIndex)
+          );
+        }
+      );
+
+      if (occupiedByConflict) {
+        logger.warn(
+          `[graph-layout] refusing slot drop team=${teamName} owner=${stableOwnerId} target=${assignment.ringIndex}:${assignment.sectorIndex} conflict=${occupiedByConflict[0]}`
+        );
+        return {};
+      }
+
+      return {
+        slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+        slotAssignmentsByTeam: {
+          ...state.slotAssignmentsByTeam,
+          [teamName]: nextAssignments,
+        },
+        graphLayoutSessionByTeam: {
+          ...state.graphLayoutSessionByTeam,
+          [teamName]: {
+            mode: 'manual',
+            signature: state.graphLayoutSessionByTeam[teamName]?.signature ?? null,
+          },
+        },
+      };
+    });
+  },
+
+  swapTeamGraphOwnerSlots: (teamName, stableOwnerId, otherStableOwnerId) => {
+    if (stableOwnerId === otherStableOwnerId) {
+      return;
+    }
+
+    set((state) => {
+      const currentAssignments = state.slotAssignmentsByTeam[teamName] ?? {};
+      const left = currentAssignments[stableOwnerId];
+      const right = currentAssignments[otherStableOwnerId];
+      if (!left || !right) {
+        return {};
+      }
+
+      return {
+        slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+        slotAssignmentsByTeam: {
+          ...state.slotAssignmentsByTeam,
+          [teamName]: {
+            ...currentAssignments,
+            [stableOwnerId]: right,
+            [otherStableOwnerId]: left,
+          },
+        },
+        graphLayoutSessionByTeam: {
+          ...state.graphLayoutSessionByTeam,
+          [teamName]: {
+            mode: 'manual',
+            signature: state.graphLayoutSessionByTeam[teamName]?.signature ?? null,
+          },
+        },
+      };
+    });
+  },
+
+  clearTeamGraphSlotAssignments: (teamName) => {
+    set((state) => {
+      if (!teamName) {
+        if (
+          Object.keys(state.slotAssignmentsByTeam).length === 0 &&
+          state.slotLayoutVersion === GRAPH_STABLE_SLOT_LAYOUT_VERSION &&
+          Object.keys(state.graphLayoutSessionByTeam).length === 0
+        ) {
+          return {};
+        }
+        return {
+          slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+          slotAssignmentsByTeam: {},
+          graphLayoutSessionByTeam: {},
+        };
+      }
+
+      if (
+        !(teamName in state.slotAssignmentsByTeam) &&
+        !(teamName in state.graphLayoutSessionByTeam)
+      ) {
+        return {};
+      }
+
+      const nextAssignmentsByTeam = { ...state.slotAssignmentsByTeam };
+      const nextGraphLayoutSessionByTeam = { ...state.graphLayoutSessionByTeam };
+      delete nextAssignmentsByTeam[teamName];
+      delete nextGraphLayoutSessionByTeam[teamName];
+      return {
+        slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+        slotAssignmentsByTeam: nextAssignmentsByTeam,
+        graphLayoutSessionByTeam: nextGraphLayoutSessionByTeam,
+      };
+    });
+  },
+
+  resetTeamGraphSlotAssignmentsToDefaults: (teamName) => {
+    set((state) => {
+      if (!DISABLE_PERSISTED_TEAM_GRAPH_SLOT_ASSIGNMENTS) {
+        const currentAssignments = state.slotAssignmentsByTeam[teamName];
+        if (!currentAssignments || Object.keys(currentAssignments).length === 0) {
+          return {};
+        }
+
+        const nextAssignmentsByTeam = { ...state.slotAssignmentsByTeam };
+        delete nextAssignmentsByTeam[teamName];
+        return {
+          slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+          slotAssignmentsByTeam: nextAssignmentsByTeam,
+        };
+      }
+
+      const teamData = selectTeamDataForName(state, teamName);
+      const defaultSeed = teamData
+        ? buildTeamGraphDefaultLayoutSeed(teamData.members, teamData.config.members ?? [])
+        : { orderedVisibleOwnerIds: [], signature: null, assignments: {} };
+      const currentAssignments = state.slotAssignmentsByTeam[teamName];
+      const currentSession = state.graphLayoutSessionByTeam[teamName];
+
+      if (
+        areTeamGraphSlotAssignmentsEqual(currentAssignments, defaultSeed.assignments) &&
+        currentSession?.mode === 'default' &&
+        currentSession.signature === defaultSeed.signature
+      ) {
+        return {};
+      }
+
+      const nextAssignmentsByTeam = { ...state.slotAssignmentsByTeam };
+      if (Object.keys(defaultSeed.assignments).length === 0) {
+        delete nextAssignmentsByTeam[teamName];
+      } else {
+        nextAssignmentsByTeam[teamName] = defaultSeed.assignments;
+      }
+
+      return {
+        slotLayoutVersion: GRAPH_STABLE_SLOT_LAYOUT_VERSION,
+        slotAssignmentsByTeam: nextAssignmentsByTeam,
+        graphLayoutSessionByTeam: {
+          ...state.graphLayoutSessionByTeam,
+          [teamName]: {
+            mode: 'default',
+            signature: defaultSeed.signature,
+          },
+        },
+      };
+    });
   },
 
   setSelectedTeamTaskChangePresence: (teamName, taskId, presence) => {
