@@ -84,20 +84,37 @@ const DAY_SHIFT_QUALIFIER_RE =
 // Relative durations: "resets in 2 hours", "resets in 45 minutes"
 // ---------------------------------------------------------------------------
 
-const RELATIVE_RESET_RE =
-  /reset(?:s|ting)?\s+in\s+(?:about\s+|around\s+|~\s*)?(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|h|m|s)\b/i;
+const RESET_VERB_RE = /\breset(?:s|ting)?\b/i;
+const LEADING_FILLER_RE = /^(?:about|around)\s+/i;
+const LEADING_TIME_VALUE_RE = /^(\d+(?:\.\d+)?)\s*([a-z]+)\b/i;
 
 function parseRelativeResetDuration(text: string): number | null {
-  const match = RELATIVE_RESET_RE.exec(text);
+  const resetVerbMatch = RESET_VERB_RE.exec(text);
+  if (!resetVerbMatch) return null;
+
+  const afterVerb = text.slice(resetVerbMatch.index + resetVerbMatch[0].length).trimStart();
+  if (!afterVerb.toLowerCase().startsWith('in')) return null;
+
+  let tail = afterVerb.slice(2).trimStart();
+  if (tail.startsWith('~')) {
+    tail = tail.slice(1).trimStart();
+  }
+  tail = tail.replace(LEADING_FILLER_RE, '');
+
+  const match = LEADING_TIME_VALUE_RE.exec(tail);
   if (!match) return null;
 
   const amount = Number.parseFloat(match[1]!);
   if (!Number.isFinite(amount) || amount < 0) return null;
 
   const unit = match[2]!.toLowerCase();
-  if (unit.startsWith('sec') || unit === 's') return Math.round(amount * 1000);
-  if (unit.startsWith('min') || unit === 'm') return Math.round(amount * 60 * 1000);
-  if (unit.startsWith('hour') || unit.startsWith('hr') || unit === 'h') {
+  if (['second', 'seconds', 'sec', 'secs', 's'].includes(unit)) {
+    return Math.round(amount * 1000);
+  }
+  if (['minute', 'minutes', 'min', 'mins', 'm'].includes(unit)) {
+    return Math.round(amount * 60 * 1000);
+  }
+  if (['hour', 'hours', 'hr', 'hrs', 'h'].includes(unit)) {
     return Math.round(amount * 60 * 60 * 1000);
   }
   return null;
@@ -111,24 +128,40 @@ function parseRelativeResetDuration(text: string): number | null {
  * Captures the clock time + optional timezone abbreviation from phrases like
  * "reset at 3pm (PST)" or "resets at 15:30 UTC".
  */
-const ABSOLUTE_RESET_RE =
-  /reset(?:s|ting)?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([A-Z]{2,5})\)|([A-Z]{2,5}))?/i;
+const LEADING_CLOCK_RE = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i;
+const PAREN_TZ_RE = /^\(([A-Za-z]{2,5})\)/;
+const TRAILING_TZ_RE = /^([A-Za-z]{2,5})\b/;
 
 function parseAbsoluteResetClockTime(text: string, now: Date): Date | null {
-  const match = ABSOLUTE_RESET_RE.exec(text);
+  const resetVerbMatch = RESET_VERB_RE.exec(text);
+  if (!resetVerbMatch) return null;
+
+  let tail = text.slice(resetVerbMatch.index + resetVerbMatch[0].length).trimStart();
+  if (tail.toLowerCase().startsWith('at ')) {
+    tail = tail.slice(3).trimStart();
+  }
+
+  const match = LEADING_CLOCK_RE.exec(tail);
   if (!match) return null;
+
+  tail = tail.slice(match[0].length).trimStart();
+  const parenthesizedTzMatch = PAREN_TZ_RE.exec(tail);
+  const bareWordMatch = parenthesizedTzMatch ? null : TRAILING_TZ_RE.exec(tail);
+  const bareTzMatch =
+    bareWordMatch && bareWordMatch[1].toUpperCase() in TIMEZONE_OFFSETS_MIN ? bareWordMatch : null;
+  const tzTokenLength = parenthesizedTzMatch?.[0].length ?? bareTzMatch?.[0].length ?? 0;
 
   // If the text contains a day-shift qualifier ("next week", "on Tuesday",
   // etc.), the "today or tomorrow" rollover below would produce a materially
   // wrong time. Bail out and let the caller fall back to no auto-resume.
-  const afterMatch = text.slice(match.index + match[0].length);
+  const afterMatch = tail.slice(tzTokenLength);
   if (DAY_SHIFT_QUALIFIER_RE.test(afterMatch)) return null;
 
   const hourRaw = Number.parseInt(match[1]!, 10);
   const minuteRaw = match[2] ? Number.parseInt(match[2], 10) : 0;
   const ampm = match[3]?.toLowerCase() ?? null;
-  const parenthesizedTz = match[4]?.toUpperCase() ?? '';
-  const trailingTz = match[5]?.toUpperCase() ?? '';
+  const parenthesizedTz = parenthesizedTzMatch?.[1]?.toUpperCase() ?? '';
+  const trailingTz = bareTzMatch?.[1]?.toUpperCase() ?? '';
 
   if (!Number.isFinite(hourRaw) || !Number.isFinite(minuteRaw)) return null;
   if (minuteRaw < 0 || minuteRaw > 59) return null;

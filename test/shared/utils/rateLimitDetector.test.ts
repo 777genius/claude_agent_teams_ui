@@ -95,6 +95,16 @@ describe('parseRateLimitResetTime', () => {
     expect(result?.toISOString()).toBe('2026-04-17T12:30:00.000Z');
   });
 
+  it('parses "around" and "~" filler variants', () => {
+    const now = new Date('2026-04-17T12:00:00Z');
+    expect(
+      parseRateLimitResetTime(`${RL}Your limit will reset in around 30 minutes.`, now)?.toISOString()
+    ).toBe('2026-04-17T12:30:00.000Z');
+    expect(
+      parseRateLimitResetTime(`${RL}Your limit will reset in ~ 45 seconds.`, now)?.toISOString()
+    ).toBe('2026-04-17T12:00:45.000Z');
+  });
+
   it('parses fractional hours', () => {
     const now = new Date('2026-04-17T12:00:00Z');
     const result = parseRateLimitResetTime(`${RL}Resets in 1.5 hours.`, now);
