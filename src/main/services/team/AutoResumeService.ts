@@ -9,12 +9,14 @@ const logger = createLogger('Service:AutoResume');
 
 const AUTO_RESUME_BUFFER_MS = 30 * 1000;
 const AUTO_RESUME_MAX_DELAY_MS = 12 * 60 * 60 * 1000;
+const AUTO_RESUME_HISTORY_GRACE_MS = 2 * 60 * 1000;
 const AUTO_RESUME_MESSAGE =
   'Your rate limit has reset. Please resume the work you were doing before the limit was hit.';
 
 interface PendingAutoResumeEntry {
   timer: NodeJS.Timeout;
   fireAtMs: number;
+  sourceMessageAtMs: number;
 }
 
 type AutoResumeProvisioning = Pick<TeamProvisioningService, 'isTeamAlive' | 'sendMessageToTeam'>;
@@ -28,11 +30,24 @@ export class AutoResumeService {
     private readonly configManager: AutoResumeConfigReader = ConfigManager.getInstance()
   ) {}
 
-  handleRateLimitMessage(teamName: string, messageText: string, now: Date = new Date()): void {
+  handleRateLimitMessage(
+    teamName: string,
+    messageText: string,
+    observedAt: Date = new Date(),
+    messageTimestamp: Date = observedAt
+  ): void {
     const cfg = this.configManager.getConfig();
     if (!cfg.notifications.autoResumeOnRateLimit) return;
 
-    const resetTime = parseRateLimitResetTime(messageText, now);
+    const observedAtMs = observedAt.getTime();
+    const messageAtMs = Number.isFinite(messageTimestamp.getTime())
+      ? messageTimestamp.getTime()
+      : observedAtMs;
+    const parseReferenceTime = Number.isFinite(messageTimestamp.getTime())
+      ? messageTimestamp
+      : observedAt;
+
+    const resetTime = parseRateLimitResetTime(messageText, parseReferenceTime);
     if (!resetTime) {
       logger.info(
         `[auto-resume] Rate limit detected for "${teamName}" but reset time was not parseable - skipping auto-resume`
@@ -40,7 +55,23 @@ export class AutoResumeService {
       return;
     }
 
-    const rawDelayMs = resetTime.getTime() - now.getTime();
+    const rawDelayMs = resetTime.getTime() - observedAtMs;
+    const existing = this.pendingTimers.get(teamName);
+
+    if (existing && messageAtMs < existing.sourceMessageAtMs) {
+      logger.info(
+        `[auto-resume] Ignoring older rate-limit message for "${teamName}" because a newer timer is already pending`
+      );
+      return;
+    }
+
+    if (rawDelayMs < -AUTO_RESUME_HISTORY_GRACE_MS) {
+      logger.info(
+        `[auto-resume] Parsed reset time for "${teamName}" passed ${Math.round((observedAtMs - resetTime.getTime()) / 1000)}s ago - skipping stale history replay`
+      );
+      return;
+    }
+
     if (rawDelayMs < 0) {
       logger.warn(
         `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(-rawDelayMs / 1000)}s in the past - firing after buffer only`
@@ -48,8 +79,7 @@ export class AutoResumeService {
     }
 
     const delayMs = Math.max(0, rawDelayMs) + AUTO_RESUME_BUFFER_MS;
-    const fireAtMs = now.getTime() + delayMs;
-    const existing = this.pendingTimers.get(teamName);
+    const fireAtMs = observedAtMs + delayMs;
 
     if (delayMs > AUTO_RESUME_MAX_DELAY_MS) {
       if (existing) {
@@ -62,7 +92,7 @@ export class AutoResumeService {
       return;
     }
 
-    if (existing?.fireAtMs === fireAtMs) return;
+    if (existing?.fireAtMs === fireAtMs && existing.sourceMessageAtMs === messageAtMs) return;
 
     if (existing) {
       clearTimeout(existing.timer);
@@ -81,7 +111,7 @@ export class AutoResumeService {
       void this.fireResumeNudge(teamName);
     }, delayMs);
 
-    this.pendingTimers.set(teamName, { timer, fireAtMs });
+    this.pendingTimers.set(teamName, { timer, fireAtMs, sourceMessageAtMs: messageAtMs });
   }
 
   cancelPendingAutoResume(teamName: string): void {

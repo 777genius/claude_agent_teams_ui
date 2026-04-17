@@ -1,5 +1,5 @@
 import * as os from 'os';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BoardTaskActivityDetailResult,
   BoardTaskActivityEntry,
@@ -116,6 +116,7 @@ import {
   registerTeamHandlers,
   removeTeamHandlers,
 } from '../../../src/main/ipc/teams';
+import { ConfigManager } from '../../../src/main/services/infrastructure/ConfigManager';
 
 describe('ipc teams handlers', () => {
   const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
@@ -247,6 +248,10 @@ describe('ipc teams handlers', () => {
       boardTaskExactLogDetailService as never,
     );
     registerTeamHandlers(ipcMain as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('registers all expected handlers', () => {
@@ -844,6 +849,62 @@ describe('ipc teams handlers', () => {
     expect(result.data.messages[0].text).toBe('All teammates online!');
     expect(result.data.messages[1].source).toBe('lead_process');
     expect(result.data.messages[1].text).toBe('Команда создана. Запускаю тиммейтов.');
+  });
+
+  it('rebuilds only the remaining auto-resume delay from persisted rate-limit history', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T12:02:00.000Z'));
+    const configManager = ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: true,
+          },
+        }) as never
+    );
+
+    try {
+      provisioningService.isTeamAlive.mockReturnValue(true);
+      provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+      service.getTeamData.mockResolvedValueOnce({
+        teamName: 'my-team',
+        config: { name: 'My Team' },
+        tasks: [],
+        members: [],
+        messages: [
+          {
+            from: 'team-lead',
+            text: "You've hit your limit. Resets in 5 minutes.",
+            timestamp: '2026-04-17T12:00:00.000Z',
+            read: true,
+            source: 'lead_session' as const,
+            messageId: 'rate-limit-1',
+          },
+        ],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      });
+
+      const getDataHandler = handlers.get(TEAM_GET_DATA)!;
+      const result = (await getDataHandler({} as never, 'my-team')) as {
+        success: boolean;
+        data: { messages: { source?: string; text: string }[] };
+      };
+
+      expect(result.success).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 29 * 1000);
+      expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 
   it('keeps TEAM_GET_DATA read-only and never triggers reconcile side effects', async () => {

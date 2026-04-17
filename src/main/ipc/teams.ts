@@ -310,6 +310,8 @@ function checkRateLimitMessages(
   teamDisplayName: string,
   projectPath?: string
 ): void {
+  const observedAt = new Date();
+
   for (const msg of messages) {
     if (msg.from === 'user') continue;
     if (!isRateLimitMessage(msg.text)) continue;
@@ -340,7 +342,14 @@ function checkRateLimitMessages(
       })
       .catch(() => undefined);
 
-    getAutoResumeService().handleRateLimitMessage(teamName, msg.text);
+    // Pass the original message timestamp so relative reset windows survive restarts
+    // and old history does not rebuild a fresh auto-resume timer from "now".
+    getAutoResumeService().handleRateLimitMessage(
+      teamName,
+      msg.text,
+      observedAt,
+      new Date(msg.timestamp)
+    );
   }
 }
 

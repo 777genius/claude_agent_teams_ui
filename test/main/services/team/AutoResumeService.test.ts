@@ -72,6 +72,35 @@ describe('AutoResumeService', () => {
     expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
   });
 
+  it('ignores an older rate-limit message when a newer timer is already pending', async () => {
+    mockConfig.autoResumeOnRateLimit = true;
+    provisioningService.isTeamAlive.mockReturnValue(true);
+    provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+
+    const observedAt = new Date('2026-04-17T12:01:30Z');
+    const newerMessageAt = new Date('2026-04-17T12:01:00Z');
+    const olderMessageAt = new Date('2026-04-17T12:00:00Z');
+
+    service.handleRateLimitMessage(
+      TEAM,
+      `You've hit your limit. Resets in 10 minutes.`,
+      observedAt,
+      newerMessageAt
+    );
+    service.handleRateLimitMessage(
+      TEAM,
+      `You've hit your limit. Resets in 15 minutes.`,
+      observedAt,
+      olderMessageAt
+    );
+
+    await vi.advanceTimersByTimeAsync(9 * 60 * 1000 + 59 * 1000);
+    expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps only one timer when the same reset time is reported again', async () => {
     mockConfig.autoResumeOnRateLimit = true;
     provisioningService.isTeamAlive.mockReturnValue(true);
@@ -103,6 +132,37 @@ describe('AutoResumeService', () => {
       expect.stringContaining('exceeds ceiling')
     );
     warnSpy.mockRestore();
+  });
+
+  it('reconstructs the remaining delay from a persisted rate-limit message timestamp', async () => {
+    mockConfig.autoResumeOnRateLimit = true;
+    provisioningService.isTeamAlive.mockReturnValue(true);
+    provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+
+    const observedAt = new Date('2026-04-17T12:02:00Z');
+    const messageAt = new Date('2026-04-17T12:00:00Z');
+
+    service.handleRateLimitMessage(TEAM, RATE_LIMIT_MSG, observedAt, messageAt);
+
+    await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 29 * 1000);
+    expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips stale persisted history once the parsed reset is materially in the past', async () => {
+    mockConfig.autoResumeOnRateLimit = true;
+    provisioningService.isTeamAlive.mockReturnValue(true);
+    provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+
+    const observedAt = new Date('2026-04-17T12:00:00Z');
+    const messageAt = new Date('2026-04-17T11:00:00Z');
+
+    service.handleRateLimitMessage(TEAM, RATE_LIMIT_MSG, observedAt, messageAt);
+
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
   });
 
   it('sends the resume nudge when the team is alive at fire time', async () => {
