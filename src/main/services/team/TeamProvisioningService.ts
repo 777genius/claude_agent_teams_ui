@@ -5916,6 +5916,21 @@ export class TeamProvisioningService {
       throw new Error(`Team "${teamName}" process stdin is not writable`);
     }
 
+    await this.sendMessageToRun(run, message, attachments);
+  }
+
+  private async sendMessageToRun(
+    run: ProvisioningRun,
+    message: string,
+    attachments?: { data: string; mimeType: string; filename?: string }[]
+  ): Promise<void> {
+    if (!this.isCurrentTrackedRun(run)) {
+      throw new Error(`Team "${run.teamName}" run "${run.runId}" is no longer current`);
+    }
+    if (run.processKilled || run.cancelRequested || !run.child?.stdin?.writable) {
+      throw new Error(`Team "${run.teamName}" process stdin is not writable`);
+    }
+
     const contentBlocks: Record<string, unknown>[] = [{ type: 'text', text: message }];
     if (attachments?.length) {
       for (const att of attachments) {
@@ -6035,7 +6050,7 @@ export class TeamProvisioningService {
       userText,
     ].join('\n');
 
-    await this.sendMessageToTeam(teamName, message);
+    await this.sendMessageToRun(run, message);
   }
 
   async relayMemberInboxMessages(teamName: string, memberName: string): Promise<number> {
@@ -6169,7 +6184,7 @@ export class TeamProvisioningService {
       ].join('\n');
 
       try {
-        await this.sendMessageToTeam(teamName, message);
+        await this.sendMessageToRun(run, message);
       } catch {
         this.forgetPendingInboxRelayCandidates(run, memberName, rememberedRelayIds);
         return 0;
@@ -6593,7 +6608,7 @@ export class TeamProvisioningService {
       });
 
       try {
-        await this.sendMessageToTeam(teamName, message);
+        await this.sendMessageToRun(run, message);
       } catch {
         if (run.leadRelayCapture) {
           clearTimeout(run.leadRelayCapture.timeoutHandle);
@@ -10025,7 +10040,7 @@ export class TeamProvisioningService {
           `Не стартовали тиммейты: ${failedSpawnMembers.map((member) => `@${member.name}`).join(', ')}.`,
           `Не считай их доступными, пока их запуск не будет повторён успешно.`,
         ].join(' ');
-        await this.sendMessageToTeam(run.teamName, failureNotice).catch((error: unknown) =>
+        await this.sendMessageToRun(run, failureNotice).catch((error: unknown) =>
           logger.warn(
             `[${run.teamName}] failed to send teammate-start failure notice to lead: ${
               error instanceof Error ? error.message : String(error)
@@ -10073,7 +10088,7 @@ export class TeamProvisioningService {
               .filter(Boolean)
               .join('\n\n');
 
-            await this.sendMessageToTeam(run.teamName, message);
+            await this.sendMessageToRun(run, message);
           } catch (error) {
             logger.warn(
               `[${run.teamName}] Failed to kick off solo task resumption: ${
@@ -10193,7 +10208,7 @@ export class TeamProvisioningService {
         `Не стартовали тиммейты: ${failedSpawnMembers.map((member) => `@${member.name}`).join(', ')}.`,
         `Не считай их доступными, пока их запуск не будет повторён успешно.`,
       ].join(' ');
-      await this.sendMessageToTeam(run.teamName, failureNotice).catch((error: unknown) =>
+      await this.sendMessageToRun(run, failureNotice).catch((error: unknown) =>
         logger.warn(
           `[${run.teamName}] failed to send teammate-start failure notice to lead: ${
             error instanceof Error ? error.message : String(error)
