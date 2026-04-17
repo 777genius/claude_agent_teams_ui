@@ -250,10 +250,21 @@ describe('parseRateLimitResetTime', () => {
     expect(parseRateLimitResetTime('', now)).toBeNull();
   });
 
-  it('returns null for unknown timezone abbreviations', () => {
-    // CEST is not in our whitelist — don't guess.
+  it('returns null for unknown parenthesized timezone abbreviations', () => {
+    // Parenthesized TZ is authoritative — unknown means "sender meant a
+    // specific zone we don't model"; bail out rather than guess.
     const now = new Date('2026-04-17T12:00:00Z');
     expect(parseRateLimitResetTime(`${RL}Resets at 3pm (CEST).`, now)).toBeNull();
+  });
+
+  it('falls back to local time when a trailing word looks like a TZ but is not one', () => {
+    // "3pm today" used to capture "TODAY" as an unknown TZ and suppress
+    // the whole message. Now the parser ignores the bare token and treats
+    // "3pm" as user-local. Assert a parse happens (non-null result) rather
+    // than pinning the UTC value, since local time depends on the runner.
+    const now = new Date('2026-04-17T06:00:00Z');
+    const result = parseRateLimitResetTime(`${RL}Reset at 3pm today.`, now);
+    expect(result).not.toBeNull();
   });
 
   it('returns null for invalid clock values', () => {

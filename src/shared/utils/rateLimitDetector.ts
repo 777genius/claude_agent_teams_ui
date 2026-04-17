@@ -17,9 +17,10 @@ export function isRateLimitMessage(text: string): boolean {
 
 /**
  * Maps known Claude timezone abbreviations to fixed UTC offsets in minutes.
- * We only include zones Claude's API has been observed to emit. Unknown zones
- * fall back to the user's local timezone (parser returns null when the zone is
- * ambiguous without more context).
+ * We only include zones Claude's API has been observed to emit. When the
+ * message contains an explicit parenthesized timezone that is NOT in this
+ * map, the parser returns `null` rather than guessing. When no timezone is
+ * present at all, the hour:minute is treated as user-local time.
  */
 const TIMEZONE_OFFSETS_MIN: Record<string, number> = {
   UTC: 0,
@@ -126,7 +127,8 @@ function parseAbsoluteResetClockTime(text: string, now: Date): Date | null {
   const hourRaw = Number.parseInt(match[1]!, 10);
   const minuteRaw = match[2] ? Number.parseInt(match[2], 10) : 0;
   const ampm = match[3]?.toLowerCase() ?? null;
-  const tzAbbr = (match[4] ?? match[5] ?? '').toUpperCase();
+  const parenthesizedTz = match[4]?.toUpperCase() ?? '';
+  const trailingTz = match[5]?.toUpperCase() ?? '';
 
   if (!Number.isFinite(hourRaw) || !Number.isFinite(minuteRaw)) return null;
   if (minuteRaw < 0 || minuteRaw > 59) return null;
@@ -137,18 +139,31 @@ function parseAbsoluteResetClockTime(text: string, now: Date): Date | null {
 
   if (hour < 0 || hour > 23) return null;
 
-  // Timezone resolution:
-  //   - known abbreviation → compute UTC wall time
-  //   - no abbreviation    → treat as user-local time
-  //   - unknown abbreviation (e.g. "CEST" not in map) → bail out; don't guess
-  let candidate: Date;
-  if (!tzAbbr) {
-    candidate = buildLocalToday(now, hour, minuteRaw);
-  } else if (tzAbbr in TIMEZONE_OFFSETS_MIN) {
-    candidate = buildUtcTodayWithOffset(now, hour, minuteRaw, TIMEZONE_OFFSETS_MIN[tzAbbr]!);
+  // Timezone resolution treats parenthesized vs bare tokens differently.
+  //
+  //   "reset at 3pm (PST)"    — parenthesized, authoritative. Unknown zone
+  //                             here means the sender meant a specific zone
+  //                             we don't model; bail out rather than guess.
+  //   "reset at 3pm PST"      — bare known abbreviation, same effect.
+  //   "reset at 3pm today"    — bare unknown word ("TODAY"). This is just a
+  //                             trailing word, not a real TZ claim; fall
+  //                             back to local time instead of suppressing.
+  //   "reset at 3pm"          — no token. Treat as user-local.
+  let tzOffset: number | null;
+  if (parenthesizedTz) {
+    if (!(parenthesizedTz in TIMEZONE_OFFSETS_MIN)) return null;
+    tzOffset = TIMEZONE_OFFSETS_MIN[parenthesizedTz]!;
+  } else if (trailingTz && trailingTz in TIMEZONE_OFFSETS_MIN) {
+    tzOffset = TIMEZONE_OFFSETS_MIN[trailingTz]!;
   } else {
-    return null;
+    tzOffset = null;
   }
+
+  const candidateSeed =
+    tzOffset === null
+      ? buildLocalToday(now, hour, minuteRaw)
+      : buildUtcTodayWithOffset(now, hour, minuteRaw, tzOffset);
+  let candidate: Date = candidateSeed;
 
   // If the computed time is materially in the past (e.g. "3pm" parsed while
   // it's already 4pm), roll forward by one day. A small tolerance prevents
