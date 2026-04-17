@@ -804,6 +804,80 @@ describe('ipc teams handlers', () => {
     expect(sources.filter((s) => s === 'lead_session')).toHaveLength(1);
   });
 
+  it('does not let a live duplicate of the same session rate-limit reply delay auto-resume', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T12:00:30.000Z'));
+    const configManager = ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: true,
+          },
+        }) as never
+    );
+
+    try {
+      provisioningService.isTeamAlive.mockReturnValue(true);
+      provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+      service.getTeamData.mockResolvedValueOnce({
+        teamName: 'my-team',
+        config: { name: 'My Team' },
+        tasks: [],
+        members: [],
+        messages: [
+          {
+            from: 'team-lead',
+            text: "You've hit your limit. Resets in 5 minutes.",
+            timestamp: '2026-04-17T12:00:00.000Z',
+            read: true,
+            source: 'lead_session' as const,
+            messageId: 'persisted-rate-limit-1',
+            leadSessionId: 'sess-123',
+          },
+        ],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      });
+      provisioningService.getLiveLeadProcessMessages.mockReturnValueOnce([
+        {
+          from: 'team-lead',
+          text: "You've hit your limit. Resets in 5 minutes.",
+          timestamp: '2026-04-17T12:00:02.000Z',
+          read: true,
+          source: 'lead_process' as const,
+          messageId: 'live-rate-limit-1',
+          leadSessionId: 'sess-123',
+        },
+      ]);
+
+      const getDataHandler = handlers.get(TEAM_GET_DATA)!;
+      const result = (await getDataHandler({} as never, 'my-team')) as {
+        success: boolean;
+        data: { messages: Array<{ source?: string; messageId?: string }> };
+      };
+
+      expect(result.success).toBe(true);
+      expect(result.data.messages).toEqual([
+        expect.objectContaining({
+          source: 'lead_session',
+          messageId: 'persisted-rate-limit-1',
+        }),
+      ]);
+
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1000 + 59 * 1000);
+      expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
+    } finally {
+      getConfigSpy.mockRestore();
+    }
+  });
+
   it('merges early live messages before durable lead_session backfill exists', async () => {
     // Simulate: team just became readable but lead_session JSONL hasn't been written yet.
     // Only live in-memory messages exist from the provisioning process.
