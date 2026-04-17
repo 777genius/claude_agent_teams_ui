@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api } from '@renderer/api';
+import { ProviderBrandLogo } from '@renderer/components/common/ProviderBrandLogo';
 import { Badge } from '@renderer/components/ui/badge';
 import { Button } from '@renderer/components/ui/button';
 import { Tabs, TabsContent, TabsList } from '@renderer/components/ui/tabs';
@@ -166,7 +167,9 @@ export const ExtensionStoreView = (): React.JSX.Element => {
     cliStatusLoading || apiKeysLoading || pluginCatalogLoading || mcpBrowseLoading || skillsLoading;
   const cliStatusBanner = useMemo(() => {
     const providers = cliStatus?.providers ?? [];
-    const isMultimodel = cliStatus?.flavor === 'agent_teams_orchestrator' && providers.length > 0;
+    const visibleProviders = providers.filter((provider) => provider.providerId !== 'gemini');
+    const isMultimodel =
+      cliStatus?.flavor === 'agent_teams_orchestrator' && visibleProviders.length > 0;
 
     if (cliStatusLoading || cliStatus === null) {
       return (
@@ -247,7 +250,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
             </div>
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
-            {providers.map((provider) => {
+            {visibleProviders.map((provider) => {
               const statusTone = provider.authenticated
                 ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
                 : provider.supported
@@ -267,7 +270,13 @@ export const ExtensionStoreView = (): React.JSX.Element => {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{provider.displayName}</p>
+                      <p className="inline-flex items-center gap-2 text-sm font-medium">
+                        <ProviderBrandLogo
+                          providerId={provider.providerId}
+                          className="size-4 shrink-0"
+                        />
+                        <span>{provider.displayName}</span>
+                      </p>
                       <p className="truncate text-[11px] text-text-muted">
                         {provider.statusMessage ?? provider.backend?.label ?? 'Ready to configure'}
                       </p>
