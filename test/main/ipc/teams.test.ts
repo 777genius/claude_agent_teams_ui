@@ -1226,6 +1226,58 @@ describe('ipc teams handlers', () => {
     }
   });
 
+  it('does not arm lead auto-resume from a teammate inbox rate-limit message', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T12:02:00.000Z'));
+    const configManager = ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: true,
+          },
+        }) as never
+    );
+
+    try {
+      provisioningService.isTeamAlive.mockReturnValue(true);
+      provisioningService.getCurrentLeadSessionId.mockReturnValue('sess-live');
+      provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+      service.getTeamData.mockResolvedValue({
+        teamName: 'my-team',
+        config: { name: 'My Team' },
+        tasks: [],
+        members: [],
+        messages: [
+          {
+            from: 'alice',
+            to: 'team-lead',
+            text: "You've hit your limit. Resets in 5 minutes.",
+            timestamp: '2026-04-17T12:00:00.000Z',
+            read: false,
+            messageId: 'member-rate-limit-1',
+          },
+        ],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      });
+
+      const getDataHandler = handlers.get(TEAM_GET_DATA)!;
+      const result = (await getDataHandler({} as never, 'my-team')) as {
+        success: boolean;
+      };
+      expect(result.success).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 31 * 1000);
+      expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
+  });
+
   it('keeps TEAM_GET_DATA read-only and never triggers reconcile side effects', async () => {
     const getDataHandler = handlers.get(TEAM_GET_DATA)!;
     const result = (await getDataHandler({} as never, 'my-team')) as {

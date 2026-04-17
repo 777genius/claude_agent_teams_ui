@@ -358,7 +358,10 @@ function checkRateLimitMessages(
     // Persisted history for an offline/stopped team may still contain the old
     // rate-limit message, but arming a new timer from that stale history would
     // resurrect the nudge into a later manual restart.
-    if (autoResumeEnabled && teamIsAlive) {
+    const isLeadAutoResumeCandidate =
+      !msg.to && (msg.source === 'lead_process' || msg.source === 'lead_session');
+
+    if (autoResumeEnabled && teamIsAlive && isLeadAutoResumeCandidate) {
       // Only let persisted lead_session history rebuild auto-resume when it
       // clearly belongs to the currently running lead session. Otherwise an old
       // rate-limit from a previous manual run can resurrect into a newer restart.
