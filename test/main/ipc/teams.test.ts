@@ -907,6 +907,70 @@ describe('ipc teams handlers', () => {
     }
   });
 
+  it('can schedule auto-resume when the setting is enabled after an earlier history scan', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T12:02:00.000Z'));
+    const configManager = ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    let autoResumeEnabled = false;
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: autoResumeEnabled,
+          },
+        }) as never
+    );
+
+    try {
+      provisioningService.isTeamAlive.mockReturnValue(true);
+      provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+      service.getTeamData.mockResolvedValue({
+        teamName: 'my-team',
+        config: { name: 'My Team' },
+        tasks: [],
+        members: [],
+        messages: [
+          {
+            from: 'team-lead',
+            text: "You've hit your limit. Resets in 5 minutes.",
+            timestamp: '2026-04-17T12:00:00.000Z',
+            read: true,
+            source: 'lead_session' as const,
+            messageId: 'rate-limit-enable-later',
+          },
+        ],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      });
+
+      const getDataHandler = handlers.get(TEAM_GET_DATA)!;
+
+      const firstResult = (await getDataHandler({} as never, 'my-team')) as {
+        success: boolean;
+      };
+      expect(firstResult.success).toBe(true);
+      expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+
+      autoResumeEnabled = true;
+
+      const secondResult = (await getDataHandler({} as never, 'my-team')) as {
+        success: boolean;
+      };
+      expect(secondResult.success).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 29 * 1000);
+      expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
+    } finally {
+      getConfigSpy.mockRestore();
+    }
+  });
+
   it('keeps TEAM_GET_DATA read-only and never triggers reconcile side effects', async () => {
     const getDataHandler = handlers.get(TEAM_GET_DATA)!;
     const result = (await getDataHandler({} as never, 'my-team')) as {

@@ -199,6 +199,14 @@ const logger = createLogger('IPC:teams');
  */
 const seenRateLimitKeys = new Set<string>();
 const SEEN_RATE_LIMIT_KEYS_MAX = 500;
+/**
+ * Separate in-memory dedupe for auto-resume scheduling attempts.
+ * This must stay independent from notification dedupe because a message first
+ * observed while auto-resume is disabled should still be eligible once the
+ * user enables the setting later in the same app session.
+ */
+const seenAutoResumeKeys = new Set<string>();
+const SEEN_AUTO_RESUME_KEYS_MAX = 500;
 
 async function getDurableLeadTeammateRoster(
   teamName: string,
@@ -311,6 +319,8 @@ function checkRateLimitMessages(
   projectPath?: string
 ): void {
   const observedAt = new Date();
+  const autoResumeEnabled =
+    ConfigManager.getInstance().getConfig().notifications.autoResumeOnRateLimit;
 
   for (const msg of messages) {
     if (msg.from === 'user') continue;
@@ -319,37 +329,48 @@ function checkRateLimitMessages(
     const rawKey = msg.messageId ?? `${msg.from}:${msg.timestamp}`;
     const dedupeKey = `rate-limit:${teamName}:${rawKey}`;
 
-    // In-memory guard: prevents resurrection after user deletes the notification
-    if (seenRateLimitKeys.has(dedupeKey)) continue;
-    seenRateLimitKeys.add(dedupeKey);
+    // In-memory guard: prevents resurrection after user deletes the notification.
+    // Keep notification dedupe separate from auto-resume dedupe so enabling the
+    // feature later in the same session can still schedule from the same message.
+    if (!seenRateLimitKeys.has(dedupeKey)) {
+      seenRateLimitKeys.add(dedupeKey);
 
-    // Evict oldest entries to prevent unbounded growth
-    if (seenRateLimitKeys.size > SEEN_RATE_LIMIT_KEYS_MAX) {
-      const first = seenRateLimitKeys.values().next().value;
-      if (first) seenRateLimitKeys.delete(first);
+      // Evict oldest entries to prevent unbounded growth
+      if (seenRateLimitKeys.size > SEEN_RATE_LIMIT_KEYS_MAX) {
+        const first = seenRateLimitKeys.values().next().value;
+        if (first) seenRateLimitKeys.delete(first);
+      }
+
+      void NotificationManager.getInstance()
+        .addTeamNotification({
+          teamEventType: 'rate_limit',
+          teamName,
+          teamDisplayName,
+          from: msg.from,
+          summary: `Rate limit: ${msg.from}`,
+          body: msg.text.slice(0, 200),
+          dedupeKey,
+          projectPath,
+        })
+        .catch(() => undefined);
     }
 
-    void NotificationManager.getInstance()
-      .addTeamNotification({
-        teamEventType: 'rate_limit',
-        teamName,
-        teamDisplayName,
-        from: msg.from,
-        summary: `Rate limit: ${msg.from}`,
-        body: msg.text.slice(0, 200),
-        dedupeKey,
-        projectPath,
-      })
-      .catch(() => undefined);
+    if (autoResumeEnabled && !seenAutoResumeKeys.has(dedupeKey)) {
+      seenAutoResumeKeys.add(dedupeKey);
+      if (seenAutoResumeKeys.size > SEEN_AUTO_RESUME_KEYS_MAX) {
+        const first = seenAutoResumeKeys.values().next().value;
+        if (first) seenAutoResumeKeys.delete(first);
+      }
 
-    // Pass the original message timestamp so relative reset windows survive restarts
-    // and old history does not rebuild a fresh auto-resume timer from "now".
-    getAutoResumeService().handleRateLimitMessage(
-      teamName,
-      msg.text,
-      observedAt,
-      new Date(msg.timestamp)
-    );
+      // Pass the original message timestamp so relative reset windows survive restarts
+      // and old history does not rebuild a fresh auto-resume timer from "now".
+      getAutoResumeService().handleRateLimitMessage(
+        teamName,
+        msg.text,
+        observedAt,
+        new Date(msg.timestamp)
+      );
+    }
   }
 }
 
