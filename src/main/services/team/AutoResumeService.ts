@@ -9,7 +9,7 @@ const logger = createLogger('Service:AutoResume');
 
 const AUTO_RESUME_BUFFER_MS = 30 * 1000;
 const AUTO_RESUME_MAX_DELAY_MS = 12 * 60 * 60 * 1000;
-const AUTO_RESUME_HISTORY_GRACE_MS = 2 * 60 * 1000;
+const AUTO_RESUME_HISTORY_FRESH_MS = 5 * 1000;
 const AUTO_RESUME_MESSAGE =
   'Your rate limit has reset. Please resume the work you were doing before the limit was hit.';
 
@@ -55,7 +55,10 @@ export class AutoResumeService {
       return;
     }
 
-    const rawDelayMs = resetTime.getTime() - observedAtMs;
+    const resetAtMs = resetTime.getTime();
+    const rawDelayMs = resetAtMs - observedAtMs;
+    const targetFireAtMs = resetAtMs + AUTO_RESUME_BUFFER_MS;
+    const messageAgeMs = Math.max(0, observedAtMs - messageAtMs);
     const existing = this.pendingTimers.get(teamName);
 
     if (existing && messageAtMs < existing.sourceMessageAtMs) {
@@ -65,20 +68,20 @@ export class AutoResumeService {
       return;
     }
 
-    if (rawDelayMs < -AUTO_RESUME_HISTORY_GRACE_MS) {
+    if (targetFireAtMs <= observedAtMs && messageAgeMs > AUTO_RESUME_HISTORY_FRESH_MS) {
       logger.info(
-        `[auto-resume] Parsed reset time for "${teamName}" passed ${Math.round((observedAtMs - resetTime.getTime()) / 1000)}s ago - skipping stale history replay`
+        `[auto-resume] Parsed reset time for "${teamName}" passed its buffered fire deadline ${Math.round((observedAtMs - targetFireAtMs) / 1000)}s ago - skipping stale history replay`
       );
       return;
     }
 
     if (rawDelayMs < 0) {
       logger.warn(
-        `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(-rawDelayMs / 1000)}s in the past - firing after buffer only`
+        `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(-rawDelayMs / 1000)}s in the past - using remaining buffered delay`
       );
     }
 
-    const delayMs = Math.max(0, rawDelayMs) + AUTO_RESUME_BUFFER_MS;
+    const delayMs = Math.max(0, targetFireAtMs - observedAtMs);
     const fireAtMs = observedAtMs + delayMs;
 
     if (delayMs > AUTO_RESUME_MAX_DELAY_MS) {

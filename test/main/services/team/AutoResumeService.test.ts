@@ -152,17 +152,50 @@ describe('AutoResumeService', () => {
     expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
   });
 
+  it('uses only the remaining buffer when the reset already happened shortly before replay', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockConfig.autoResumeOnRateLimit = true;
+    provisioningService.isTeamAlive.mockReturnValue(true);
+    provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+
+    const observedAt = new Date('2026-04-17T12:05:20Z');
+    const messageAt = new Date('2026-04-17T12:00:00Z');
+
+    service.handleRateLimitMessage(TEAM, RATE_LIMIT_MSG, observedAt, messageAt);
+
+    await vi.advanceTimersByTimeAsync(9 * 1000);
+    expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(provisioningService.sendMessageToTeam).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
   it('skips stale persisted history once the parsed reset is materially in the past', async () => {
     mockConfig.autoResumeOnRateLimit = true;
     provisioningService.isTeamAlive.mockReturnValue(true);
     provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
 
-    const observedAt = new Date('2026-04-17T12:00:00Z');
+    const observedAt = new Date('2026-04-17T12:05:40Z');
     const messageAt = new Date('2026-04-17T11:00:00Z');
 
     service.handleRateLimitMessage(TEAM, RATE_LIMIT_MSG, observedAt, messageAt);
 
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+  });
+
+  it('skips replay after the buffered fire deadline already passed', async () => {
+    mockConfig.autoResumeOnRateLimit = true;
+    provisioningService.isTeamAlive.mockReturnValue(true);
+    provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+
+    const observedAt = new Date('2026-04-17T12:05:40Z');
+    const messageAt = new Date('2026-04-17T12:00:00Z');
+
+    service.handleRateLimitMessage(TEAM, RATE_LIMIT_MSG, observedAt, messageAt);
+
+    await vi.advanceTimersByTimeAsync(60 * 1000);
     expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
   });
 
