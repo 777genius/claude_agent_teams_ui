@@ -199,14 +199,6 @@ const logger = createLogger('IPC:teams');
  */
 const seenRateLimitKeys = new Set<string>();
 const SEEN_RATE_LIMIT_KEYS_MAX = 500;
-/**
- * Separate in-memory dedupe for auto-resume scheduling attempts.
- * This must stay independent from notification dedupe because a message first
- * observed while auto-resume is disabled should still be eligible once the
- * user enables the setting later in the same app session.
- */
-const seenAutoResumeKeys = new Set<string>();
-const SEEN_AUTO_RESUME_KEYS_MAX = 500;
 
 async function getDurableLeadTeammateRoster(
   teamName: string,
@@ -330,8 +322,6 @@ function checkRateLimitMessages(
     const dedupeKey = `rate-limit:${teamName}:${rawKey}`;
 
     // In-memory guard: prevents resurrection after user deletes the notification.
-    // Keep notification dedupe separate from auto-resume dedupe so enabling the
-    // feature later in the same session can still schedule from the same message.
     if (!seenRateLimitKeys.has(dedupeKey)) {
       seenRateLimitKeys.add(dedupeKey);
 
@@ -355,13 +345,7 @@ function checkRateLimitMessages(
         .catch(() => undefined);
     }
 
-    if (autoResumeEnabled && !seenAutoResumeKeys.has(dedupeKey)) {
-      seenAutoResumeKeys.add(dedupeKey);
-      if (seenAutoResumeKeys.size > SEEN_AUTO_RESUME_KEYS_MAX) {
-        const first = seenAutoResumeKeys.values().next().value;
-        if (first) seenAutoResumeKeys.delete(first);
-      }
-
+    if (autoResumeEnabled) {
       // Pass the original message timestamp so relative reset windows survive restarts
       // and old history does not rebuild a fresh auto-resume timer from "now".
       getAutoResumeService().handleRateLimitMessage(
