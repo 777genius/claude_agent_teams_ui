@@ -305,11 +305,19 @@ const SEEN_API_ERROR_KEYS_MAX = 500;
  * and NotificationManager dedupeKey (to prevent storage duplicates).
  */
 function checkRateLimitMessages(
-  messages: readonly { messageId?: string; from: string; text: string; timestamp: string }[],
+  messages: readonly {
+    messageId?: string;
+    from: string;
+    text: string;
+    timestamp: string;
+    source?: string;
+    leadSessionId?: string;
+  }[],
   teamName: string,
   teamDisplayName: string,
   projectPath?: string,
-  teamIsAlive = true
+  teamIsAlive = true,
+  currentLeadSessionId: string | null = null
 ): void {
   const observedAt = new Date();
   const autoResumeEnabled =
@@ -351,6 +359,14 @@ function checkRateLimitMessages(
     // rate-limit message, but arming a new timer from that stale history would
     // resurrect the nudge into a later manual restart.
     if (autoResumeEnabled && teamIsAlive) {
+      // Only let persisted lead_session history rebuild auto-resume when it
+      // clearly belongs to the currently running lead session. Otherwise an old
+      // rate-limit from a previous manual run can resurrect into a newer restart.
+      if (msg.source === 'lead_session') {
+        if (!currentLeadSessionId) continue;
+        if (msg.leadSessionId !== currentLeadSessionId) continue;
+      }
+
       // Pass the original message timestamp so relative reset windows survive restarts
       // and old history does not rebuild a fresh auto-resume timer from "now".
       getAutoResumeService().handleRateLimitMessage(
@@ -785,13 +801,21 @@ async function handleGetData(
   }
   const provisioning = getTeamProvisioningService();
   const isAlive = provisioning.isTeamAlive(tn);
+  const currentLeadSessionId = provisioning.getCurrentLeadSessionId(tn);
 
   const displayName = data.config.name || tn;
   const projectPath = data.config.projectPath;
 
   const live = provisioning.getLiveLeadProcessMessages(tn);
   if (live.length === 0) {
-    checkRateLimitMessages(data.messages, tn, displayName, projectPath, isAlive);
+    checkRateLimitMessages(
+      data.messages,
+      tn,
+      displayName,
+      projectPath,
+      isAlive,
+      currentLeadSessionId
+    );
     checkApiErrorMessages(data.messages, tn, displayName, projectPath);
     return { success: true, data: { ...data, isAlive } };
   }
@@ -871,7 +895,7 @@ async function handleGetData(
   }
   merged.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
-  checkRateLimitMessages(merged, tn, displayName, projectPath, isAlive);
+  checkRateLimitMessages(merged, tn, displayName, projectPath, isAlive, currentLeadSessionId);
   checkApiErrorMessages(merged, tn, displayName, projectPath);
   return { success: true, data: { ...data, isAlive, messages: merged } };
 }

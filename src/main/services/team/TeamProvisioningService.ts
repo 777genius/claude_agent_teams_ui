@@ -2972,6 +2972,12 @@ export class TeamProvisioningService {
     return [...list];
   }
 
+  getCurrentLeadSessionId(teamName: string): string | null {
+    const runId = this.getTrackedRunId(teamName);
+    if (!runId) return null;
+    return this.runs.get(runId)?.detectedSessionId ?? null;
+  }
+
   getLeadActivityState(teamName: string): {
     state: 'active' | 'idle' | 'offline';
     runId: string | null;
