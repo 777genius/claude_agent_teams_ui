@@ -28,7 +28,17 @@ import {
 import { resolveProjectPathById } from '@renderer/utils/projectLookup';
 import { getExtensionActionDisableReason } from '@shared/utils/extensionNormalizers';
 import { getCliProviderExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
-import { AlertTriangle, BookOpen, Info, Key, Plus, Puzzle, RefreshCw, Server } from 'lucide-react';
+import {
+  AlertTriangle,
+  BookOpen,
+  Info,
+  Key,
+  Loader2,
+  Plus,
+  Puzzle,
+  RefreshCw,
+  Server,
+} from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { ApiKeysPanel } from './apikeys/ApiKeysPanel';
@@ -37,6 +47,40 @@ import { McpServersPanel } from './mcp/McpServersPanel';
 import { PluginsPanel } from './plugins/PluginsPanel';
 import { SkillsPanel } from './skills/SkillsPanel';
 import { ExtensionsSubTabTrigger } from './ExtensionsSubTabTrigger';
+
+const ProviderCapabilityCardSkeleton = ({
+  providerId,
+  displayName,
+}: {
+  providerId: 'anthropic' | 'codex' | 'gemini';
+  displayName: string;
+}): React.JSX.Element => (
+  <div className="rounded-md border border-border bg-surface-raised px-3 py-2">
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        <p className="inline-flex items-center gap-2 text-sm font-medium text-text">
+          <ProviderBrandLogo providerId={providerId} className="size-4 shrink-0" />
+          <span>{displayName}</span>
+        </p>
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-text-muted">
+          <Loader2 className="size-3 animate-spin" />
+          <span>Checking provider status...</span>
+        </div>
+      </div>
+      <Badge variant="outline" className="shrink-0 text-text-muted">
+        Loading...
+      </Badge>
+    </div>
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {Array.from({ length: 3 }, (_, index) => (
+        <span
+          key={index}
+          className="h-7 w-28 animate-pulse rounded-md border border-border bg-surface"
+        />
+      ))}
+    </div>
+  </div>
+);
 
 export const ExtensionStoreView = (): React.JSX.Element => {
   const tabId = useTabIdOptional();
@@ -53,6 +97,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
     skillsLoading,
     cliStatus,
     cliStatusLoading,
+    cliProviderStatusLoading,
     openDashboard,
     sessions,
     projects,
@@ -71,6 +116,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
       skillsLoading: s.skillsLoading,
       cliStatus: s.cliStatus,
       cliStatusLoading: s.cliStatusLoading,
+      cliProviderStatusLoading: s.cliProviderStatusLoading,
       openDashboard: s.openDashboard,
       sessions: s.sessions,
       projects: s.projects,
@@ -186,8 +232,10 @@ export const ExtensionStoreView = (): React.JSX.Element => {
     const providers = cliStatus?.providers ?? [];
     const visibleProviders = getVisibleMultimodelProviders(providers);
     const isMultimodel = isMultimodelRuntimeStatus(cliStatus);
+    const shouldShowMultimodelProviderCards =
+      isMultimodel && visibleProviders.length > 0 && cliStatus !== null;
 
-    if (cliStatusLoading || cliStatus === null) {
+    if ((cliStatusLoading || cliStatus === null) && !shouldShowMultimodelProviderCards) {
       return (
         <div className="bg-surface/70 mx-4 mt-3 flex items-start gap-3 rounded-md border border-border px-4 py-3">
           <Info className="mt-0.5 size-4 shrink-0 text-text-secondary" />
@@ -268,6 +316,17 @@ export const ExtensionStoreView = (): React.JSX.Element => {
           {visibleProviders.length > 0 && (
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               {visibleProviders.map((provider) => {
+                const providerLoading = cliProviderStatusLoading[provider.providerId] === true;
+                if (providerLoading) {
+                  return (
+                    <ProviderCapabilityCardSkeleton
+                      key={provider.providerId}
+                      providerId={provider.providerId}
+                      displayName={provider.displayName}
+                    />
+                  );
+                }
+
                 const statusTone = provider.authenticated
                   ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
                   : provider.supported
@@ -337,7 +396,7 @@ export const ExtensionStoreView = (): React.JSX.Element => {
         </div>
       </div>
     );
-  }, [cliStatus, cliStatusLoading, openDashboard]);
+  }, [cliProviderStatusLoading, cliStatus, cliStatusLoading, openDashboard]);
 
   // Browser mode guard
   if (!api.plugins && !api.mcpRegistry && !api.skills) {
