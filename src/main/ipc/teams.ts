@@ -86,7 +86,7 @@ import {
   PROTECTED_CLI_FLAGS,
 } from '@shared/utils/cliArgsParser';
 import { createLogger } from '@shared/utils/logger';
-import { isRateLimitMessage } from '@shared/utils/rateLimitDetector';
+import { isRateLimitMessage, parseRateLimitResetTime } from '@shared/utils/rateLimitDetector';
 import {
   buildStandaloneSlashCommandMeta,
   parseStandaloneSlashCommand,
@@ -295,6 +295,104 @@ function buildLeadDirectDelegateAckBlock(actionMode?: AgentActionMode): string |
 const seenApiErrorKeys = new Set<string>();
 const SEEN_API_ERROR_KEYS_MAX = 500;
 
+/** Pending auto-resume timers keyed by team name. Prevents duplicate schedules
+ *  when multiple rate-limit messages arrive for the same team. */
+const pendingAutoResumeTimers = new Map<string, NodeJS.Timeout>();
+
+/** Minimum buffer added to the parsed reset time before firing the nudge.
+ *  Guards against clock skew and any small runtime delay between Claude's
+ *  "limit will reset at X" statement and the actual reset. */
+const AUTO_RESUME_BUFFER_MS = 30 * 1000;
+
+/** Hard ceiling on scheduled delay. If a parsed reset time is further away
+ *  than this (e.g. parser mis-detects a far-future date), we skip scheduling
+ *  rather than pin a timer for days. */
+const AUTO_RESUME_MAX_DELAY_MS = 12 * 60 * 60 * 1000;
+
+const AUTO_RESUME_MESSAGE =
+  'Your rate limit has reset. Please resume the work you were doing before the limit was hit.';
+
+/**
+ * Schedule an automatic resume nudge for a rate-limited team.
+ *
+ * Only schedules when:
+ *   1. `notifications.autoResumeOnRateLimit` is enabled in config
+ *   2. A reset time can be parsed from the rate-limit message
+ *   3. No timer is already pending for this team
+ *
+ * When the timer fires, sends a short continuation message to the team lead
+ * via the same stdin path the UI uses for manual sends. If the team is no
+ * longer alive at fire time (e.g. user stopped it), the attempt is skipped
+ * silently — auto-resume does not relaunch teams.
+ */
+function scheduleAutoResumeIfEnabled(
+  teamName: string,
+  messageText: string,
+  now: Date = new Date()
+): void {
+  const cfg = ConfigManager.getInstance().getConfig();
+  if (!cfg.notifications.autoResumeOnRateLimit) return;
+
+  if (pendingAutoResumeTimers.has(teamName)) return;
+
+  const resetTime = parseRateLimitResetTime(messageText, now);
+  if (!resetTime) {
+    logger.info(
+      `[auto-resume] Rate limit detected for "${teamName}" but reset time was not parseable — skipping auto-resume`
+    );
+    return;
+  }
+
+  const delayMs = Math.max(0, resetTime.getTime() - now.getTime()) + AUTO_RESUME_BUFFER_MS;
+  if (delayMs > AUTO_RESUME_MAX_DELAY_MS) {
+    logger.warn(
+      `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(delayMs / 60000)}m away — exceeds ceiling, skipping`
+    );
+    return;
+  }
+
+  logger.info(
+    `[auto-resume] Scheduling resume for "${teamName}" at ${resetTime.toISOString()} (in ${Math.round(delayMs / 1000)}s)`
+  );
+
+  const timer = setTimeout(() => {
+    pendingAutoResumeTimers.delete(teamName);
+    void (async (): Promise<void> => {
+      try {
+        const provisioning = getTeamProvisioningService();
+        if (!provisioning.isTeamAlive(teamName)) {
+          logger.info(
+            `[auto-resume] Team "${teamName}" is no longer alive at fire time — skipping resume nudge`
+          );
+          return;
+        }
+        await provisioning.sendMessageToTeam(teamName, AUTO_RESUME_MESSAGE);
+        logger.info(`[auto-resume] Sent resume nudge to "${teamName}"`);
+      } catch (error) {
+        logger.error(
+          `[auto-resume] Failed to send resume nudge to "${teamName}": ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    })();
+  }, delayMs);
+
+  pendingAutoResumeTimers.set(teamName, timer);
+}
+
+/**
+ * Cancel any pending auto-resume timer for a team. Call when the team is
+ * stopped or destroyed so we don't nudge a dead team.
+ */
+export function cancelPendingAutoResume(teamName: string): void {
+  const timer = pendingAutoResumeTimers.get(teamName);
+  if (timer) {
+    clearTimeout(timer);
+    pendingAutoResumeTimers.delete(teamName);
+  }
+}
+
 /**
  * Check messages for rate limit indicators and fire notifications for new ones.
  * Uses both in-memory seenRateLimitKeys (to prevent resurrection after deletion)
@@ -335,6 +433,8 @@ function checkRateLimitMessages(
         projectPath,
       })
       .catch(() => undefined);
+
+    scheduleAutoResumeIfEnabled(teamName, msg.text);
   }
 }
 
@@ -926,6 +1026,7 @@ async function handleDeleteTeam(
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
   return wrapTeamHandler('deleteTeam', async () => {
+    cancelPendingAutoResume(validated.value!);
     getTeamProvisioningService().stopTeam(validated.value!);
     await getTeamDataService().deleteTeam(validated.value!);
   });
@@ -2707,6 +2808,7 @@ async function handleStopTeam(
   }
   return wrapTeamHandler('stop', async () => {
     addMainBreadcrumb('team', 'stop', { teamName: validated.value! });
+    cancelPendingAutoResume(validated.value!);
     getTeamProvisioningService().stopTeam(validated.value!);
   });
 }

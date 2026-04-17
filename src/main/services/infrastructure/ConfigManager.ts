@@ -62,6 +62,12 @@ export interface NotificationConfig {
   notifyOnTeamLaunched: boolean;
   /** Whether to show native OS notifications when a tool needs user approval */
   notifyOnToolApproval: boolean;
+  /** Whether to automatically resume a rate-limited team when the limit resets.
+   * When enabled, the app parses the reset time from Claude's rate-limit
+   * message and schedules a nudge to the team lead once the limit expires.
+   * Default is `false` — opt-in to avoid unexpected API usage after the reset.
+   */
+  autoResumeOnRateLimit: boolean;
   /** Only notify on status changes in solo teams (no teammates) */
   statusChangeOnlySolo: boolean;
   /** Which target statuses to notify about (e.g. ['in_progress', 'completed']) */
@@ -306,6 +312,7 @@ const DEFAULT_CONFIG: AppConfig = {
     notifyOnCrossTeamMessage: true,
     notifyOnTeamLaunched: true,
     notifyOnToolApproval: true,
+    autoResumeOnRateLimit: false,
     statusChangeOnlySolo: false,
     statusChangeStatuses: ['in_progress', 'completed'],
     triggers: DEFAULT_TRIGGERS,
