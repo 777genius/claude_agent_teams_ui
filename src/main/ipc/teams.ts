@@ -308,7 +308,8 @@ function checkRateLimitMessages(
   messages: readonly { messageId?: string; from: string; text: string; timestamp: string }[],
   teamName: string,
   teamDisplayName: string,
-  projectPath?: string
+  projectPath?: string,
+  teamIsAlive = true
 ): void {
   const observedAt = new Date();
   const autoResumeEnabled =
@@ -345,7 +346,11 @@ function checkRateLimitMessages(
         .catch(() => undefined);
     }
 
-    if (autoResumeEnabled) {
+    // Only schedule auto-resume while a live team run currently exists.
+    // Persisted history for an offline/stopped team may still contain the old
+    // rate-limit message, but arming a new timer from that stale history would
+    // resurrect the nudge into a later manual restart.
+    if (autoResumeEnabled && teamIsAlive) {
       // Pass the original message timestamp so relative reset windows survive restarts
       // and old history does not rebuild a fresh auto-resume timer from "now".
       getAutoResumeService().handleRateLimitMessage(
@@ -786,7 +791,7 @@ async function handleGetData(
 
   const live = provisioning.getLiveLeadProcessMessages(tn);
   if (live.length === 0) {
-    checkRateLimitMessages(data.messages, tn, displayName, projectPath);
+    checkRateLimitMessages(data.messages, tn, displayName, projectPath, isAlive);
     checkApiErrorMessages(data.messages, tn, displayName, projectPath);
     return { success: true, data: { ...data, isAlive } };
   }
@@ -866,7 +871,7 @@ async function handleGetData(
   }
   merged.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
-  checkRateLimitMessages(merged, tn, displayName, projectPath);
+  checkRateLimitMessages(merged, tn, displayName, projectPath, isAlive);
   checkApiErrorMessages(merged, tn, displayName, projectPath);
   return { success: true, data: { ...data, isAlive, messages: merged } };
 }
