@@ -2958,7 +2958,17 @@ export class TeamProvisioningService {
   }
 
   getLiveLeadProcessMessages(teamName: string): InboxMessage[] {
-    return [...(this.liveLeadProcessMessages.get(teamName) ?? [])];
+    const list = this.liveLeadProcessMessages.get(teamName) ?? [];
+    const runId = this.getTrackedRunId(teamName);
+    const sessionId = runId ? this.runs.get(runId)?.detectedSessionId : null;
+    if (sessionId) {
+      for (const message of list) {
+        if (!message.leadSessionId && message.source === 'lead_process') {
+          message.leadSessionId = sessionId;
+        }
+      }
+    }
+    return [...list];
   }
 
   getLeadActivityState(teamName: string): {

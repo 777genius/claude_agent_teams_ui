@@ -133,6 +133,7 @@ interface RunLike {
   runId: string;
   teamName: string;
   provisioningComplete: boolean;
+  detectedSessionId?: string | null;
   leadMsgSeq: number;
   pendingToolCalls: { name: string; preview: string }[];
   activeToolCalls: Map<string, unknown>;
@@ -166,6 +167,7 @@ function attachRun(
     runId,
     teamName,
     provisioningComplete: opts?.provisioningComplete ?? false,
+    detectedSessionId: null,
     leadMsgSeq: 0,
     pendingToolCalls: [],
     activeToolCalls: new Map(),
@@ -225,6 +227,44 @@ describe('TeamProvisioningService pre-ready live messages', () => {
 
     // Also still in provisioningOutputParts for the banner
     expect(run.provisioningOutputParts).toHaveLength(1);
+  });
+
+  it('attaches leadSessionId to a live message when the same assistant payload carries session_id', () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const run = attachRun(service, 'my-team', { provisioningComplete: false });
+
+    callHandleStreamJsonMessage(service, run, {
+      type: 'assistant',
+      session_id: 'sess-123',
+      content: [{ type: 'text', text: 'Команда создана. Запускаю всех тиммейтов параллельно.' }],
+    });
+
+    const live = service.getLiveLeadProcessMessages('my-team');
+    expect(live).toHaveLength(1);
+    expect(live[0].leadSessionId).toBe('sess-123');
+  });
+
+  it('retrofits leadSessionId onto earlier live messages after session detection', () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const run = attachRun(service, 'my-team', { provisioningComplete: false });
+
+    callHandleStreamJsonMessage(service, run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: 'Команда создана. Запускаю всех тиммейтов параллельно.' }],
+    });
+    expect(service.getLiveLeadProcessMessages('my-team')[0]?.leadSessionId).toBeUndefined();
+
+    callHandleStreamJsonMessage(service, run, {
+      type: 'assistant',
+      session_id: 'sess-456',
+      content: [],
+    });
+
+    const live = service.getLiveLeadProcessMessages('my-team');
+    expect(live).toHaveLength(1);
+    expect(live[0].leadSessionId).toBe('sess-456');
   });
 
   it('emits lead-message event type (not inbox)', () => {
