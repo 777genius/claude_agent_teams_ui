@@ -245,6 +245,26 @@ describe('TeamProvisioningService pre-ready live messages', () => {
     expect(live[0].leadSessionId).toBe('sess-123');
   });
 
+  it('makes leadSessionId visible to synchronous lead-message listeners in the same turn', () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const seenSessionIds: Array<string | undefined> = [];
+    service.setTeamChangeEmitter((event) => {
+      if (event.type === 'lead-message') {
+        seenSessionIds.push(service.getLiveLeadProcessMessages('my-team')[0]?.leadSessionId);
+      }
+    });
+    const run = attachRun(service, 'my-team', { provisioningComplete: false });
+
+    callHandleStreamJsonMessage(service, run, {
+      type: 'assistant',
+      session_id: 'sess-sync',
+      content: [{ type: 'text', text: 'Команда создана. Запускаю всех тиммейтов параллельно.' }],
+    });
+
+    expect(seenSessionIds).toEqual(['sess-sync']);
+  });
+
   it('retrofits leadSessionId onto earlier live messages after session detection', () => {
     const service = new TeamProvisioningService();
     seedConfig('my-team');

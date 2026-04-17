@@ -7540,6 +7540,18 @@ export class TeamProvisioningService {
     // stream-json output has various message types:
     // {"type":"assistant","content":[{"type":"text","text":"..."},...]}
     // {"type":"result","subtype":"success",...}
+    // Capture session_id as early as possible so live messages emitted during this
+    // handler already carry the session identity used by merge/dedup paths.
+    if (!run.detectedSessionId) {
+      const sid = typeof msg.session_id === 'string' ? msg.session_id : undefined;
+      if (sid && sid.trim().length > 0) {
+        run.detectedSessionId = sid.trim();
+        logger.info(
+          `[${run.teamName}] Detected session ID from stream-json: ${run.detectedSessionId}`
+        );
+      }
+    }
+
     if (msg.type === 'user') {
       // Check for permission_request in raw user message text BEFORE teammate-message parsing.
       // The permission_request may arrive as plain JSON without <teammate-message> wrapper,
@@ -7718,17 +7730,6 @@ export class TeamProvisioningService {
             this.emitLeadContextUsage(run);
           }
         }
-      }
-    }
-
-    // Capture session_id from any message type (first occurrence wins)
-    if (!run.detectedSessionId) {
-      const sid = typeof msg.session_id === 'string' ? msg.session_id : undefined;
-      if (sid && sid.trim().length > 0) {
-        run.detectedSessionId = sid.trim();
-        logger.info(
-          `[${run.teamName}] Detected session ID from stream-json: ${run.detectedSessionId}`
-        );
       }
     }
 
