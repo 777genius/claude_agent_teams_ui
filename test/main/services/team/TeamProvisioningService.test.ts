@@ -673,4 +673,45 @@ describe('TeamProvisioningService', () => {
     expect(launchArgs).toContain('--resume');
     expect(launchArgs).toContain(leadSessionId);
   });
+
+  it('seeds the current lead session id immediately when launch resumes an existing session', async () => {
+    allowConsoleLogs();
+    const teamName = 'resume-seed-session-team';
+    const leadSessionId = 'lead-session-seeded';
+    writeLaunchConfig(teamName, tempClaudeRoot, leadSessionId, ['alice']);
+
+    vi.mocked(ClaudeBinaryResolver.resolve).mockResolvedValue('/mock/claude');
+    const child = createRunningChild();
+    vi.mocked(spawnCli).mockReturnValue(child as any);
+
+    const svc = new TeamProvisioningService(undefined, undefined, undefined, undefined, {
+      writeConfigFile: vi.fn(async () => '/mock/mcp-config-launch.json'),
+      removeConfigFile: vi.fn(async () => {}),
+    } as any);
+    (svc as any).buildProvisioningEnv = vi.fn(async () => ({
+      env: { ANTHROPIC_API_KEY: 'test' },
+      authSource: 'anthropic_api_key',
+    }));
+    (svc as any).resolveLaunchExpectedMembers = vi.fn(async () => ({
+      members: [{ name: 'alice' }],
+      source: 'members-meta',
+      warning: undefined,
+    }));
+    (svc as any).normalizeTeamConfigForLaunch = vi.fn(async () => {});
+    (svc as any).assertConfigLeadOnlyForLaunch = vi.fn(async () => {});
+    (svc as any).updateConfigProjectPath = vi.fn(async () => {});
+    (svc as any).restorePrelaunchConfig = vi.fn(async () => {});
+    (svc as any).validateAgentTeamsMcpRuntime = vi.fn(async () => {});
+    (svc as any).persistLaunchStateSnapshot = vi.fn(async () => {});
+    (svc as any).startFilesystemMonitor = vi.fn();
+    (svc as any).pathExists = vi.fn(async (targetPath: string) =>
+      targetPath.endsWith(`${leadSessionId}.jsonl`)
+    );
+
+    const { runId } = await svc.launchTeam({ teamName, cwd: tempClaudeRoot }, () => {});
+
+    expect(svc.getCurrentLeadSessionId(teamName)).toBe(leadSessionId);
+
+    await svc.cancelProvisioning(runId);
+  });
 });

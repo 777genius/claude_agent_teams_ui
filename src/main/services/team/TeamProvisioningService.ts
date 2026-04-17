@@ -5101,7 +5101,7 @@ export class TeamProvisioningService {
         pendingInboxRelayCandidates: [],
         provisioningOutputParts: [],
         provisioningOutputIndexByMessageId: new Map(),
-        detectedSessionId: null,
+        detectedSessionId: previousSessionId ?? null,
         leadActivityState: 'active',
         leadContextUsage: null,
         authFailureRetried: false,
