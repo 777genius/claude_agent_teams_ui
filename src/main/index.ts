@@ -61,6 +61,7 @@ import { join } from 'path';
 import { cleanupEditorState, setEditorMainWindow } from './ipc/editor';
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { setReviewMainWindow } from './ipc/review';
+import { clearAllPendingAutoResume } from './ipc/teams';
 import {
   ApiKeyService,
   ExtensionFacadeService,
@@ -1049,6 +1050,11 @@ async function startHttpServer(
  */
 function shutdownServices(): void {
   logger.info('Shutting down services...');
+
+  // Clear pending auto-resume timers before anything else — otherwise the
+  // dangling setTimeout handles keep the event loop alive past shutdown and
+  // may fire against a torn-down provisioning service.
+  clearAllPendingAutoResume();
 
   // Kill all team CLI processes via SIGKILL BEFORE anything else.
   // This must happen before the OS closes stdin pipes (on app exit),

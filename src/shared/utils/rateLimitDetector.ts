@@ -47,7 +47,9 @@ const TIMEZONE_OFFSETS_MIN: Record<string, number> = {
  *   - "resets in 2 hours"
  *   - "resets in 45 minutes"
  *
- * Returns `null` when the reset time cannot be extracted reliably.
+ * Returns `null` when the reset time cannot be extracted reliably. Also returns
+ * null for text that does not look like a rate-limit message, so the parser is
+ * safe to call on arbitrary strings.
  *
  * @param text  the full rate-limit message text
  * @param now   reference "now" used to resolve wall-clock times and relative
@@ -55,6 +57,10 @@ const TIMEZONE_OFFSETS_MIN: Record<string, number> = {
  */
 export function parseRateLimitResetTime(text: string, now: Date = new Date()): Date | null {
   if (!text) return null;
+  // Defensive gate: only parse text that actually looks like a rate-limit
+  // message. Prevents false positives from unrelated prose containing
+  // words like "reset" (e.g. "reset the 5pm meeting").
+  if (!isRateLimitMessage(text)) return null;
 
   const relative = parseRelativeResetDuration(text);
   if (relative !== null) {
@@ -63,6 +69,15 @@ export function parseRateLimitResetTime(text: string, now: Date = new Date()): D
 
   return parseAbsoluteResetClockTime(text, now);
 }
+
+/**
+ * Matches trailing qualifiers that shift the reset to a different day.
+ * When present, we can't reliably resolve the date without more context, so
+ * the parser bails out. Example: "reset at 3pm (PST) next week" — the naive
+ * "today or tomorrow" rollover would fire in hours instead of a week.
+ */
+const DAY_SHIFT_QUALIFIER_RE =
+  /\b(?:next\s+week|next\s+month|tomorrow|yesterday|on\s+(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*)\b/i;
 
 // ---------------------------------------------------------------------------
 // Relative durations: "resets in 2 hours", "resets in 45 minutes"
@@ -101,6 +116,12 @@ const ABSOLUTE_RESET_RE =
 function parseAbsoluteResetClockTime(text: string, now: Date): Date | null {
   const match = ABSOLUTE_RESET_RE.exec(text);
   if (!match) return null;
+
+  // If the text contains a day-shift qualifier ("next week", "on Tuesday",
+  // etc.), the "today or tomorrow" rollover below would produce a materially
+  // wrong time. Bail out and let the caller fall back to no auto-resume.
+  const afterMatch = text.slice(match.index + match[0].length);
+  if (DAY_SHIFT_QUALIFIER_RE.test(afterMatch)) return null;
 
   const hourRaw = Number.parseInt(match[1]!, 10);
   const minuteRaw = match[2] ? Number.parseInt(match[2], 10) : 0;

@@ -321,11 +321,14 @@ const AUTO_RESUME_MESSAGE =
  *   3. No timer is already pending for this team
  *
  * When the timer fires, sends a short continuation message to the team lead
- * via the same stdin path the UI uses for manual sends. If the team is no
- * longer alive at fire time (e.g. user stopped it), the attempt is skipped
- * silently — auto-resume does not relaunch teams.
+ * via the same stdin path the UI uses for manual sends. The config flag is
+ * re-checked at fire time so toggling it off mid-wait cancels the nudge. If
+ * the team is no longer alive at fire time (e.g. user stopped it), the
+ * attempt is skipped silently — auto-resume does not relaunch teams.
+ *
+ * Exported for unit testing.
  */
-function scheduleAutoResumeIfEnabled(
+export function scheduleAutoResumeIfEnabled(
   teamName: string,
   messageText: string,
   now: Date = new Date()
@@ -343,7 +346,13 @@ function scheduleAutoResumeIfEnabled(
     return;
   }
 
-  const delayMs = Math.max(0, resetTime.getTime() - now.getTime()) + AUTO_RESUME_BUFFER_MS;
+  const rawDelayMs = resetTime.getTime() - now.getTime();
+  if (rawDelayMs < 0) {
+    logger.warn(
+      `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(-rawDelayMs / 1000)}s in the past — firing after buffer only`
+    );
+  }
+  const delayMs = Math.max(0, rawDelayMs) + AUTO_RESUME_BUFFER_MS;
   if (delayMs > AUTO_RESUME_MAX_DELAY_MS) {
     logger.warn(
       `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(delayMs / 60000)}m away — exceeds ceiling, skipping`
@@ -358,6 +367,16 @@ function scheduleAutoResumeIfEnabled(
   const timer = setTimeout(() => {
     pendingAutoResumeTimers.delete(teamName);
     void (async (): Promise<void> => {
+      // Re-check the config flag — the user may have toggled it off while
+      // the timer was pending. The opt-in contract should hold end-to-end,
+      // not only at schedule time.
+      const current = ConfigManager.getInstance().getConfig();
+      if (!current.notifications.autoResumeOnRateLimit) {
+        logger.info(
+          `[auto-resume] Config flag was disabled while timer was pending — skipping nudge for "${teamName}"`
+        );
+        return;
+      }
       try {
         const provisioning = getTeamProvisioningService();
         if (!provisioning.isTeamAlive(teamName)) {
@@ -391,6 +410,29 @@ export function cancelPendingAutoResume(teamName: string): void {
     clearTimeout(timer);
     pendingAutoResumeTimers.delete(teamName);
   }
+}
+
+/**
+ * Clear every pending auto-resume timer. Called during app shutdown so
+ * dangling `setTimeout` handles don't keep the event loop alive and don't
+ * fire against a partially-torn-down provisioning service.
+ */
+export function clearAllPendingAutoResume(): void {
+  for (const timer of pendingAutoResumeTimers.values()) {
+    clearTimeout(timer);
+  }
+  pendingAutoResumeTimers.clear();
+}
+
+/**
+ * Testing-only setter that injects a TeamProvisioningService into the
+ * module-local singleton. Production code uses `initializeTeamIpcHandlers`
+ * with the full service graph; tests only need the provisioning service.
+ */
+export function __setTeamProvisioningServiceForTests(
+  service: TeamProvisioningService | null
+): void {
+  teamProvisioningService = service;
 }
 
 /**

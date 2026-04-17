@@ -5,6 +5,10 @@ import {
   parseRateLimitResetTime,
 } from '../../../src/shared/utils/rateLimitDetector';
 
+// Helper: every production rate-limit message starts with this substring.
+// Prefix test inputs so they clear the parser's rate-limit-context gate.
+const RL = "You've hit your limit. ";
+
 describe('isRateLimitMessage', () => {
   it('detects the canonical substring', () => {
     expect(isRateLimitMessage("You've hit your limit")).toBe(true);
@@ -22,31 +26,70 @@ describe('isRateLimitMessage', () => {
 
 describe('parseRateLimitResetTime', () => {
   // ---------------------------------------------------------------------
+  // Rate-limit context gate
+  // ---------------------------------------------------------------------
+
+  it('returns null for text that is not a rate-limit message', () => {
+    // Even if the text contains a parseable "reset at X" clause, the parser
+    // must refuse to interpret it when the rate-limit context is absent.
+    // Protects against false positives like "reset at 3pm (PST)" appearing
+    // in unrelated prose.
+    const now = new Date('2026-04-17T12:00:00Z');
+    expect(
+      parseRateLimitResetTime('Please reset your expectations at 3pm (PST).', now)
+    ).toBeNull();
+    expect(parseRateLimitResetTime('Resets in 2 hours.', now)).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------
   // Relative durations
   // ---------------------------------------------------------------------
 
   it('parses "resets in N hours"', () => {
     const now = new Date('2026-04-17T12:00:00Z');
-    const result = parseRateLimitResetTime(
-      "You've hit your limit. Resets in 2 hours.",
-      now
-    );
+    const result = parseRateLimitResetTime(`${RL}Resets in 2 hours.`, now);
     expect(result?.toISOString()).toBe('2026-04-17T14:00:00.000Z');
   });
 
   it('parses "resets in N minutes"', () => {
     const now = new Date('2026-04-17T12:00:00Z');
-    const result = parseRateLimitResetTime(
-      "You've hit your limit. Will reset in 45 minutes.",
-      now
-    );
+    const result = parseRateLimitResetTime(`${RL}Will reset in 45 minutes.`, now);
     expect(result?.toISOString()).toBe('2026-04-17T12:45:00.000Z');
+  });
+
+  it('parses "resets in N seconds"', () => {
+    const now = new Date('2026-04-17T12:00:00Z');
+    const result = parseRateLimitResetTime(`${RL}Resets in 90 seconds.`, now);
+    expect(result?.toISOString()).toBe('2026-04-17T12:01:30.000Z');
+  });
+
+  it('parses "hrs" and "mins" abbreviations', () => {
+    const now = new Date('2026-04-17T12:00:00Z');
+    expect(
+      parseRateLimitResetTime(`${RL}Resets in 3 hrs.`, now)?.toISOString()
+    ).toBe('2026-04-17T15:00:00.000Z');
+    expect(
+      parseRateLimitResetTime(`${RL}Resets in 15 mins.`, now)?.toISOString()
+    ).toBe('2026-04-17T12:15:00.000Z');
+  });
+
+  it('parses bare "h" / "m" / "s" single-letter units', () => {
+    const now = new Date('2026-04-17T12:00:00Z');
+    expect(parseRateLimitResetTime(`${RL}Resets in 2 h.`, now)?.toISOString()).toBe(
+      '2026-04-17T14:00:00.000Z'
+    );
+    expect(parseRateLimitResetTime(`${RL}Resets in 30 m.`, now)?.toISOString()).toBe(
+      '2026-04-17T12:30:00.000Z'
+    );
+    expect(parseRateLimitResetTime(`${RL}Resets in 45 s.`, now)?.toISOString()).toBe(
+      '2026-04-17T12:00:45.000Z'
+    );
   });
 
   it('parses "resets in about 30 minutes" with filler words', () => {
     const now = new Date('2026-04-17T12:00:00Z');
     const result = parseRateLimitResetTime(
-      'Your limit will reset in about 30 minutes.',
+      `${RL}Your limit will reset in about 30 minutes.`,
       now
     );
     expect(result?.toISOString()).toBe('2026-04-17T12:30:00.000Z');
@@ -54,7 +97,7 @@ describe('parseRateLimitResetTime', () => {
 
   it('parses fractional hours', () => {
     const now = new Date('2026-04-17T12:00:00Z');
-    const result = parseRateLimitResetTime('Resets in 1.5 hours.', now);
+    const result = parseRateLimitResetTime(`${RL}Resets in 1.5 hours.`, now);
     expect(result?.toISOString()).toBe('2026-04-17T13:30:00.000Z');
   });
 
@@ -66,7 +109,7 @@ describe('parseRateLimitResetTime', () => {
     // 3pm PST = 23:00 UTC (PST = UTC-8)
     const now = new Date('2026-04-17T12:00:00Z'); // earlier than 23:00 UTC
     const result = parseRateLimitResetTime(
-      "You've hit your limit. Your limit will reset at 3pm (PST).",
+      `${RL}Your limit will reset at 3pm (PST).`,
       now
     );
     expect(result?.toISOString()).toBe('2026-04-17T23:00:00.000Z');
@@ -75,7 +118,7 @@ describe('parseRateLimitResetTime', () => {
   it('parses "resets at 3:30 pm (PST)"', () => {
     const now = new Date('2026-04-17T12:00:00Z');
     const result = parseRateLimitResetTime(
-      'Your limit will reset at 3:30 pm (PST).',
+      `${RL}Your limit will reset at 3:30 pm (PST).`,
       now
     );
     expect(result?.toISOString()).toBe('2026-04-17T23:30:00.000Z');
@@ -84,17 +127,48 @@ describe('parseRateLimitResetTime', () => {
   it('parses 24-hour time with UTC', () => {
     const now = new Date('2026-04-17T12:00:00Z');
     const result = parseRateLimitResetTime(
-      'Your limit will reset at 15:30 UTC.',
+      `${RL}Your limit will reset at 15:30 UTC.`,
       now
     );
     expect(result?.toISOString()).toBe('2026-04-17T15:30:00.000Z');
+  });
+
+  it('parses bare timezone abbreviation without parentheses', () => {
+    // Regex group 5 path: "3pm PST" (no parens) should parse same as "(PST)".
+    const now = new Date('2026-04-17T12:00:00Z');
+    const result = parseRateLimitResetTime(
+      `${RL}Your limit will reset at 3pm PST.`,
+      now
+    );
+    expect(result?.toISOString()).toBe('2026-04-17T23:00:00.000Z');
+  });
+
+  it('parses non-PST North American timezones', () => {
+    // Cover each zone in the whitelist — regression guard against map typos.
+    const now = new Date('2026-04-17T02:00:00Z');
+    // 3am EST = UTC-5 → 08:00 UTC
+    expect(
+      parseRateLimitResetTime(`${RL}Resets at 3am (EST).`, now)?.toISOString()
+    ).toBe('2026-04-17T08:00:00.000Z');
+    // 3am EDT = UTC-4 → 07:00 UTC
+    expect(
+      parseRateLimitResetTime(`${RL}Resets at 3am (EDT).`, now)?.toISOString()
+    ).toBe('2026-04-17T07:00:00.000Z');
+    // 3am CST = UTC-6 → 09:00 UTC
+    expect(
+      parseRateLimitResetTime(`${RL}Resets at 3am (CST).`, now)?.toISOString()
+    ).toBe('2026-04-17T09:00:00.000Z');
+    // 3am MDT = UTC-6 → 09:00 UTC
+    expect(
+      parseRateLimitResetTime(`${RL}Resets at 3am (MDT).`, now)?.toISOString()
+    ).toBe('2026-04-17T09:00:00.000Z');
   });
 
   it('rolls forward to tomorrow when the time has already passed today', () => {
     // 3pm PST = 23:00 UTC; if "now" is 23:30 UTC, the parsed 23:00 should
     // roll to tomorrow rather than return a time in the past.
     const now = new Date('2026-04-17T23:30:00Z');
-    const result = parseRateLimitResetTime('Resets at 3pm (PST).', now);
+    const result = parseRateLimitResetTime(`${RL}Resets at 3pm (PST).`, now);
     expect(result?.toISOString()).toBe('2026-04-18T23:00:00.000Z');
   });
 
@@ -103,31 +177,56 @@ describe('parseRateLimitResetTime', () => {
     // "8pm (PST)" on that PST day = 2026-04-17T20:00 PST = 2026-04-18T04:00Z.
     // A naive UTC-anchored build would emit 2026-04-19T04:00Z (24h off).
     const now = new Date('2026-04-18T01:00:00Z');
-    const result = parseRateLimitResetTime('Resets at 8pm (PST).', now);
+    const result = parseRateLimitResetTime(`${RL}Resets at 8pm (PST).`, now);
     expect(result?.toISOString()).toBe('2026-04-18T04:00:00.000Z');
   });
 
   it('handles the mirror case for positive offsets crossing the UTC day', () => {
-    // now = 2026-04-17T23:00:00Z. Pretend the zone is "GMT" (offset 0) for
-    // symmetry with the canonical "same-day" path — an early-morning UTC time
-    // should still parse correctly when the zone matches UTC.
-    const now = new Date('2026-04-17T23:00:00Z');
-    const result = parseRateLimitResetTime('Resets at 02:00 UTC.', now);
     // 02:00 UTC today is already in the past vs 23:00 UTC → roll to tomorrow.
+    const now = new Date('2026-04-17T23:00:00Z');
+    const result = parseRateLimitResetTime(`${RL}Resets at 02:00 UTC.`, now);
     expect(result?.toISOString()).toBe('2026-04-18T02:00:00.000Z');
   });
 
   it('handles 12am (midnight) correctly', () => {
     const now = new Date('2026-04-17T12:00:00Z');
-    const result = parseRateLimitResetTime('Resets at 12am UTC.', now);
+    const result = parseRateLimitResetTime(`${RL}Resets at 12am UTC.`, now);
     // Same day midnight is already in the past relative to noon; rolls to next day.
     expect(result?.toISOString()).toBe('2026-04-18T00:00:00.000Z');
   });
 
   it('handles 12pm (noon) correctly', () => {
     const now = new Date('2026-04-17T06:00:00Z');
-    const result = parseRateLimitResetTime('Resets at 12pm UTC.', now);
+    const result = parseRateLimitResetTime(`${RL}Resets at 12pm UTC.`, now);
     expect(result?.toISOString()).toBe('2026-04-17T12:00:00.000Z');
+  });
+
+  // ---------------------------------------------------------------------
+  // Day-shift qualifiers — should bail out rather than guess today/tomorrow
+  // ---------------------------------------------------------------------
+
+  it('returns null when the reset is qualified with "next week"', () => {
+    const now = new Date('2026-04-17T12:00:00Z');
+    expect(
+      parseRateLimitResetTime(`${RL}Reset at 3pm (PST) next week.`, now)
+    ).toBeNull();
+  });
+
+  it('returns null when the reset is qualified with "tomorrow"', () => {
+    const now = new Date('2026-04-17T12:00:00Z');
+    expect(
+      parseRateLimitResetTime(`${RL}Reset at 9am UTC tomorrow.`, now)
+    ).toBeNull();
+  });
+
+  it('returns null when the reset is qualified with a day of week', () => {
+    const now = new Date('2026-04-17T12:00:00Z');
+    expect(
+      parseRateLimitResetTime(`${RL}Reset at 3pm (PST) on Tuesday.`, now)
+    ).toBeNull();
+    expect(
+      parseRateLimitResetTime(`${RL}Reset at 9am UTC on Mon.`, now)
+    ).toBeNull();
   });
 
   // ---------------------------------------------------------------------
@@ -143,18 +242,18 @@ describe('parseRateLimitResetTime', () => {
   it('returns null for unknown timezone abbreviations', () => {
     // CEST is not in our whitelist — don't guess.
     const now = new Date('2026-04-17T12:00:00Z');
-    expect(parseRateLimitResetTime('Resets at 3pm (CEST).', now)).toBeNull();
+    expect(parseRateLimitResetTime(`${RL}Resets at 3pm (CEST).`, now)).toBeNull();
   });
 
   it('returns null for invalid clock values', () => {
     const now = new Date('2026-04-17T12:00:00Z');
-    expect(parseRateLimitResetTime('Resets at 25:00 UTC.', now)).toBeNull();
-    expect(parseRateLimitResetTime('Resets at 10:99 UTC.', now)).toBeNull();
+    expect(parseRateLimitResetTime(`${RL}Resets at 25:00 UTC.`, now)).toBeNull();
+    expect(parseRateLimitResetTime(`${RL}Resets at 10:99 UTC.`, now)).toBeNull();
   });
 
   it('returns null for negative relative durations', () => {
     const now = new Date('2026-04-17T12:00:00Z');
     // Regex requires \d+ so "-2" won't match; we'd get null anyway, but verify.
-    expect(parseRateLimitResetTime('Resets in -2 hours.', now)).toBeNull();
+    expect(parseRateLimitResetTime(`${RL}Resets in -2 hours.`, now)).toBeNull();
   });
 });
