@@ -113,6 +113,12 @@ vi.mock('agent-teams-controller', () => ({
 }));
 
 import type { TeamChangeEvent } from '@shared/types/team';
+import { ConfigManager } from '../../../../src/main/services/infrastructure/ConfigManager';
+import {
+  clearAutoResumeService,
+  getAutoResumeService,
+  initializeAutoResumeService,
+} from '../../../../src/main/services/team/AutoResumeService';
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 
 function seedConfig(teamName: string): void {
@@ -151,6 +157,8 @@ interface RunLike {
   request: { members: { name: string; role?: string }[] };
   activeCrossTeamReplyHints?: Array<{ toTeam: string; conversationId: string }>;
   pendingInboxRelayCandidates?: unknown[];
+  memberSpawnStatuses: Map<string, unknown>;
+  pendingApprovals: Map<string, unknown>;
 }
 
 /**
@@ -182,6 +190,8 @@ function attachRun(
     provisioningOutputParts: [],
     request: { members: [{ name: 'team-lead', role: 'Team Lead' }] },
     activeCrossTeamReplyHints: [],
+    memberSpawnStatuses: new Map(),
+    pendingApprovals: new Map(),
   };
 
   (service as unknown as { aliveRunByTeam: Map<string, string> }).aliveRunByTeam.set(
@@ -1022,5 +1032,60 @@ describe('TeamProvisioningService pre-ready live messages', () => {
       'my-team',
       expect.objectContaining({ member: 'ops.bot' })
     );
+  });
+});
+
+describe('TeamProvisioningService auto-resume cleanup', () => {
+  beforeEach(() => {
+    hoisted.files.clear();
+    hoisted.appendSentMessage.mockClear();
+    hoisted.sendInboxMessage.mockClear();
+    clearAutoResumeService();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    clearAutoResumeService();
+    vi.useRealTimers();
+  });
+
+  it('cancels pending auto-resume timers when a run is cleaned up', async () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const run = attachRun(service, 'my-team', { provisioningComplete: true });
+
+    const autoResumeProvisioning = {
+      isTeamAlive: vi.fn(() => true),
+      sendMessageToTeam: vi.fn(async () => undefined),
+    };
+    initializeAutoResumeService(autoResumeProvisioning);
+
+    const configManager = ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: true,
+          },
+        }) as never
+    );
+
+    try {
+      getAutoResumeService().handleRateLimitMessage(
+        'my-team',
+        "You've hit your limit. Resets in 5 minutes.",
+        new Date('2026-04-17T12:00:00.000Z')
+      );
+
+      (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(run);
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 30 * 1000 + 100);
+      expect(autoResumeProvisioning.sendMessageToTeam).not.toHaveBeenCalled();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 });

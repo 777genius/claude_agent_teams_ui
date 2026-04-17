@@ -176,6 +176,10 @@ export function getAutoResumeService(): AutoResumeService {
   return autoResumeService;
 }
 
+export function peekAutoResumeService(): AutoResumeService | null {
+  return autoResumeService;
+}
+
 export function clearAutoResumeService(): void {
   autoResumeService?.clearAllPendingAutoResume();
   autoResumeService = null;

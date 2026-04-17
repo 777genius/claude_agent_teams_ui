@@ -99,6 +99,7 @@ import { TeamMembersMetaStore } from './TeamMembersMetaStore';
 import { TeamMetaStore } from './TeamMetaStore';
 import { TeamSentMessagesStore } from './TeamSentMessagesStore';
 import { TeamTaskReader } from './TeamTaskReader';
+import { peekAutoResumeService } from './AutoResumeService';
 
 /**
  * Kill a team CLI process using SIGKILL (uncatchable).
@@ -9806,6 +9807,8 @@ export class TeamProvisioningService {
    * Remove a run from tracking maps.
    */
   private cleanupRun(run: ProvisioningRun): void {
+    peekAutoResumeService()?.cancelPendingAutoResume(run.teamName);
+
     if (run.isLaunch && !run.provisioningComplete) {
       void this.persistLaunchStateSnapshot(run, 'finished');
     }
