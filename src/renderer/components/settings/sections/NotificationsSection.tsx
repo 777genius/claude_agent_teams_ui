@@ -76,6 +76,7 @@ interface NotificationsSectionProps {
       | 'notifyOnCrossTeamMessage'
       | 'notifyOnTeamLaunched'
       | 'notifyOnToolApproval'
+      | 'autoResumeOnRateLimit'
       | 'statusChangeOnlySolo',
     value: boolean
   ) => void;
@@ -357,6 +358,17 @@ export const NotificationsSection = ({
           <SettingsToggle
             enabled={safeConfig.notifications.notifyOnToolApproval}
             onChange={(v) => onNotificationToggle('notifyOnToolApproval', v)}
+            disabled={saving || !safeConfig.notifications.enabled}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Auto-resume after rate limit"
+          description="When Claude reports a reset time, schedule a follow-up nudge for the team lead after the limit resets"
+          icon={<Clock className="size-4" />}
+        >
+          <SettingsToggle
+            enabled={safeConfig.notifications.autoResumeOnRateLimit}
+            onChange={(v) => onNotificationToggle('autoResumeOnRateLimit', v)}
             disabled={saving || !safeConfig.notifications.enabled}
           />
         </SettingRow>

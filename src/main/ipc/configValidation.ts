@@ -125,6 +125,7 @@ function validateNotificationsSection(
     'notifyOnCrossTeamMessage',
     'notifyOnTeamLaunched',
     'notifyOnToolApproval',
+    'autoResumeOnRateLimit',
     'statusChangeOnlySolo',
     'statusChangeStatuses',
     'triggers',
@@ -218,6 +219,12 @@ function validateNotificationsSection(
           return { valid: false, error: `notifications.${key} must be a boolean` };
         }
         result.notifyOnToolApproval = value;
+        break;
+      case 'autoResumeOnRateLimit':
+        if (typeof value !== 'boolean') {
+          return { valid: false, error: `notifications.${key} must be a boolean` };
+        }
+        result.autoResumeOnRateLimit = value;
         break;
       case 'statusChangeOnlySolo':
         if (typeof value !== 'boolean') {

@@ -16,6 +16,12 @@ export { BoardTaskActivityService } from './taskLogs/activity/BoardTaskActivityS
 export { BoardTaskExactLogDetailService } from './taskLogs/exact/BoardTaskExactLogDetailService';
 export { BoardTaskExactLogsService } from './taskLogs/exact/BoardTaskExactLogsService';
 export { BoardTaskLogStreamService } from './taskLogs/stream/BoardTaskLogStreamService';
+export {
+  AutoResumeService,
+  clearAutoResumeService,
+  getAutoResumeService,
+  initializeAutoResumeService,
+} from './AutoResumeService';
 export { TeamAttachmentStore } from './TeamAttachmentStore';
 export { TeamBackupService } from './TeamBackupService';
 export { TeamConfigReader } from './TeamConfigReader';

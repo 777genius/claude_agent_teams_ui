@@ -311,6 +311,7 @@ export function useSettingsHandlers({
           notifyOnCrossTeamMessage: true,
           notifyOnTeamLaunched: true,
           notifyOnToolApproval: true,
+          autoResumeOnRateLimit: false,
           statusChangeOnlySolo: true,
           statusChangeStatuses: ['in_progress', 'completed'],
           triggers: defaultTriggers,

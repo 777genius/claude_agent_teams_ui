@@ -86,7 +86,7 @@ import {
   PROTECTED_CLI_FLAGS,
 } from '@shared/utils/cliArgsParser';
 import { createLogger } from '@shared/utils/logger';
-import { isRateLimitMessage, parseRateLimitResetTime } from '@shared/utils/rateLimitDetector';
+import { isRateLimitMessage } from '@shared/utils/rateLimitDetector';
 import {
   buildStandaloneSlashCommandMeta,
   parseStandaloneSlashCommand,
@@ -99,6 +99,10 @@ import * as path from 'path';
 import { ConfigManager } from '../services/infrastructure/ConfigManager';
 import { NotificationManager } from '../services/infrastructure/NotificationManager';
 import { gitIdentityResolver } from '../services/parsing/GitIdentityResolver';
+import {
+  getAutoResumeService,
+  initializeAutoResumeService,
+} from '../services/team/AutoResumeService';
 import {
   buildActionModeAgentBlock,
   isAgentActionMode,
@@ -295,146 +299,6 @@ function buildLeadDirectDelegateAckBlock(actionMode?: AgentActionMode): string |
 const seenApiErrorKeys = new Set<string>();
 const SEEN_API_ERROR_KEYS_MAX = 500;
 
-/** Pending auto-resume timers keyed by team name. Prevents duplicate schedules
- *  when multiple rate-limit messages arrive for the same team. */
-const pendingAutoResumeTimers = new Map<string, NodeJS.Timeout>();
-
-/** Minimum buffer added to the parsed reset time before firing the nudge.
- *  Guards against clock skew and any small runtime delay between Claude's
- *  "limit will reset at X" statement and the actual reset. */
-const AUTO_RESUME_BUFFER_MS = 30 * 1000;
-
-/** Hard ceiling on scheduled delay. If a parsed reset time is further away
- *  than this (e.g. parser mis-detects a far-future date), we skip scheduling
- *  rather than pin a timer for days. */
-const AUTO_RESUME_MAX_DELAY_MS = 12 * 60 * 60 * 1000;
-
-const AUTO_RESUME_MESSAGE =
-  'Your rate limit has reset. Please resume the work you were doing before the limit was hit.';
-
-/**
- * Schedule an automatic resume nudge for a rate-limited team.
- *
- * Only schedules when:
- *   1. `notifications.autoResumeOnRateLimit` is enabled in config
- *   2. A reset time can be parsed from the rate-limit message
- *   3. No timer is already pending for this team
- *
- * When the timer fires, sends a short continuation message to the team lead
- * via the same stdin path the UI uses for manual sends. The config flag is
- * re-checked at fire time so toggling it off mid-wait cancels the nudge. If
- * the team is no longer alive at fire time (e.g. user stopped it), the
- * attempt is skipped silently — auto-resume does not relaunch teams.
- *
- * Exported for unit testing.
- */
-export function scheduleAutoResumeIfEnabled(
-  teamName: string,
-  messageText: string,
-  now: Date = new Date()
-): void {
-  const cfg = ConfigManager.getInstance().getConfig();
-  if (!cfg.notifications.autoResumeOnRateLimit) return;
-
-  if (pendingAutoResumeTimers.has(teamName)) return;
-
-  const resetTime = parseRateLimitResetTime(messageText, now);
-  if (!resetTime) {
-    logger.info(
-      `[auto-resume] Rate limit detected for "${teamName}" but reset time was not parseable — skipping auto-resume`
-    );
-    return;
-  }
-
-  const rawDelayMs = resetTime.getTime() - now.getTime();
-  if (rawDelayMs < 0) {
-    logger.warn(
-      `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(-rawDelayMs / 1000)}s in the past — firing after buffer only`
-    );
-  }
-  const delayMs = Math.max(0, rawDelayMs) + AUTO_RESUME_BUFFER_MS;
-  if (delayMs > AUTO_RESUME_MAX_DELAY_MS) {
-    logger.warn(
-      `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(delayMs / 60000)}m away — exceeds ceiling, skipping`
-    );
-    return;
-  }
-
-  logger.info(
-    `[auto-resume] Scheduling resume for "${teamName}" at ${resetTime.toISOString()} (in ${Math.round(delayMs / 1000)}s)`
-  );
-
-  const timer = setTimeout(() => {
-    pendingAutoResumeTimers.delete(teamName);
-    void (async (): Promise<void> => {
-      // Re-check the config flag — the user may have toggled it off while
-      // the timer was pending. The opt-in contract should hold end-to-end,
-      // not only at schedule time.
-      const current = ConfigManager.getInstance().getConfig();
-      if (!current.notifications.autoResumeOnRateLimit) {
-        logger.info(
-          `[auto-resume] Config flag was disabled while timer was pending — skipping nudge for "${teamName}"`
-        );
-        return;
-      }
-      try {
-        const provisioning = getTeamProvisioningService();
-        if (!provisioning.isTeamAlive(teamName)) {
-          logger.info(
-            `[auto-resume] Team "${teamName}" is no longer alive at fire time — skipping resume nudge`
-          );
-          return;
-        }
-        await provisioning.sendMessageToTeam(teamName, AUTO_RESUME_MESSAGE);
-        logger.info(`[auto-resume] Sent resume nudge to "${teamName}"`);
-      } catch (error) {
-        logger.error(
-          `[auto-resume] Failed to send resume nudge to "${teamName}": ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    })();
-  }, delayMs);
-
-  pendingAutoResumeTimers.set(teamName, timer);
-}
-
-/**
- * Cancel any pending auto-resume timer for a team. Call when the team is
- * stopped or destroyed so we don't nudge a dead team.
- */
-export function cancelPendingAutoResume(teamName: string): void {
-  const timer = pendingAutoResumeTimers.get(teamName);
-  if (timer) {
-    clearTimeout(timer);
-    pendingAutoResumeTimers.delete(teamName);
-  }
-}
-
-/**
- * Clear every pending auto-resume timer. Called during app shutdown so
- * dangling `setTimeout` handles don't keep the event loop alive and don't
- * fire against a partially-torn-down provisioning service.
- */
-export function clearAllPendingAutoResume(): void {
-  for (const timer of pendingAutoResumeTimers.values()) {
-    clearTimeout(timer);
-  }
-  pendingAutoResumeTimers.clear();
-}
-
-/**
- * Testing-only setter that injects a TeamProvisioningService into the
- * module-local singleton. Production code uses `initializeTeamIpcHandlers`
- * with the full service graph; tests only need the provisioning service.
- */
-export function __setTeamProvisioningServiceForTests(
-  service: TeamProvisioningService | null
-): void {
-  teamProvisioningService = service;
-}
-
 /**
  * Check messages for rate limit indicators and fire notifications for new ones.
  * Uses both in-memory seenRateLimitKeys (to prevent resurrection after deletion)
@@ -476,7 +340,7 @@ function checkRateLimitMessages(
       })
       .catch(() => undefined);
 
-    scheduleAutoResumeIfEnabled(teamName, msg.text);
+    getAutoResumeService().handleRateLimitMessage(teamName, msg.text);
   }
 }
 
@@ -578,6 +442,7 @@ export function initializeTeamHandlers(
 ): void {
   teamDataService = service;
   teamProvisioningService = provisioningService;
+  initializeAutoResumeService(provisioningService);
   teamMemberLogsFinder = logsFinder ?? null;
   memberStatsComputer = statsComputer ?? null;
   teamBackupService = backupService ?? null;
@@ -1068,7 +933,7 @@ async function handleDeleteTeam(
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
   return wrapTeamHandler('deleteTeam', async () => {
-    cancelPendingAutoResume(validated.value!);
+    getAutoResumeService().cancelPendingAutoResume(validated.value!);
     getTeamProvisioningService().stopTeam(validated.value!);
     await getTeamDataService().deleteTeam(validated.value!);
   });
@@ -1094,6 +959,7 @@ async function handlePermanentlyDeleteTeam(
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
   return wrapTeamHandler('permanentlyDeleteTeam', async () => {
+    getAutoResumeService().cancelPendingAutoResume(validated.value!);
     await getTeamDataService().permanentlyDeleteTeam(validated.value!);
     // Clean up app-owned data (attachments, task-attachments) that lives outside ~/.claude/
     const appData = getAppDataPath();
@@ -2850,7 +2716,7 @@ async function handleStopTeam(
   }
   return wrapTeamHandler('stop', async () => {
     addMainBreadcrumb('team', 'stop', { teamName: validated.value! });
-    cancelPendingAutoResume(validated.value!);
+    getAutoResumeService().cancelPendingAutoResume(validated.value!);
     getTeamProvisioningService().stopTeam(validated.value!);
   });
 }

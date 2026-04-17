@@ -54,6 +54,7 @@ export interface SafeConfig {
     notifyOnCrossTeamMessage: boolean;
     notifyOnTeamLaunched: boolean;
     notifyOnToolApproval: boolean;
+    autoResumeOnRateLimit: boolean;
     statusChangeOnlySolo: boolean;
     statusChangeStatuses: string[];
     triggers: AppConfig['notifications']['triggers'];
@@ -195,6 +196,7 @@ export function useSettingsConfig(): UseSettingsConfigReturn {
         notifyOnCrossTeamMessage: displayConfig?.notifications?.notifyOnCrossTeamMessage ?? true,
         notifyOnTeamLaunched: displayConfig?.notifications?.notifyOnTeamLaunched ?? true,
         notifyOnToolApproval: displayConfig?.notifications?.notifyOnToolApproval ?? true,
+        autoResumeOnRateLimit: displayConfig?.notifications?.autoResumeOnRateLimit ?? false,
         statusChangeOnlySolo: displayConfig?.notifications?.statusChangeOnlySolo ?? true,
         statusChangeStatuses: displayConfig?.notifications?.statusChangeStatuses ?? [
           'in_progress',

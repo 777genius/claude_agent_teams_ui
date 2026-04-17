@@ -509,8 +509,56 @@ export class ConfigManager {
 
     return {
       notifications: {
-        ...DEFAULT_CONFIG.notifications,
-        ...loadedNotifications,
+        enabled: loadedNotifications.enabled ?? DEFAULT_CONFIG.notifications.enabled,
+        soundEnabled: loadedNotifications.soundEnabled ?? DEFAULT_CONFIG.notifications.soundEnabled,
+        ignoredRegex: loadedNotifications.ignoredRegex ?? DEFAULT_CONFIG.notifications.ignoredRegex,
+        ignoredRepositories:
+          loadedNotifications.ignoredRepositories ??
+          DEFAULT_CONFIG.notifications.ignoredRepositories,
+        snoozedUntil:
+          loadedNotifications.snoozedUntil ?? DEFAULT_CONFIG.notifications.snoozedUntil,
+        snoozeMinutes:
+          loadedNotifications.snoozeMinutes ?? DEFAULT_CONFIG.notifications.snoozeMinutes,
+        includeSubagentErrors:
+          loadedNotifications.includeSubagentErrors ??
+          DEFAULT_CONFIG.notifications.includeSubagentErrors,
+        notifyOnLeadInbox:
+          loadedNotifications.notifyOnLeadInbox ?? DEFAULT_CONFIG.notifications.notifyOnLeadInbox,
+        notifyOnUserInbox:
+          loadedNotifications.notifyOnUserInbox ?? DEFAULT_CONFIG.notifications.notifyOnUserInbox,
+        notifyOnClarifications:
+          loadedNotifications.notifyOnClarifications ??
+          DEFAULT_CONFIG.notifications.notifyOnClarifications,
+        notifyOnStatusChange:
+          loadedNotifications.notifyOnStatusChange ??
+          DEFAULT_CONFIG.notifications.notifyOnStatusChange,
+        notifyOnTaskComments:
+          loadedNotifications.notifyOnTaskComments ??
+          DEFAULT_CONFIG.notifications.notifyOnTaskComments,
+        notifyOnTaskCreated:
+          loadedNotifications.notifyOnTaskCreated ??
+          DEFAULT_CONFIG.notifications.notifyOnTaskCreated,
+        notifyOnAllTasksCompleted:
+          loadedNotifications.notifyOnAllTasksCompleted ??
+          DEFAULT_CONFIG.notifications.notifyOnAllTasksCompleted,
+        notifyOnCrossTeamMessage:
+          loadedNotifications.notifyOnCrossTeamMessage ??
+          DEFAULT_CONFIG.notifications.notifyOnCrossTeamMessage,
+        notifyOnTeamLaunched:
+          loadedNotifications.notifyOnTeamLaunched ??
+          DEFAULT_CONFIG.notifications.notifyOnTeamLaunched,
+        notifyOnToolApproval:
+          loadedNotifications.notifyOnToolApproval ??
+          DEFAULT_CONFIG.notifications.notifyOnToolApproval,
+        autoResumeOnRateLimit:
+          loadedNotifications.autoResumeOnRateLimit ??
+          DEFAULT_CONFIG.notifications.autoResumeOnRateLimit,
+        statusChangeOnlySolo:
+          loadedNotifications.statusChangeOnlySolo ??
+          DEFAULT_CONFIG.notifications.statusChangeOnlySolo,
+        statusChangeStatuses:
+          loadedNotifications.statusChangeStatuses ??
+          DEFAULT_CONFIG.notifications.statusChangeStatuses,
         triggers: mergedTriggers,
       },
       general: mergedGeneral,

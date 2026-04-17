@@ -115,6 +115,7 @@ describe('configValidation', () => {
     'notifyOnClarifications',
     'notifyOnStatusChange',
     'notifyOnTeamLaunched',
+    'autoResumeOnRateLimit',
     'statusChangeOnlySolo',
   ] as const)('accepts boolean %s toggle', (key) => {
     const resultOn = validateConfigUpdatePayload('notifications', { [key]: true });
@@ -136,6 +137,7 @@ describe('configValidation', () => {
     'notifyOnClarifications',
     'notifyOnStatusChange',
     'notifyOnTeamLaunched',
+    'autoResumeOnRateLimit',
     'statusChangeOnlySolo',
   ] as const)('rejects non-boolean %s', (key) => {
     const result = validateConfigUpdatePayload('notifications', { [key]: 'yes' });

@@ -291,6 +291,8 @@ export interface AppConfig {
     notifyOnTeamLaunched: boolean;
     /** Whether to show native OS notifications when a tool needs user approval (Allow/Deny) */
     notifyOnToolApproval: boolean;
+    /** Whether to automatically nudge a rate-limited team after the limit resets */
+    autoResumeOnRateLimit: boolean;
     /** Only notify on status changes in solo teams (no teammates) */
     statusChangeOnlySolo: boolean;
     /** Which target statuses to notify about (e.g. ['in_progress', 'completed']) */
