@@ -1155,6 +1155,56 @@ describe('TeamProvisioningService auto-resume cleanup', () => {
     }
   });
 
+  it('removes stale live lead messages from an older run while preserving the current run', () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const oldRun = attachRun(service, 'my-team', {
+      provisioningComplete: true,
+      runId: 'run-old',
+      detectedSessionId: 'sess-old',
+    });
+
+    service.pushLiveLeadProcessMessage('my-team', {
+      from: 'team-lead',
+      text: "You've hit your limit. Resets in 5 minutes.",
+      timestamp: '2026-04-17T12:00:00.000Z',
+      read: true,
+      source: 'lead_process',
+      messageId: 'lead-turn-run-old-1',
+      leadSessionId: 'sess-old',
+    });
+
+    const newRun = attachRun(service, 'my-team', {
+      provisioningComplete: true,
+      runId: 'run-new',
+      detectedSessionId: 'sess-new',
+    });
+
+    service.pushLiveLeadProcessMessage('my-team', {
+      from: 'team-lead',
+      text: 'Current run is active.',
+      timestamp: '2026-04-17T12:00:10.000Z',
+      read: true,
+      source: 'lead_process',
+      messageId: 'lead-turn-run-new-1',
+      leadSessionId: 'sess-new',
+    });
+
+    expect(service.getLiveLeadProcessMessages('my-team')).toHaveLength(2);
+
+    (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(oldRun);
+
+    expect(service.getLiveLeadProcessMessages('my-team')).toEqual([
+      expect.objectContaining({
+        text: 'Current run is active.',
+        messageId: 'lead-turn-run-new-1',
+        leadSessionId: 'sess-new',
+      }),
+    ]);
+
+    (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(newRun);
+  });
+
   it('preserves the canonical assistant timestamp for live rate-limit messages', async () => {
     vi.setSystemTime(new Date('2026-04-17T12:00:20.000Z'));
 

@@ -3088,6 +3088,40 @@ export class TeamProvisioningService {
     return [...list];
   }
 
+  private pruneLiveLeadMessagesForCleanedRun(run: ProvisioningRun): void {
+    const list = this.liveLeadProcessMessages.get(run.teamName);
+    if (!list || list.length === 0) {
+      return;
+    }
+
+    const runMessageIdPrefixes = [
+      `lead-turn-${run.runId}-`,
+      `lead-sendmsg-${run.runId}-`,
+      `lead-process-${run.runId}-`,
+      `compact-${run.runId}-`,
+    ];
+
+    const filtered = list.filter((message) => {
+      const messageId = typeof message.messageId === 'string' ? message.messageId.trim() : '';
+      if (messageId && runMessageIdPrefixes.some((prefix) => messageId.startsWith(prefix))) {
+        return false;
+      }
+
+      if (run.detectedSessionId && message.leadSessionId === run.detectedSessionId) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      this.liveLeadProcessMessages.delete(run.teamName);
+      return;
+    }
+
+    this.liveLeadProcessMessages.set(run.teamName, filtered);
+  }
+
   getCurrentLeadSessionId(teamName: string): string | null {
     const runId = this.getTrackedRunId(teamName);
     if (!runId) return null;
@@ -10511,6 +10545,8 @@ export class TeamProvisioningService {
         }
       }
       this.liveLeadProcessMessages.delete(run.teamName);
+    } else {
+      this.pruneLiveLeadMessagesForCleanedRun(run);
     }
     // Dismiss any pending tool approvals for this run
     if (run.pendingApprovals.size > 0) {
