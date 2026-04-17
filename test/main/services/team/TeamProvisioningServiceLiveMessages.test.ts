@@ -168,14 +168,14 @@ interface RunLike {
 function attachRun(
   service: TeamProvisioningService,
   teamName: string,
-  opts?: { provisioningComplete?: boolean }
+  opts?: { provisioningComplete?: boolean; runId?: string; detectedSessionId?: string | null }
 ): RunLike {
-  const runId = 'run-1';
+  const runId = opts?.runId ?? 'run-1';
   const run: RunLike = {
     runId,
     teamName,
     provisioningComplete: opts?.provisioningComplete ?? false,
-    detectedSessionId: null,
+    detectedSessionId: opts?.detectedSessionId ?? null,
     leadMsgSeq: 0,
     pendingToolCalls: [],
     activeToolCalls: new Map(),
@@ -1086,6 +1086,72 @@ describe('TeamProvisioningService auto-resume cleanup', () => {
       expect(autoResumeProvisioning.sendMessageToTeam).not.toHaveBeenCalled();
     } finally {
       getConfigSpy.mockRestore();
+    }
+  });
+
+  it('does not let stale cleanup from an older run cancel the current run state', async () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const oldRun = attachRun(service, 'my-team', {
+      provisioningComplete: true,
+      runId: 'run-old',
+      detectedSessionId: 'sess-old',
+    });
+    const newRun = attachRun(service, 'my-team', {
+      provisioningComplete: true,
+      runId: 'run-new',
+      detectedSessionId: 'sess-new',
+    });
+
+    const autoResumeProvisioning = {
+      isTeamAlive: vi.fn(() => true),
+      sendMessageToTeam: vi.fn(async () => undefined),
+    };
+    initializeAutoResumeService(autoResumeProvisioning);
+
+    const configManager = ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: true,
+          },
+        }) as never
+    );
+
+    try {
+      getAutoResumeService().handleRateLimitMessage(
+        'my-team',
+        "You've hit your limit. Resets in 5 minutes.",
+        new Date('2026-04-17T12:00:00.000Z')
+      );
+
+      service.pushLiveLeadProcessMessage('my-team', {
+        from: 'team-lead',
+        text: 'Current run is active.',
+        timestamp: '2026-04-17T12:00:01.000Z',
+        read: true,
+        source: 'lead_process',
+        messageId: 'live-new-run',
+      });
+      expect(service.getLiveLeadProcessMessages('my-team')).toHaveLength(1);
+
+      (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(oldRun);
+
+      expect(service.getLiveLeadProcessMessages('my-team')).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 30 * 1000 + 100);
+      expect(autoResumeProvisioning.sendMessageToTeam).toHaveBeenCalledTimes(1);
+      expect(autoResumeProvisioning.sendMessageToTeam).toHaveBeenCalledWith(
+        'my-team',
+        expect.stringContaining('rate limit has reset')
+      );
+    } finally {
+      getConfigSpy.mockRestore();
+      (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(newRun);
     }
   });
 });

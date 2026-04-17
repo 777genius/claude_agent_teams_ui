@@ -9813,9 +9813,14 @@ export class TeamProvisioningService {
    * Remove a run from tracking maps.
    */
   private cleanupRun(run: ProvisioningRun): void {
-    peekAutoResumeService()?.cancelPendingAutoResume(run.teamName);
+    const currentTrackedRunId = this.getTrackedRunId(run.teamName);
+    const hasNewerTrackedRun = currentTrackedRunId !== null && currentTrackedRunId !== run.runId;
 
-    if (run.isLaunch && !run.provisioningComplete) {
+    if (!hasNewerTrackedRun) {
+      peekAutoResumeService()?.cancelPendingAutoResume(run.teamName);
+    }
+
+    if (!hasNewerTrackedRun && run.isLaunch && !run.provisioningComplete) {
       void this.persistLaunchStateSnapshot(run, 'finished');
     }
     this.resetRuntimeToolActivity(run);
@@ -9844,18 +9849,20 @@ export class TeamProvisioningService {
     if (this.aliveRunByTeam.get(run.teamName) === run.runId) {
       this.aliveRunByTeam.delete(run.teamName);
     }
-    this.leadInboxRelayInFlight.delete(run.teamName);
-    this.relayedLeadInboxMessageIds.delete(run.teamName);
-    this.pendingCrossTeamFirstReplies.delete(run.teamName);
-    this.recentCrossTeamLeadDeliveryMessageIds.delete(run.teamName);
-    this.recentSameTeamNativeFingerprints.delete(run.teamName);
-    // Clear same-team retry timers
-    for (const suffix of ['deferred', 'persist']) {
-      const key = `same-team-${suffix}:${run.teamName}`;
-      const timer = this.pendingTimeouts.get(key);
-      if (timer) {
-        clearTimeout(timer);
-        this.pendingTimeouts.delete(key);
+    if (!hasNewerTrackedRun) {
+      this.leadInboxRelayInFlight.delete(run.teamName);
+      this.relayedLeadInboxMessageIds.delete(run.teamName);
+      this.pendingCrossTeamFirstReplies.delete(run.teamName);
+      this.recentCrossTeamLeadDeliveryMessageIds.delete(run.teamName);
+      this.recentSameTeamNativeFingerprints.delete(run.teamName);
+      // Clear same-team retry timers
+      for (const suffix of ['deferred', 'persist']) {
+        const key = `same-team-${suffix}:${run.teamName}`;
+        const timer = this.pendingTimeouts.get(key);
+        if (timer) {
+          clearTimeout(timer);
+          this.pendingTimeouts.delete(key);
+        }
       }
     }
     for (const memberName of run.memberSpawnStatuses.keys()) {
@@ -9868,17 +9875,19 @@ export class TeamProvisioningService {
     }
     run.activeCrossTeamReplyHints = [];
     run.pendingInboxRelayCandidates = [];
-    for (const key of Array.from(this.memberInboxRelayInFlight.keys())) {
-      if (key.startsWith(`${run.teamName}:`)) {
-        this.memberInboxRelayInFlight.delete(key);
+    if (!hasNewerTrackedRun) {
+      for (const key of Array.from(this.memberInboxRelayInFlight.keys())) {
+        if (key.startsWith(`${run.teamName}:`)) {
+          this.memberInboxRelayInFlight.delete(key);
+        }
       }
-    }
-    for (const key of Array.from(this.relayedMemberInboxMessageIds.keys())) {
-      if (key.startsWith(`${run.teamName}:`)) {
-        this.relayedMemberInboxMessageIds.delete(key);
+      for (const key of Array.from(this.relayedMemberInboxMessageIds.keys())) {
+        if (key.startsWith(`${run.teamName}:`)) {
+          this.relayedMemberInboxMessageIds.delete(key);
+        }
       }
+      this.liveLeadProcessMessages.delete(run.teamName);
     }
-    this.liveLeadProcessMessages.delete(run.teamName);
     // Dismiss any pending tool approvals for this run
     if (run.pendingApprovals.size > 0) {
       for (const requestId of run.pendingApprovals.keys()) {
