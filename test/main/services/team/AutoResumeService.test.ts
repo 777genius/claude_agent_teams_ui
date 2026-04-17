@@ -9,13 +9,14 @@ const RATE_LIMIT_MSG = "You've hit your limit. Resets in 5 minutes.";
 
 describe('AutoResumeService', () => {
   const mockConfig = { autoResumeOnRateLimit: false };
-  const configManager = {
+  const configManagerMock = {
     getConfig: vi.fn(() => ({
       notifications: {
         autoResumeOnRateLimit: mockConfig.autoResumeOnRateLimit,
       },
     })),
-  } as unknown as Pick<ConfigManager, 'getConfig'>;
+  };
+  const configManager = configManagerMock as unknown as Pick<ConfigManager, 'getConfig'>;
   const provisioningService = {
     isTeamAlive: vi.fn<(teamName: string) => boolean>(),
     sendMessageToTeam: vi.fn<(teamName: string, text: string) => Promise<void>>(),
@@ -27,7 +28,7 @@ describe('AutoResumeService', () => {
     mockConfig.autoResumeOnRateLimit = false;
     provisioningService.isTeamAlive.mockReset();
     provisioningService.sendMessageToTeam.mockReset();
-    configManager.getConfig.mockClear();
+    configManagerMock.getConfig.mockClear();
     service = new AutoResumeService(provisioningService, configManager);
     vi.useFakeTimers();
   });
