@@ -17,9 +17,13 @@ interface PendingAutoResumeEntry {
   timer: NodeJS.Timeout;
   fireAtMs: number;
   sourceMessageAtMs: number;
+  sourceRunId: string | null;
 }
 
-type AutoResumeProvisioning = Pick<TeamProvisioningService, 'isTeamAlive' | 'sendMessageToTeam'>;
+type AutoResumeProvisioning = Pick<
+  TeamProvisioningService,
+  'getCurrentRunId' | 'isTeamAlive' | 'sendMessageToTeam'
+>;
 type AutoResumeConfigReader = Pick<ConfigManager, 'getConfig'>;
 
 export class AutoResumeService {
@@ -60,6 +64,7 @@ export class AutoResumeService {
     const targetFireAtMs = resetAtMs + AUTO_RESUME_BUFFER_MS;
     const messageAgeMs = Math.max(0, observedAtMs - messageAtMs);
     const existing = this.pendingTimers.get(teamName);
+    const sourceRunId = this.provisioningService.getCurrentRunId(teamName);
 
     if (existing && messageAtMs < existing.sourceMessageAtMs) {
       logger.info(
@@ -95,7 +100,13 @@ export class AutoResumeService {
       return;
     }
 
-    if (existing?.fireAtMs === fireAtMs && existing.sourceMessageAtMs === messageAtMs) return;
+    if (
+      existing?.fireAtMs === fireAtMs &&
+      existing.sourceMessageAtMs === messageAtMs &&
+      existing.sourceRunId === sourceRunId
+    ) {
+      return;
+    }
 
     if (existing) {
       clearTimeout(existing.timer);
@@ -111,10 +122,15 @@ export class AutoResumeService {
 
     const timer = setTimeout(() => {
       this.pendingTimers.delete(teamName);
-      void this.fireResumeNudge(teamName);
+      void this.fireResumeNudge(teamName, sourceRunId);
     }, delayMs);
 
-    this.pendingTimers.set(teamName, { timer, fireAtMs, sourceMessageAtMs: messageAtMs });
+    this.pendingTimers.set(teamName, {
+      timer,
+      fireAtMs,
+      sourceMessageAtMs: messageAtMs,
+      sourceRunId,
+    });
   }
 
   cancelPendingAutoResume(teamName: string): void {
@@ -131,7 +147,7 @@ export class AutoResumeService {
     this.pendingTimers.clear();
   }
 
-  private async fireResumeNudge(teamName: string): Promise<void> {
+  private async fireResumeNudge(teamName: string, sourceRunId: string | null): Promise<void> {
     const current = this.configManager.getConfig();
     if (!current.notifications.autoResumeOnRateLimit) {
       logger.info(
@@ -144,6 +160,13 @@ export class AutoResumeService {
       if (!this.provisioningService.isTeamAlive(teamName)) {
         logger.info(
           `[auto-resume] Team "${teamName}" is no longer alive at fire time - skipping resume nudge`
+        );
+        return;
+      }
+      const currentRunId = this.provisioningService.getCurrentRunId(teamName);
+      if (sourceRunId && currentRunId !== sourceRunId) {
+        logger.info(
+          `[auto-resume] Team "${teamName}" advanced from run "${sourceRunId}" to "${currentRunId ?? 'none'}" before fire time - skipping stale resume nudge`
         );
         return;
       }

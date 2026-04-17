@@ -1127,6 +1127,7 @@ describe('TeamProvisioningService auto-resume cleanup', () => {
     const run = attachRun(service, 'my-team', { provisioningComplete: true });
 
     const autoResumeProvisioning = {
+      getCurrentRunId: vi.fn(() => 'run-1' as string | null),
       isTeamAlive: vi.fn(() => true),
       sendMessageToTeam: vi.fn(async () => undefined),
     };
@@ -1176,6 +1177,7 @@ describe('TeamProvisioningService auto-resume cleanup', () => {
     });
 
     const autoResumeProvisioning = {
+      getCurrentRunId: vi.fn(() => 'run-1' as string | null),
       isTeamAlive: vi.fn(() => true),
       sendMessageToTeam: vi.fn(async () => undefined),
     };
@@ -1288,6 +1290,7 @@ describe('TeamProvisioningService auto-resume cleanup', () => {
     });
 
     const autoResumeProvisioning = {
+      getCurrentRunId: vi.fn(() => 'run-1' as string | null),
       isTeamAlive: vi.fn(() => true),
       sendMessageToTeam: vi.fn(async () => undefined),
     };

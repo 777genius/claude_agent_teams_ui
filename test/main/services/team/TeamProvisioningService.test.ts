@@ -757,6 +757,7 @@ describe('TeamProvisioningService', () => {
     );
 
     const autoResumeProvisioning = {
+      getCurrentRunId: vi.fn(() => 'run-1' as string | null),
       isTeamAlive: vi.fn(() => true),
       sendMessageToTeam: vi.fn(async () => undefined),
     };

@@ -3162,6 +3162,10 @@ export class TeamProvisioningService {
     return this.runs.get(runId)?.detectedSessionId ?? null;
   }
 
+  getCurrentRunId(teamName: string): string | null {
+    return this.getAliveRunId(teamName);
+  }
+
   getLeadActivityState(teamName: string): {
     state: 'active' | 'idle' | 'offline';
     runId: string | null;

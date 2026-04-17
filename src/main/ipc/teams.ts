@@ -310,6 +310,7 @@ function checkRateLimitMessages(
     from: string;
     text: string;
     timestamp: string;
+    to?: string;
     source?: string;
     leadSessionId?: string;
   }[],

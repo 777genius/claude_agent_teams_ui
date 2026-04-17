@@ -193,6 +193,7 @@ describe('ipc teams handlers', () => {
     launchTeam: vi.fn(async () => ({ runId: 'run-2' })),
     sendMessageToTeam: vi.fn(async () => undefined),
     isTeamAlive: vi.fn(() => true),
+    getCurrentRunId: vi.fn(() => 'run-2' as string | null),
     pushLiveLeadProcessMessage: vi.fn(),
     relayLeadInboxMessages: vi.fn(async () => 0),
     relayMemberInboxMessages: vi.fn(async () => 0),

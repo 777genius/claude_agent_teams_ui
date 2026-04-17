@@ -18,6 +18,7 @@ describe('AutoResumeService', () => {
   };
   const configManager = configManagerMock as unknown as Pick<ConfigManager, 'getConfig'>;
   const provisioningService = {
+    getCurrentRunId: vi.fn<(teamName: string) => string | null>(),
     isTeamAlive: vi.fn<(teamName: string) => boolean>(),
     sendMessageToTeam: vi.fn<(teamName: string, text: string) => Promise<void>>(),
   };
@@ -26,9 +27,11 @@ describe('AutoResumeService', () => {
 
   beforeEach(() => {
     mockConfig.autoResumeOnRateLimit = false;
+    provisioningService.getCurrentRunId.mockReset();
     provisioningService.isTeamAlive.mockReset();
     provisioningService.sendMessageToTeam.mockReset();
     configManagerMock.getConfig.mockClear();
+    provisioningService.getCurrentRunId.mockReturnValue('run-1');
     service = new AutoResumeService(provisioningService, configManager);
     vi.useFakeTimers();
   });
@@ -227,6 +230,23 @@ describe('AutoResumeService', () => {
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 30 * 1000 + 100);
 
     expect(provisioningService.isTeamAlive).toHaveBeenCalledWith(TEAM);
+    expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
+  });
+
+  it('skips the nudge when the team has moved to a newer run before fire time', async () => {
+    mockConfig.autoResumeOnRateLimit = true;
+    provisioningService.getCurrentRunId.mockReturnValue('run-1');
+    provisioningService.isTeamAlive.mockReturnValue(true);
+    provisioningService.sendMessageToTeam.mockResolvedValue(undefined);
+    const now = new Date('2026-04-17T12:00:00Z');
+
+    service.handleRateLimitMessage(TEAM, RATE_LIMIT_MSG, now);
+    provisioningService.getCurrentRunId.mockReturnValue('run-2');
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 30 * 1000 + 100);
+
+    expect(provisioningService.isTeamAlive).toHaveBeenCalledWith(TEAM);
+    expect(provisioningService.getCurrentRunId).toHaveBeenLastCalledWith(TEAM);
     expect(provisioningService.sendMessageToTeam).not.toHaveBeenCalled();
   });
 
