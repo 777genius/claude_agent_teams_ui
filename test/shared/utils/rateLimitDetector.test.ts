@@ -172,6 +172,17 @@ describe('parseRateLimitResetTime', () => {
     expect(result?.toISOString()).toBe('2026-04-18T23:00:00.000Z');
   });
 
+  it('does NOT roll forward for near-present timestamps (within the 1-minute tolerance)', () => {
+    // Parsed time is 20s in the past (stale message / clock skew). A full
+    // 24h rollover here would trip the scheduler's 12h ceiling and silently
+    // drop auto-resume. Instead, the parser returns the near-past time and
+    // lets the scheduler's buffer + Math.max(0, ...) clamp take over.
+    const now = new Date('2026-04-17T23:00:20Z');
+    const result = parseRateLimitResetTime(`${RL}Resets at 3pm (PST).`, now);
+    // 3pm PST = 23:00 UTC (today) — stays in the past, not rolled.
+    expect(result?.toISOString()).toBe('2026-04-17T23:00:00.000Z');
+  });
+
   it('resolves the zone-local calendar date when UTC and zone disagree on the day', () => {
     // now = 2026-04-18T01:00:00Z which is still 2026-04-17 17:00 PST.
     // "8pm (PST)" on that PST day = 2026-04-17T20:00 PST = 2026-04-18T04:00Z.

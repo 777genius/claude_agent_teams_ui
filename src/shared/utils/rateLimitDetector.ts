@@ -150,13 +150,20 @@ function parseAbsoluteResetClockTime(text: string, now: Date): Date | null {
     return null;
   }
 
-  // If the computed time is in the past (e.g. "3pm" parsed while it's already
-  // 4pm), roll forward by one day.
-  if (candidate.getTime() <= now.getTime()) {
+  // If the computed time is materially in the past (e.g. "3pm" parsed while
+  // it's already 4pm), roll forward by one day. A small tolerance prevents
+  // near-present timestamps — stale messages, clock skew, sub-second drift —
+  // from being bumped 24 h forward, which would then trip the scheduler's
+  // 12 h ceiling and silently drop auto-resume altogether. Timestamps within
+  // `ROLLOVER_TOLERANCE_MS` of now fire immediately after the scheduler's
+  // own 30 s buffer and `Math.max(0, rawDelayMs)` clamp.
+  if (candidate.getTime() <= now.getTime() - ROLLOVER_TOLERANCE_MS) {
     candidate = new Date(candidate.getTime() + 24 * 60 * 60 * 1000);
   }
   return candidate;
 }
+
+const ROLLOVER_TOLERANCE_MS = 60 * 1000;
 
 function buildLocalToday(now: Date, hour: number, minute: number): Date {
   const d = new Date(now);

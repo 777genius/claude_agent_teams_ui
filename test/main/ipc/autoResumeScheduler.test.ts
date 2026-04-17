@@ -64,8 +64,10 @@ let clearAllPendingAutoResume: typeof import('@main/ipc/teams').clearAllPendingA
 let __setTeamProvisioningServiceForTests: typeof import('@main/ipc/teams').__setTeamProvisioningServiceForTests;
 
 const TEAM = 'test-team';
-const RATE_LIMIT_MSG =
-  "You've hit your limit. Your limit will reset at 3pm (PST).";
+// Use a relative-duration fixture so the expected fire time is independent of
+// the test environment's timezone and wall clock. Tests that want a different
+// interval pass their own message inline.
+const RATE_LIMIT_MSG = "You've hit your limit. Resets in 5 minutes.";
 
 beforeEach(async () => {
   vi.resetModules();
@@ -121,6 +123,10 @@ describe('scheduleAutoResumeIfEnabled', () => {
   });
 
   it('does not schedule when the parsed delay exceeds the ceiling', () => {
+    // Own the warn spy locally so the assertion is self-contained and doesn't
+    // depend on the global test-setup's spy staying installed.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
     mockConfig.autoResumeOnRateLimit = true;
     // Parser rolls forward to tomorrow if the time already passed today; force
     // a parse that lands 23h+ away, beyond the 12h ceiling.
@@ -132,12 +138,15 @@ describe('scheduleAutoResumeIfEnabled', () => {
 
     vi.advanceTimersByTime(24 * 60 * 60 * 1000);
     expect(mockSendMessageToTeam).not.toHaveBeenCalled();
-    // Clear the expected "exceeds ceiling" warning so the global test setup
-    // doesn't flag it as an unexpected console.warn.
-    vi.mocked(console.warn).mockClear();
+    // The logger prefixes with its tag, so the message is the 2nd argument.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining('exceeds ceiling')
+    );
+    warnSpy.mockRestore();
   });
 
-  it('deduplicates: a second schedule for the same team is a no-op', () => {
+  it('deduplicates: a second schedule for the same team is a no-op', async () => {
     mockConfig.autoResumeOnRateLimit = true;
     mockIsTeamAlive.mockReturnValue(true);
     mockSendMessageToTeam.mockResolvedValue(undefined);
@@ -147,12 +156,11 @@ describe('scheduleAutoResumeIfEnabled', () => {
     // Second schedule would normally reset the timer to 1h — but dedup skips it.
     scheduleAutoResumeIfEnabled(TEAM, `You've hit your limit. Resets in 1 hour.`, now);
 
-    // First timer (10min + 30s buffer) should still fire at ~10:30.
-    vi.advanceTimersByTime(11 * 60 * 1000);
-    // allow microtasks in the callback to run
-    return Promise.resolve().then(() => {
-      expect(mockSendMessageToTeam).toHaveBeenCalledTimes(1);
-    });
+    // Use the async timer helper so the callback's inner `await
+    // sendMessageToTeam(...)` resolves before we assert. The sync variant
+    // only flushes one microtask tick and would make the assertion race.
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    expect(mockSendMessageToTeam).toHaveBeenCalledTimes(1);
   });
 
   it('sends the resume nudge when the team is alive at fire time', async () => {
@@ -204,6 +212,8 @@ describe('scheduleAutoResumeIfEnabled', () => {
   });
 
   it('swallows errors from sendMessageToTeam without crashing', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
     mockConfig.autoResumeOnRateLimit = true;
     mockIsTeamAlive.mockReturnValue(true);
     mockSendMessageToTeam.mockRejectedValue(new Error('stdin closed'));
@@ -217,9 +227,11 @@ describe('scheduleAutoResumeIfEnabled', () => {
       vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 30 * 1000 + 100)
     ).resolves.not.toThrow();
     expect(mockSendMessageToTeam).toHaveBeenCalledTimes(1);
-    // Clear the expected "Failed to send resume nudge" log so the global
-    // setup doesn't flag it as an unexpected console.error.
-    vi.mocked(console.error).mockClear();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining('Failed to send resume nudge')
+    );
+    errorSpy.mockRestore();
   });
 });
 
