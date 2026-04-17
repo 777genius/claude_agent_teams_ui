@@ -7639,6 +7639,12 @@ export class TeamProvisioningService {
             if (result.deduplicated) {
               return;
             }
+            if (this.getTrackedRunId(run.teamName) !== run.runId) {
+              logger.debug(
+                `[${run.teamName}] Skipping stale cross-team send result for old run ${run.runId}`
+              );
+              return;
+            }
             const msg: InboxMessage = {
               from: leadName,
               to: recipient.startsWith('cross-team:')

@@ -617,6 +617,78 @@ describe('TeamProvisioningService pre-ready live messages', () => {
     expect(hoisted.appendSentMessage).not.toHaveBeenCalled();
   });
 
+  it('ignores stale cross-team send completions from an older run after a new run starts', async () => {
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+
+    let resolveSend: ((value: { deliveredToInbox: boolean; messageId: string }) => void) | null =
+      null;
+    const crossTeamSender = vi.fn(
+      () =>
+        new Promise<{ deliveredToInbox: boolean; messageId: string }>((resolve) => {
+          resolveSend = resolve;
+        })
+    );
+    service.setCrossTeamSender(crossTeamSender);
+
+    const oldRun = attachRun(service, 'my-team', {
+      provisioningComplete: true,
+      runId: 'run-old',
+      detectedSessionId: 'sess-old',
+    });
+    oldRun.activeCrossTeamReplyHints = [{ toTeam: 'team-best', conversationId: 'conv-old' }];
+
+    callHandleStreamJsonMessage(service, oldRun, {
+      type: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          name: 'SendMessage',
+          input: {
+            type: 'message',
+            recipient: 'team-best.user',
+            content: 'Old run cross-team reply.',
+            summary: 'Old run reply',
+          },
+        },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(crossTeamSender).toHaveBeenCalledTimes(1);
+    });
+
+    const newRun = attachRun(service, 'my-team', {
+      provisioningComplete: true,
+      runId: 'run-new',
+      detectedSessionId: 'sess-new',
+    });
+    service.pushLiveLeadProcessMessage('my-team', {
+      from: 'team-lead',
+      text: 'Current run is active.',
+      timestamp: '2026-04-17T12:00:10.000Z',
+      read: true,
+      source: 'lead_process',
+      messageId: 'lead-turn-run-new-1',
+      leadSessionId: 'sess-new',
+    });
+
+    resolveSend?.({ deliveredToInbox: true, messageId: 'cross-stale-old-run' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(service.getLiveLeadProcessMessages('my-team')).toEqual([
+      expect.objectContaining({
+        text: 'Current run is active.',
+        messageId: 'lead-turn-run-new-1',
+        leadSessionId: 'sess-new',
+      }),
+    ]);
+
+    (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(oldRun);
+    (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(newRun);
+  });
+
   it('upgrades pseudo cross-team recipients into cross-team sends', async () => {
     const service = new TeamProvisioningService();
     seedConfig('my-team');
