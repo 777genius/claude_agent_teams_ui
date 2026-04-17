@@ -149,13 +149,14 @@ function buildUtcTodayWithOffset(
   minute: number,
   offsetMinutes: number
 ): Date {
-  // "hour:minute" expressed in the zone with the given UTC offset.
-  // UTC wall time = zone wall time - offset.
-  const utcHour = hour - Math.trunc(offsetMinutes / 60);
-  const utcMinute = minute - (offsetMinutes % 60);
-
-  const d = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHour, utcMinute, 0, 0)
+  // The caller's "hour:minute" is expressed in the target zone. Anchor the
+  // calendar date in that zone too — not in UTC — otherwise we get a 24h
+  // error when the zone-local day differs from UTC's day (e.g. 01:00 UTC is
+  // still "yesterday" for any negative-offset zone like PST).
+  const zoned = new Date(now.getTime() + offsetMinutes * 60 * 1000);
+  const offsetMs = offsetMinutes * 60 * 1000;
+  return new Date(
+    Date.UTC(zoned.getUTCFullYear(), zoned.getUTCMonth(), zoned.getUTCDate(), hour, minute, 0, 0) -
+      offsetMs
   );
-  return d;
 }

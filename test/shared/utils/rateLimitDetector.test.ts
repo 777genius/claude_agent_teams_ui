@@ -98,6 +98,25 @@ describe('parseRateLimitResetTime', () => {
     expect(result?.toISOString()).toBe('2026-04-18T23:00:00.000Z');
   });
 
+  it('resolves the zone-local calendar date when UTC and zone disagree on the day', () => {
+    // now = 2026-04-18T01:00:00Z which is still 2026-04-17 17:00 PST.
+    // "8pm (PST)" on that PST day = 2026-04-17T20:00 PST = 2026-04-18T04:00Z.
+    // A naive UTC-anchored build would emit 2026-04-19T04:00Z (24h off).
+    const now = new Date('2026-04-18T01:00:00Z');
+    const result = parseRateLimitResetTime('Resets at 8pm (PST).', now);
+    expect(result?.toISOString()).toBe('2026-04-18T04:00:00.000Z');
+  });
+
+  it('handles the mirror case for positive offsets crossing the UTC day', () => {
+    // now = 2026-04-17T23:00:00Z. Pretend the zone is "GMT" (offset 0) for
+    // symmetry with the canonical "same-day" path — an early-morning UTC time
+    // should still parse correctly when the zone matches UTC.
+    const now = new Date('2026-04-17T23:00:00Z');
+    const result = parseRateLimitResetTime('Resets at 02:00 UTC.', now);
+    // 02:00 UTC today is already in the past vs 23:00 UTC → roll to tomorrow.
+    expect(result?.toISOString()).toBe('2026-04-18T02:00:00.000Z');
+  });
+
   it('handles 12am (midnight) correctly', () => {
     const now = new Date('2026-04-17T12:00:00Z');
     const result = parseRateLimitResetTime('Resets at 12am UTC.', now);
