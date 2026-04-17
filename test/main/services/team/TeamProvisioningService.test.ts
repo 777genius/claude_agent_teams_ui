@@ -51,6 +51,11 @@ vi.mock('@main/utils/pathDecoder', async (importOriginal) => {
 });
 
 import { TeamProvisioningService } from '@main/services/team/TeamProvisioningService';
+import {
+  clearAutoResumeService,
+  getAutoResumeService,
+  initializeAutoResumeService,
+} from '@main/services/team/AutoResumeService';
 import { createPersistedLaunchSnapshot } from '@main/services/team/TeamLaunchStateEvaluator';
 import { getTeamLaunchStatePath } from '@main/services/team/TeamLaunchStateStore';
 import { ClaudeBinaryResolver } from '@main/services/team/ClaudeBinaryResolver';
@@ -160,6 +165,7 @@ describe('TeamProvisioningService', () => {
   });
 
   afterEach(() => {
+    clearAutoResumeService();
     vi.useRealTimers();
     try {
       fs.rmSync(tempClaudeRoot, { recursive: true, force: true });
@@ -713,6 +719,99 @@ describe('TeamProvisioningService', () => {
     expect(svc.getCurrentLeadSessionId(teamName)).toBe(leadSessionId);
 
     await svc.cancelProvisioning(runId);
+  });
+
+  it('clears stale team-scoped transient state before starting a new launch run', async () => {
+    allowConsoleLogs();
+    vi.useFakeTimers();
+
+    const teamName = 'launch-clears-stale-runtime-state';
+    const leadSessionId = 'lead-session-stale-state';
+    writeLaunchConfig(teamName, tempClaudeRoot, leadSessionId, ['alice']);
+
+    vi.mocked(ClaudeBinaryResolver.resolve).mockResolvedValue('/mock/claude');
+    vi.mocked(spawnCli).mockImplementation(() => {
+      throw new Error('launch spawn EINVAL');
+    });
+
+    const svc = new TeamProvisioningService(undefined, undefined, undefined, undefined, {
+      writeConfigFile: vi.fn(async () => '/mock/mcp-config-launch.json'),
+      removeConfigFile: vi.fn(async () => {}),
+    } as any);
+    (svc as any).buildProvisioningEnv = vi.fn(async () => ({
+      env: { ANTHROPIC_API_KEY: 'test' },
+      authSource: 'anthropic_api_key',
+    }));
+    (svc as any).resolveLaunchExpectedMembers = vi.fn(async () => ({
+      members: [{ name: 'alice' }],
+      source: 'members-meta',
+      warning: undefined,
+    }));
+    (svc as any).normalizeTeamConfigForLaunch = vi.fn(async () => {});
+    (svc as any).assertConfigLeadOnlyForLaunch = vi.fn(async () => {});
+    (svc as any).updateConfigProjectPath = vi.fn(async () => {});
+    (svc as any).restorePrelaunchConfig = vi.fn(async () => {});
+    (svc as any).validateAgentTeamsMcpRuntime = vi.fn(async () => {});
+    (svc as any).pathExists = vi.fn(async (targetPath: string) =>
+      targetPath.endsWith(`${leadSessionId}.jsonl`)
+    );
+
+    const autoResumeProvisioning = {
+      isTeamAlive: vi.fn(() => true),
+      sendMessageToTeam: vi.fn(async () => undefined),
+    };
+    initializeAutoResumeService(autoResumeProvisioning);
+
+    const configManagerModule = await import('@main/services/infrastructure/ConfigManager');
+    const configManager = configManagerModule.ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: true,
+          },
+        }) as never
+    );
+
+    try {
+      getAutoResumeService().handleRateLimitMessage(
+        teamName,
+        "You've hit your limit. Resets in 5 minutes.",
+        new Date('2026-04-17T12:00:00.000Z')
+      );
+
+      (svc as any).relayedLeadInboxMessageIds.set(teamName, new Set(['stale-msg']));
+      (svc as any).liveLeadProcessMessages.set(teamName, [
+        {
+          from: 'team-lead',
+          text: 'Old transient message',
+          timestamp: '2026-04-17T12:00:00.000Z',
+          read: true,
+          source: 'lead_process',
+          messageId: 'lead-turn-old-run-1',
+        },
+      ]);
+      (svc as any).pendingTimeouts.set(
+        `same-team-deferred:${teamName}`,
+        setTimeout(() => undefined, 60_000)
+      );
+
+      await expect(svc.launchTeam({ teamName, cwd: tempClaudeRoot }, () => {})).rejects.toThrow(
+        'launch spawn EINVAL'
+      );
+
+      expect((svc as any).relayedLeadInboxMessageIds.has(teamName)).toBe(false);
+      expect((svc as any).liveLeadProcessMessages.has(teamName)).toBe(false);
+      expect((svc as any).pendingTimeouts.has(`same-team-deferred:${teamName}`)).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 30 * 1000 + 100);
+      expect(autoResumeProvisioning.sendMessageToTeam).not.toHaveBeenCalled();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 
   it('marks persisted bootstrap as failed when member transcript shows an unsupported model error', async () => {

@@ -2343,6 +2343,40 @@ export class TeamProvisioningService {
     return this.getProvisioningRunId(teamName) ?? this.getAliveRunId(teamName);
   }
 
+  private clearSameTeamRetryTimers(teamName: string): void {
+    for (const suffix of ['deferred', 'persist']) {
+      const key = `same-team-${suffix}:${teamName}`;
+      const timer = this.pendingTimeouts.get(key);
+      if (timer) {
+        clearTimeout(timer);
+        this.pendingTimeouts.delete(key);
+      }
+    }
+  }
+
+  private resetTeamScopedTransientStateForNewRun(teamName: string): void {
+    peekAutoResumeService()?.cancelPendingAutoResume(teamName);
+    this.leadInboxRelayInFlight.delete(teamName);
+    this.relayedLeadInboxMessageIds.delete(teamName);
+    this.pendingCrossTeamFirstReplies.delete(teamName);
+    this.recentCrossTeamLeadDeliveryMessageIds.delete(teamName);
+    this.recentSameTeamNativeFingerprints.delete(teamName);
+    this.clearSameTeamRetryTimers(teamName);
+
+    for (const key of Array.from(this.memberInboxRelayInFlight.keys())) {
+      if (key.startsWith(`${teamName}:`)) {
+        this.memberInboxRelayInFlight.delete(key);
+      }
+    }
+    for (const key of Array.from(this.relayedMemberInboxMessageIds.keys())) {
+      if (key.startsWith(`${teamName}:`)) {
+        this.relayedMemberInboxMessageIds.delete(key);
+      }
+    }
+
+    this.liveLeadProcessMessages.delete(teamName);
+  }
+
   private appendCliLogs(run: ProvisioningRun, stream: 'stdout' | 'stderr', text: string): void {
     const nowMs = Date.now();
     run.claudeLogsUpdatedAt = new Date(nowMs).toISOString();
@@ -5037,6 +5071,7 @@ export class TeamProvisioningService {
         },
       };
 
+      this.resetTeamScopedTransientStateForNewRun(request.teamName);
       this.runs.set(runId, run);
       this.provisioningRunByTeam.set(request.teamName, runId);
       run.onProgress(run.progress);
@@ -5622,6 +5657,7 @@ export class TeamProvisioningService {
         },
       };
 
+      this.resetTeamScopedTransientStateForNewRun(request.teamName);
       this.runs.set(runId, run);
       this.provisioningRunByTeam.set(request.teamName, runId);
       run.onProgress(run.progress);
@@ -10513,15 +10549,7 @@ export class TeamProvisioningService {
       this.pendingCrossTeamFirstReplies.delete(run.teamName);
       this.recentCrossTeamLeadDeliveryMessageIds.delete(run.teamName);
       this.recentSameTeamNativeFingerprints.delete(run.teamName);
-      // Clear same-team retry timers
-      for (const suffix of ['deferred', 'persist']) {
-        const key = `same-team-${suffix}:${run.teamName}`;
-        const timer = this.pendingTimeouts.get(key);
-        if (timer) {
-          clearTimeout(timer);
-          this.pendingTimeouts.delete(key);
-        }
-      }
+      this.clearSameTeamRetryTimers(run.teamName);
     }
     for (const memberName of run.memberSpawnStatuses.keys()) {
       const key = this.getMemberLaunchGraceKey(run, memberName);
