@@ -1154,4 +1154,65 @@ describe('TeamProvisioningService auto-resume cleanup', () => {
       (service as unknown as { cleanupRun: (runLike: unknown) => void }).cleanupRun(newRun);
     }
   });
+
+  it('preserves the canonical assistant timestamp for live rate-limit messages', async () => {
+    vi.setSystemTime(new Date('2026-04-17T12:00:20.000Z'));
+
+    const service = new TeamProvisioningService();
+    seedConfig('my-team');
+    const run = attachRun(service, 'my-team', {
+      provisioningComplete: true,
+      detectedSessionId: 'sess-live',
+    });
+
+    const autoResumeProvisioning = {
+      isTeamAlive: vi.fn(() => true),
+      sendMessageToTeam: vi.fn(async () => undefined),
+    };
+    initializeAutoResumeService(autoResumeProvisioning);
+
+    const configManager = ConfigManager.getInstance();
+    const actualConfig = configManager.getConfig();
+    const getConfigSpy = vi.spyOn(configManager, 'getConfig').mockImplementation(
+      () =>
+        ({
+          ...actualConfig,
+          notifications: {
+            ...actualConfig.notifications,
+            autoResumeOnRateLimit: true,
+          },
+        }) as never
+    );
+
+    try {
+      callHandleStreamJsonMessage(service, run, {
+        type: 'assistant',
+        timestamp: '2026-04-17T12:00:00.000Z',
+        content: [{ type: 'text', text: "You've hit your limit. Resets in 5 minutes." }],
+      });
+
+      const live = service.getLiveLeadProcessMessages('my-team');
+      expect(live).toHaveLength(1);
+      expect(live[0].timestamp).toBe('2026-04-17T12:00:00.000Z');
+
+      getAutoResumeService().handleRateLimitMessage(
+        'my-team',
+        live[0].text,
+        new Date('2026-04-17T12:00:20.000Z'),
+        new Date(live[0].timestamp)
+      );
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 9 * 1000);
+      expect(autoResumeProvisioning.sendMessageToTeam).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(autoResumeProvisioning.sendMessageToTeam).toHaveBeenCalledTimes(1);
+      expect(autoResumeProvisioning.sendMessageToTeam).toHaveBeenCalledWith(
+        'my-team',
+        expect.stringContaining('rate limit has reset')
+      );
+    } finally {
+      getConfigSpy.mockRestore();
+    }
+  });
 });

@@ -7187,11 +7187,18 @@ export class TeamProvisioningService {
   private pushLiveLeadTextMessage(
     run: ProvisioningRun,
     cleanText: string,
-    stableMessageId?: string
+    stableMessageId?: string,
+    messageTimestamp?: string
   ): void {
     run.leadMsgSeq += 1;
     const leadName = this.getRunLeadName(run);
     const messageId = stableMessageId || `lead-turn-${run.runId}-${run.leadMsgSeq}`;
+    const timestamp =
+      typeof messageTimestamp === 'string' &&
+      messageTimestamp.trim().length > 0 &&
+      Number.isFinite(Date.parse(messageTimestamp))
+        ? messageTimestamp
+        : nowIso();
     // Attach accumulated tool call details from preceding tool_use messages, then reset.
     const toolCalls = run.pendingToolCalls.length > 0 ? [...run.pendingToolCalls] : undefined;
     const toolSummary = toolCalls ? formatToolSummaryFromCalls(toolCalls) : undefined;
@@ -7199,7 +7206,7 @@ export class TeamProvisioningService {
     const leadMsg: InboxMessage = {
       from: leadName,
       text: cleanText,
-      timestamp: nowIso(),
+      timestamp,
       read: true,
       summary: cleanText.length > 60 ? cleanText.slice(0, 57) + '...' : cleanText,
       messageId,
@@ -7601,6 +7608,12 @@ export class TeamProvisioningService {
         .map((part) => part.text as string);
       if (textParts.length > 0) {
         const text = textParts.join('\n');
+        const messageTimestamp =
+          typeof msg.timestamp === 'string' &&
+          msg.timestamp.trim().length > 0 &&
+          Number.isFinite(Date.parse(msg.timestamp))
+            ? msg.timestamp
+            : undefined;
         // Auth failures sometimes show up as assistant text (e.g. "401", "Please run /login")
         // rather than stderr or a result.subtype=error. Detect early to avoid false "ready".
         this.handleAuthFailureInOutput(run, text, 'assistant');
@@ -7643,7 +7656,8 @@ export class TeamProvisioningService {
               this.pushLiveLeadTextMessage(
                 run,
                 cleanText,
-                this.getStableLeadThoughtMessageId(msg) ?? undefined
+                this.getStableLeadThoughtMessageId(msg) ?? undefined,
+                messageTimestamp
               );
             }
           }
@@ -7656,7 +7670,8 @@ export class TeamProvisioningService {
               this.pushLiveLeadTextMessage(
                 run,
                 cleanText,
-                this.getStableLeadThoughtMessageId(msg) ?? undefined
+                this.getStableLeadThoughtMessageId(msg) ?? undefined,
+                messageTimestamp
               );
             }
           }
