@@ -188,6 +188,7 @@ function attachAliveRun(
       teamName,
       members: [{ name: 'team-lead', role: 'team-lead' }],
     },
+    startedAt: '2026-02-23T09:59:00.000Z',
     leadMsgSeq: 0,
     pendingToolCalls: [],
     activeToolCalls: new Map(),
@@ -195,6 +196,8 @@ function attachAliveRun(
     lastLeadTextEmitMs: 0,
     activeCrossTeamReplyHints: [],
     pendingInboxRelayCandidates: [],
+    pendingApprovals: new Map(),
+    processedPermissionRequestIds: new Set(),
     silentUserDmForward: null,
     silentUserDmForwardClearHandle: null,
     child: {
@@ -490,6 +493,67 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     await expect(relayPromise).resolves.toBe(0);
     expect(oldWriteSpy).not.toHaveBeenCalled();
     expect(newWriteSpy).not.toHaveBeenCalled();
+    inboxSpy.mockRestore();
+  });
+
+  it('does not let stale lead relay consume a newer run permission_request', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    const permissionMessage = {
+      from: 'alice',
+      text: JSON.stringify({
+        type: 'permission_request',
+        request_id: 'perm-new-run-1',
+        agent_id: 'alice',
+        tool_name: 'Bash',
+        input: { command: 'git status' },
+      }),
+      timestamp: '2026-02-23T10:00:30.000Z',
+      read: false,
+      messageId: 'perm-inbox-1',
+    };
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [permissionMessage]);
+
+    const { runId: oldRunId } = attachAliveRun(service, teamName, { runId: 'run-old' });
+    const inboxDeferred = createDeferred<[typeof permissionMessage]>();
+    const inboxReader = (service as unknown as {
+      inboxReader: {
+        getMessagesFor: (
+          team: string,
+          member: string
+        ) => Promise<[typeof permissionMessage]>;
+      };
+    }).inboxReader;
+    const inboxSpy = vi
+      .spyOn(inboxReader, 'getMessagesFor')
+      .mockImplementationOnce(async () => await inboxDeferred.promise)
+      .mockImplementation(async () => [permissionMessage]);
+
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    await Promise.resolve();
+
+    const oldRun = (service as unknown as { runs: Map<string, any> }).runs.get(oldRunId);
+    oldRun.processKilled = true;
+    oldRun.cancelRequested = true;
+    oldRun.child.stdin.writable = false;
+
+    attachAliveRun(service, teamName, { runId: 'run-new' });
+    inboxDeferred.resolve([permissionMessage]);
+
+    await expect(relayPromise).resolves.toBe(0);
+
+    const inbox = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/team-lead.json`) ?? '[]'
+    ) as Array<{ messageId?: string; read?: boolean }>;
+    expect(inbox).toEqual([
+      expect.objectContaining({
+        messageId: 'perm-inbox-1',
+        read: false,
+      }),
+    ]);
+    expect(oldRun.pendingApprovals.size).toBe(0);
+    expect(oldRun.processedPermissionRequestIds.size).toBe(0);
     inboxSpy.mockRestore();
   });
 

@@ -6076,6 +6076,8 @@ export class TeamProvisioningService {
       const run = this.runs.get(runId);
       if (!run?.child || run.processKilled || run.cancelRequested) return 0;
       if (!run.provisioningComplete) return 0;
+      const isStaleRelayRun = (): boolean =>
+        !this.isCurrentTrackedRun(run) || !run.child || run.processKilled || run.cancelRequested;
 
       const relayedIds = this.relayedMemberInboxMessageIds.get(relayKey) ?? new Set<string>();
 
@@ -6085,6 +6087,7 @@ export class TeamProvisioningService {
       } catch {
         return 0;
       }
+      if (isStaleRelayRun()) return 0;
 
       const unread = memberInboxMessages
         .filter((m): m is InboxMessage & { messageId: string } => {
@@ -6115,6 +6118,7 @@ export class TeamProvisioningService {
         .map(({ message }) => message);
 
       const readOnlyIgnoredUnread = [...silentNoiseUnread, ...passiveIdleUnread];
+      if (isStaleRelayRun()) return 0;
 
       if (readOnlyIgnoredUnread.length > 0) {
         try {
@@ -6244,6 +6248,8 @@ export class TeamProvisioningService {
       if (!runId) return 0;
       const run = this.runs.get(runId);
       if (!run?.child || run.processKilled || run.cancelRequested) return 0;
+      const isStaleRelayRun = (): boolean =>
+        !this.isCurrentTrackedRun(run) || !run.child || run.processKilled || run.cancelRequested;
 
       // Permission request scan runs even during provisioning — teammates may need
       // tool approval before the lead's first turn completes. CLI marks inbox messages
@@ -6254,10 +6260,12 @@ export class TeamProvisioningService {
       } catch {
         // config not ready yet during early provisioning — skip scan
       }
+      if (isStaleRelayRun()) return 0;
       if (config) {
         const leadName = config.members?.find((m) => isLeadMember(m))?.name?.trim() || 'team-lead';
         try {
           const leadInboxMessages = await this.inboxReader.getMessagesFor(teamName, leadName);
+          if (isStaleRelayRun()) return 0;
           const permMsgsToMarkRead: { messageId: string }[] = [];
           const runStartedAtMs = Date.parse(run.startedAt);
           for (const msg of leadInboxMessages) {
@@ -6302,6 +6310,7 @@ export class TeamProvisioningService {
           return 0;
         }
       }
+      if (isStaleRelayRun()) return 0;
       if (!config) return 0;
 
       const leadName = config.members?.find((m) => isLeadMember(m))?.name?.trim() || 'team-lead';
@@ -6311,8 +6320,10 @@ export class TeamProvisioningService {
       } catch {
         return 0;
       }
+      if (isStaleRelayRun()) return 0;
 
       await this.refreshMemberSpawnStatusesFromLeadInbox(run);
+      if (isStaleRelayRun()) return 0;
 
       const unread = leadInboxMessages
         .filter((m): m is InboxMessage & { messageId: string } => {
@@ -6450,6 +6461,7 @@ export class TeamProvisioningService {
         ...passiveIdleUnread.map((m) => m.messageId),
       ]);
       const remainingUnread = unread.filter((m) => !readOnlyIgnoredIds.has(m.messageId));
+      if (isStaleRelayRun()) return 0;
 
       // Category 2: same-team native delivery confirmation (one-to-one pairing).
       const { nativeMatchedMessageIds, persisted: sameTeamPersisted } =
