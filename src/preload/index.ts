@@ -139,6 +139,7 @@ import {
   TEAM_GET_TASK_EXACT_LOG_DETAIL,
   TEAM_GET_TASK_EXACT_LOG_SUMMARIES,
   TEAM_GET_TASK_LOG_STREAM,
+  TEAM_GET_TASK_LOG_STREAM_SUMMARY,
   TEAM_KILL_PROCESS,
   TEAM_LAUNCH,
   TEAM_LEAD_ACTIVITY,
@@ -243,6 +244,7 @@ import type {
   BoardTaskExactLogDetailResult,
   BoardTaskExactLogSummariesResponse,
   BoardTaskLogStreamResponse,
+  BoardTaskLogStreamSummary,
   ChangeStats,
   ClaudeRootFolderSelection,
   ClaudeRootInfo,
@@ -991,6 +993,13 @@ const electronAPI: ElectronAPI = {
         teamName,
         taskId,
         activityId
+      );
+    },
+    getTaskLogStreamSummary: async (teamName: string, taskId: string) => {
+      return invokeIpcWithResult<BoardTaskLogStreamSummary>(
+        TEAM_GET_TASK_LOG_STREAM_SUMMARY,
+        teamName,
+        taskId
       );
     },
     getTaskLogStream: async (teamName: string, taskId: string) => {

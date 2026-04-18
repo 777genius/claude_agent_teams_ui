@@ -9,6 +9,9 @@ import type { TeamTaskWithKanban } from '../../../../../src/shared/types';
 
 const apiState = {
   onTeamChange: vi.fn<(callback: (event: unknown, data: TeamChangeEvent) => void) => () => void>(),
+  getTaskLogStreamSummary: vi.fn<
+    (teamName: string, taskId: string) => Promise<{ segmentCount: number }>
+  >(),
   setTaskLogStreamTracking: vi.fn<(teamName: string, enabled: boolean) => Promise<void>>(),
 };
 
@@ -17,6 +20,8 @@ vi.mock('@renderer/api', () => ({
     teams: {
       onTeamChange: (...args: Parameters<typeof apiState.onTeamChange>) =>
         apiState.onTeamChange(...args),
+      getTaskLogStreamSummary: (...args: Parameters<typeof apiState.getTaskLogStreamSummary>) =>
+        apiState.getTaskLogStreamSummary(...args),
       setTaskLogStreamTracking: (...args: Parameters<typeof apiState.setTaskLogStreamTracking>) =>
         apiState.setTaskLogStreamTracking(...args),
     },
@@ -168,7 +173,9 @@ describe('TaskLogsPanel', () => {
     taskLogStreamProps.calls = [];
     executionSessionsProps.calls = [];
     apiState.onTeamChange.mockReset();
+    apiState.getTaskLogStreamSummary.mockReset();
     apiState.setTaskLogStreamTracking.mockReset();
+    apiState.getTaskLogStreamSummary.mockResolvedValue({ segmentCount: 0 });
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -478,6 +485,55 @@ describe('TaskLogsPanel', () => {
     });
 
     expect(executionSessionsProps.calls.at(-1)).toMatchObject({ enabled: false });
+
+    await act(async () => {
+      root.unmount();
+      await flushMicrotasks();
+    });
+  });
+
+  it('loads task log count for the header badge and refreshes it on matching live updates', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers();
+
+    const counts: Array<number | undefined> = [];
+    let handler: ((event: unknown, data: TeamChangeEvent) => void) | null = null;
+    apiState.onTeamChange.mockImplementation((callback) => {
+      handler = callback;
+      return () => {
+        handler = null;
+      };
+    });
+    apiState.getTaskLogStreamSummary
+      .mockResolvedValueOnce({ segmentCount: 4 })
+      .mockResolvedValueOnce({ segmentCount: 5 });
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(TaskLogsPanel, {
+          teamName: 'demo',
+          task: makeTask(),
+          onTaskLogCountChange: (count) => counts.push(count),
+        })
+      );
+      await flushMicrotasks();
+    });
+
+    expect(apiState.getTaskLogStreamSummary).toHaveBeenCalledWith('demo', 'task-1');
+    expect(counts).toEqual([undefined, 4]);
+
+    await act(async () => {
+      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-1' });
+      vi.advanceTimersByTime(350);
+      await flushMicrotasks();
+    });
+
+    expect(apiState.getTaskLogStreamSummary).toHaveBeenCalledTimes(2);
+    expect(counts).toEqual([undefined, 4, 5]);
 
     await act(async () => {
       root.unmount();

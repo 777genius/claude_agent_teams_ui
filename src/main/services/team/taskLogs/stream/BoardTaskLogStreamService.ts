@@ -19,6 +19,7 @@ import type {
   BoardTaskLogParticipant,
   BoardTaskLogSegment,
   BoardTaskLogStreamResponse,
+  BoardTaskLogStreamSummary,
   TeamTask,
 } from '@shared/types';
 
@@ -47,6 +48,11 @@ interface TimeWindow {
   endMs: number | null;
 }
 
+interface StreamLayout {
+  participants: BoardTaskLogParticipant[];
+  visibleSlices: StreamSlice[];
+}
+
 const BOARD_MCP_TOOL_PREFIXES = ['mcp__agent-teams__', 'mcp__agent_teams__'] as const;
 const INFERRED_WINDOW_GRACE_BEFORE_MS = 30_000;
 const INFERRED_WINDOW_GRACE_AFTER_MS = 15_000;
@@ -58,6 +64,12 @@ function emptyResponse(): BoardTaskLogStreamResponse {
     participants: [],
     defaultFilter: 'all',
     segments: [],
+  };
+}
+
+function emptySummary(): BoardTaskLogStreamSummary {
+  return {
+    segmentCount: 0,
   };
 }
 
@@ -1018,6 +1030,46 @@ function compareSlices(left: StreamSlice, right: StreamSlice): number {
   return left.id.localeCompare(right.id);
 }
 
+function buildOrderedParticipants(visibleSlices: StreamSlice[]): BoardTaskLogParticipant[] {
+  const participantsByKey = new Map<string, BoardTaskLogParticipant>();
+  const participantOrder: string[] = [];
+
+  for (const slice of visibleSlices) {
+    if (participantsByKey.has(slice.participantKey)) {
+      continue;
+    }
+    participantsByKey.set(
+      slice.participantKey,
+      buildParticipant(slice.actor, slice.participantKey)
+    );
+    participantOrder.push(slice.participantKey);
+  }
+
+  return participantOrder
+    .map((key) => participantsByKey.get(key))
+    .filter((participant): participant is BoardTaskLogParticipant => Boolean(participant))
+    .sort((left, right) => {
+      if (left.isLead && !right.isLead) return 1;
+      if (!left.isLead && right.isLead) return -1;
+      return participantOrder.indexOf(left.key) - participantOrder.indexOf(right.key);
+    });
+}
+
+function countSegmentsFromSlices(visibleSlices: StreamSlice[]): number {
+  if (visibleSlices.length === 0) {
+    return 0;
+  }
+
+  let segmentCount = 1;
+  for (let index = 1; index < visibleSlices.length; index += 1) {
+    if (visibleSlices[index]?.participantKey !== visibleSlices[index - 1]?.participantKey) {
+      segmentCount += 1;
+    }
+  }
+
+  return segmentCount;
+}
+
 export class BoardTaskLogStreamService {
   constructor(
     private readonly recordSource: BoardTaskActivityRecordSource = new BoardTaskActivityRecordSource(),
@@ -1131,14 +1183,20 @@ export class BoardTaskLogStreamService {
     return inferredSlices.sort(compareSlices);
   }
 
-  async getTaskLogStream(teamName: string, taskId: string): Promise<BoardTaskLogStreamResponse> {
+  private async buildStreamLayout(teamName: string, taskId: string): Promise<StreamLayout> {
     if (!isBoardTaskExactLogsReadEnabled()) {
-      return emptyResponse();
+      return {
+        participants: [],
+        visibleSlices: [],
+      };
     }
 
     const records = await this.recordSource.getTaskRecords(teamName, taskId);
     if (records.length === 0) {
-      return emptyResponse();
+      return {
+        participants: [],
+        visibleSlices: [],
+      };
     }
 
     const fileVersionsByPath = await getBoardTaskExactLogFileVersions(
@@ -1154,7 +1212,10 @@ export class BoardTaskLogStreamService {
       .sort(compareCandidates);
 
     if (candidates.length === 0) {
-      return emptyResponse();
+      return {
+        participants: [],
+        visibleSlices: [],
+      };
     }
 
     const parsedMessagesByFile = await this.strictParser.parseFiles(
@@ -1202,7 +1263,10 @@ export class BoardTaskLogStreamService {
     }
 
     if (slices.length === 0) {
-      return emptyResponse();
+      return {
+        participants: [],
+        visibleSlices: [],
+      };
     }
 
     const inferredExecutionSlices = await this.buildInferredExecutionSlices(
@@ -1220,27 +1284,31 @@ export class BoardTaskLogStreamService {
     const visibleSlices =
       namedParticipantSlices.length > 0 ? namedParticipantSlices : deNoisedSlices;
 
-    const participantsByKey = new Map<string, BoardTaskLogParticipant>();
-    const participantOrder: string[] = [];
-    for (const slice of visibleSlices) {
-      if (participantsByKey.has(slice.participantKey)) {
-        continue;
-      }
-      participantsByKey.set(
-        slice.participantKey,
-        buildParticipant(slice.actor, slice.participantKey)
-      );
-      participantOrder.push(slice.participantKey);
+    return {
+      participants: buildOrderedParticipants(visibleSlices),
+      visibleSlices,
+    };
+  }
+
+  async getTaskLogStreamSummary(
+    teamName: string,
+    taskId: string
+  ): Promise<BoardTaskLogStreamSummary> {
+    const layout = await this.buildStreamLayout(teamName, taskId);
+    if (layout.visibleSlices.length === 0) {
+      return emptySummary();
     }
 
-    const orderedParticipants = participantOrder
-      .map((key) => participantsByKey.get(key))
-      .filter((participant): participant is BoardTaskLogParticipant => Boolean(participant))
-      .sort((left, right) => {
-        if (left.isLead && !right.isLead) return 1;
-        if (!left.isLead && right.isLead) return -1;
-        return participantOrder.indexOf(left.key) - participantOrder.indexOf(right.key);
-      });
+    return {
+      segmentCount: countSegmentsFromSlices(layout.visibleSlices),
+    };
+  }
+
+  async getTaskLogStream(teamName: string, taskId: string): Promise<BoardTaskLogStreamResponse> {
+    const layout = await this.buildStreamLayout(teamName, taskId);
+    if (layout.visibleSlices.length === 0) {
+      return emptyResponse();
+    }
 
     const segments: BoardTaskLogSegment[] = [];
     let currentSegmentSlices: StreamSlice[] = [];
@@ -1274,7 +1342,7 @@ export class BoardTaskLogStreamService {
       currentSegmentSlices = [];
     };
 
-    for (const slice of visibleSlices) {
+    for (const slice of layout.visibleSlices) {
       if (
         currentSegmentSlices.length > 0 &&
         currentSegmentSlices[0].participantKey !== slice.participantKey
@@ -1285,11 +1353,11 @@ export class BoardTaskLogStreamService {
     }
     flushSegment();
 
-    const namedParticipants = orderedParticipants.filter((participant) => !participant.isLead);
+    const namedParticipants = layout.participants.filter((participant) => !participant.isLead);
     const defaultFilter = namedParticipants.length === 1 ? namedParticipants[0].key : 'all';
 
     return {
-      participants: orderedParticipants,
+      participants: layout.participants,
       defaultFilter,
       segments,
     };

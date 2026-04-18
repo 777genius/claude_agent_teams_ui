@@ -313,6 +313,9 @@ export const TEAM_GET_TASK_ACTIVITY_DETAIL = 'team:getTaskActivityDetail';
 /** Get one task-scoped log stream derived from explicit board-task activity */
 export const TEAM_GET_TASK_LOG_STREAM = 'team:getTaskLogStream';
 
+/** Get lightweight task log stream summary for header badges/live counters */
+export const TEAM_GET_TASK_LOG_STREAM_SUMMARY = 'team:getTaskLogStreamSummary';
+
 /** Get exact task-log summaries derived from explicit board-task activity records */
 export const TEAM_GET_TASK_EXACT_LOG_SUMMARIES = 'team:getTaskExactLogSummaries';
 

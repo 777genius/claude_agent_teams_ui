@@ -14,6 +14,7 @@ import type {
   BoardTaskExactLogDetailResult,
   BoardTaskExactLogSummariesResponse,
   BoardTaskLogStreamResponse,
+  BoardTaskLogStreamSummary,
   ClaudeMdFileInfo,
   ClaudeRootFolderSelection,
   ClaudeRootInfo,
@@ -826,6 +827,10 @@ export class HttpAPIClient implements ElectronAPI {
     getTaskActivityDetail: async (): Promise<BoardTaskActivityDetailResult> => {
       console.warn('[HttpAPIClient] getTaskActivityDetail is not available in browser mode');
       return { status: 'missing' };
+    },
+    getTaskLogStreamSummary: async (): Promise<BoardTaskLogStreamSummary> => {
+      console.warn('[HttpAPIClient] getTaskLogStreamSummary is not available in browser mode');
+      return { segmentCount: 0 };
     },
     getTaskLogStream: async (): Promise<BoardTaskLogStreamResponse> => {
       console.warn('[HttpAPIClient] getTaskLogStream is not available in browser mode');

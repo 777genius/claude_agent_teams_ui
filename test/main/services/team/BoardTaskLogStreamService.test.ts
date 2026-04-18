@@ -181,6 +181,63 @@ describe('BoardTaskLogStreamService', () => {
     expect(buildBundleChunks.mock.calls[0]?.[0]).toHaveLength(2);
   });
 
+  it('returns lightweight segment count without building stream chunks', async () => {
+    const tom = {
+      memberName: 'tom',
+      role: 'member' as const,
+      sessionId: 'session-tom',
+      agentId: 'agent-tom',
+      isSidechain: true,
+    };
+    const alice = {
+      memberName: 'alice',
+      role: 'member' as const,
+      sessionId: 'session-alice',
+      agentId: 'agent-alice',
+      isSidechain: true,
+    };
+    const candidates = [
+      makeCandidate('c1', '2026-04-12T16:00:00.000Z', tom, 'tool-1'),
+      makeCandidate('c2', '2026-04-12T16:01:00.000Z', tom, 'tool-2'),
+      makeCandidate('c3', '2026-04-12T16:02:00.000Z', alice, 'tool-3'),
+      makeCandidate('c4', '2026-04-12T16:03:00.000Z', tom, 'tool-4'),
+    ];
+
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => candidates.flatMap((candidate) => candidate.records)),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => candidates),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(({ candidate }: { candidate: BoardTaskExactLogBundleCandidate }) => ({
+        id: candidate.id,
+        timestamp: candidate.timestamp,
+        actor: candidate.actor,
+        source: candidate.source,
+        records: candidate.records,
+        filteredMessages: [makeMessage(candidate.id, candidate.timestamp, candidate.id)],
+      })),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+    );
+
+    await expect(service.getTaskLogStreamSummary('demo', 'task-a')).resolves.toEqual({
+      segmentCount: 3,
+    });
+    expect(buildBundleChunks).not.toHaveBeenCalled();
+  });
+
   it('merges duplicate message uuids inside one participant segment before chunk building', async () => {
     const tom = {
       memberName: 'tom',

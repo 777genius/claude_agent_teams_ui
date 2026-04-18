@@ -159,6 +159,7 @@ export const TaskDetailDialog = ({
   const [executionPreviewOnline, setExecutionPreviewOnline] = useState(false);
   const [logsSectionOpen, setLogsSectionOpen] = useState(false);
   const [taskLogActivityActive, setTaskLogActivityActive] = useState(false);
+  const [taskLogStreamCount, setTaskLogStreamCount] = useState<number | undefined>(undefined);
   const [changesSectionOpen, setChangesSectionOpen] = useState(false);
   const [taskChangesFiles, setTaskChangesFiles] = useState<FileChangeSummary[] | null>(null);
   const [taskChangesLoading, setTaskChangesLoading] = useState(false);
@@ -236,6 +237,7 @@ export const TaskDetailDialog = ({
     setExecutionPreviewOnline(false);
     setLogsSectionOpen(false);
     setTaskLogActivityActive(false);
+    setTaskLogStreamCount(undefined);
   }, [open, currentTask?.id]);
 
   const [replyTo, setReplyTo] = useState<{
@@ -1263,6 +1265,7 @@ export const TaskDetailDialog = ({
                 key={`task-logs:${currentTask.id}`}
                 title="Task Logs"
                 icon={<ScrollText size={14} />}
+                badge={taskLogStreamCount}
                 headerExtra={
                   taskLogActivityActive ? (
                     <OngoingIndicator size="sm" title="New task logs arriving" />
@@ -1288,6 +1291,7 @@ export const TaskDetailDialog = ({
                     showLeadPreview={allowLeadExecutionPreview && isLeadOwnedTask}
                     onPreviewOnlineChange={setExecutionPreviewOnline}
                     onTaskLogActivityChange={setTaskLogActivityActive}
+                    onTaskLogCountChange={setTaskLogStreamCount}
                   />
                 </div>
               </CollapsibleTeamSection>

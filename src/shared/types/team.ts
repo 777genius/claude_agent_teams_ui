@@ -342,6 +342,10 @@ export interface BoardTaskLogStreamResponse {
   segments: BoardTaskLogSegment[];
 }
 
+export interface BoardTaskLogStreamSummary {
+  segmentCount: number;
+}
+
 export interface TaskComment {
   id: string;
   author: string;

@@ -45,6 +45,7 @@ import type {
   BoardTaskExactLogDetailResult,
   BoardTaskExactLogSummariesResponse,
   BoardTaskLogStreamResponse,
+  BoardTaskLogStreamSummary,
   CreateTaskRequest,
   CrossTeamMessage,
   CrossTeamSendRequest,
@@ -493,6 +494,7 @@ export interface TeamsAPI {
     taskId: string,
     activityId: string
   ) => Promise<BoardTaskActivityDetailResult>;
+  getTaskLogStreamSummary: (teamName: string, taskId: string) => Promise<BoardTaskLogStreamSummary>;
   getTaskLogStream: (teamName: string, taskId: string) => Promise<BoardTaskLogStreamResponse>;
   getTaskExactLogSummaries: (
     teamName: string,

@@ -35,6 +35,7 @@ import {
   TEAM_GET_TASK_EXACT_LOG_DETAIL,
   TEAM_GET_TASK_EXACT_LOG_SUMMARIES,
   TEAM_GET_TASK_LOG_STREAM,
+  TEAM_GET_TASK_LOG_STREAM_SUMMARY,
   TEAM_KILL_PROCESS,
   TEAM_LAUNCH,
   TEAM_LEAD_ACTIVITY,
@@ -155,6 +156,7 @@ import type {
   BoardTaskExactLogDetailResult,
   BoardTaskExactLogSummariesResponse,
   BoardTaskLogStreamResponse,
+  BoardTaskLogStreamSummary,
   CreateTaskRequest,
   EffortLevel,
   GlobalTask,
@@ -536,6 +538,7 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_GET_LOGS_FOR_TASK, handleGetLogsForTask);
   ipcMain.handle(TEAM_GET_TASK_ACTIVITY, handleGetTaskActivity);
   ipcMain.handle(TEAM_GET_TASK_ACTIVITY_DETAIL, handleGetTaskActivityDetail);
+  ipcMain.handle(TEAM_GET_TASK_LOG_STREAM_SUMMARY, handleGetTaskLogStreamSummary);
   ipcMain.handle(TEAM_GET_TASK_LOG_STREAM, handleGetTaskLogStream);
   ipcMain.handle(TEAM_GET_TASK_EXACT_LOG_SUMMARIES, handleGetTaskExactLogSummaries);
   ipcMain.handle(TEAM_GET_TASK_EXACT_LOG_DETAIL, handleGetTaskExactLogDetail);
@@ -611,6 +614,7 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_GET_LOGS_FOR_TASK);
   ipcMain.removeHandler(TEAM_GET_TASK_ACTIVITY);
   ipcMain.removeHandler(TEAM_GET_TASK_ACTIVITY_DETAIL);
+  ipcMain.removeHandler(TEAM_GET_TASK_LOG_STREAM_SUMMARY);
   ipcMain.removeHandler(TEAM_GET_TASK_LOG_STREAM);
   ipcMain.removeHandler(TEAM_GET_TASK_EXACT_LOG_SUMMARIES);
   ipcMain.removeHandler(TEAM_GET_TASK_EXACT_LOG_DETAIL);
@@ -2642,6 +2646,24 @@ async function handleGetTaskLogStream(
   }
   return wrapTeamHandler('getTaskLogStream', () =>
     getBoardTaskLogStreamService().getTaskLogStream(vTeam.value!, vTask.value!)
+  );
+}
+
+async function handleGetTaskLogStreamSummary(
+  _event: IpcMainInvokeEvent,
+  teamName: unknown,
+  taskId: unknown
+): Promise<IpcResult<BoardTaskLogStreamSummary>> {
+  const vTeam = validateTeamName(teamName);
+  if (!vTeam.valid) {
+    return { success: false, error: vTeam.error ?? 'Invalid teamName' };
+  }
+  const vTask = validateTaskId(taskId);
+  if (!vTask.valid) {
+    return { success: false, error: vTask.error ?? 'Invalid taskId' };
+  }
+  return wrapTeamHandler('getTaskLogStreamSummary', () =>
+    getBoardTaskLogStreamService().getTaskLogStreamSummary(vTeam.value!, vTask.value!)
   );
 }
 
