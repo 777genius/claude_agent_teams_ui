@@ -181,7 +181,16 @@ export class TeamGraphAdapter {
       isTeamProvisioning,
       isLaunchSettling
     );
-    this.#buildTaskNodes(nodes, edges, teamData, teamName, commentReadState, memberNodeIdByAlias);
+    this.#buildTaskNodes(
+      nodes,
+      edges,
+      teamData,
+      teamName,
+      commentReadState,
+      memberNodeIdByAlias,
+      leadId,
+      leadName
+    );
     this.#buildProcessNodes(nodes, edges, teamData, teamName, memberNodeIdByAlias);
     this.#attachActivityFeeds(nodes, teamData, teamName, leadId, leadName);
     this.#buildMessageParticles(
@@ -560,7 +569,9 @@ export class TeamGraphAdapter {
     data: TeamGraphData,
     teamName: string,
     commentReadState?: Record<string, unknown>,
-    memberNodeIdByAlias?: ReadonlyMap<string, string>
+    memberNodeIdByAlias?: ReadonlyMap<string, string>,
+    leadId?: string,
+    leadName?: string
   ): void {
     const taskStateById = new Map<string, Pick<TeamGraphData['tasks'][number], 'status'>>();
     const taskDisplayIds = new Map<string, string>();
@@ -581,7 +592,12 @@ export class TeamGraphAdapter {
     for (const task of data.tasks) {
       if (task.status === 'deleted') continue;
       const taskId = `task:${teamName}:${task.id}`;
-      const ownerMemberId = task.owner ? (memberNodeIdByAlias?.get(task.owner) ?? null) : null;
+      const ownerMemberId =
+        leadId && memberNodeIdByAlias
+          ? TeamGraphAdapter.#resolveTaskOwnerId(task.owner, leadId, leadName, memberNodeIdByAlias)
+          : task.owner
+            ? (memberNodeIdByAlias?.get(task.owner) ?? null)
+            : null;
       const kanbanTaskState = data.kanbanState.tasks[task.id];
       const reviewerName = resolveTaskReviewer(task, kanbanTaskState);
       const isReviewCycle = isTaskInReviewCycle(task);
@@ -1235,6 +1251,25 @@ export class TeamGraphAdapter {
     if (normalized === 'user' || normalized === 'team-lead') return leadId;
     if (normalized === leadName?.trim().toLowerCase()) return leadId;
     return memberNodeIdByAlias.get(name) ?? leadId;
+  }
+
+  static #resolveTaskOwnerId(
+    ownerName: string | null | undefined,
+    leadId: string,
+    leadName: string | undefined,
+    memberNodeIdByAlias: ReadonlyMap<string, string>
+  ): string | null {
+    if (!ownerName?.trim()) {
+      return null;
+    }
+    const normalized = ownerName.trim().toLowerCase();
+    if (normalized === 'user' || normalized === 'team-lead') {
+      return leadId;
+    }
+    if (normalized === leadName?.trim().toLowerCase()) {
+      return leadId;
+    }
+    return memberNodeIdByAlias.get(ownerName) ?? null;
   }
 
   /** Extract external team name from cross-team "from" field like "team-b.alice" */

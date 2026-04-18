@@ -2697,9 +2697,11 @@ export class TeamDataService {
     }
     const leadName =
       transcriptContext.config.members?.find((m) => isLeadMember(m))?.name ?? 'team-lead';
-    const sessionIds = Array.from(
-      new Set([...this.getRecentLeadSessionIds(config), ...transcriptContext.sessionIds])
-    );
+    const knownLeadSessionIds = this.getRecentLeadSessionIds(config);
+    if (knownLeadSessionIds.length === 0) {
+      return [];
+    }
+    const sessionIds = knownLeadSessionIds;
     if (sessionIds.length === 0) {
       return [];
     }

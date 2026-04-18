@@ -22,6 +22,7 @@ import { GraphControls, type GraphFilterState } from './GraphControls';
 import { GraphOverlay } from './GraphOverlay';
 import { GraphEdgeOverlay } from './GraphEdgeOverlay';
 import { buildFocusState } from './buildFocusState';
+import type { TransientHandoffCard } from './transientHandoffs';
 import { useGraphSimulation } from '../hooks/useGraphSimulation';
 import { useGraphCamera } from '../hooks/useGraphCamera';
 import { useGraphInteraction } from '../hooks/useGraphInteraction';
@@ -73,11 +74,16 @@ export interface GraphViewProps {
       leadNodeId: string,
     ) => { x: number; y: number; scale: number; visible: boolean } | null;
     getActivityWorldRect: (ownerNodeId: string) => StableRect | null;
+    getTransientHandoffSnapshot: (options?: {
+      focusNodeIds?: ReadonlySet<string> | null;
+      focusEdgeIds?: ReadonlySet<string> | null;
+    }) => { cards: TransientHandoffCard[]; time: number };
     getCameraZoom: () => number;
     worldToScreen: (x: number, y: number) => { x: number; y: number };
     getNodeWorldPosition: (nodeId: string) => { x: number; y: number } | null;
     getViewportSize: () => { width: number; height: number };
     focusNodeIds: ReadonlySet<string> | null;
+    focusEdgeIds: ReadonlySet<string> | null;
   }) => React.ReactNode;
 }
 
@@ -248,6 +254,17 @@ export function GraphView({
   const getCameraZoom = useCallback(() => cameraRef.current.transformRef.current.zoom, []);
   const getActivityWorldRect = useCallback(
     (ownerNodeId: string) => simulationRef.current.getActivityWorldRect(ownerNodeId),
+    []
+  );
+  const getTransientHandoffSnapshot = useCallback(
+    (options?: {
+      focusNodeIds?: ReadonlySet<string> | null;
+      focusEdgeIds?: ReadonlySet<string> | null;
+    }) =>
+      canvasHandle.current?.getTransientHandoffSnapshot(options) ?? {
+        cards: [],
+        time: 0,
+      },
     []
   );
   const getNodeWorldPosition = useCallback((nodeId: string) => {
@@ -946,11 +963,13 @@ export function GraphView({
           {renderHud({
             getLaunchAnchorScreenPlacement,
             getActivityWorldRect,
+            getTransientHandoffSnapshot,
             getCameraZoom,
             worldToScreen: camera.worldToScreen,
             getNodeWorldPosition,
             getViewportSize,
             focusNodeIds: focusState.focusNodeIds,
+            focusEdgeIds: focusState.focusEdgeIds,
           })}
         </div>
       ) : null}

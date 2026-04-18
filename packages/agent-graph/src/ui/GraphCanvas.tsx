@@ -34,6 +34,7 @@ import {
 import {
   createTransientHandoffState,
   selectRenderableTransientHandoffCards,
+  type TransientHandoffCard,
   updateTransientHandoffState,
 } from './transientHandoffs';
 import type { CameraTransform } from '../hooks/useGraphCamera';
@@ -70,6 +71,14 @@ export interface GraphCanvasHandle {
   draw: (state: GraphDrawState) => void;
   /** Get the canvas element for coordinate transforms */
   getCanvas: () => HTMLCanvasElement | null;
+  /** Read current transient handoff cards for DOM HUD rendering */
+  getTransientHandoffSnapshot: (options?: {
+    focusNodeIds?: ReadonlySet<string> | null;
+    focusEdgeIds?: ReadonlySet<string> | null;
+  }) => {
+    cards: TransientHandoffCard[];
+    time: number;
+  };
 }
 
 export interface GraphCanvasProps {
@@ -163,6 +172,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
   const activeParticleEdgesCache = useRef(new Set<string>());
   const handoffStateRef = useRef(createTransientHandoffState());
   const lastTeamNameRef = useRef<string | null>(null);
+  const lastDrawTimeRef = useRef(0);
 
   // Imperative draw function — called from RAF, NOT from React render
   useImperativeHandle(
@@ -181,6 +191,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         if (w === 0 || h === 0) return;
 
         try {
+          lastDrawTimeRef.current = state.time;
           if (lastTeamNameRef.current !== state.teamName) {
             handoffStateRef.current = createTransientHandoffState();
             lastTeamNameRef.current = state.teamName;
@@ -309,9 +320,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
               focusNodeIds: state.focusNodeIds,
               focusEdgeIds: prioritizedEdgeIds ?? state.focusEdgeIds,
             }
-          ).filter(
-            (card) => card.destinationKind !== 'lead' && card.destinationKind !== 'member'
-          );
+          ).filter((card) => card.anchorKind !== 'lead' && card.anchorKind !== 'member');
           drawParticles(ctx, renderableParticles, edgeMap, nodeMap, state.time, prioritizedEdgeIds);
 
           // 2c. Visible nodes only (back to front: process → task → member/lead)
@@ -419,6 +428,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         }
       },
       getCanvas: () => canvasRef.current,
+      getTransientHandoffSnapshot: (options) => ({
+        cards: selectRenderableTransientHandoffCards(handoffStateRef.current, options),
+        time: lastDrawTimeRef.current,
+      }),
     }),
     [showHexGrid, showStarField, bloomIntensity]
   );

@@ -48,12 +48,6 @@ interface ActivityTimelineProps {
   expandOverrides?: Set<string>;
   /** Called when user toggles expand/collapse override on a specific message. */
   onToggleExpandOverride?: (key: string) => void;
-  /**
-   * All session IDs belonging to this team (current + history).
-   * Used together with currentLeadSessionId to suppress only the reconnect boundary
-   * from the current live session back into the team's previous session history.
-   */
-  teamSessionIds?: Set<string>;
   /** Current lead session ID for the active team, if known. */
   currentLeadSessionId?: string;
   /** Whether the current team is alive. */
@@ -281,7 +275,6 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
   allCollapsed,
   expandOverrides,
   onToggleExpandOverride,
-  teamSessionIds,
   currentLeadSessionId,
   isTeamAlive,
   leadActivity,
@@ -425,10 +418,13 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
     setVisibleCount(Infinity);
   };
 
-  const getItemSessionId = (item: TimelineItem): string | undefined =>
-    item.type === 'lead-thoughts'
-      ? item.group.thoughts[0].leadSessionId
-      : item.message.leadSessionId;
+  const getItemSessionAnchorId = (item: TimelineItem): string | undefined => {
+    if (item.type === 'lead-thoughts') {
+      return item.group.thoughts[0]?.leadSessionId;
+    }
+
+    return undefined;
+  };
 
   // Pin the newest thought group (if first) so it stays at the top and doesn't jump.
   const pinnedThoughtGroup = timelineItems[0]?.type === 'lead-thoughts' ? timelineItems[0] : null;
@@ -535,31 +531,28 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
         // Session boundary separator (messages sorted desc — new on top)
         let sessionSeparator: React.JSX.Element | null = null;
         if (realIndex > 0) {
-          const prevSessionId = getItemSessionId(timelineItems[realIndex - 1]);
-          const currSessionId = getItemSessionId(item);
-          if (prevSessionId && currSessionId && prevSessionId !== currSessionId) {
-            // Suppress only the boundary between the current live session and the team's
-            // older session history. Older historical session boundaries should still render.
-            const isReconnectBoundary =
-              !!currentLeadSessionId &&
-              teamSessionIds &&
-              teamSessionIds.has(prevSessionId) &&
-              teamSessionIds.has(currSessionId) &&
-              (prevSessionId === currentLeadSessionId || currSessionId === currentLeadSessionId);
-            if (!isReconnectBoundary) {
-              sessionSeparator = (
-                <div
-                  className="flex items-center gap-3"
-                  style={{ paddingTop: 45, paddingBottom: 45 }}
-                >
-                  <div className="h-px flex-1 bg-blue-600/30 dark:bg-blue-400/30" />
-                  <span className="whitespace-nowrap text-[11px] font-medium text-blue-600 dark:text-blue-400">
-                    New session
-                  </span>
-                  <div className="h-px flex-1 bg-blue-600/30 dark:bg-blue-400/30" />
-                </div>
-              );
+          const currSessionId = getItemSessionAnchorId(item);
+          let prevSessionId: string | undefined;
+          for (let searchIndex = realIndex - 1; searchIndex >= 0; searchIndex -= 1) {
+            const candidateSessionId = getItemSessionAnchorId(timelineItems[searchIndex]);
+            if (candidateSessionId) {
+              prevSessionId = candidateSessionId;
+              break;
             }
+          }
+          if (prevSessionId && currSessionId && prevSessionId !== currSessionId) {
+            sessionSeparator = (
+              <div
+                className="flex items-center gap-3"
+                style={{ paddingTop: 45, paddingBottom: 45 }}
+              >
+                <div className="h-px flex-1 bg-blue-600/30 dark:bg-blue-400/30" />
+                <span className="whitespace-nowrap text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                  New session
+                </span>
+                <div className="h-px flex-1 bg-blue-600/30 dark:bg-blue-400/30" />
+              </div>
+            );
           }
         }
 

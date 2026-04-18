@@ -10,6 +10,8 @@
 export { GraphView } from './ui/GraphView';
 export type { GraphViewProps } from './ui/GraphView';
 export { ACTIVITY_ANCHOR_LAYOUT, ACTIVITY_LANE } from './layout/activityLane';
+export { getTransientHandoffCardAlpha } from './ui/transientHandoffs';
+export type { TransientHandoffCard } from './ui/transientHandoffs';
 
 // ─── Port Interfaces (for adapters in host project) ─────────────────────────
 export type { GraphDataPort } from './ports/GraphDataPort';

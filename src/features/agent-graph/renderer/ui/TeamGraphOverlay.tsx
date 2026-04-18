@@ -18,6 +18,7 @@ import { GraphActivityHud } from './GraphActivityHud';
 import { GraphBlockingEdgePopover } from './GraphBlockingEdgePopover';
 import { GraphNodePopover } from './GraphNodePopover';
 import { GraphProvisioningHud } from './GraphProvisioningHud';
+import { GraphTransientHandoffHud } from './GraphTransientHandoffHud';
 
 import type { GraphDomainRef, GraphEventPort } from '@claude-teams/agent-graph';
 import type {
@@ -140,13 +141,30 @@ export const TeamGraphOverlay = ({
               height: number;
             } | null;
             getCameraZoom?: () => number;
+            getTransientHandoffSnapshot?: (options?: {
+              focusNodeIds?: ReadonlySet<string> | null;
+              focusEdgeIds?: ReadonlySet<string> | null;
+            }) => {
+              cards: import('@claude-teams/agent-graph').TransientHandoffCard[];
+              time: number;
+            };
             worldToScreen?: (x: number, y: number) => { x: number; y: number };
             getNodeWorldPosition?: (nodeId: string) => { x: number; y: number } | null;
+            focusEdgeIds?: ReadonlySet<string> | null;
           };
           const { getViewportSize, focusNodeIds } = extraHudProps;
 
           return (
             <>
+              <GraphTransientHandoffHud
+                teamName={teamName}
+                getTransientHandoffSnapshot={extraHudProps.getTransientHandoffSnapshot}
+                getCameraZoom={extraHudProps.getCameraZoom}
+                worldToScreen={extraHudProps.worldToScreen}
+                getNodeWorldPosition={extraHudProps.getNodeWorldPosition}
+                focusNodeIds={focusNodeIds}
+                focusEdgeIds={extraHudProps.focusEdgeIds ?? null}
+              />
               <GraphActivityHud
                 teamName={teamName}
                 nodes={graphData.nodes}

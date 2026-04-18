@@ -3437,7 +3437,7 @@ describe('TeamDataService', () => {
     expect(persistedConfig.projectPath).toBe(fixture.staleProjectPath);
   });
 
-  it('uses resolver-discovered session ids when config has no leadSessionId or sessionHistory', async () => {
+  it('does not guess lead_session messages from resolver-discovered session ids when config has no leadSessionId or sessionHistory', async () => {
     const fixture = await createResolverBackedLeadFixture({
       leadSessionId: undefined,
       sessionFileId: 'lead-discovered',
@@ -3446,13 +3446,48 @@ describe('TeamDataService', () => {
 
     const page = await service.getMessagesPage(fixture.teamName, { limit: 10 });
 
+    expect(page.messages.some((message) => message.source === 'lead_session')).toBe(false);
+  });
+
+  it('does not mix resolver-discovered non-lead session ids into durable lead_session messages when config already knows the lead session', async () => {
+    const fixture = await createResolverBackedLeadFixture();
+    await fs.writeFile(
+      path.join(fixture.actualProjectDir, 'member-1.jsonl'),
+      `${JSON.stringify({
+        teamName: fixture.teamName,
+        type: 'assistant',
+        timestamp: '2026-04-18T10:05:00.000Z',
+        cwd: fixture.actualProjectPath,
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'Member bootstrap noise that should never appear as a lead_session thought in the team activity timeline.',
+            },
+          ],
+        },
+      })}\n`,
+      'utf8'
+    );
+    const service = createResolverBackedService();
+
+    const page = await service.getMessagesPage(fixture.teamName, { limit: 20 });
+    const leadSessionMessages = page.messages.filter((message) => message.source === 'lead_session');
+
     expect(
-      page.messages.find(
-        (message) =>
-          message.source === 'lead_session' &&
-          message.text.includes('recovered through the transcript resolver')
+      leadSessionMessages.some((message) =>
+        message.text.includes('recovered through the transcript resolver')
       )
-    ).toBeTruthy();
+    ).toBe(true);
+    expect(
+      leadSessionMessages.some((message) =>
+        message.text.includes('Member bootstrap noise that should never appear')
+      )
+    ).toBe(false);
+    expect(new Set(leadSessionMessages.map((message) => message.leadSessionId))).toEqual(
+      new Set(['lead-1'])
+    );
   });
 
   it('fails fast when config is missing before any read-phase step starts', async () => {

@@ -173,12 +173,16 @@ export function buildStableSlotLayoutSnapshot({
   );
   const leadActivityRect = leadSlotFrame.activityColumnRect;
   const launchHudRect = createRect(leadCoreRect.right, leadCoreRect.top, 0, 0);
-  const leadCentralReservedBlock = leadSlotFrame.bounds;
+  const leadCentralReservedBlock = buildLeadCentralReservedBlock({
+    leadCoreRect,
+    leadSlotFrame,
+  });
 
   const ownerFootprints = computeOwnerFootprints(nodes, layout);
   const unassignedTaskRect = buildUnassignedTaskRect(nodes, leadCentralReservedBlock);
   const centralCollisionRects = buildCentralCollisionRects({
-    leadCentralReservedBlock,
+    leadCoreRect,
+    leadSlotFrame,
     unassignedTaskRect,
   });
   const runtimeCentralExclusion = padRect(
@@ -222,14 +226,32 @@ export function buildStableSlotLayoutSnapshot({
 }
 
 function buildCentralCollisionRects(args: {
-  leadCentralReservedBlock: StableRect;
+  leadCoreRect: StableRect;
+  leadSlotFrame: SlotFrame;
   unassignedTaskRect: StableRect | null;
 }): StableRect[] {
-  const rects = [args.leadCentralReservedBlock];
+  const rects = [
+    args.leadCoreRect,
+    args.leadSlotFrame.processBandRect,
+    args.leadSlotFrame.activityColumnRect,
+    args.leadSlotFrame.kanbanBandRect,
+  ];
   if (args.unassignedTaskRect) {
     rects.push(args.unassignedTaskRect);
   }
   return rects;
+}
+
+function buildLeadCentralReservedBlock(args: {
+  leadCoreRect: StableRect;
+  leadSlotFrame: SlotFrame;
+}): StableRect {
+  return unionRects([
+    args.leadCoreRect,
+    args.leadSlotFrame.processBandRect,
+    args.leadSlotFrame.activityColumnRect,
+    args.leadSlotFrame.kanbanBandRect,
+  ]);
 }
 
 function padCentralCollisionRects(
@@ -648,6 +670,12 @@ function validateLeadSnapshotRects(
   if (!rectContainsRect(snapshot.leadCentralReservedBlock, snapshot.leadActivityRect)) {
     return { valid: false, reason: 'leadActivityRect must fit inside leadCentralReservedBlock' };
   }
+  if (!rectContainsRect(snapshot.leadCentralReservedBlock, snapshot.leadSlotFrame.processBandRect)) {
+    return { valid: false, reason: 'lead processBandRect must fit inside leadCentralReservedBlock' };
+  }
+  if (!rectContainsRect(snapshot.leadCentralReservedBlock, snapshot.leadSlotFrame.kanbanBandRect)) {
+    return { valid: false, reason: 'lead kanbanBandRect must fit inside leadCentralReservedBlock' };
+  }
   if (snapshot.leadActivityRect.left !== snapshot.leadSlotFrame.activityColumnRect.left) {
     return {
       valid: false,
@@ -659,9 +687,6 @@ function validateLeadSnapshotRects(
       valid: false,
       reason: 'leadActivityRect must mirror leadSlotFrame.activityColumnRect',
     };
-  }
-  if (!rectContainsRect(snapshot.leadCentralReservedBlock, snapshot.leadSlotFrame.bounds)) {
-    return { valid: false, reason: 'leadSlotFrame must fit inside leadCentralReservedBlock' };
   }
   if (!rectContainsRect(snapshot.runtimeCentralExclusion, snapshot.leadCentralReservedBlock)) {
     return { valid: false, reason: 'runtimeCentralExclusion must contain leadCentralReservedBlock' };

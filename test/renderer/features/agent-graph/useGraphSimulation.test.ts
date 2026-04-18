@@ -797,6 +797,40 @@ describe('stable slot layout planner', () => {
     }
   });
 
+  it('builds central collisions from occupied lead sub-rects instead of the full lead slot bounds', () => {
+    const teamName = 'team-lead-central-collision';
+    const lead = createLead(teamName);
+    const alice = createMember(teamName, 'agent-alice', 'alice');
+    const leadTasks = [
+      createTask(teamName, 'lead-a', lead.id, { taskStatus: 'completed' }),
+      createTask(teamName, 'lead-b', lead.id, { taskStatus: 'in_progress' }),
+    ];
+    const layout: GraphLayoutPort = {
+      version: 'stable-slots-v1',
+      ownerOrder: [alice.id],
+      slotAssignments: {
+        [alice.id]: { ringIndex: 0, sectorIndex: 1 },
+      },
+    };
+
+    const nodes = [lead, alice, ...leadTasks];
+    const snapshot = buildStableSlotLayoutSnapshot({
+      teamName,
+      nodes,
+      layout,
+    });
+
+    expect(snapshot).not.toBeNull();
+    expect(snapshot!.centralCollisionRects).toContain(snapshot!.leadCoreRect);
+    expect(snapshot!.centralCollisionRects).toContain(snapshot!.leadSlotFrame.processBandRect);
+    expect(snapshot!.centralCollisionRects).toContain(snapshot!.leadSlotFrame.activityColumnRect);
+    expect(snapshot!.centralCollisionRects).toContain(snapshot!.leadSlotFrame.kanbanBandRect);
+    expect(snapshot!.leadCentralReservedBlock.width).toBeLessThan(snapshot!.leadSlotFrame.bounds.width);
+    expect(snapshot!.leadCentralReservedBlock.height).toBeLessThan(
+      snapshot!.leadSlotFrame.bounds.height
+    );
+  });
+
   it('keeps the same sector and spills to the next outer ring when the saved slot is already occupied', () => {
     const teamName = 'team-wide-spill';
     const lead = createLead(teamName);

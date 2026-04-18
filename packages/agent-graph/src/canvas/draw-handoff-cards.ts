@@ -3,7 +3,10 @@ import { HANDOFF_CARD, NODE, TASK_PILL, MIN_VISIBLE_OPACITY } from '../constants
 import type { CameraTransform } from '../hooks/useGraphCamera';
 import { getHandoffAnchorTarget } from '../layout/launchAnchor';
 import type { GraphNode } from '../ports/types';
-import type { TransientHandoffCard } from '../ui/transientHandoffs';
+import {
+  getTransientHandoffCardAlpha,
+  type TransientHandoffCard,
+} from '../ui/transientHandoffs';
 import { truncateText } from './draw-misc';
 import { hexWithAlpha, measureTextCached } from './render-cache';
 
@@ -20,24 +23,24 @@ export function drawHandoffCards(
   const { cards, nodeMap, time, camera, viewport } = params;
   if (cards.length === 0) return;
 
-  const stackIndexByDestination = new Map<string, number>();
+  const stackIndexByAnchor = new Map<string, number>();
   let drawnCount = 0;
 
   for (const card of cards) {
     if (drawnCount >= HANDOFF_CARD.maxVisible) break;
-    const destinationNode = nodeMap.get(card.destinationNodeId);
-    if (!destinationNode || destinationNode.x == null || destinationNode.y == null) continue;
+    const anchorNode = nodeMap.get(card.anchorNodeId);
+    if (!anchorNode || anchorNode.x == null || anchorNode.y == null) continue;
 
-    const alpha = getCardAlpha(card, time);
+    const alpha = getTransientHandoffCardAlpha(card, time);
     if (alpha <= MIN_VISIBLE_OPACITY) continue;
 
     const previewLines = buildPreviewLines(ctx, card.preview);
     const height = HANDOFF_CARD.baseHeight + previewLines.length * HANDOFF_CARD.previewLineHeight;
-    const stackIndex = stackIndexByDestination.get(card.destinationNodeId) ?? 0;
-    stackIndexByDestination.set(card.destinationNodeId, stackIndex + 1);
+    const stackIndex = stackIndexByAnchor.get(card.anchorNodeId) ?? 0;
+    stackIndexByAnchor.set(card.anchorNodeId, stackIndex + 1);
 
     const position = getCardPosition({
-      node: destinationNode,
+      node: anchorNode,
       camera,
       viewport,
       height,
@@ -57,15 +60,6 @@ export function drawHandoffCards(
     });
     drawnCount += 1;
   }
-}
-
-function getCardAlpha(card: TransientHandoffCard, time: number): number {
-  const fadeIn = Math.min(1, (time - card.activatedAt) / HANDOFF_CARD.fadeInSeconds);
-  const fadeOutRemaining = card.expiresAt - time;
-  const fadeOut = fadeOutRemaining <= HANDOFF_CARD.fadeOutSeconds
-    ? Math.max(0, fadeOutRemaining / HANDOFF_CARD.fadeOutSeconds)
-    : 1;
-  return Math.max(0, Math.min(1, fadeIn * fadeOut));
 }
 
 function getCardPosition(params: {

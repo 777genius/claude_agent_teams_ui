@@ -57,6 +57,7 @@ import {
   TEAM_SEND_MESSAGE,
   TEAM_SET_CHANGE_PRESENCE_TRACKING,
   TEAM_SET_PROJECT_BRANCH_TRACKING,
+  TEAM_SET_TASK_LOG_STREAM_TRACKING,
   TEAM_SET_TASK_CLARIFICATION,
   TEAM_SET_TOOL_ACTIVITY_TRACKING,
   TEAM_SHOW_MESSAGE_NOTIFICATION,
@@ -136,6 +137,7 @@ import type {
   BranchStatusService,
   MemberStatsComputer,
   TeamDataService,
+  TeamLogSourceTracker,
   TeammateToolTracker,
   TeamMemberLogsFinder,
   TeamProvisioningService,
@@ -460,6 +462,7 @@ let teamMemberLogsFinder: TeamMemberLogsFinder | null = null;
 let memberStatsComputer: MemberStatsComputer | null = null;
 let teamBackupService: TeamBackupService | null = null;
 let teammateToolTracker: TeammateToolTracker | null = null;
+let teamLogSourceTracker: TeamLogSourceTracker | null = null;
 let branchStatusService: BranchStatusService | null = null;
 let boardTaskActivityService: BoardTaskActivityService | null = null;
 let boardTaskActivityDetailService: BoardTaskActivityDetailService | null = null;
@@ -496,6 +499,7 @@ export function initializeTeamHandlers(
   statsComputer?: MemberStatsComputer,
   backupService?: TeamBackupService,
   toolTracker?: TeammateToolTracker,
+  logSourceTracker?: TeamLogSourceTracker,
   branchTracker?: BranchStatusService,
   taskActivityService?: BoardTaskActivityService,
   taskActivityDetailService?: BoardTaskActivityDetailService,
@@ -510,6 +514,7 @@ export function initializeTeamHandlers(
   memberStatsComputer = statsComputer ?? null;
   teamBackupService = backupService ?? null;
   teammateToolTracker = toolTracker ?? null;
+  teamLogSourceTracker = logSourceTracker ?? null;
   branchStatusService = branchTracker ?? null;
   boardTaskActivityService = taskActivityService ?? null;
   boardTaskActivityDetailService = taskActivityDetailService ?? null;
@@ -524,6 +529,7 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_GET_TASK_CHANGE_PRESENCE, handleGetTaskChangePresence);
   ipcMain.handle(TEAM_SET_CHANGE_PRESENCE_TRACKING, handleSetChangePresenceTracking);
   ipcMain.handle(TEAM_SET_PROJECT_BRANCH_TRACKING, handleSetProjectBranchTracking);
+  ipcMain.handle(TEAM_SET_TASK_LOG_STREAM_TRACKING, handleSetTaskLogStreamTracking);
   ipcMain.handle(TEAM_SET_TOOL_ACTIVITY_TRACKING, handleSetToolActivityTracking);
   ipcMain.handle(TEAM_GET_CLAUDE_LOGS, handleGetClaudeLogs);
   ipcMain.handle(TEAM_PREPARE_PROVISIONING, handlePrepareProvisioning);
@@ -597,6 +603,7 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_GET_TASK_CHANGE_PRESENCE);
   ipcMain.removeHandler(TEAM_SET_CHANGE_PRESENCE_TRACKING);
   ipcMain.removeHandler(TEAM_SET_PROJECT_BRANCH_TRACKING);
+  ipcMain.removeHandler(TEAM_SET_TASK_LOG_STREAM_TRACKING);
   ipcMain.removeHandler(TEAM_SET_TOOL_ACTIVITY_TRACKING);
   ipcMain.removeHandler(TEAM_GET_CLAUDE_LOGS);
   ipcMain.removeHandler(TEAM_PREPARE_PROVISIONING);
@@ -682,6 +689,13 @@ function getTeammateToolTracker(): TeammateToolTracker {
     throw new Error('Teammate tool tracker is not initialized');
   }
   return teammateToolTracker;
+}
+
+function getTeamLogSourceTracker(): TeamLogSourceTracker {
+  if (!teamLogSourceTracker) {
+    throw new Error('Team log source tracker is not initialized');
+  }
+  return teamLogSourceTracker;
 }
 
 function getBranchStatusService(): BranchStatusService {
@@ -945,6 +959,28 @@ async function handleSetToolActivityTracking(
 
   return wrapTeamHandler('setToolActivityTracking', async () => {
     await getTeammateToolTracker().setTracking(validated.value!, enabled);
+  });
+}
+
+async function handleSetTaskLogStreamTracking(
+  _event: IpcMainInvokeEvent,
+  teamName: unknown,
+  enabled: unknown
+): Promise<IpcResult<void>> {
+  const validated = validateTeamName(teamName);
+  if (!validated.valid) {
+    return { success: false, error: validated.error ?? 'Invalid teamName' };
+  }
+  if (typeof enabled !== 'boolean') {
+    return { success: false, error: 'enabled must be a boolean' };
+  }
+
+  return wrapTeamHandler('setTaskLogStreamTracking', async () => {
+    if (enabled) {
+      await getTeamLogSourceTracker().enableTracking(validated.value!, 'task_log_stream');
+      return;
+    }
+    await getTeamLogSourceTracker().disableTracking(validated.value!, 'task_log_stream');
   });
 }
 

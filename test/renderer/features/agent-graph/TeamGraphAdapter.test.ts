@@ -717,6 +717,63 @@ describe('TeamGraphAdapter particles', () => {
     ]);
   });
 
+  it('maps lead-owned tasks onto the lead board without routing unknown owners to lead', () => {
+    const adapter = TeamGraphAdapter.create();
+
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        config: {
+          name: 'My Team',
+          members: [{ name: 'olivia', agentType: 'lead' }, { name: 'alice' }],
+          projectPath: '/repo',
+        },
+        members: [
+          {
+            name: 'olivia',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'lead',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+        ],
+        tasks: [
+          {
+            id: 'lead-task',
+            displayId: '#11',
+            subject: 'Lead summary',
+            owner: 'olivia',
+            status: 'in_progress',
+            comments: [],
+            reviewState: 'none',
+          } as TeamTaskWithKanban,
+          {
+            id: 'unknown-task',
+            displayId: '#12',
+            subject: 'Unknown owner',
+            owner: 'ghost',
+            status: 'in_progress',
+            comments: [],
+            reviewState: 'none',
+          } as TeamTaskWithKanban,
+        ],
+      }),
+      'my-team'
+    );
+
+    expect(findNode(graph, 'task:my-team:lead-task')?.ownerId).toBe('lead:my-team');
+    expect(findNode(graph, 'task:my-team:unknown-task')?.ownerId).toBeNull();
+  });
+
   it('builds member activity feeds from inbox messages in newest-first order', () => {
     const adapter = TeamGraphAdapter.create();
 

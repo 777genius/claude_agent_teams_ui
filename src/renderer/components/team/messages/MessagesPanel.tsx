@@ -73,8 +73,6 @@ interface MessagesPanelProps {
   leadContextUpdatedAt?: string;
   /** Time window for filtering. */
   timeWindow: TimeWindow | null;
-  /** Team session IDs for timeline. */
-  teamSessionIds: Set<string>;
   /** Current lead session ID. */
   currentLeadSessionId?: string;
   /** Pending replies tracker (shared with parent for MemberList). */
@@ -106,7 +104,6 @@ export const MessagesPanel = memo(function MessagesPanel({
   leadActivity,
   leadContextUpdatedAt,
   timeWindow,
-  teamSessionIds,
   currentLeadSessionId,
   pendingRepliesByMember,
   onPendingReplyChange,
@@ -569,7 +566,6 @@ export const MessagesPanel = memo(function MessagesPanel({
         allCollapsed={messagesCollapsed}
         expandOverrides={expandedSet}
         onToggleExpandOverride={toggleExpandOverride}
-        teamSessionIds={teamSessionIds}
         currentLeadSessionId={currentLeadSessionId}
         isTeamAlive={isTeamAlive}
         leadActivity={leadActivity}
@@ -755,7 +751,6 @@ export const MessagesPanel = memo(function MessagesPanel({
             allCollapsed={messagesCollapsed}
             expandOverrides={expandedSet}
             onToggleExpandOverride={toggleExpandOverride}
-            teamSessionIds={teamSessionIds}
             currentLeadSessionId={currentLeadSessionId}
             isTeamAlive={isTeamAlive}
             leadActivity={leadActivity}
@@ -1042,7 +1037,6 @@ export const MessagesPanel = memo(function MessagesPanel({
                   allCollapsed={messagesCollapsed}
                   expandOverrides={expandedSet}
                   onToggleExpandOverride={toggleExpandOverride}
-                  teamSessionIds={teamSessionIds}
                   currentLeadSessionId={currentLeadSessionId}
                   isTeamAlive={isTeamAlive}
                   leadActivity={leadActivity}
