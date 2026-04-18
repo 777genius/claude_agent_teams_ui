@@ -41,3 +41,17 @@ export function getCliFlavorUiOptions(flavor: CliFlavor): CliFlavorUiOptions {
       };
   }
 }
+
+export function getCliFlavorCommandLabel(flavor: CliFlavor): string {
+  switch (flavor) {
+    case 'agent_teams_orchestrator':
+      return 'orchestrator-cli';
+    case 'claude':
+    default:
+      return 'claude';
+  }
+}
+
+export function getConfiguredCliCommandLabel(): string {
+  return getCliFlavorCommandLabel(getConfiguredCliFlavor());
+}

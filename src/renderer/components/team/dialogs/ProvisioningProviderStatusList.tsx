@@ -135,7 +135,7 @@ function summarizeDetail(
   ) {
     return 'CLI binary could not be started';
   }
-  if (lower.includes('preflight check for `claude -p` did not complete')) {
+  if (lower.includes('preflight check for `') && lower.includes('-p` did not complete')) {
     return 'CLI preflight did not complete';
   }
   if (lower.includes('not authenticated') || lower.includes('not logged in')) {

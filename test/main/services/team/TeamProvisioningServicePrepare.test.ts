@@ -401,7 +401,7 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     });
     vi.spyOn(svc as any, 'spawnProbe').mockRejectedValue(
       new Error(
-        'Timeout running: claude -p Output only the single word PONG. --output-format text --model gpt-5.3-codex --max-turns 1 --no-session-persistence'
+        'Timeout running: orchestrator-cli -p Output only the single word PONG. --output-format text --model gpt-5.3-codex --max-turns 1 --no-session-persistence'
       )
     );
 
@@ -414,6 +414,26 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     expect(result.ready).toBe(true);
     expect(result.warnings).toContain(
       'Selected model gpt-5.3-codex could not be verified. Model verification timed out'
+    );
+  });
+
+  it('surfaces preflight timeouts with the orchestrator-cli label', async () => {
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'getCachedOrProbeResult').mockResolvedValue({
+      claudePath: '/fake/claude',
+      authSource: 'codex_runtime',
+      warning:
+        'Preflight check for `orchestrator-cli -p` did not complete. Proceeding anyway. Details: Timeout running: orchestrator-cli -p Output only the single word PONG. --output-format text --model gpt-5.4-mini --max-turns 1 --no-session-persistence',
+    });
+
+    const result = await svc.prepareForProvisioning(tempRoot, {
+      forceFresh: true,
+      providerId: 'codex',
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.warnings).toContain(
+      'Preflight check for `orchestrator-cli -p` did not complete. Proceeding anyway. Details: Timeout running: orchestrator-cli -p Output only the single word PONG. --output-format text --model gpt-5.4-mini --max-turns 1 --no-session-persistence'
     );
   });
 

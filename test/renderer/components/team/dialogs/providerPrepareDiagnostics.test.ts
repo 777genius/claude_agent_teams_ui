@@ -196,7 +196,7 @@ describe('runProviderPrepareDiagnostics', () => {
         ready: true,
         message: 'CLI is warmed up and ready to launch',
         warnings: [
-          'Selected model gpt-5.3-codex could not be verified. Timeout running: claude -p Output only the single word PONG. --output-format text --model gpt-5.3-codex --max-turns 1 --no-session-persistence',
+          'Selected model gpt-5.3-codex could not be verified. Timeout running: orchestrator-cli -p Output only the single word PONG. --output-format text --model gpt-5.3-codex --max-turns 1 --no-session-persistence',
         ],
       });
     });
@@ -371,5 +371,46 @@ describe('runProviderPrepareDiagnostics', () => {
     expect(prepareProvisioning).toHaveBeenNthCalledWith(2, '/tmp/project', 'codex', ['codex'], [
       'gpt-5.2-codex',
     ], undefined);
+  });
+
+  it('suppresses a timed out runtime preflight note when that same model later verifies', async () => {
+    const prepareProvisioning = vi.fn<
+      (
+        cwd?: string,
+        providerId?: 'anthropic' | 'codex' | 'gemini',
+        providerIds?: ('anthropic' | 'codex' | 'gemini')[],
+        selectedModels?: string[]
+      ) => Promise<TeamProvisioningPrepareResult>
+    >((_, __, ___, selectedModels) => {
+      if (!selectedModels || selectedModels.length === 0) {
+        return Promise.resolve({
+          ready: true,
+          message: 'CLI is ready to launch (see notes)',
+          warnings: [
+            'Preflight check for `orchestrator-cli -p` did not complete. Proceeding anyway. Details: Timeout running: orchestrator-cli -p Output only the single word PONG. --output-format text --model gpt-5.4-mini --max-turns 1 --no-session-persistence',
+          ],
+        });
+      }
+
+      return Promise.resolve({
+        ready: true,
+        message: 'CLI is warmed up and ready to launch',
+        details: [
+          'Selected model gpt-5.4-mini verified for launch.',
+          'Selected model gpt-5.4 verified for launch.',
+        ],
+      });
+    });
+
+    const result = await runProviderPrepareDiagnostics({
+      cwd: '/tmp/project',
+      providerId: 'codex',
+      selectedModelIds: ['gpt-5.4-mini', 'gpt-5.4'],
+      prepareProvisioning,
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.warnings).toEqual([]);
+    expect(result.details).toEqual(['5.4 Mini - verified', '5.4 - verified']);
   });
 });

@@ -85,6 +85,7 @@ import { buildActionModeProtocol } from './actionModeInstructions';
 import { atomicWriteAsync } from './atomicWrite';
 import { peekAutoResumeService } from './AutoResumeService';
 import { ClaudeBinaryResolver } from './ClaudeBinaryResolver';
+import { getConfiguredCliCommandLabel } from './cliFlavor';
 import { withFileLock } from './fileLock';
 import {
   type ClassifiedMainProcessIdle,
@@ -1345,6 +1346,8 @@ ${buildCanonicalSendMessageExample({ to: leadName, summary: 'short update', mess
 After member_briefing succeeds:
 - Do NOT send a "ready", "online", "status accepted", or other acknowledgement-only message just to confirm you started successfully.
 - If bootstrap succeeded and you have no task yet, stay silent and wait for task assignments.
+- If bootstrap succeeded and you have no task, produce ZERO assistant text for that turn and end it immediately after the successful tool result.
+- Do NOT ask the user or the lead to send you a task ID, task description, or "next task" right after bootstrap.
 - Only SendMessage the lead after bootstrap when there is a real blocker, a failed bootstrap, an explicit question, an urgent coordination need, or a completed task result to report.
 - Never send raw tool output, JSON, dict/object dumps, Python-style structs, or internal state payloads to the lead or the user. If you need to report bootstrap/task/tool status, rewrite it as one short natural-language sentence.
 - When you later receive work or reconnect after a restart, use task_briefing as your compact queue view. Use task_get when you need the full task context before starting a pending/needsFix task or when the in_progress briefing details are not enough.
@@ -1415,6 +1418,8 @@ ${actionModeProtocol}
      After member_briefing succeeds:
      - Do NOT send a "ready", "online", "status accepted", or other acknowledgement-only message just to confirm you reconnected successfully.
      - If reconnect bootstrap succeeded and you have no immediate blocker or question, stay silent and continue with your queue.
+     - If reconnect bootstrap succeeded and you have no immediate blocker, question, or task, produce ZERO assistant text for that turn and end it immediately.
+     - Do NOT ask the user or the lead to send you a task ID, task description, or "next task" right after reconnect bootstrap.
      - Never send raw tool output, JSON, dict/object dumps, Python-style structs, or internal state payloads to the lead or the user. If you need to report bootstrap/task/tool status, rewrite it as one short natural-language sentence.
      - Use task_briefing as your compact queue view.
      - If task_briefing shows any in_progress task, resume/finish those first. Call task_get only if you need more context than task_briefing already gave you.
@@ -12441,6 +12446,7 @@ export class TeamProvisioningService {
     providerId: TeamProviderId | undefined = 'anthropic'
   ): Promise<{ warning?: string }> {
     const resolvedProviderId = resolveTeamProviderId(providerId);
+    const cliCommandLabel = getConfiguredCliCommandLabel();
     try {
       const versionProbe = await this.spawnProbe(
         claudePath,
@@ -12452,9 +12458,9 @@ export class TeamProvisioningService {
       if (versionProbe.exitCode !== 0) {
         const errorText =
           buildCombinedLogs(versionProbe.stdout, versionProbe.stderr) ||
-          `Claude CLI exited with code ${versionProbe.exitCode ?? 'unknown'} during warm-up`;
+          `${cliCommandLabel} exited with code ${versionProbe.exitCode ?? 'unknown'} during warm-up`;
         return {
-          warning: `Claude CLI binary failed to start correctly. Details: ${errorText}`,
+          warning: `${cliCommandLabel} binary failed to start correctly. Details: ${errorText}`,
         };
       }
     } catch (error) {
@@ -12465,7 +12471,7 @@ export class TeamProvisioningService {
         };
       }
       return {
-        warning: `Claude CLI binary failed to start. Details: ${message}`,
+        warning: `${cliCommandLabel} binary failed to start. Details: ${message}`,
       };
     }
 
@@ -12527,7 +12533,7 @@ export class TeamProvisioningService {
         }
         return {
           warning:
-            'Preflight check for `claude -p` did not complete. ' +
+            `Preflight check for \`${cliCommandLabel} -p\` did not complete. ` +
             `Proceeding anyway. Details: ${message}`,
         };
       }
@@ -12548,13 +12554,15 @@ export class TeamProvisioningService {
         const hint = isAuthFailure
           ? resolvedProviderId === 'codex'
             ? 'Codex provider is not authenticated for `-p` mode. ' +
-              'Run `claude-multimodel auth login --provider codex` and retry.' +
+              `Authenticate Codex in ${cliCommandLabel} and retry.` +
               (attempt > 1 ? ` (failed after ${attempt} attempts)` : '')
-            : 'Claude CLI `-p` mode is not authenticated. ' +
-              'Run `claude auth login` (or start `claude` and run `/login`) to authenticate. ' +
+            : `${cliCommandLabel} \`-p\` mode is not authenticated. ` +
+              (cliCommandLabel === 'claude'
+                ? 'Run `claude auth login` (or start `claude` and run `/login`) to authenticate. '
+                : `Authenticate Anthropic in ${cliCommandLabel} and retry. `) +
               'For automation/headless use, set ANTHROPIC_API_KEY.' +
               (attempt > 1 ? ` (failed after ${attempt} attempts)` : '')
-          : `Claude CLI preflight check failed (exit code ${pingProbe.exitCode ?? 'unknown'}).`;
+          : `${cliCommandLabel} preflight check failed (exit code ${pingProbe.exitCode ?? 'unknown'}).`;
         return { warning: hint };
       }
 
@@ -12595,7 +12603,7 @@ export class TeamProvisioningService {
     const targetCwd = cwd ?? process.cwd();
     const probeResult = await this.getCachedOrProbeResult(targetCwd, 'anthropic');
     if (!probeResult?.claudePath) {
-      throw new Error('Claude CLI not found');
+      throw new Error(`${getConfiguredCliCommandLabel()} not found`);
     }
     const { env } = await this.buildProvisioningEnv();
     const result = await this.spawnProbe(
@@ -12608,7 +12616,7 @@ export class TeamProvisioningService {
     const output = (result.stdout + '\n' + result.stderr).trim();
     if (!output) {
       throw new Error(
-        `claude --help returned empty output (exit code: ${String(result.exitCode)})`
+        `${getConfiguredCliCommandLabel()} --help returned empty output (exit code: ${String(result.exitCode)})`
       );
     }
     this.helpOutputCache = output;
@@ -12966,7 +12974,7 @@ export class TeamProvisioningService {
       const timeoutHandle = setTimeout(() => {
         settled = true;
         killProcessTree(child);
-        reject(new Error(`Timeout running: claude ${args.join(' ')}`));
+        reject(new Error(`Timeout running: ${getConfiguredCliCommandLabel()} ${args.join(' ')}`));
       }, timeoutMs);
 
       const maybeResolveEarly = (): void => {

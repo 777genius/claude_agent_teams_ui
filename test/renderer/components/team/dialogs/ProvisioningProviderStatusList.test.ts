@@ -128,4 +128,36 @@ describe('ProvisioningProviderStatusList', () => {
       await Promise.resolve();
     });
   });
+
+  it('normalizes generic preflight timeout notes without depending on a hardcoded CLI name', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProvisioningProviderStatusList, {
+          checks: [
+            {
+              providerId: 'codex',
+              status: 'notes',
+              backendSummary: 'Default adapter',
+              details: [
+                'Preflight check for `orchestrator-cli -p` did not complete. Proceeding anyway. Details: Timeout running: orchestrator-cli -p Output only the single word PONG. --output-format text --model gpt-5.4-mini --max-turns 1 --no-session-persistence',
+              ],
+            },
+          ],
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Codex (Default adapter): CLI preflight did not complete');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
 });

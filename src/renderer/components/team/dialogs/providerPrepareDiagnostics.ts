@@ -232,6 +232,50 @@ function createRuntimeDetailLines(result: TeamProvisioningPrepareResult): string
   return [...(result.details ?? []), ...(result.warnings ?? [])];
 }
 
+function extractTimedOutPreflightProbeModelId(detail: string): string | null {
+  const trimmed = detail.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (
+    !trimmed.toLowerCase().includes('preflight check for `') ||
+    !trimmed.toLowerCase().includes('-p` did not complete')
+  ) {
+    return null;
+  }
+  const match = /--model\s+([^\s]+)/i.exec(trimmed);
+  return match?.[1]?.trim() || null;
+}
+
+function suppressSupersededRuntimeWarnings(params: {
+  runtimeDetailLines: string[];
+  runtimeWarnings: string[];
+  modelResultsById: Map<string, ProviderPrepareDiagnosticsModelResult>;
+}): {
+  runtimeDetailLines: string[];
+  runtimeWarnings: string[];
+} {
+  const suppressedEntries = new Set<string>();
+
+  for (const warning of params.runtimeWarnings) {
+    const probedModelId = extractTimedOutPreflightProbeModelId(warning);
+    if (!probedModelId) {
+      continue;
+    }
+    if (params.modelResultsById.get(probedModelId)?.status !== 'ready') {
+      continue;
+    }
+    suppressedEntries.add(warning);
+  }
+
+  return {
+    runtimeDetailLines: params.runtimeDetailLines.filter(
+      (detail) => !suppressedEntries.has(detail)
+    ),
+    runtimeWarnings: params.runtimeWarnings.filter((warning) => !suppressedEntries.has(warning)),
+  };
+}
+
 function resolveModelResultFromBatch(
   providerId: TeamProviderId,
   modelId: string,
@@ -351,7 +395,7 @@ export async function runProviderPrepareDiagnostics({
   const modelLines = new Map<string, string>();
   let completedCount = 0;
   let hasFailure = false;
-  let hasNotes = runtimeWarnings.length > 0;
+  let hasNotes = false;
   const modelWarnings: string[] = [];
 
   for (const modelId of orderedModelIds) {
@@ -436,7 +480,14 @@ export async function runProviderPrepareDiagnostics({
     }
   }
 
-  const dedupedWarnings = Array.from(new Set([...runtimeWarnings, ...modelWarnings]));
+  const filteredRuntime = suppressSupersededRuntimeWarnings({
+    runtimeDetailLines,
+    runtimeWarnings,
+    modelResultsById,
+  });
+  const dedupedWarnings = Array.from(
+    new Set([...filteredRuntime.runtimeWarnings, ...modelWarnings])
+  );
   const selectedModelResultsById = Object.fromEntries(
     orderedModelIds
       .map((modelId) => [modelId, modelResultsById.get(modelId)] as const)
@@ -446,9 +497,9 @@ export async function runProviderPrepareDiagnostics({
   );
 
   return {
-    status: hasFailure ? 'failed' : hasNotes ? 'notes' : 'ready',
+    status: hasFailure ? 'failed' : hasNotes || dedupedWarnings.length > 0 ? 'notes' : 'ready',
     details: [
-      ...runtimeDetailLines,
+      ...filteredRuntime.runtimeDetailLines,
       ...orderedModelIds.map((modelId) => modelLines.get(modelId) ?? ''),
     ],
     warnings: dedupedWarnings,

@@ -365,6 +365,20 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     );
   });
 
+  it('add-member spawn prompt explicitly forbids no-task bootstrap chatter', () => {
+    const prompt = buildAddMemberSpawnMessage('my-team', 'My Team', 'team-lead', {
+      name: 'alice',
+      role: 'developer',
+    });
+
+    expect(prompt).toContain(
+      'If bootstrap succeeded and you have no task, produce ZERO assistant text for that turn and end it immediately after the successful tool result.'
+    );
+    expect(prompt).toContain(
+      'Do NOT ask the user or the lead to send you a task ID, task description, or "next task" right after bootstrap.'
+    );
+  });
+
   it('launchTeam hydration prompt includes task-comment handling guidance by default', async () => {
     const teamName = 'forward-live-team';
     const teamDir = path.join(tempTeamsBase, teamName);
@@ -502,7 +516,6 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     expect(prompt).toContain(
       'Correct flow: finish implementation on #X -> task_complete #X -> review_request #X -> reviewer runs review_start #X -> reviewer runs review_approve or review_request_changes on #X.'
     );
-
     await svc.cancelProvisioning(runId);
   });
 
