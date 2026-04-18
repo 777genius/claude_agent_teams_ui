@@ -18,6 +18,12 @@ export async function killTmuxPaneForCurrentPlatform(paneId: string): Promise<vo
   invalidateTmuxRuntimeStatusCache();
 }
 
+export async function listTmuxPanePidsForCurrentPlatform(
+  paneIds: readonly string[]
+): Promise<Map<string, number>> {
+  return runtimeCommandExecutor.listPanePids(paneIds);
+}
+
 export function killTmuxPaneForCurrentPlatformSync(paneId: string): void {
   runtimeCommandExecutor.killPaneSync(paneId);
   invalidateTmuxRuntimeStatusCache();

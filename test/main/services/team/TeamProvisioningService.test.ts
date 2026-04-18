@@ -24,6 +24,19 @@ vi.mock('@main/services/team/ClaudeBinaryResolver', () => ({
   ClaudeBinaryResolver: { resolve: vi.fn() },
 }));
 
+vi.mock('@features/tmux-installer/main', () => ({
+  killTmuxPaneForCurrentPlatformSync: vi.fn(),
+  listTmuxPanePidsForCurrentPlatform: vi.fn(async () => new Map()),
+  isTmuxRuntimeReadyForCurrentPlatform: vi.fn(async () => true),
+}));
+
+vi.mock('pidusage', () => {
+  const pidusageMock = vi.fn();
+  return {
+    default: pidusageMock,
+  };
+});
+
 vi.mock('@main/services/team/TeamTaskReader', () => ({
   TeamTaskReader: class {
     async getTasks() {
@@ -61,6 +74,8 @@ import { getTeamLaunchStatePath } from '@main/services/team/TeamLaunchStateStore
 import { ClaudeBinaryResolver } from '@main/services/team/ClaudeBinaryResolver';
 import { spawnCli } from '@main/utils/childProcess';
 import { AGENT_TEAMS_NAMESPACED_TEAMMATE_OPERATIONAL_TOOL_NAMES } from 'agent-teams-controller';
+import { listTmuxPanePidsForCurrentPlatform } from '@features/tmux-installer/main';
+import pidusage from 'pidusage';
 
 function allowConsoleLogs() {
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -89,6 +104,18 @@ function createRunningChild() {
     stderr: new EventEmitter(),
     kill: vi.fn(),
   });
+}
+
+function createPidusageStat(pid: number, memory: number) {
+  return {
+    cpu: 0,
+    memory,
+    ppid: 1,
+    pid,
+    ctime: 0,
+    elapsed: 0,
+    timestamp: Date.now(),
+  };
 }
 
 function writeLaunchConfig(
@@ -194,6 +221,100 @@ describe('TeamProvisioningService', () => {
       const svc = new TeamProvisioningService();
       await expect(svc.warmup()).resolves.not.toThrow();
       expect(spawnCli).toHaveBeenCalled();
+    });
+  });
+
+  describe('getTeamAgentRuntimeSnapshot', () => {
+    it('uses batched pidusage rss values for lead and teammates', async () => {
+      const svc = new TeamProvisioningService();
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'alice', model: 'gpt-5.4-mini' },
+          ],
+        })),
+      };
+      (svc as any).readPersistedRuntimeMembers = vi.fn(() => [
+        {
+          name: 'alice',
+          agentId: 'alice@runtime-team',
+          tmuxPaneId: '%1',
+          backendType: 'tmux',
+        },
+      ]);
+      (svc as any).aliveRunByTeam.set('runtime-team', 'run-1');
+      (svc as any).runs.set('run-1', {
+        runId: 'run-1',
+        child: { pid: 111 },
+        request: { model: 'gpt-5.4' },
+        processKilled: false,
+        cancelRequested: false,
+        spawnContext: null,
+      });
+      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValueOnce(new Map([['%1', 222]]));
+
+      vi.mocked(pidusage).mockResolvedValueOnce({
+        '111': createPidusageStat(111, 123_000_000),
+        '222': createPidusageStat(222, 456_000_000),
+      } as any);
+
+      const snapshot = await svc.getTeamAgentRuntimeSnapshot('runtime-team');
+
+      expect(pidusage).toHaveBeenCalledWith([111, 222], { maxage: 0 });
+      expect(snapshot.members['team-lead']).toMatchObject({
+        pid: 111,
+        rssBytes: 123_000_000,
+        runtimeModel: 'gpt-5.4',
+      });
+      expect(snapshot.members.alice).toMatchObject({
+        pid: 222,
+        rssBytes: 456_000_000,
+        runtimeModel: 'gpt-5.4-mini',
+      });
+    });
+
+    it('falls back to per-pid pidusage reads when batched sampling fails', async () => {
+      const svc = new TeamProvisioningService();
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'alice', model: 'gpt-5.4-mini' },
+          ],
+        })),
+      };
+      (svc as any).readPersistedRuntimeMembers = vi.fn(() => [
+        {
+          name: 'alice',
+          agentId: 'alice@runtime-team',
+          tmuxPaneId: '%1',
+          backendType: 'tmux',
+        },
+      ]);
+      (svc as any).aliveRunByTeam.set('runtime-team', 'run-1');
+      (svc as any).runs.set('run-1', {
+        runId: 'run-1',
+        child: { pid: 111 },
+        request: { model: 'gpt-5.4' },
+        processKilled: false,
+        cancelRequested: false,
+        spawnContext: null,
+      });
+      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValueOnce(new Map([['%1', 222]]));
+
+      vi.mocked(pidusage)
+        .mockRejectedValueOnce(new Error('ps: process exited'))
+        .mockResolvedValueOnce(createPidusageStat(111, 123_000_000) as any)
+        .mockResolvedValueOnce(createPidusageStat(222, 456_000_000) as any);
+
+      const snapshot = await svc.getTeamAgentRuntimeSnapshot('runtime-team');
+
+      expect(pidusage).toHaveBeenNthCalledWith(1, [111, 222], { maxage: 0 });
+      expect(pidusage).toHaveBeenNthCalledWith(2, 111, { maxage: 0 });
+      expect(pidusage).toHaveBeenNthCalledWith(3, 222, { maxage: 0 });
+      expect(snapshot.members['team-lead']?.rssBytes).toBe(123_000_000);
+      expect(snapshot.members.alice?.rssBytes).toBe(456_000_000);
     });
   });
 

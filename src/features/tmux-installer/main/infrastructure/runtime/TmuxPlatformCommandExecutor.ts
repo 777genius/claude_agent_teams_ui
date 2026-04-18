@@ -54,6 +54,36 @@ export class TmuxPlatformCommandExecutor {
     }
   }
 
+  async listPanePids(paneIds: readonly string[]): Promise<Map<string, number>> {
+    const normalizedPaneIds = [...new Set(paneIds.map((paneId) => paneId.trim()).filter(Boolean))];
+    if (normalizedPaneIds.length === 0) {
+      return new Map();
+    }
+
+    const result = await this.execTmux(
+      ['list-panes', '-a', '-F', '#{pane_id}\t#{pane_pid}'],
+      3_000
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || 'Failed to list tmux panes');
+    }
+
+    const wanted = new Set(normalizedPaneIds);
+    const panePidById = new Map<string, number>();
+    for (const line of result.stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const [paneId = '', rawPid = ''] = trimmed.split('\t');
+      const normalizedPaneId = paneId.trim();
+      if (!wanted.has(normalizedPaneId)) continue;
+      const pid = Number.parseInt(rawPid.trim(), 10);
+      if (Number.isFinite(pid) && pid > 0) {
+        panePidById.set(normalizedPaneId, pid);
+      }
+    }
+    return panePidById;
+  }
+
   killPaneSync(paneId: string): void {
     if (process.platform === 'win32') {
       const preferredDistro = this.#wslService.getPersistedPreferredDistroSync();

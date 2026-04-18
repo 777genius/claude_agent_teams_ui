@@ -9,4 +9,5 @@ export {
   isTmuxRuntimeReadyForCurrentPlatform,
   killTmuxPaneForCurrentPlatform,
   killTmuxPaneForCurrentPlatformSync,
+  listTmuxPanePidsForCurrentPlatform,
 } from './composition/runtimeSupport';

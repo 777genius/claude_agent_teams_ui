@@ -68,4 +68,26 @@ describe('TmuxPlatformCommandExecutor', () => {
       })
     );
   });
+
+  it('lists pane pids for the requested pane ids only', async () => {
+    const executor = new TmuxPlatformCommandExecutor(
+      {
+        getPersistedPreferredDistroSync: () => null,
+      } as never,
+      {} as never
+    );
+    vi.spyOn(executor, 'execTmux').mockResolvedValue({
+      exitCode: 0,
+      stdout: '%1\t111\n%2\t222\n%3\tnot-a-pid\n',
+      stderr: '',
+    });
+
+    await expect(executor.listPanePids(['%2', '%3', '%2'])).resolves.toEqual(
+      new Map([['%2', 222]])
+    );
+    expect(executor.execTmux).toHaveBeenCalledWith(
+      ['list-panes', '-a', '-F', '#{pane_id}\t#{pane_pid}'],
+      3_000
+    );
+  });
 });
