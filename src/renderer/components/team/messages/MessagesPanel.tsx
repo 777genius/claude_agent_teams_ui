@@ -152,13 +152,12 @@ export const MessagesPanel = memo(function MessagesPanel({
   const [fetchedMessages, setFetchedMessages] = useState<InboxMessage[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const fetchIdRef = useRef(0);
 
   // Initial fetch on mount or team change
   useEffect(() => {
     const id = ++fetchIdRef.current;
-    setMessagesLoading(true);
     void (async () => {
       try {
         const page = await api.teams.getMessagesPage(teamName, { limit: PAGE_SIZE });
@@ -171,8 +170,6 @@ export const MessagesPanel = memo(function MessagesPanel({
         if (fetchIdRef.current === id && messages.length > 0) {
           setFetchedMessages(messages);
         }
-      } finally {
-        if (fetchIdRef.current === id) setMessagesLoading(false);
       }
     })();
   }, [teamName]); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on teamName change
@@ -193,8 +190,8 @@ export const MessagesPanel = memo(function MessagesPanel({
   }, [teamName, isTeamAlive, leadActivity]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!nextCursor || messagesLoading) return;
-    setMessagesLoading(true);
+    if (!nextCursor || loadingOlderMessages) return;
+    setLoadingOlderMessages(true);
     try {
       const page = await api.teams.getMessagesPage(teamName, {
         beforeTimestamp: nextCursor,
@@ -206,9 +203,9 @@ export const MessagesPanel = memo(function MessagesPanel({
     } catch {
       // best-effort
     } finally {
-      setMessagesLoading(false);
+      setLoadingOlderMessages(false);
     }
-  }, [teamName, nextCursor, messagesLoading]);
+  }, [loadingOlderMessages, nextCursor, teamName]);
 
   // Use fetched messages, fall back to prop messages during initial load
   const effectiveMessages = useMemo(() => {
@@ -307,7 +304,7 @@ export const MessagesPanel = memo(function MessagesPanel({
     for (const [element, setHeight] of observedEntries) {
       if (!element) continue;
 
-      const updateHeight = () => {
+      const updateHeight = (): void => {
         const nextHeight = Math.ceil(element.getBoundingClientRect().height);
         if (nextHeight > 0) {
           setHeight(nextHeight);
@@ -684,10 +681,11 @@ export const MessagesPanel = memo(function MessagesPanel({
             variant="ghost"
             size="sm"
             className="text-xs text-text-muted"
-            disabled={messagesLoading}
+            aria-busy={loadingOlderMessages}
+            disabled={loadingOlderMessages}
             onClick={() => void loadOlderMessages()}
           >
-            {messagesLoading ? 'Loading...' : 'Load older messages'}
+            Load older messages
           </Button>
         </div>
       )}
@@ -869,10 +867,11 @@ export const MessagesPanel = memo(function MessagesPanel({
                 variant="ghost"
                 size="sm"
                 className="text-xs text-text-muted"
-                disabled={messagesLoading}
+                aria-busy={loadingOlderMessages}
+                disabled={loadingOlderMessages}
                 onClick={() => void loadOlderMessages()}
               >
-                {messagesLoading ? 'Loading...' : 'Load older messages'}
+                Load older messages
               </Button>
             </div>
           )}
@@ -1155,10 +1154,11 @@ export const MessagesPanel = memo(function MessagesPanel({
                       variant="ghost"
                       size="sm"
                       className="text-xs text-text-muted"
-                      disabled={messagesLoading}
+                      aria-busy={loadingOlderMessages}
+                      disabled={loadingOlderMessages}
                       onClick={() => void loadOlderMessages()}
                     >
-                      {messagesLoading ? 'Loading...' : 'Load older messages'}
+                      Load older messages
                     </Button>
                   </div>
                 )}

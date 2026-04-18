@@ -51,7 +51,8 @@ export const MemberMessagesTab = ({
   const [pagedMessages, setPagedMessages] = useState<InboxMessage[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [initialPageLoading, setInitialPageLoading] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [activityFilter, setActivityFilter] = useState<MemberActivityFilter>(initialFilter);
   const [expandedItem, setExpandedItem] = useState<TimelineItem | null>(null);
   const { readSet } = useTeamMessagesRead(teamName);
@@ -74,7 +75,7 @@ export const MemberMessagesTab = ({
     setPagedMessages([]);
     setNextCursor(null);
     setHasMore(false);
-    setLoading(true);
+    setInitialPageLoading(true);
 
     void (async () => {
       try {
@@ -95,7 +96,9 @@ export const MemberMessagesTab = ({
           setHasMore(false);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setInitialPageLoading(false);
+        }
       }
     })();
 
@@ -105,8 +108,8 @@ export const MemberMessagesTab = ({
   }, [teamName, memberName]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!nextCursor || loading) return;
-    setLoading(true);
+    if (!nextCursor || loadingOlderMessages) return;
+    setLoadingOlderMessages(true);
     try {
       const page = await api.teams.getMessagesPage(teamName, {
         beforeTimestamp: nextCursor,
@@ -121,9 +124,9 @@ export const MemberMessagesTab = ({
     } catch {
       // best-effort
     } finally {
-      setLoading(false);
+      setLoadingOlderMessages(false);
     }
-  }, [teamName, memberName, nextCursor, loading]);
+  }, [loadingOlderMessages, memberName, nextCursor, teamName]);
 
   const effectiveMessages = useMemo(
     () => mergeTeamMessages(messages, pagedMessages),
@@ -198,7 +201,7 @@ export const MemberMessagesTab = ({
     [onTaskClick, taskMap, tasks]
   );
 
-  const emptyStateText = loading
+  const emptyStateText = initialPageLoading
     ? 'Loading activity...'
     : activityFilter === 'comments'
       ? 'No comments for this member'
@@ -289,10 +292,11 @@ export const MemberMessagesTab = ({
               variant="ghost"
               size="sm"
               className="text-xs"
-              disabled={loading}
+              aria-busy={loadingOlderMessages}
+              disabled={loadingOlderMessages}
               onClick={() => void loadOlderMessages()}
             >
-              {loading ? 'Loading...' : 'Load older messages'}
+              Load older messages
             </Button>
           </div>
         )}
