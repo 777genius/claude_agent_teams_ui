@@ -46,6 +46,24 @@ const ANTHROPIC_ALIAS_LABELS = {
   haiku: 'Haiku 4.5',
 } as const;
 
+const ANTHROPIC_VISIBLE_MODEL_FALLBACKS = ['claude-opus-4-7', 'claude-opus-4-7[1m]'] as const;
+
+const ANTHROPIC_MODEL_ORDER = [
+  'haiku',
+  'claude-haiku-4-5-20251001',
+  'claude-haiku-4-5',
+  'opus',
+  'opus[1m]',
+  'claude-opus-4-7',
+  'claude-opus-4-7[1m]',
+  'claude-opus-4-6',
+  'claude-opus-4-6[1m]',
+  'sonnet',
+  'sonnet[1m]',
+  'claude-sonnet-4-6',
+  'claude-sonnet-4-6[1m]',
+] as const;
+
 const TEAM_MODEL_LABEL_OVERRIDES: Record<string, string> = {
   default: 'Default',
   ...ANTHROPIC_ALIAS_LABELS,
@@ -75,6 +93,7 @@ const TEAM_PROVIDER_MODEL_OPTIONS: Record<SupportedProviderId, readonly TeamProv
     anthropic: [
       { value: '', label: 'Default', badgeLabel: 'Default' },
       { value: 'opus', label: 'Opus 4.7', badgeLabel: 'Opus 4.7' },
+      { value: 'claude-opus-4-6', label: 'Opus 4.6', badgeLabel: 'Opus 4.6' },
       { value: 'sonnet', label: 'Sonnet 4.6', badgeLabel: 'Sonnet 4.6' },
       { value: 'haiku', label: 'Haiku 4.5', badgeLabel: 'Haiku 4.5' },
     ],
@@ -117,9 +136,7 @@ const TEAM_PROVIDER_MODEL_OPTIONS: Record<SupportedProviderId, readonly TeamProv
   };
 
 const TEAM_PROVIDER_MODEL_ORDER: Record<SupportedProviderId, Map<string, number>> = {
-  anthropic: new Map(
-    TEAM_PROVIDER_MODEL_OPTIONS.anthropic.map((option, index) => [option.value, index])
-  ),
+  anthropic: new Map(ANTHROPIC_MODEL_ORDER.map((model, index) => [model, index])),
   codex: new Map(TEAM_PROVIDER_MODEL_OPTIONS.codex.map((option, index) => [option.value, index])),
   gemini: new Map(TEAM_PROVIDER_MODEL_OPTIONS.gemini.map((option, index) => [option.value, index])),
 };
@@ -330,6 +347,17 @@ function isRuntimeHiddenTeamModel(
   );
 }
 
+function getSupplementalVisibleModels(
+  providerId: SupportedProviderId,
+  models: readonly string[]
+): readonly string[] {
+  if (providerId !== 'anthropic') {
+    return models;
+  }
+
+  return [...models, ...ANTHROPIC_VISIBLE_MODEL_FALLBACKS];
+}
+
 export function getVisibleTeamProviderModels(
   providerId: SupportedProviderId,
   models: readonly string[],
@@ -337,7 +365,7 @@ export function getVisibleTeamProviderModels(
 ): string[] {
   return sortTeamProviderModels(
     providerId,
-    filterVisibleProviderRuntimeModels(providerId, models)
+    filterVisibleProviderRuntimeModels(providerId, getSupplementalVisibleModels(providerId, models))
   ).filter((model) => !isRuntimeHiddenTeamModel(providerId, model, providerStatus));
 }
 

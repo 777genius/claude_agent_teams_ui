@@ -23,4 +23,24 @@ describe('teamModelCatalog', () => {
       'gpt-5.1-codex-max',
     ]);
   });
+
+  it('adds curated Anthropic Opus 4.7 badges when the runtime list only reports legacy Opus variants', () => {
+    expect(
+      getVisibleTeamProviderModels('anthropic', [
+        'claude-haiku-4-5-20251001',
+        'claude-opus-4-6',
+        'claude-opus-4-6[1m]',
+        'claude-sonnet-4-6',
+        'claude-sonnet-4-6[1m]',
+      ])
+    ).toEqual([
+      'claude-haiku-4-5-20251001',
+      'claude-opus-4-7',
+      'claude-opus-4-7[1m]',
+      'claude-opus-4-6',
+      'claude-opus-4-6[1m]',
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-6[1m]',
+    ]);
+  });
 });

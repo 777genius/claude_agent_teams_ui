@@ -117,6 +117,16 @@ describe('teamModelAvailability', () => {
     expect(getTeamModelSelectionError('anthropic', 'opus')).toBeNull();
   });
 
+  it('keeps both Anthropic Opus 4.7 and explicit Opus 4.6 in the fallback selector options', () => {
+    expect(getAvailableTeamProviderModelOptions('anthropic')).toEqual([
+      { value: '', label: 'Default', badgeLabel: 'Default' },
+      { value: 'opus', label: 'Opus 4.7', badgeLabel: 'Opus 4.7' },
+      { value: 'claude-opus-4-6', label: 'Opus 4.6', badgeLabel: 'Opus 4.6' },
+      { value: 'sonnet', label: 'Sonnet 4.6', badgeLabel: 'Sonnet 4.6' },
+      { value: 'haiku', label: 'Haiku 4.5', badgeLabel: 'Haiku 4.5' },
+    ]);
+  });
+
   it('keeps known Anthropic full model ids selectable without runtime verification', () => {
     expect(normalizeTeamModelForUi('anthropic', 'claude-opus-4-7')).toBe('claude-opus-4-7');
     expect(normalizeTeamModelForUi('anthropic', 'claude-opus-4-7[1m]')).toBe(
