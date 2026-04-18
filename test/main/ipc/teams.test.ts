@@ -7,6 +7,7 @@ import type {
   BoardTaskExactLogDetailResult,
   BoardTaskExactLogSummariesResponse,
   InboxMessage,
+  MessagesPage,
   TeamCreateRequest,
   TeamProvisioningProgress,
 } from '@shared/types/team';
@@ -80,6 +81,7 @@ import {
   TEAM_GET_TASK_EXACT_LOG_SUMMARIES,
   TEAM_GET_MEMBER_LOGS,
   TEAM_GET_MEMBER_STATS,
+  TEAM_GET_MESSAGES_PAGE,
   TEAM_START_TASK,
   TEAM_UPDATE_CONFIG,
   TEAM_UPDATE_KANBAN,
@@ -139,6 +141,11 @@ describe('ipc teams handlers', () => {
       messages: [] as InboxMessage[],
       kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
       processes: [],
+    })),
+    getMessagesPage: vi.fn(async (..._args: unknown[]): Promise<MessagesPage> => ({
+      messages: [] as InboxMessage[],
+      nextCursor: null,
+      hasMore: false,
     })),
     getTaskChangePresence: vi.fn(async () => ({ 'task-1': 'has_changes' })),
     reconcileTeamArtifacts: vi.fn(async () => undefined),
@@ -1277,6 +1284,197 @@ describe('ipc teams handlers', () => {
     } finally {
       getConfigSpy.mockRestore();
     }
+  });
+
+  it('rebuilds capped newest messages through getMessagesPage so live duplicates do not leak back in', async () => {
+    service.getTeamData.mockResolvedValueOnce({
+      teamName: 'my-team',
+      config: { name: 'My Team' },
+      tasks: [],
+      members: [],
+      messages: Array.from({ length: 50 }, (_, index) => ({
+        from: 'alice',
+        text: `filler-${index}`,
+        timestamp: `2026-02-23T10:${String(index).padStart(2, '0')}:00.000Z`,
+        read: true,
+        source: 'inbox' as const,
+        messageId: `durable-${index}`,
+      })),
+      kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+      processes: [],
+    });
+    service.getMessagesPage.mockResolvedValueOnce({
+      messages: [
+        {
+          from: 'alice',
+          text: 'filler-0',
+          timestamp: '2026-02-23T10:00:00.000Z',
+          read: true,
+          source: 'inbox' as const,
+          messageId: 'durable-0',
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+    provisioningService.getLiveLeadProcessMessages.mockReturnValueOnce([
+      {
+        from: 'team-lead',
+        text: 'Already persisted thought',
+        timestamp: '2026-02-23T11:00:00.000Z',
+        read: true,
+        source: 'lead_process' as const,
+        messageId: 'live-dup',
+        leadSessionId: 'lead-1',
+      },
+    ]);
+
+    const getDataHandler = handlers.get(TEAM_GET_DATA)!;
+    const result = (await getDataHandler({} as never, 'my-team')) as {
+      success: boolean;
+      data: { messages: InboxMessage[] };
+    };
+
+    expect(result.success).toBe(true);
+    expect(service.getMessagesPage).toHaveBeenCalledWith('my-team', {
+      limit: 50,
+      liveMessages: expect.arrayContaining([
+        expect.objectContaining({
+          messageId: 'live-dup',
+          source: 'lead_process',
+        }),
+      ]),
+    });
+    expect(result.data.messages.map((message) => message.messageId)).toEqual(['durable-0']);
+  });
+
+  it('overlays live lead_process messages onto the newest messages page', async () => {
+    service.getMessagesPage.mockImplementationOnce(async (...args: unknown[]) => {
+      const { liveMessages = [] } = (args[1] ?? {}) as { liveMessages?: InboxMessage[] };
+      return {
+        messages: [
+          {
+            from: 'user',
+            text: 'Ping',
+            timestamp: '2026-02-23T10:00:00.000Z',
+            read: true,
+            source: 'user_sent' as const,
+            messageId: 'durable-1',
+          },
+          ...liveMessages,
+        ].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)),
+        nextCursor: '2026-02-23T10:00:00.000Z|durable-1',
+        hasMore: true,
+      };
+    });
+    provisioningService.getLiveLeadProcessMessages.mockReturnValueOnce([
+      {
+        from: 'team-lead',
+        text: 'Команда поднята, приступаю к раздаче задач.',
+        timestamp: '2026-02-23T10:00:01.000Z',
+        read: true,
+        source: 'lead_process' as const,
+        messageId: 'live-1',
+      },
+    ]);
+
+    const result = (await handlers.get(TEAM_GET_MESSAGES_PAGE)!({} as never, 'my-team', {
+      limit: 20,
+    })) as {
+      success: boolean;
+      data: { messages: InboxMessage[]; nextCursor: string | null; hasMore: boolean };
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.messages).toHaveLength(2);
+    expect(result.data.messages[0]?.source).toBe('lead_process');
+    expect(result.data.messages[0]?.text).toBe('Команда поднята, приступаю к раздаче задач.');
+    expect(result.data.nextCursor).toBe('2026-02-23T10:00:00.000Z|durable-1');
+    expect(result.data.hasMore).toBe(true);
+    expect(service.getMessagesPage).toHaveBeenCalledWith('my-team', {
+      limit: 20,
+      beforeTimestamp: undefined,
+      liveMessages: expect.arrayContaining([
+        expect.objectContaining({
+          source: 'lead_process',
+          messageId: 'live-1',
+        }),
+      ]),
+    });
+  });
+
+  it('dedups live lead thoughts on the newest messages page when durable lead_session already exists', async () => {
+    service.getMessagesPage.mockImplementationOnce(async (...args: unknown[]) => {
+      const { liveMessages = [] } = (args[1] ?? {}) as { liveMessages?: InboxMessage[] };
+      expect(liveMessages).toHaveLength(1);
+      return {
+        messages: [
+          {
+            from: 'team-lead',
+            text: 'Hello there',
+            timestamp: '2026-02-23T10:00:00.000Z',
+            read: true,
+            source: 'lead_session' as const,
+            leadSessionId: 'lead-1',
+            messageId: 'durable-1',
+          },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      };
+    });
+    provisioningService.getLiveLeadProcessMessages.mockReturnValueOnce([
+      {
+        from: 'team-lead',
+        text: 'Hello there',
+        timestamp: '2026-02-23T10:00:01.000Z',
+        read: true,
+        source: 'lead_process' as const,
+        leadSessionId: 'lead-1',
+        messageId: 'live-1',
+      },
+    ]);
+
+    const result = (await handlers.get(TEAM_GET_MESSAGES_PAGE)!({} as never, 'my-team', {
+      limit: 20,
+    })) as {
+      success: boolean;
+      data: { messages: InboxMessage[] };
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.messages).toHaveLength(1);
+    expect(result.data.messages[0]?.source).toBe('lead_session');
+  });
+
+  it('does not overlay live lead_process messages onto older paginated pages', async () => {
+    service.getMessagesPage.mockResolvedValueOnce({
+      messages: [
+        {
+          from: 'user',
+          text: 'Older durable message',
+          timestamp: '2026-02-23T09:59:00.000Z',
+          read: true,
+          source: 'user_sent' as const,
+          messageId: 'durable-older-1',
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+
+    const result = (await handlers.get(TEAM_GET_MESSAGES_PAGE)!({} as never, 'my-team', {
+      limit: 20,
+      beforeTimestamp: '2026-02-23T10:00:00.000Z|cursor',
+    })) as {
+      success: boolean;
+      data: { messages: InboxMessage[] };
+    };
+
+    expect(result.success).toBe(true);
+    expect(provisioningService.getLiveLeadProcessMessages).not.toHaveBeenCalled();
+    expect(result.data.messages).toHaveLength(1);
+    expect(result.data.messages[0]?.messageId).toBe('durable-older-1');
   });
 
   it('keeps TEAM_GET_DATA read-only and never triggers reconcile side effects', async () => {

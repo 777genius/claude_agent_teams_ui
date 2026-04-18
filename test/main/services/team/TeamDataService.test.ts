@@ -1,10 +1,12 @@
+import * as nodeFs from 'fs';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { setClaudeBasePathOverride } from '../../../../src/main/utils/pathDecoder';
+import { encodePath, setClaudeBasePathOverride } from '../../../../src/main/utils/pathDecoder';
+import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { buildTaskChangePresenceDescriptor } from '../../../../src/main/services/team/taskChangePresenceUtils';
 import { TeamDataService } from '../../../../src/main/services/team/TeamDataService';
 
@@ -79,6 +81,102 @@ async function createTempJsonlInNamedDir(
     'utf8'
   );
   return jsonlPath;
+}
+
+async function createResolverBackedLeadFixture(options?: {
+  teamName?: string;
+  staleProjectPath?: string;
+  actualProjectPath?: string;
+  leadSessionId?: string;
+  sessionHistory?: string[];
+  sessionFileId?: string;
+}): Promise<{
+  claudeRoot: string;
+  teamName: string;
+  configPath: string;
+  staleProjectPath: string;
+  actualProjectPath: string;
+  actualProjectDir: string;
+}> {
+  const teamName = options?.teamName ?? 'my-team';
+  const staleProjectPath = options?.staleProjectPath ?? '/Users/test/hookplex';
+  const actualProjectPath = options?.actualProjectPath ?? '/Users/test/plugin-kit-ai';
+  const leadSessionId = options?.leadSessionId ?? 'lead-1';
+  const sessionFileId = options?.sessionFileId ?? leadSessionId;
+  const claudeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'team-data-resolver-backed-'));
+  tempPaths.push(claudeRoot);
+  setClaudeBasePathOverride(claudeRoot);
+
+  await fs.mkdir(path.join(claudeRoot, 'teams', teamName), { recursive: true });
+  await fs.mkdir(path.join(claudeRoot, 'projects', encodePath(staleProjectPath)), {
+    recursive: true,
+  });
+
+  const configPath = path.join(claudeRoot, 'teams', teamName, 'config.json');
+  await fs.writeFile(
+    configPath,
+    JSON.stringify(
+      {
+        name: 'My Team',
+        projectPath: staleProjectPath,
+        ...(leadSessionId ? { leadSessionId } : {}),
+        ...(options?.sessionHistory ? { sessionHistory: options.sessionHistory } : {}),
+        members: [{ name: 'team-lead', agentType: 'team-lead', cwd: actualProjectPath }],
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  const actualProjectDir = path.join(claudeRoot, 'projects', encodePath(actualProjectPath));
+  await fs.mkdir(actualProjectDir, { recursive: true });
+  await fs.writeFile(
+    path.join(actualProjectDir, `${sessionFileId}.jsonl`),
+    `${JSON.stringify({
+      teamName,
+      type: 'assistant',
+      timestamp: '2026-04-18T10:00:00.000Z',
+      cwd: actualProjectPath,
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'This is a sufficiently long lead thought recovered through the transcript resolver.',
+          },
+        ],
+      },
+    })}\n`,
+    'utf8'
+  );
+
+  return {
+    claudeRoot,
+    teamName,
+    configPath,
+    staleProjectPath,
+    actualProjectPath,
+    actualProjectDir,
+  };
+}
+
+function createResolverBackedService(): TeamDataService {
+  return new TeamDataService(
+    new TeamConfigReader(),
+    { getTasks: vi.fn(async () => []) } as never,
+    {
+      listInboxNames: vi.fn(async () => []),
+      getMessages: vi.fn(async () => []),
+    } as never,
+    {} as never,
+    {} as never,
+    { resolveMembers: vi.fn(() => []) } as never,
+    { getState: vi.fn(async () => ({ teamName: 'my-team', reviewers: [], tasks: {} })) } as never,
+    {} as never,
+    { getMembers: vi.fn(async () => []) } as never,
+    { readMessages: vi.fn(async () => []) } as never
+  );
 }
 
 function createLeadSessionCachingService(): TeamDataService {
@@ -3260,6 +3358,70 @@ describe('TeamDataService', () => {
     expect(secondSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('loads durable lead_session messages through the transcript resolver when projectPath is stale', async () => {
+    const fixture = await createResolverBackedLeadFixture();
+    const service = createResolverBackedService();
+
+    const data = await service.getTeamData(fixture.teamName);
+    const persistedConfig = JSON.parse(await fs.readFile(fixture.configPath, 'utf8')) as TeamConfig;
+
+    expect(
+      data.messages.find(
+        (message) =>
+          message.source === 'lead_session' &&
+          message.text.includes('recovered through the transcript resolver')
+      )
+    ).toBeTruthy();
+    expect(persistedConfig.projectPath).toBe(fixture.actualProjectPath);
+  });
+
+  it('still returns lead_session messages when projectPath repair persistence fails', async () => {
+    const fixture = await createResolverBackedLeadFixture();
+    const originalWriteFile = nodeFs.promises.writeFile.bind(nodeFs.promises);
+    const teamTmpPrefix = path.join(fixture.claudeRoot, 'teams', fixture.teamName, '.tmp.');
+
+    vi.spyOn(nodeFs.promises, 'writeFile').mockImplementation(
+      async (...args: Parameters<typeof nodeFs.promises.writeFile>) => {
+        const [targetPath] = args;
+        if (typeof targetPath === 'string' && targetPath.startsWith(teamTmpPrefix)) {
+          throw new Error('simulated atomic write failure');
+        }
+        return originalWriteFile(...args);
+      }
+    );
+
+    const service = createResolverBackedService();
+    const page = await service.getMessagesPage(fixture.teamName, { limit: 10 });
+    const persistedConfig = JSON.parse(await fs.readFile(fixture.configPath, 'utf8')) as TeamConfig;
+
+    expect(
+      page.messages.find(
+        (message) =>
+          message.source === 'lead_session' &&
+          message.text.includes('recovered through the transcript resolver')
+      )
+    ).toBeTruthy();
+    expect(persistedConfig.projectPath).toBe(fixture.staleProjectPath);
+  });
+
+  it('uses resolver-discovered session ids when config has no leadSessionId or sessionHistory', async () => {
+    const fixture = await createResolverBackedLeadFixture({
+      leadSessionId: undefined,
+      sessionFileId: 'lead-discovered',
+    });
+    const service = createResolverBackedService();
+
+    const page = await service.getMessagesPage(fixture.teamName, { limit: 10 });
+
+    expect(
+      page.messages.find(
+        (message) =>
+          message.source === 'lead_session' &&
+          message.text.includes('recovered through the transcript resolver')
+      )
+    ).toBeTruthy();
+  });
+
   it('fails fast when config is missing before any read-phase step starts', async () => {
     const harness = createGetTeamDataHarness({
       config: null,
@@ -3812,6 +3974,90 @@ describe('TeamDataService', () => {
       const page = await service.getMessagesPage('my-team', { limit: 10 });
       const result = page.messages.find((m) => m.messageId === 'resp1');
       expect(result?.messageKind).toBe('slash_command_result');
+    });
+
+    it('dedups newest-page live overlay against durable lead thoughts that already paged off the first page', async () => {
+      const fillerMessages = Array.from({ length: 55 }, (_, index) => ({
+        from: 'alice',
+        text: `filler-${index}`,
+        timestamp: `2026-01-01T00:00:${String(10 + index).padStart(2, '0')}.000Z`,
+        messageId: `filler-${index}`,
+        source: 'inbox' as const,
+      }));
+      const durableThought = {
+        from: 'team-lead',
+        text: 'Hello there',
+        timestamp: '2026-01-01T00:00:01.000Z',
+        messageId: 'durable-thought',
+        source: 'lead_session' as const,
+        leadSessionId: 'lead-1',
+      };
+      const service = createPaginationService([...fillerMessages, durableThought]);
+
+      const page = await service.getMessagesPage('my-team', {
+        limit: 50,
+        liveMessages: [
+          {
+            from: 'team-lead',
+            text: 'Hello there',
+            timestamp: '2026-01-01T00:01:30.000Z',
+            read: true,
+            source: 'lead_process',
+            messageId: 'live-thought',
+            leadSessionId: 'lead-1',
+          },
+        ],
+      });
+
+      expect(page.messages).toHaveLength(50);
+      expect(page.messages.some((message) => message.messageId === 'live-thought')).toBe(false);
+      expect(page.messages.some((message) => message.messageId === 'durable-thought')).toBe(false);
+    });
+
+    it('does not skip durable rows when live overlay fills the newest page', async () => {
+      const msgs = [
+        {
+          from: 'alice',
+          text: 'durable-newest',
+          timestamp: '2026-01-01T00:00:02.000Z',
+          messageId: 'durable-2',
+          source: 'inbox' as const,
+        },
+        {
+          from: 'alice',
+          text: 'durable-older',
+          timestamp: '2026-01-01T00:00:01.000Z',
+          messageId: 'durable-1',
+          source: 'inbox' as const,
+        },
+      ];
+      const service = createPaginationService(msgs);
+
+      const page1 = await service.getMessagesPage('my-team', {
+        limit: 1,
+        liveMessages: [
+          {
+            from: 'team-lead',
+            text: 'live-thought',
+            timestamp: '2026-01-01T00:00:03.000Z',
+            read: true,
+            source: 'lead_process',
+            messageId: 'live-1',
+            leadSessionId: 'lead-1',
+          },
+        ],
+      });
+
+      expect(page1.messages.map((message) => message.messageId)).toEqual(['live-1']);
+      expect(page1.hasMore).toBe(true);
+      expect(page1.nextCursor).toBe('2026-01-01T00:00:03.000Z|live-1');
+
+      const page2 = await service.getMessagesPage('my-team', {
+        limit: 10,
+        beforeTimestamp: page1.nextCursor!,
+      });
+
+      expect(page2.messages.map((message) => message.messageId)).toEqual(['durable-2', 'durable-1']);
     });
   });
 });

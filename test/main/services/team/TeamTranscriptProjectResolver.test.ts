@@ -1,0 +1,460 @@
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { TeamTranscriptProjectResolver } from '../../../../src/main/services/team/TeamTranscriptProjectResolver';
+import { encodePath, setClaudeBasePathOverride } from '../../../../src/main/utils/pathDecoder';
+
+import type { TeamConfig } from '../../../../src/shared/types/team';
+
+describe('TeamTranscriptProjectResolver', () => {
+  let tmpDir: string | null = null;
+
+  afterEach(async () => {
+    setClaudeBasePathOverride(null);
+    if (tmpDir) {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+      tmpDir = null;
+    }
+  });
+
+  async function setupClaudeRoot(): Promise<string> {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'team-transcript-project-resolver-'));
+    setClaudeBasePathOverride(tmpDir);
+    await fs.mkdir(path.join(tmpDir, 'teams'), { recursive: true });
+    await fs.mkdir(path.join(tmpDir, 'projects'), { recursive: true });
+    return tmpDir;
+  }
+
+  async function writeTeamConfig(teamName: string, config: TeamConfig): Promise<void> {
+    const teamDir = path.join(tmpDir!, 'teams', teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(path.join(teamDir, 'config.json'), JSON.stringify(config, null, 2), 'utf8');
+  }
+
+  async function readTeamConfig(teamName: string): Promise<TeamConfig> {
+    const raw = await fs.readFile(path.join(tmpDir!, 'teams', teamName, 'config.json'), 'utf8');
+    return JSON.parse(raw) as TeamConfig;
+  }
+
+  async function createSessionFile(
+    projectPath: string,
+    sessionId: string,
+    cwd: string = projectPath
+  ): Promise<{ projectDir: string; jsonlPath: string }> {
+    const projectDir = path.join(tmpDir!, 'projects', encodePath(projectPath));
+    await fs.mkdir(projectDir, { recursive: true });
+    const jsonlPath = path.join(projectDir, `${sessionId}.jsonl`);
+    await fs.writeFile(
+      jsonlPath,
+      `${JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-04-18T10:00:00.000Z',
+        cwd,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Resolver probe output' }],
+        },
+      })}\n`,
+      'utf8'
+    );
+    return { projectDir, jsonlPath };
+  }
+
+  async function createSessionFileInProjectDir(
+    projectDirName: string,
+    sessionId: string,
+    cwd: string
+  ): Promise<{ projectDir: string; jsonlPath: string }> {
+    const projectDir = path.join(tmpDir!, 'projects', projectDirName);
+    await fs.mkdir(projectDir, { recursive: true });
+    const jsonlPath = path.join(projectDir, `${sessionId}.jsonl`);
+    await fs.writeFile(
+      jsonlPath,
+      `${JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-04-18T10:00:00.000Z',
+        cwd,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Resolver probe output' }],
+        },
+      })}\n`,
+      'utf8'
+    );
+    return { projectDir, jsonlPath };
+  }
+
+  async function createTeamAwareSessionFile(
+    projectPath: string,
+    sessionId: string,
+    teamName: string,
+    mode: 'text' | 'nested'
+  ): Promise<{ projectDir: string; jsonlPath: string }> {
+    const projectDir = path.join(tmpDir!, 'projects', encodePath(projectPath));
+    await fs.mkdir(projectDir, { recursive: true });
+    const jsonlPath = path.join(projectDir, `${sessionId}.jsonl`);
+    const lines =
+      mode === 'text'
+        ? [
+            {
+              type: 'user',
+              timestamp: '2026-04-18T10:00:00.000Z',
+              cwd: projectPath,
+              message: {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: `Current durable team context:\n- Team name: ${teamName}\n- You are the live team lead "team-lead"`,
+                  },
+                ],
+              },
+            },
+          ]
+        : [
+            {
+              type: 'assistant',
+              timestamp: '2026-04-18T10:00:00.000Z',
+              cwd: projectPath,
+              message: {
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'tool_use',
+                    id: 'call_probe',
+                    name: 'mcp__agent-teams__task_create_from_message',
+                    input: {
+                      teamName,
+                      subject: 'Probe task',
+                    },
+                  },
+                ],
+              },
+            },
+          ];
+
+    await fs.writeFile(jsonlPath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`, 'utf8');
+    return { projectDir, jsonlPath };
+  }
+
+  it('repairs stale projectPath when exact leadSessionId exists only in the renamed project', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const staleProjectPath = '/Users/test/hookplex';
+    const repairedProjectPath = '/Users/test/plugin-kit-ai';
+    const leadSessionId = 'lead-1';
+    const staleProjectDir = path.join(tmpDir!, 'projects', encodePath(staleProjectPath));
+    await fs.mkdir(staleProjectDir, { recursive: true });
+    const repaired = await createSessionFile(repairedProjectPath, leadSessionId);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      leadSessionId,
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: repairedProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+    const persisted = await readTeamConfig(teamName);
+
+    expect(context).not.toBeNull();
+    expect(context?.projectDir).toBe(repaired.projectDir);
+    expect(context?.config.projectPath).toBe(repairedProjectPath);
+    expect(persisted.projectPath).toBe(repairedProjectPath);
+    expect(persisted.projectPathHistory).toEqual(expect.arrayContaining([staleProjectPath]));
+  });
+
+  it('keeps the current projectPath when it already contains the exact session', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const currentProjectPath = '/Users/test/hookplex';
+    const alternateProjectPath = '/Users/test/plugin-kit-ai';
+    const leadSessionId = 'lead-1';
+    const current = await createSessionFile(currentProjectPath, leadSessionId);
+    await createSessionFile(alternateProjectPath, leadSessionId);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: currentProjectPath,
+      projectPathHistory: [alternateProjectPath],
+      leadSessionId,
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: alternateProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+    const persisted = await readTeamConfig(teamName);
+
+    expect(context?.projectDir).toBe(current.projectDir);
+    expect(context?.config.projectPath).toBe(currentProjectPath);
+    expect(persisted.projectPath).toBe(currentProjectPath);
+    expect(persisted.projectPathHistory).toEqual([alternateProjectPath]);
+  });
+
+  it('falls back to exact sessionHistory ids when leadSessionId file is missing', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const staleProjectPath = '/Users/test/hookplex';
+    const repairedProjectPath = '/Users/test/plugin-kit-ai';
+    const historicalSessionId = 'lead-old';
+    await fs.mkdir(path.join(tmpDir!, 'projects', encodePath(staleProjectPath)), { recursive: true });
+    const repaired = await createSessionFile(repairedProjectPath, historicalSessionId);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      leadSessionId: 'lead-missing',
+      sessionHistory: [historicalSessionId],
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: repairedProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+    const persisted = await readTeamConfig(teamName);
+
+    expect(context?.projectDir).toBe(repaired.projectDir);
+    expect(context?.config.projectPath).toBe(repairedProjectPath);
+    expect(persisted.projectPath).toBe(repairedProjectPath);
+  });
+
+  it('prefers the newest sessionHistory match when leadSessionId is missing', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const staleProjectPath = '/Users/test/hookplex';
+    const repairedProjectPath = '/Users/test/plugin-kit-ai';
+    const olderSessionId = 'lead-old';
+    const newerSessionId = 'lead-new';
+    await createSessionFile(staleProjectPath, olderSessionId);
+    const repaired = await createSessionFile(repairedProjectPath, newerSessionId);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      leadSessionId: 'lead-missing',
+      sessionHistory: [olderSessionId, newerSessionId],
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: repairedProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+
+    expect(context?.projectDir).toBe(repaired.projectDir);
+    expect(context?.config.projectPath).toBe(repairedProjectPath);
+  });
+
+  it('does not let an old sessionHistory match block repair when the current leadSessionId exists elsewhere', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const staleProjectPath = '/Users/test/hookplex';
+    const repairedProjectPath = '/Users/test/plugin-kit-ai';
+    const leadSessionId = 'lead-current';
+    const historicalSessionId = 'lead-old';
+    await createSessionFile(staleProjectPath, historicalSessionId);
+    const repaired = await createSessionFile(repairedProjectPath, leadSessionId);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      leadSessionId,
+      sessionHistory: [historicalSessionId],
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: repairedProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+    const persisted = await readTeamConfig(teamName);
+
+    expect(context?.projectDir).toBe(repaired.projectDir);
+    expect(context?.config.projectPath).toBe(repairedProjectPath);
+    expect(persisted.projectPath).toBe(repairedProjectPath);
+  });
+
+  it('picks the best exact session match across dir variants for the same projectPath', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const projectPath = '/Users/test/plugin_kit_ai';
+    const staleSessionId = 'lead-old';
+    const currentSessionId = 'lead-current';
+    await createSessionFile(projectPath, staleSessionId);
+    const repaired = await createSessionFileInProjectDir(
+      encodePath(projectPath).replace(/_/g, '-'),
+      currentSessionId,
+      projectPath
+    );
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath,
+      leadSessionId: currentSessionId,
+      sessionHistory: [staleSessionId],
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: projectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+
+    expect(context?.projectDir).toBe(repaired.projectDir);
+  });
+
+  it('does not self-heal when an alternate configured match is not unique across projects scan', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const staleProjectPath = '/Users/test/hookplex';
+    const configuredProjectPath = '/Users/test/plugin-kit-ai';
+    const duplicateProjectPath = '/Users/test/plugin-kit-ai-copy';
+    const leadSessionId = 'lead-1';
+    const staleProjectDir = path.join(tmpDir!, 'projects', encodePath(staleProjectPath));
+    await fs.mkdir(staleProjectDir, { recursive: true });
+    await createSessionFile(configuredProjectPath, leadSessionId);
+    await createSessionFile(duplicateProjectPath, leadSessionId);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      projectPathHistory: [configuredProjectPath],
+      leadSessionId,
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: configuredProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const warnSpy = vi.mocked(console.warn);
+    const context = await resolver.getContext(teamName);
+    const persisted = await readTeamConfig(teamName);
+
+    expect(context?.projectDir).toBe(staleProjectDir);
+    expect(context?.config.projectPath).toBe(staleProjectPath);
+    expect(persisted.projectPath).toBe(staleProjectPath);
+    expect(warnSpy.mock.calls).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([
+          expect.stringContaining('Transcript project resolution ambiguous across exact-session candidates'),
+        ]),
+      ])
+    );
+    warnSpy.mockClear();
+  });
+
+  it('does not self-heal when full scan finds multiple equally valid session matches', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const staleProjectPath = '/Users/test/hookplex';
+    const leadSessionId = 'lead-1';
+    const staleProjectDir = path.join(tmpDir!, 'projects', encodePath(staleProjectPath));
+    await fs.mkdir(staleProjectDir, { recursive: true });
+    await createSessionFile('/Users/test/plugin-kit-ai', leadSessionId);
+    await createSessionFile('/Users/test/plugin-kit-ai-copy', leadSessionId);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      leadSessionId,
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const warnSpy = vi.mocked(console.warn);
+    const context = await resolver.getContext(teamName);
+    const persisted = await readTeamConfig(teamName);
+
+    expect(context?.projectDir).toBe(staleProjectDir);
+    expect(context?.config.projectPath).toBe(staleProjectPath);
+    expect(persisted.projectPath).toBe(staleProjectPath);
+    expect(warnSpy.mock.calls).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([
+          expect.stringContaining('Transcript project resolution ambiguous across exact-session candidates'),
+        ]),
+      ])
+    );
+    warnSpy.mockClear();
+  });
+
+  it('falls back to an existing alternate dir candidate when no session ids are known yet', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'my-team';
+    const projectPath = '/Users/test/plugin_kit_ai';
+    const alternateDir = encodePath(projectPath).replace(/_/g, '-');
+    const fallback = await createSessionFileInProjectDir(alternateDir, 'lead-1', projectPath);
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath,
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: projectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+
+    expect(context?.projectDir).toBe(fallback.projectDir);
+    expect(context?.config.projectPath).toBe(projectPath);
+  });
+
+  it('prefers a later candidate when the transcript text explicitly names the team and the stale project dir still exists', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'vector-room-55555551';
+    const staleProjectPath = '/Users/test/hookplex';
+    const repairedProjectPath = '/Users/test/plugin-kit-ai';
+    const staleProjectDir = path.join(tmpDir!, 'projects', encodePath(staleProjectPath));
+    await fs.mkdir(staleProjectDir, { recursive: true });
+    const repaired = await createTeamAwareSessionFile(
+      repairedProjectPath,
+      'lead-1',
+      teamName,
+      'text'
+    );
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: repairedProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+
+    expect(context?.projectDir).toBe(repaired.projectDir);
+    expect(context?.config.projectPath).toBe(repairedProjectPath);
+  });
+
+  it('recognizes nested tool input teamName during no-session fallback', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'vector-room-55555551';
+    const staleProjectPath = '/Users/test/hookplex';
+    const repairedProjectPath = '/Users/test/plugin-kit-ai';
+    const staleProjectDir = path.join(tmpDir!, 'projects', encodePath(staleProjectPath));
+    await fs.mkdir(staleProjectDir, { recursive: true });
+    const repaired = await createTeamAwareSessionFile(
+      repairedProjectPath,
+      'lead-1',
+      teamName,
+      'nested'
+    );
+
+    await writeTeamConfig(teamName, {
+      name: 'My Team',
+      projectPath: staleProjectPath,
+      members: [{ name: 'team-lead', agentType: 'team-lead', cwd: repairedProjectPath }],
+    });
+
+    const resolver = new TeamTranscriptProjectResolver();
+    const context = await resolver.getContext(teamName);
+
+    expect(context?.projectDir).toBe(repaired.projectDir);
+    expect(context?.config.projectPath).toBe(repairedProjectPath);
+  });
+});

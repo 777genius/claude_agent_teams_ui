@@ -49,6 +49,7 @@ https://github.com/user-attachments/assets/35e27989-726d-4059-8662-bae610e46b42
 ## Installation
 
 No prerequisites - the app can detect supported runtimes/providers and guide setup from the UI.
+If you want the freshest version, clone the repo and run it from the `dev` branch.
 
 <table align="center">
 <tr>

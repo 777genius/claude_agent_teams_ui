@@ -251,6 +251,55 @@ describe('MessagesPanel idle summary invariants', () => {
     });
   });
 
+  it('clears pending replies when a real member reply arrives after the pending timestamp', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onPendingReplyChange = vi.fn();
+
+    const pendingSentAtMs = Date.parse('2026-04-08T12:00:00.000Z');
+    const messages: InboxMessage[] = [
+      makeMessage({
+        messageId: 'lead-reply',
+        from: 'alice',
+        read: true,
+        source: 'lead_process',
+        timestamp: '2026-04-08T12:01:00.000Z',
+        text: 'Starting now.',
+      }),
+    ];
+
+    await act(async () => {
+      root.render(
+        React.createElement(MessagesPanel, {
+          teamName: 'atlas-hq',
+          position: 'sidebar',
+          onPositionChange: vi.fn(),
+          members: [],
+          tasks: [],
+          messages,
+          timeWindow: null,
+          teamSessionIds: new Set<string>(),
+          pendingRepliesByMember: { alice: pendingSentAtMs },
+          onPendingReplyChange,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(onPendingReplyChange.mock.calls.length).toBeGreaterThan(0);
+    const updater = onPendingReplyChange.mock.calls.at(-1)?.[0] as
+      | ((current: Record<string, number>) => Record<string, number>)
+      | undefined;
+    expect(updater?.({ alice: pendingSentAtMs })).toEqual({});
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
   it('renders the bottom-sheet composer before the status block so input stays pinned near the header', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

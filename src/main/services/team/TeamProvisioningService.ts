@@ -3109,17 +3109,14 @@ export class TeamProvisioningService {
   }
 
   getLiveLeadProcessMessages(teamName: string): InboxMessage[] {
-    const list = this.liveLeadProcessMessages.get(teamName) ?? [];
     const runId = this.getTrackedRunId(teamName);
-    const sessionId = runId ? this.runs.get(runId)?.detectedSessionId : null;
-    if (sessionId) {
-      for (const message of list) {
-        if (!message.leadSessionId && message.source === 'lead_process') {
-          message.leadSessionId = sessionId;
-        }
-      }
-    }
-    return [...list];
+    const detectedSessionId = runId ? (this.runs.get(runId)?.detectedSessionId ?? null) : null;
+
+    return (this.liveLeadProcessMessages.get(teamName) ?? []).map((message) =>
+      !message.leadSessionId && detectedSessionId
+        ? { ...message, leadSessionId: detectedSessionId }
+        : { ...message }
+    );
   }
 
   private pruneLiveLeadMessagesForCleanedRun(run: ProvisioningRun): void {

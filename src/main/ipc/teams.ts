@@ -100,17 +100,18 @@ import { ConfigManager } from '../services/infrastructure/ConfigManager';
 import { NotificationManager } from '../services/infrastructure/NotificationManager';
 import { gitIdentityResolver } from '../services/parsing/GitIdentityResolver';
 import {
-  getAutoResumeService,
-  initializeAutoResumeService,
-} from '../services/team/AutoResumeService';
-import {
   buildActionModeAgentBlock,
   isAgentActionMode,
 } from '../services/team/actionModeInstructions';
 import {
+  getAutoResumeService,
+  initializeAutoResumeService,
+} from '../services/team/AutoResumeService';
+import {
   buildReplaceMembersDiff,
   buildReplaceMembersSummaryMessage,
 } from '../services/team/memberUpdateNotifications';
+import { mergeLiveLeadProcessMessages } from '../services/team/mergeLiveLeadProcessMessages';
 import { TeamAttachmentStore } from '../services/team/TeamAttachmentStore';
 import { TeamMembersMetaStore } from '../services/team/TeamMembersMetaStore';
 import { TeamMetaStore } from '../services/team/TeamMetaStore';
@@ -156,11 +157,9 @@ import type {
   IpcResult,
   KanbanColumnId,
   LeadActivitySnapshot,
-  LeadContextUsage,
   LeadContextUsageSnapshot,
   MemberFullStats,
   MemberLogSummary,
-  MemberSpawnStatusEntry,
   MemberSpawnStatusesSnapshot,
   MessagesPage,
   SendMessageRequest,
@@ -823,81 +822,22 @@ async function handleGetData(
     checkApiErrorMessages(data.messages, tn, displayName, projectPath);
     return { success: true, data: { ...data, isAlive } };
   }
-
-  const normalizeText = (text: string): string => text.trim().replace(/\r\n/g, '\n');
-  const isLeadThoughtLike = (msg: { source?: unknown; to?: string }): boolean =>
-    !msg.to && (msg.source === 'lead_process' || msg.source === 'lead_session');
-  const getLeadThoughtFingerprint = (msg: {
-    from: string;
-    text: string;
-    leadSessionId?: string;
-  }): string => `${msg.leadSessionId ?? ''}\0${msg.from}\0${normalizeText(msg.text)}`;
-
-  // Collect fingerprints only for thought-like lead messages. Include leadSessionId so a
-  // repeated thought in a new session does not get collapsed into an old session's history.
-  const existingTextFingerprints = new Set<string>();
-  for (const msg of data.messages) {
-    if (typeof msg.from !== 'string' || typeof msg.text !== 'string') continue;
-    if (!isLeadThoughtLike(msg)) continue;
-    existingTextFingerprints.add(getLeadThoughtFingerprint(msg));
+  let merged = mergeLiveLeadProcessMessages(data.messages, live);
+  if (data.messages.length >= 50) {
+    try {
+      const newestPage = await teamDataService.getMessagesPage(tn, {
+        limit: 50,
+        liveMessages: live,
+      });
+      merged = newestPage.messages;
+    } catch (error) {
+      logger.warn(
+        `[teams:getData] failed to rebuild newest merged messages for ${tn}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
-
-  const keyFor = (m: {
-    messageId?: string;
-    timestamp: string;
-    from: string;
-    text: string;
-  }): string => {
-    if (typeof m.messageId === 'string' && m.messageId.trim().length > 0) {
-      return m.messageId;
-    }
-    return `${m.timestamp}\0${m.from}\0${(m.text ?? '').slice(0, 80)}`;
-  };
-
-  // Text-based fingerprints for live lead thoughts to catch duplicates with different
-  // messageIds inside the same session (e.g. lead-turn-* re-emits).
-  const leadProcessTextFingerprints = new Set<string>();
-
-  // Content-based dedup for SendMessage captures: Claude Code CLI and our
-  // persistInboxMessage both write to inboxes/{member}.json, producing two entries
-  // with identical content but different messageIds. Track content fingerprints
-  // (from+to+text) with timestamps to collapse them within a 5-second window.
-  const contentSeen = new Map<string, number>(); // fingerprint → timestamp ms
-
-  const merged: typeof data.messages = [];
-  const seen = new Set<string>();
-  for (const msg of [...data.messages, ...live]) {
-    if ((msg as { source?: unknown }).source === 'lead_process' && !msg.to) {
-      const fp = getLeadThoughtFingerprint(msg);
-      // Skip if the same thought already exists in persisted history for the same session.
-      if (existingTextFingerprints.has(fp)) {
-        continue;
-      }
-      // Dedup live lead_process thoughts with the same text in the same session.
-      if (leadProcessTextFingerprints.has(fp)) {
-        continue;
-      }
-      leadProcessTextFingerprints.add(fp);
-    }
-
-    // Content dedup for directed messages (SendMessage captures):
-    // same from+to+text within 5 seconds = duplicate from CLI + our persist.
-    if (typeof msg.to === 'string' && msg.to.trim().length > 0) {
-      const contentFp = `${msg.from}\0${msg.to}\0${(msg.text ?? '').replace(/\s+/g, ' ').slice(0, 100)}`;
-      const msgMs = Date.parse(msg.timestamp);
-      const existingMs = contentSeen.get(contentFp);
-      if (existingMs !== undefined && Math.abs(msgMs - existingMs) <= 5000) {
-        continue; // duplicate within 5s window — skip
-      }
-      contentSeen.set(contentFp, msgMs);
-    }
-
-    const key = keyFor(msg);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(msg);
-  }
-  merged.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
   checkRateLimitMessages(merged, tn, displayName, projectPath, isAlive, currentLeadSessionId);
   checkApiErrorMessages(merged, tn, displayName, projectPath);
@@ -1789,7 +1729,10 @@ async function handleGetMessagesPage(
 
   return wrapTeamHandler('getMessagesPage', async () => {
     const service = getTeamDataService();
-    return service.getMessagesPage(vTeam.value!, { beforeTimestamp, limit });
+    const liveMessages = beforeTimestamp
+      ? undefined
+      : getTeamProvisioningService().getLiveLeadProcessMessages(vTeam.value!);
+    return service.getMessagesPage(vTeam.value!, { beforeTimestamp, limit, liveMessages });
   });
 }
 
