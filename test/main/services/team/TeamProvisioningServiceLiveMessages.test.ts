@@ -673,7 +673,11 @@ describe('TeamProvisioningService pre-ready live messages', () => {
       leadSessionId: 'sess-new',
     });
 
-    resolveSend?.({ deliveredToInbox: true, messageId: 'cross-stale-old-run' });
+    expect(resolveSend).not.toBeNull();
+    const finishSend = resolveSend as unknown as ((
+      value: { deliveredToInbox: boolean; messageId: string }
+    ) => void);
+    finishSend({ deliveredToInbox: true, messageId: 'cross-stale-old-run' });
     await Promise.resolve();
     await Promise.resolve();
 

@@ -765,7 +765,12 @@ describe('FileWatcher', () => {
           filePath: string
         ) => Promise<void>;
         lastProcessedLineCount: Map<string, number>;
+        instanceCreatedAt: number;
       };
+
+      // Make the "new file after startup" case deterministic across filesystems
+      // whose birthtime precision can differ on CI runners.
+      watcherAny.instanceCreatedAt = 0;
 
       // First read of a NEW file should detect errors (not baseline-skip)
       await watcherAny.detectErrorsInSessionFile('test-project', 'session-new', filePath);
