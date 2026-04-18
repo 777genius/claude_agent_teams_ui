@@ -459,6 +459,14 @@ export default defineConfig([
     },
   },
 
+  {
+    name: 'team-transcript-project-resolver-sonar-override',
+    files: ['src/main/services/team/TeamTranscriptProjectResolver.ts'],
+    rules: {
+      'sonarjs/no-identical-functions': 'off',
+    },
+  },
+
   // Preload script (Electron bridge)
   {
     name: 'electron-preload',
