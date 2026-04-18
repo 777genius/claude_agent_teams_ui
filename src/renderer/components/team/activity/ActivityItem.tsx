@@ -668,11 +668,8 @@ export const ActivityItem = memo(
     }, [message.timestamp]);
 
     const structured = parseStructuredAgentMessage(message.text);
-    const bootstrapDisplay = useMemo(() => getBootstrapPromptDisplay(message), [message]);
-    const bootstrapAcknowledgement = useMemo(
-      () => getBootstrapAcknowledgementDisplay(message),
-      [message]
-    );
+    const bootstrapDisplay = getBootstrapPromptDisplay(message);
+    const bootstrapAcknowledgement = getBootstrapAcknowledgementDisplay(message);
     // Only flag agent messages as rate-limited, not user's own quotes
     const rateLimited = message.from !== 'user' && isRateLimitMessage(message.text);
     // Highlight messages containing API errors
@@ -681,22 +678,16 @@ export const ActivityItem = memo(
     const isAuthError = isApiError && AUTH_ERROR_PATTERNS.some((p) => p.test(message.text));
     // Never collapse rate limit messages as noise — they must be visible
     const noiseLabel = structured && !rateLimited ? getNoiseLabel(structured) : null;
-    const idleSemantic = useMemo(() => classifyIdleNotification(message), [message]);
+    const idleSemantic = classifyIdleNotification(message);
 
     const systemLabel = !structured && !rateLimited ? getSystemMessageLabel(message.text) : null;
     const isManaged = collapseMode === 'managed';
     const isExpanded = isManaged ? !isCollapsed : true;
 
-    const parsedCrossTeamPrefix = useMemo(() => parseCrossTeamPrefix(message.text), [message.text]);
-    const qualifiedRecipient = useMemo(() => parseQualifiedRecipient(message.to), [message.to]);
-    const crossTeamSentTarget = useMemo(
-      () => getCrossTeamSentTarget(message.to, teamName, localMemberNames),
-      [message.to, teamName, localMemberNames]
-    );
-    const crossTeamSentMemberName = useMemo(
-      () => getCrossTeamSentMemberName(message.to),
-      [message.to]
-    );
+    const parsedCrossTeamPrefix = parseCrossTeamPrefix(message.text);
+    const qualifiedRecipient = parseQualifiedRecipient(message.to);
+    const crossTeamSentTarget = getCrossTeamSentTarget(message.to, teamName, localMemberNames);
+    const crossTeamSentMemberName = getCrossTeamSentMemberName(message.to);
     const isCrossTeam = message.source === CROSS_TEAM_SOURCE || parsedCrossTeamPrefix !== null;
     const isCrossTeamSent =
       message.source === CROSS_TEAM_SENT_SOURCE || crossTeamSentTarget !== null;
@@ -827,7 +818,7 @@ export const ActivityItem = memo(
       slashCommandMeta,
       structured,
     ]);
-    const summaryText = useMemo(() => extractMarkdownPlainText(rawSummary), [rawSummary]);
+    const summaryText = extractMarkdownPlainText(rawSummary);
     const commentTaskRef =
       message.messageKind === 'task_comment_notification' ? (message.taskRefs?.[0] ?? null) : null;
     const commentTaskDisplayId =
