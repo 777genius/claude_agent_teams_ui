@@ -126,6 +126,8 @@ A local orchestration layer for AI agent teams across Claude and Codex.
 
 - **Task creation with attachments** — send a message to the team lead with any attached images. The lead will automatically create a fully described task and attach your files directly to the task for complete context.
 
+- **Auto-resume after rate limits** — when the lead hits a Claude rate limit and the reset time is known, the app can automatically nudge the lead to continue once the cooldown has passed
+
 - **Deep session analysis** — detailed breakdown of what happened in each agent session: bash commands, reasoning, subprocesses
 
 - **Smart task-to-log/changes matching** — automatically links session logs/changes to specific tasks
