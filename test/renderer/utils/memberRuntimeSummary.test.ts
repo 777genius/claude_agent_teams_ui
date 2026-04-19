@@ -41,7 +41,7 @@ describe('resolveMemberRuntimeSummary', () => {
     const spawnEntry = createSpawnEntry({ runtimeModel: 'claude-opus-4-7', runtimeAlive: true });
 
     expect(resolveMemberRuntimeSummary(member, undefined, spawnEntry)).toBe(
-      'Anthropic · Opus 4.7 · Medium'
+      'Anthropic · Opus 4.7 · Medium · Codex native'
     );
   });
 
@@ -61,7 +61,9 @@ describe('resolveMemberRuntimeSummary', () => {
       runtimeModel: 'gpt-5.4-mini',
     });
 
-    expect(resolveMemberRuntimeSummary(member, undefined, spawnEntry)).toBe('5.4 Mini · Medium');
+    expect(resolveMemberRuntimeSummary(member, undefined, spawnEntry)).toBe(
+      '5.4 Mini · Medium · Codex native'
+    );
   });
 
   it('appends runtime memory when a live process snapshot is available', () => {
@@ -77,7 +79,7 @@ describe('resolveMemberRuntimeSummary', () => {
     };
 
     expect(resolveMemberRuntimeSummary(member, undefined, undefined, runtimeEntry)).toBe(
-      '5.4 Mini · Medium · 256.0 MB'
+      '5.4 Mini · Medium · Codex native · 256.0 MB'
     );
   });
 
@@ -99,7 +101,7 @@ describe('resolveMemberRuntimeSummary', () => {
     ).toBe('5.4 Mini · Medium · Codex native');
   });
 
-  it('marks persisted legacy Codex lanes as legacy fallbacks in the runtime summary', () => {
+  it('normalizes persisted legacy Codex lanes to the native runtime summary', () => {
     const member = createMember({ model: 'gpt-5.4-mini' });
 
     expect(
@@ -114,6 +116,6 @@ describe('resolveMemberRuntimeSummary', () => {
         },
         undefined
       )
-    ).toBe('5.4 Mini · Medium · Legacy OpenAI fallback');
+    ).toBe('5.4 Mini · Medium · Codex native');
   });
 });

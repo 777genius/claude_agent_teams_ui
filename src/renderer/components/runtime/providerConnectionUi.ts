@@ -1,7 +1,6 @@
 import type { CliProviderAuthMode, CliProviderStatus } from '@shared/types';
 
-const CODEX_SUBSCRIPTION_LABEL = 'Codex subscription';
-const CODEX_API_KEY_LABEL = 'OpenAI API key';
+const CODEX_NATIVE_LABEL = 'Codex native';
 const ANTHROPIC_SUBSCRIPTION_LABEL = 'Anthropic subscription';
 
 const AUTH_MODE_LABELS: Record<CliProviderAuthMode, string> = {
@@ -23,7 +22,7 @@ export function formatProviderAuthModeLabelForProvider(
   }
 
   if (providerId === 'codex' && authMode === 'oauth') {
-    return CODEX_SUBSCRIPTION_LABEL;
+    return CODEX_NATIVE_LABEL;
   }
 
   if (providerId === 'anthropic' && authMode === 'oauth') {
@@ -59,7 +58,7 @@ export function formatProviderAuthMethodLabelForProvider(
   authMethod: string | null
 ): string {
   if (providerId === 'codex' && authMethod === 'oauth_token') {
-    return CODEX_SUBSCRIPTION_LABEL;
+    return CODEX_NATIVE_LABEL;
   }
 
   if (providerId === 'anthropic' && (authMethod === 'oauth_token' || authMethod === 'claude.ai')) {
@@ -95,23 +94,11 @@ function getSelectedRuntimeBackendOption(
 }
 
 export function isConnectionManagedRuntimeProvider(provider: CliProviderStatus): boolean {
-  return provider.providerId === 'codex' && (provider.availableBackends?.length ?? 0) === 0;
+  return false;
 }
 
 function getCodexCurrentRuntimeLabel(provider: CliProviderStatus): string {
-  if (isCodexNativeLane(provider) && provider.backend?.label) {
-    return provider.backend.label;
-  }
-
-  if (provider.authenticated) {
-    return provider.authMethod === 'api_key' ? CODEX_API_KEY_LABEL : CODEX_SUBSCRIPTION_LABEL;
-  }
-
-  if (provider.connection?.configuredAuthMode === 'api_key') {
-    return CODEX_API_KEY_LABEL;
-  }
-
-  return CODEX_SUBSCRIPTION_LABEL;
+  return provider.backend?.label ?? CODEX_NATIVE_LABEL;
 }
 
 export function getProviderCurrentRuntimeSummary(provider: CliProviderStatus): string | null {
@@ -125,6 +112,15 @@ export function getProviderCurrentRuntimeSummary(provider: CliProviderStatus): s
 
 export function formatProviderStatusText(provider: CliProviderStatus): string {
   const selectedBackendOption = getSelectedRuntimeBackendOption(provider);
+
+  if (provider.providerId === 'codex') {
+    if (selectedBackendOption?.statusMessage) {
+      return selectedBackendOption.statusMessage;
+    }
+    return (
+      provider.statusMessage ?? (provider.authenticated ? 'Codex native ready' : 'Not connected')
+    );
+  }
 
   if (
     isCodexNativeLane(provider) &&
@@ -168,11 +164,7 @@ export function getProviderConnectionModeSummary(provider: CliProviderStatus): s
     return null;
   }
 
-  if (provider.providerId === 'codex') {
-    return null;
-  }
-
-  if (provider.providerId === 'anthropic' && provider.authenticated) {
+  if (provider.authenticated) {
     return null;
   }
 
@@ -212,22 +204,10 @@ export function getProviderCredentialSummary(provider: CliProviderStatus): strin
       : (provider.connection.apiKeySourceLabel ?? 'API key is configured');
   }
 
-  if (provider.providerId === 'codex' && provider.connection?.apiKeyBetaEnabled !== true) {
-    if (isCodexNativeLane(provider)) {
-      return provider.connection.apiKeySource === 'stored'
-        ? 'Saved API key available in Manage'
-        : (provider.connection.apiKeySourceLabel ?? 'API key is configured');
-    }
-
+  if (provider.providerId === 'codex') {
     return provider.connection.apiKeySource === 'stored'
-      ? 'OpenAI API key is saved in Manage. Enable API key mode to use it.'
-      : 'OpenAI API key detected. Enable API key mode in Manage to use it.';
-  }
-
-  if (provider.authMethod !== 'api_key' && provider.providerId === 'codex') {
-    return provider.connection.apiKeySource === 'stored'
-      ? 'OpenAI API key is also configured in Manage'
-      : (provider.connection.apiKeySourceLabel ?? 'OpenAI API key is configured');
+      ? 'Saved API key available in Manage'
+      : (provider.connection.apiKeySourceLabel ?? 'API key is configured');
   }
 
   return provider.connection.apiKeySourceLabel ?? null;
@@ -258,17 +238,6 @@ export function getProviderDisconnectAction(provider: CliProviderStatus): {
     };
   }
 
-  if (provider.providerId === 'codex' && provider.authMethod === 'oauth_token') {
-    return {
-      label: 'Disconnect',
-      confirmLabel: 'Disconnect',
-      title: 'Disconnect Codex subscription?',
-      message: provider.connection?.apiKeyConfigured
-        ? 'This removes the local Codex subscription session from the Claude CLI runtime. Saved OPENAI_API_KEY credentials in Manage stay available.'
-        : 'This removes the local Codex subscription session from the Claude CLI runtime.',
-    };
-  }
-
   if (provider.providerId === 'gemini' && provider.authMethod === 'cli_oauth_personal') {
     return {
       label: 'Disconnect',
@@ -288,7 +257,7 @@ export function getProviderConnectLabel(provider: CliProviderStatus): string {
   }
 
   if (provider.providerId === 'codex') {
-    return 'Connect Codex';
+    return 'Configure API key';
   }
 
   if (provider.providerId === 'gemini') {
@@ -299,6 +268,10 @@ export function getProviderConnectLabel(provider: CliProviderStatus): string {
 }
 
 export function shouldShowProviderConnectAction(provider: CliProviderStatus): boolean {
+  if (provider.providerId === 'codex') {
+    return false;
+  }
+
   if (!provider.canLoginFromUi || provider.authenticated) {
     return false;
   }

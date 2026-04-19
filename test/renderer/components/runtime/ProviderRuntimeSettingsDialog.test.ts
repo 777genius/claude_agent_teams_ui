@@ -138,6 +138,8 @@ vi.mock('@renderer/components/runtime/ProviderRuntimeBackendSelector', () => ({
       'Select runtime backend'
     ),
   getProviderRuntimeBackendSummary: () => null,
+  getVisibleProviderRuntimeBackendOptions: (provider: CliProviderStatus) =>
+    provider.availableBackends ?? [],
 }));
 
 vi.mock('@renderer/components/common/ProviderBrandLogo', () => ({
@@ -155,6 +157,10 @@ function createCodexProvider(
   overrides?: Partial<CliProviderStatus['connection']> & {
     authenticated?: boolean;
     authMethod?: string | null;
+    selectedBackendId?: string | null;
+    resolvedBackendId?: string | null;
+    availableBackends?: CliProviderStatus['availableBackends'];
+    canLoginFromUi?: boolean;
   }
 ): CliProviderStatus {
   return {
@@ -162,30 +168,45 @@ function createCodexProvider(
     displayName: 'Codex',
     supported: true,
     authenticated: overrides?.authenticated ?? true,
-    authMethod: overrides?.authMethod ?? 'oauth_token',
+    authMethod: overrides?.authMethod ?? 'api_key',
     verificationState: 'verified',
-    statusMessage: 'Connected',
+    statusMessage: 'Codex native ready',
     models: ['gpt-5-codex'],
-    canLoginFromUi: true,
+    canLoginFromUi: overrides?.canLoginFromUi ?? false,
     capabilities: {
       teamLaunch: true,
       oneShot: true,
       extensions: createDefaultCliExtensionCapabilities(),
     },
-    selectedBackendId: 'auto',
-    resolvedBackendId: 'adapter',
-    availableBackends: [],
+    selectedBackendId: overrides?.selectedBackendId ?? 'codex-native',
+    resolvedBackendId: overrides?.resolvedBackendId ?? 'codex-native',
+    availableBackends:
+      overrides?.availableBackends ??
+      [
+        {
+          id: 'codex-native',
+          label: 'Codex native',
+          description: 'Use the local codex exec JSON seam.',
+          selectable: true,
+          recommended: true,
+          available: true,
+          state: 'ready',
+          audience: 'general',
+          statusMessage: 'Codex native ready',
+        },
+      ],
+    externalRuntimeDiagnostics: [],
     backend: {
-      kind: 'adapter',
-      label: 'Codex subscription',
+      kind: 'codex-native',
+      label: 'Codex native',
     },
     connection: {
-      supportsOAuth: true,
+      supportsOAuth: false,
       supportsApiKey: true,
-      configurableAuthModes: overrides?.apiKeyBetaEnabled ? ['oauth', 'api_key'] : [],
-      configuredAuthMode: overrides?.configuredAuthMode ?? null,
-      apiKeyBetaAvailable: true,
-      apiKeyBetaEnabled: overrides?.apiKeyBetaEnabled ?? false,
+      configurableAuthModes: [],
+      configuredAuthMode: null,
+      apiKeyBetaAvailable: undefined,
+      apiKeyBetaEnabled: undefined,
       apiKeyConfigured: overrides?.apiKeyConfigured ?? false,
       apiKeySource: overrides?.apiKeySource ?? null,
       apiKeySourceLabel: overrides?.apiKeySourceLabel ?? null,
@@ -217,6 +238,7 @@ function createAnthropicProvider(
     selectedBackendId: null,
     resolvedBackendId: null,
     availableBackends: [],
+    externalRuntimeDiagnostics: [],
     backend: null,
     connection: {
       supportsOAuth: true,
@@ -266,6 +288,7 @@ function createGeminiProvider(): CliProviderStatus {
         available: true,
       },
     ],
+    externalRuntimeDiagnostics: [],
     backend: {
       kind: 'api',
       label: 'Gemini API',
@@ -292,11 +315,7 @@ function findButtonByText(container: HTMLElement, text: string): HTMLButtonEleme
   return button;
 }
 
-function countOccurrences(text: string, fragment: string): number {
-  return text.split(fragment).length - 1;
-}
-
-describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
+describe('ProviderRuntimeSettingsDialog', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.appConfig = {
@@ -346,139 +365,6 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     vi.unstubAllGlobals();
   });
 
-  it('switches Codex into api_key mode when enabling API key mode', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: false,
-              configuredAuthMode: null,
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Enable API key mode').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
-      codex: {
-        apiKeyBetaEnabled: true,
-        authMode: 'api_key',
-      },
-    });
-    expect(onRefreshProvider).toHaveBeenCalledWith('codex');
-  });
-
-  it('shows a loading message while switching Codex to OpenAI API key', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    let resolveUpdate: (() => void) | null = null;
-    storeState.appConfig.providerConnections.codex = {
-      apiKeyBetaEnabled: true,
-      authMode: 'oauth',
-    };
-    storeState.updateConfig = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveUpdate = resolve;
-        })
-    );
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: true,
-              configuredAuthMode: 'oauth',
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'OpenAI API key').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('Switching to OpenAI API key...');
-    expect(host.textContent).toContain('Switching...');
-
-    await act(async () => {
-      resolveUpdate?.();
-      await Promise.resolve();
-    });
-  });
-
-  it('removes duplicate Codex summary and API key source text when connection cards are visible', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    storeState.appConfig.providerConnections.codex = {
-      apiKeyBetaEnabled: true,
-      authMode: 'oauth',
-    };
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: true,
-              configuredAuthMode: 'oauth',
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).not.toContain('Current runtime: Codex subscription');
-    expect(host.textContent).not.toContain('Mode: Codex subscription');
-    expect(host.textContent).not.toContain('Runtime: Default adapter');
-    expect(countOccurrences(host.textContent ?? '', 'Using Codex subscription')).toBe(0);
-    expect(countOccurrences(host.textContent ?? '', 'Detected from OPENAI_API_KEY')).toBe(1);
-    expect(host.textContent).not.toContain('Connected');
-  });
-
   it('renders provider logos inside the provider tabs', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -502,10 +388,11 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     expect(host.querySelector('[data-testid="provider-logo-codex"]')).not.toBeNull();
   });
 
-  it('renders Anthropics connection methods as cards and hides the empty runtime section', async () => {
+  it('renders anthropic connection cards and can switch to API key mode', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const root = createRoot(host);
+    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
 
     await act(async () => {
       root.render(
@@ -516,27 +403,70 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
             createAnthropicProvider({
               configuredAuthMode: 'auto',
               apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from ANTHROPIC_API_KEY',
+              apiKeySource: 'stored',
+              apiKeySourceLabel: 'Stored in app',
             }),
           ],
           initialProviderId: 'anthropic',
           onSelectBackend: vi.fn(),
-          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+          onRefreshProvider,
         })
       );
       await Promise.resolve();
     });
 
     expect(host.textContent).toContain('Connection method');
-    expect(host.textContent).toContain('Auto');
     expect(host.textContent).toContain('Anthropic subscription');
     expect(host.textContent).toContain('API key');
-    expect(host.textContent).not.toContain('Authentication method');
-    expect(host.textContent).not.toContain('Runtime backend is not configurable');
-    expect(host.textContent).not.toContain('Mode: Auto');
-    expect(countOccurrences(host.textContent ?? '', 'Using Anthropic subscription')).toBe(1);
-    expect(countOccurrences(host.textContent ?? '', 'Detected from ANTHROPIC_API_KEY')).toBe(1);
+
+    await act(async () => {
+      findButtonByText(host, 'API key').click();
+      await Promise.resolve();
+    });
+
+    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
+      anthropic: {
+        authMode: 'api_key',
+      },
+    });
+    expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
+  });
+
+  it('shows native-only Codex connection copy and API-key management without login actions', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              apiKeyConfigured: true,
+              apiKeySource: 'stored',
+              apiKeySourceLabel: 'Stored in app',
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+          onRequestLogin: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain(
+      'Codex launches always use the native runtime now. Manage API-key credentials here before launching teams or one-shot Codex runs.'
+    );
+    expect(host.textContent).toContain('Set API key');
+    expect(host.textContent).not.toContain('Connection method');
+    expect(host.textContent).not.toContain('Connect Codex');
+    expect(host.textContent).not.toContain('Reconnect Codex');
   });
 
   it('keeps the API key icon container square', async () => {
@@ -565,79 +495,6 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     expect(icon?.className).toContain('shrink-0');
   });
 
-  it('switches Anthropic to API key mode from the connection cards', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'API key').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
-      anthropic: {
-        authMode: 'api_key',
-      },
-    });
-    expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
-  });
-
-  it('does not show Connect Anthropic when Auto is already authenticated via API key', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              authenticated: true,
-              authMethod: 'api_key',
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from ANTHROPIC_API_KEY',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
-          onRequestLogin: vi.fn(),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).not.toContain('Connect Anthropic');
-    expect(host.textContent).not.toContain('Reconnect Anthropic');
-  });
-
   it('keeps the API key form open and shows an error when delete fails', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -646,10 +503,10 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     storeState.apiKeys = [
       {
         id: 'key-1',
-        envVarName: 'ANTHROPIC_API_KEY',
+        envVarName: 'OPENAI_API_KEY',
         scope: 'user',
-        name: 'Anthropic API Key',
-        maskedValue: 'sk-ant-...1234',
+        name: 'OpenAI API Key',
+        maskedValue: 'sk-proj-...1234',
         createdAt: Date.now(),
       },
     ];
@@ -661,14 +518,13 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
           open: true,
           onOpenChange: vi.fn(),
           providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'api_key',
+            createCodexProvider({
               apiKeyConfigured: true,
               apiKeySource: 'stored',
               apiKeySourceLabel: 'Stored in app',
             }),
           ],
-          initialProviderId: 'anthropic',
+          initialProviderId: 'codex',
           onSelectBackend: vi.fn(),
           onRefreshProvider,
         })
@@ -689,289 +545,6 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     expect(host.textContent).toContain('Delete failed');
     expect(host.textContent).toContain('Update key');
     expect(onRefreshProvider).not.toHaveBeenCalled();
-  });
-
-  it('shows a deleted stored key as removed even if provider refresh fails afterwards', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-    storeState.apiKeys = [
-      {
-        id: 'key-1',
-        envVarName: 'ANTHROPIC_API_KEY',
-        scope: 'user',
-        name: 'Anthropic API Key',
-        maskedValue: 'sk-ant-...1234',
-        createdAt: Date.now(),
-      },
-    ];
-    storeState.deleteApiKey = vi.fn((id: string) => {
-      storeState.apiKeys = storeState.apiKeys.filter((entry) => entry.id !== id);
-      return Promise.resolve(undefined);
-    });
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'api_key',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Replace key').click();
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Delete').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('API key deleted, but failed to refresh provider status.');
-    expect(host.textContent).toContain('Not configured');
-    expect(host.textContent).not.toContain('sk-ant-...1234');
-  });
-
-  it('shows a connection error and skips refresh when auth mode update fails', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-    storeState.updateConfig = vi.fn(() => Promise.reject(new Error('Config update failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'API key').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('Config update failed');
-    expect(host.textContent).not.toContain('Switching to API key...');
-    expect(host.textContent).not.toContain('Switching...');
-    expect(onRefreshProvider).not.toHaveBeenCalled();
-  });
-
-  it('clears Codex beta loading state when enabling API key mode fails early', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-    storeState.updateConfig = vi.fn(() => Promise.reject(new Error('Config update failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: false,
-              configuredAuthMode: null,
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Enable API key mode').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('Config update failed');
-    expect(host.textContent).not.toContain('Enabling API key mode...');
-    expect(onRefreshProvider).not.toHaveBeenCalled();
-  });
-
-  it('reports refresh failures separately after a successful auth mode update', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-    storeState.updateConfig = vi.fn((section: string, data: Record<string, unknown>) => {
-      if (section === 'providerConnections') {
-        const nextProviderConnections = data as Partial<StoreState['appConfig']['providerConnections']>;
-        storeState.appConfig = {
-          ...storeState.appConfig,
-          providerConnections: {
-            anthropic: {
-              ...storeState.appConfig.providerConnections.anthropic,
-              ...(nextProviderConnections.anthropic ?? {}),
-            },
-            codex: {
-              ...storeState.appConfig.providerConnections.codex,
-              ...(nextProviderConnections.codex ?? {}),
-            },
-          },
-        };
-      }
-
-      return Promise.resolve(undefined);
-    });
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'API key').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalled();
-    expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
-    expect(host.textContent).not.toContain('Mode: API key');
-    expect(host.textContent).toContain('API keySelected');
-    expect(host.textContent).toContain('Connection updated, but failed to refresh provider status.');
-    expect(host.textContent).not.toContain('Failed to update connection');
-  });
-
-  it('shows subscription recovery actions when OAuth mode is selected but stale status still says API key', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              authenticated: true,
-              authMethod: 'api_key',
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-          onRequestLogin: vi.fn(),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Anthropic subscription').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).not.toContain('Mode: Anthropic subscription');
-    expect(host.textContent).toContain('Anthropic subscriptionSelected');
-    expect(host.textContent).toContain('Connect Anthropic');
-    expect(host.textContent).toContain(
-      'Anthropic subscription mode is selected. Sign in with Anthropic to use this provider.'
-    );
-    expect(host.textContent).toContain('Connection updated, but failed to refresh provider status.');
-  });
-
-  it('keeps the Codex API key mode UI in sync with config when refresh fails after enabling beta', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: false,
-              configuredAuthMode: null,
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Enable API key mode').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
-      codex: {
-        apiKeyBetaEnabled: true,
-        authMode: 'api_key',
-      },
-    });
-    expect(host.textContent).not.toContain('Mode: API key');
-    expect(host.textContent).toContain('Selected');
-    expect(host.textContent).toContain('Disable API key mode');
-    expect(host.textContent).toContain('Connection updated, but failed to refresh provider status.');
   });
 
   it('shows a runtime error when backend selection refresh fails after a successful update', async () => {

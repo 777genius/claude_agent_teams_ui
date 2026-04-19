@@ -244,7 +244,7 @@ function getProviderTerminalCommand(provider: CliProviderStatus): {
     return {
       args: ['auth', 'login', '--provider', provider.providerId],
       env: {
-        CLAUDE_CODE_CODEX_BACKEND: provider.selectedBackendId ?? 'auto',
+        CLAUDE_CODE_CODEX_BACKEND: provider.selectedBackendId ?? 'codex-native',
       },
     };
   }
@@ -272,7 +272,7 @@ function getProviderTerminalLogoutCommand(provider: CliProviderStatus): {
     return {
       args: ['auth', 'logout', '--provider', provider.providerId],
       env: {
-        CLAUDE_CODE_CODEX_BACKEND: provider.selectedBackendId ?? 'auto',
+        CLAUDE_CODE_CODEX_BACKEND: provider.selectedBackendId ?? 'codex-native',
       },
     };
   }

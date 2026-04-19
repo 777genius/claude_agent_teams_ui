@@ -11,6 +11,7 @@
 
 import { getClaudeBasePath, setClaudeBasePathOverride } from '@main/utils/pathDecoder';
 import { validateRegexPattern } from '@main/utils/regexValidation';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { createLogger } from '@shared/utils/logger';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
@@ -226,7 +227,7 @@ export interface GeneralConfig {
 export interface RuntimeConfig {
   providerBackends: {
     gemini: 'auto' | 'api' | 'cli-sdk';
-    codex: 'auto' | 'adapter' | 'api' | 'codex-native';
+    codex: 'codex-native';
   };
 }
 
@@ -575,6 +576,10 @@ export class ConfigManager {
         providerBackends: {
           ...DEFAULT_CONFIG.runtime.providerBackends,
           ...(loaded.runtime?.providerBackends ?? {}),
+          codex: migrateProviderBackendId(
+            'codex',
+            loaded.runtime?.providerBackends?.codex
+          ) as RuntimeConfig['providerBackends']['codex'],
         },
       },
       display: {

@@ -18,6 +18,32 @@ Record the chosen direction for improving Codex integration in the multimodel ru
 - Assessment: `🎯 9   🛡️ 9   🧠 7`
 - Estimated first serious wave: `2200-4500` lines across `agent_teams_orchestrator`, `claude_team`, and `plugin-kit-ai`
 
+## Current Status As Of 2026-04-19
+
+The staged cutover is now complete through Phase 4.
+
+- Phase 0 - implementation-complete and evidence-backed
+- Phase 1 - rollout-state preparation complete
+- Phase 2 - limited internal unlock completed
+- Phase 3 - native-first default switch completed
+- Phase 4 - legacy Codex lane removal completed
+
+Current product truth:
+
+- Codex now runs only through the `codex-native` lane in normal product flows
+- legacy `adapter` and `api` Codex runtime lanes have been removed from active runtime selection and launch paths
+- runtime status now exposes a single native Codex backend option
+- stored legacy Codex backend values normalize forward to `codex-native`
+- the remaining supported credential surface for native Codex is:
+  - `CODEX_API_KEY`
+  - `OPENAI_API_KEY`
+
+Repo-visible evidence:
+
+- [codex-native-runtime-phase-0-signoff-evidence.md](./codex-native-runtime-phase-0-signoff-evidence.md)
+- [codex-native-runtime-phase-1-signoff-evidence.md](./codex-native-runtime-phase-1-signoff-evidence.md)
+- [codex-native-runtime-phase-4-signoff-evidence.md](./codex-native-runtime-phase-4-signoff-evidence.md)
+
 ## One-Page Summary
 
 We are **not** doing a one-shot swap from the current Codex backend to `@openai/codex-sdk / codex exec`.

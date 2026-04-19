@@ -50,9 +50,7 @@ export function getProvisioningProviderBackendSummary(
   const effectiveOption = options.find((option) => option.id === effectiveBackendId) ?? null;
   const inferredProviderId =
     provider.providerId ??
-    (effectiveBackendId === 'codex-native' ||
-    effectiveBackendId === 'adapter' ||
-    options.some((option) => option.id === 'codex-native' || option.id === 'adapter')
+    (effectiveBackendId === 'codex-native' || options.some((option) => option.id === 'codex-native')
       ? 'codex'
       : undefined);
   const normalizedLabel =

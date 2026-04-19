@@ -337,7 +337,7 @@ export interface AppConfig {
   runtime: {
     providerBackends: {
       gemini: 'auto' | 'api' | 'cli-sdk';
-      codex: 'auto' | 'adapter' | 'api' | 'codex-native';
+      codex: 'codex-native';
     };
   };
   /** Display and UI settings */

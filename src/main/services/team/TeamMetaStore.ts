@@ -1,4 +1,5 @@
 import { FileReadTimeoutError, readFileUtf8WithTimeout } from '@main/utils/fsRead';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { getTeamsBasePath } from '@main/utils/pathDecoder';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -83,6 +84,11 @@ export class TeamMetaStore {
       return null;
     }
 
+    const providerId =
+      file.providerId === 'anthropic' || file.providerId === 'codex' || file.providerId === 'gemini'
+        ? file.providerId
+        : undefined;
+
     return {
       version: 1,
       displayName:
@@ -92,13 +98,11 @@ export class TeamMetaStore {
       color: typeof file.color === 'string' ? file.color.trim() || undefined : undefined,
       cwd: file.cwd.trim(),
       prompt: typeof file.prompt === 'string' ? file.prompt.trim() || undefined : undefined,
-      providerId:
-        file.providerId === 'anthropic' ||
-        file.providerId === 'codex' ||
-        file.providerId === 'gemini'
-          ? file.providerId
-          : undefined,
-      providerBackendId: normalizeOptionalBackendId(file.providerBackendId),
+      providerId,
+      providerBackendId: migrateProviderBackendId(
+        providerId,
+        normalizeOptionalBackendId(file.providerBackendId)
+      ),
       model: typeof file.model === 'string' ? file.model.trim() || undefined : undefined,
       effort: typeof file.effort === 'string' ? file.effort.trim() || undefined : undefined,
       skipPermissions: typeof file.skipPermissions === 'boolean' ? file.skipPermissions : undefined,
@@ -119,7 +123,10 @@ export class TeamMetaStore {
       cwd: data.cwd.trim(),
       prompt: data.prompt?.trim() || undefined,
       providerId: data.providerId,
-      providerBackendId: normalizeOptionalBackendId(data.providerBackendId),
+      providerBackendId: migrateProviderBackendId(
+        data.providerId,
+        normalizeOptionalBackendId(data.providerBackendId)
+      ),
       model: data.model?.trim() || undefined,
       effort: data.effort?.trim() || undefined,
       skipPermissions: data.skipPermissions,

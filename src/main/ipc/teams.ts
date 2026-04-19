@@ -91,6 +91,7 @@ import {
   PROTECTED_CLI_FLAGS,
 } from '@shared/utils/cliArgsParser';
 import { createLogger } from '@shared/utils/logger';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isRateLimitMessage } from '@shared/utils/rateLimitDetector';
 import {
   buildStandaloneSlashCommandMeta,
@@ -1434,6 +1435,17 @@ async function handleLaunchTeam(
     const membersMeta = await membersStore.getMeta(tn);
     const members = membersMeta?.members ?? [];
 
+    const resolvedProviderId =
+      payload.providerId === 'codex'
+        ? 'codex'
+        : payload.providerId === 'gemini'
+          ? 'gemini'
+          : meta?.providerId === 'codex'
+            ? 'codex'
+            : meta?.providerId === 'gemini'
+              ? 'gemini'
+              : 'anthropic';
+
     const createRequest: TeamCreateRequest = {
       teamName: tn,
       displayName: meta?.displayName,
@@ -1441,20 +1453,11 @@ async function handleLaunchTeam(
       color: meta?.color,
       cwd,
       prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
-      providerId:
-        payload.providerId === 'codex'
-          ? 'codex'
-          : payload.providerId === 'gemini'
-            ? 'gemini'
-            : meta?.providerId === 'codex'
-              ? 'codex'
-              : meta?.providerId === 'gemini'
-                ? 'gemini'
-                : 'anthropic',
-      providerBackendId:
-        providerBackendValidation.value ??
-        meta?.providerBackendId ??
-        membersMeta?.providerBackendId,
+      providerId: resolvedProviderId,
+      providerBackendId: migrateProviderBackendId(
+        resolvedProviderId,
+        providerBackendValidation.value ?? meta?.providerBackendId ?? membersMeta?.providerBackendId
+      ),
       model: typeof payload.model === 'string' ? payload.model.trim() || undefined : undefined,
       effort: isValidEffort(payload.effort) ? payload.effort : undefined,
       limitContext: typeof payload.limitContext === 'boolean' ? payload.limitContext : undefined,
@@ -3926,6 +3929,8 @@ async function handleGetSavedRequest(
   const membersMeta = await membersStore.getMeta(tn);
   const members = membersMeta?.members ?? [];
 
+  const resolvedProviderId = meta.providerId ?? 'anthropic';
+
   return {
     success: true,
     data: {
@@ -3935,8 +3940,11 @@ async function handleGetSavedRequest(
       color: meta.color,
       cwd: meta.cwd,
       prompt: meta.prompt,
-      providerId: meta.providerId ?? 'anthropic',
-      providerBackendId: meta.providerBackendId ?? membersMeta?.providerBackendId,
+      providerId: resolvedProviderId,
+      providerBackendId: migrateProviderBackendId(
+        resolvedProviderId,
+        meta.providerBackendId ?? membersMeta?.providerBackendId
+      ),
       model: meta.model,
       effort: meta.effort as TeamCreateRequest['effort'],
       skipPermissions: meta.skipPermissions,

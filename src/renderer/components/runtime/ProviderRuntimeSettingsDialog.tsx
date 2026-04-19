@@ -30,6 +30,7 @@ import {
   isConnectionManagedRuntimeProvider,
 } from './providerConnectionUi';
 import {
+  getVisibleProviderRuntimeBackendOptions,
   getProviderRuntimeBackendSummary,
   ProviderRuntimeBackendSelector,
 } from './ProviderRuntimeBackendSelector';
@@ -38,13 +39,7 @@ import type { CliProviderAuthMode, CliProviderId, CliProviderStatus } from '@sha
 import type { ApiKeyEntry } from '@shared/types/extensions';
 
 type ApiKeyProviderId = 'anthropic' | 'codex' | 'gemini';
-type PendingConnectionAction =
-  | 'auto'
-  | 'oauth'
-  | 'api_key'
-  | 'codex-beta-on'
-  | 'codex-beta-off'
-  | null;
+type PendingConnectionAction = 'auto' | 'oauth' | 'api_key' | null;
 interface ConnectionMethodCardOption {
   readonly authMode: CliProviderAuthMode;
   readonly title: string;
@@ -86,7 +81,7 @@ const API_KEY_PROVIDER_CONFIG: Record<
     name: 'OpenAI API Key',
     title: 'API key',
     description:
-      'Use `OPENAI_API_KEY` for Codex runs that need API-key billing. Codex native stays the primary runtime path while your subscription session remains available when you switch back.',
+      'Codex native requires API-key credentials. Save OPENAI_API_KEY here and the app will mirror it into the native CODEX_API_KEY environment when launching Codex.',
     placeholder: 'sk-proj-...',
   },
   gemini: {
@@ -101,10 +96,6 @@ const API_KEY_PROVIDER_CONFIG: Record<
 
 function isApiKeyProviderId(providerId: CliProviderId): providerId is ApiKeyProviderId {
   return providerId === 'anthropic' || providerId === 'codex' || providerId === 'gemini';
-}
-
-function hasExplicitRuntimeBackends(provider: CliProviderStatus): boolean {
-  return (provider.availableBackends?.length ?? 0) > 0;
 }
 
 function isCodexNativeLane(provider: CliProviderStatus): boolean {
@@ -124,11 +115,7 @@ function getConnectionDescription(provider: CliProviderStatus): string {
     case 'anthropic':
       return 'Choose how app-launched Anthropic sessions authenticate.';
     case 'codex':
-      return hasExplicitRuntimeBackends(provider)
-        ? 'Choose which credentials app-launched Codex sessions should use. Codex native remains the primary runtime path unless you intentionally keep a legacy fallback selected.'
-        : provider.connection?.apiKeyBetaEnabled
-          ? 'Choose whether app-launched Codex sessions use your Codex subscription or API-key billing.'
-          : 'Codex native uses your subscription session by default. Enable API key mode only if you want native Codex launches to consume API-key credentials.';
+      return 'Codex launches always use the native runtime now. Manage API-key credentials here before launching teams or one-shot Codex runs.';
     case 'gemini':
       return 'Configure optional API access. CLI SDK and ADC are still discovered automatically.';
   }
@@ -139,9 +126,7 @@ function getRuntimeDescription(provider: CliProviderStatus): string {
     case 'anthropic':
       return 'Anthropic currently has no separate runtime backend selector.';
     case 'codex':
-      return hasExplicitRuntimeBackends(provider)
-        ? 'Choose which Codex runtime backend multimodel should use. Codex native is the default. Legacy fallbacks stay hidden unless they are already selected.'
-        : 'Codex native is the default runtime path. Connection method only controls which credentials the runtime can consume.';
+      return 'Codex now runs only through the native runtime path.';
     case 'gemini':
       return 'Choose which Gemini runtime backend multimodel should use.';
   }
@@ -160,9 +145,7 @@ function getAuthModeDescription(providerId: CliProviderId, authMode: CliProvider
   }
 
   if (providerId === 'codex') {
-    return authMode === 'api_key'
-      ? 'Use API-key credentials for app-launched Codex sessions. Codex native remains the primary runtime path and will consume those credentials when needed.'
-      : 'Use your Codex subscription session. API-key-only fallback paths remain unavailable until you switch this credential mode.';
+    return 'Codex always launches through the native runtime and requires API-key credentials.';
   }
 
   return '';
@@ -172,7 +155,6 @@ function getConnectionAlert(provider: CliProviderStatus): string | null {
   const authMode = provider.connection?.configuredAuthMode;
   const hasAnthropicSubscriptionSession =
     provider.authMethod === 'oauth_token' || provider.authMethod === 'claude.ai';
-  const hasCodexSubscriptionSession = provider.authMethod === 'oauth_token';
 
   if (
     provider.providerId === 'anthropic' &&
@@ -198,26 +180,10 @@ function getConnectionAlert(provider: CliProviderStatus): string | null {
     return 'A saved API key is available, but app-launched Anthropic sessions use it only after you switch to API key mode.';
   }
 
-  if (
-    provider.providerId === 'codex' &&
-    authMode === 'api_key' &&
-    !provider.connection?.apiKeyConfigured
-  ) {
+  if (provider.providerId === 'codex' && !provider.connection?.apiKeyConfigured) {
     return isCodexNativeLane(provider)
-      ? 'API key mode is selected, but no OPENAI_API_KEY or CODEX_API_KEY credential is available yet.'
-      : 'API key mode is selected, but no OPENAI_API_KEY credential is available yet.';
-  }
-
-  if (provider.providerId === 'codex' && authMode === 'oauth' && !hasCodexSubscriptionSession) {
-    return 'Codex subscription mode is selected. Sign in with Codex to use this provider.';
-  }
-
-  if (
-    provider.providerId === 'codex' &&
-    authMode === 'oauth' &&
-    provider.connection?.apiKeySource === 'stored'
-  ) {
-    return 'A saved OPENAI_API_KEY is available, but Codex uses it only after you switch to API key mode.';
+      ? 'No OPENAI_API_KEY or CODEX_API_KEY credential is available yet.'
+      : 'No OPENAI_API_KEY credential is available yet.';
   }
 
   if (
@@ -253,22 +219,7 @@ function getConnectionMethodCardOptions(
         },
       ];
     case 'codex':
-      if (!provider.connection?.apiKeyBetaEnabled) {
-        return null;
-      }
-
-      return [
-        {
-          authMode: 'oauth',
-          title: 'Codex subscription',
-          description: 'Use your Codex sign-in session and subscription access.',
-        },
-        {
-          authMode: 'api_key',
-          title: 'OpenAI API key',
-          description: 'Use OPENAI_API_KEY and OpenAI API billing.',
-        },
-      ];
+      return null;
     default:
       return null;
   }
@@ -276,9 +227,7 @@ function getConnectionMethodCardOptions(
 
 function getConnectionMethodCardsHint(provider: CliProviderStatus): string | null {
   if (provider.providerId === 'codex') {
-    return hasExplicitRuntimeBackends(provider)
-      ? 'Connection method controls credentials only. Runtime backend selection is independent.'
-      : 'Runtime follows your connection method automatically.';
+    return 'Codex uses saved or environment API-key credentials for the native runtime.';
   }
 
   if (provider.providerId === 'anthropic') {
@@ -461,15 +410,6 @@ export const ProviderRuntimeSettingsDialog = ({
         statusSelectedProvider.connection.configuredAuthMode;
     }
 
-    if (statusSelectedProvider.providerId === 'codex') {
-      nextConnection.configuredAuthMode =
-        appConfig?.providerConnections?.codex.authMode ??
-        statusSelectedProvider.connection.configuredAuthMode;
-      nextConnection.apiKeyBetaEnabled =
-        appConfig?.providerConnections?.codex.apiKeyBetaEnabled ??
-        statusSelectedProvider.connection.apiKeyBetaEnabled;
-    }
-
     if (statusApiKeyConfig) {
       if (nextConnection.apiKeySource === 'stored') {
         nextConnection.apiKeyConfigured = Boolean(selectedApiKey);
@@ -488,8 +428,6 @@ export const ProviderRuntimeSettingsDialog = ({
     };
   }, [
     appConfig?.providerConnections?.anthropic.authMode,
-    appConfig?.providerConnections?.codex.apiKeyBetaEnabled,
-    appConfig?.providerConnections?.codex.authMode,
     selectedApiKey,
     statusApiKeyConfig,
     statusSelectedProvider,
@@ -517,7 +455,10 @@ export const ProviderRuntimeSettingsDialog = ({
     : false;
   const hideConnectionMethodMeta = showConnectionMethodCards;
   const canConfigureRuntime =
-    !connectionManagedRuntime && (selectedProvider?.availableBackends?.length ?? 0) > 0;
+    !connectionManagedRuntime &&
+    (selectedProvider
+      ? getVisibleProviderRuntimeBackendOptions(selectedProvider).length > 1
+      : false);
 
   const apiKeyConfig =
     selectedProvider && isApiKeyProviderId(selectedProvider.providerId)
@@ -527,9 +468,9 @@ export const ProviderRuntimeSettingsDialog = ({
     selectedProvider &&
     isApiKeyProviderId(selectedProvider.providerId) &&
     activeApiKeyFormProviderId === selectedProvider.providerId;
-  const codexApiKeyBetaEnabled = selectedProvider?.connection?.apiKeyBetaEnabled === true;
   const showApiKeySection = Boolean(
-    apiKeyConfig && (selectedProvider?.providerId !== 'codex' || codexApiKeyBetaEnabled)
+    apiKeyConfig &&
+    (selectedProvider?.providerId !== 'codex' || !selectedProvider.connection?.supportsOAuth)
   );
   const connectionAlert = selectedProvider ? getConnectionAlert(selectedProvider) : null;
   const connectionLoading = selectedProviderLoading || connectionSaving;
@@ -541,9 +482,7 @@ export const ProviderRuntimeSettingsDialog = ({
   const hasSubscriptionSession =
     selectedProvider?.providerId === 'anthropic'
       ? selectedProvider.authMethod === 'oauth_token' || selectedProvider.authMethod === 'claude.ai'
-      : selectedProvider?.providerId === 'codex'
-        ? selectedProvider.authMethod === 'oauth_token'
-        : false;
+      : false;
   const canRequestSubscriptionLogin =
     Boolean(selectedProvider?.connection?.supportsOAuth && onRequestLogin) &&
     configuredAuthMode !== 'api_key' &&
@@ -567,21 +506,6 @@ export const ProviderRuntimeSettingsDialog = ({
     }
 
     if (connectionSaving) {
-      if (selectedProvider.providerId === 'codex') {
-        switch (pendingConnectionAction) {
-          case 'codex-beta-on':
-            return 'Enabling API key mode...';
-          case 'codex-beta-off':
-            return 'Disabling API key mode...';
-          case 'api_key':
-            return 'Switching to OpenAI API key...';
-          case 'oauth':
-            return 'Switching to Codex subscription...';
-          default:
-            return 'Applying connection changes...';
-        }
-      }
-
       if (selectedProvider.providerId === 'anthropic') {
         switch (pendingConnectionAction) {
           case 'api_key':
@@ -679,7 +603,7 @@ export const ProviderRuntimeSettingsDialog = ({
   };
 
   const handleAuthModeChange = async (authMode: string): Promise<void> => {
-    if (selectedProvider?.providerId !== 'anthropic' && selectedProvider?.providerId !== 'codex') {
+    if (selectedProvider?.providerId !== 'anthropic') {
       return;
     }
 
@@ -693,53 +617,9 @@ export const ProviderRuntimeSettingsDialog = ({
     setConnectionError(null);
     let updateSucceeded = false;
     try {
-      if (selectedProvider.providerId === 'anthropic') {
-        await updateConfig('providerConnections', {
-          anthropic: {
-            authMode: nextAuthMode,
-          },
-        });
-      } else {
-        await updateConfig('providerConnections', {
-          codex: {
-            authMode: nextAuthMode === 'api_key' ? 'api_key' : 'oauth',
-          },
-        });
-      }
-      updateSucceeded = true;
-    } catch (error) {
-      setConnectionError(error instanceof Error ? error.message : 'Failed to update connection');
-    } finally {
-      if (updateSucceeded) {
-        try {
-          await onRefreshProvider?.(selectedProvider.providerId);
-        } catch {
-          setConnectionError('Connection updated, but failed to refresh provider status.');
-        }
-      }
-
-      setConnectionSaving(false);
-      setPendingConnectionAction(null);
-    }
-  };
-
-  const handleCodexBetaToggle = async (enabled: boolean): Promise<void> => {
-    const fallbackApiKeyScope = selectedApiKey?.scope ?? 'user';
-    const shouldOpenApiKeyForm =
-      enabled &&
-      selectedProvider?.providerId === 'codex' &&
-      !selectedProvider.connection?.apiKeyConfigured &&
-      !selectedApiKey;
-
-    setConnectionSaving(true);
-    setPendingConnectionAction(enabled ? 'codex-beta-on' : 'codex-beta-off');
-    setConnectionError(null);
-    let updateSucceeded = false;
-    try {
       await updateConfig('providerConnections', {
-        codex: {
-          apiKeyBetaEnabled: enabled,
-          authMode: enabled ? 'api_key' : 'oauth',
+        anthropic: {
+          authMode: nextAuthMode,
         },
       });
       updateSucceeded = true;
@@ -747,15 +627,8 @@ export const ProviderRuntimeSettingsDialog = ({
       setConnectionError(error instanceof Error ? error.message : 'Failed to update connection');
     } finally {
       if (updateSucceeded) {
-        if (shouldOpenApiKeyForm) {
-          setActiveApiKeyFormProviderId('codex');
-          setApiKeyScope(fallbackApiKeyScope);
-          setApiKeyValue('');
-          setApiKeyError(null);
-        }
-
         try {
-          await onRefreshProvider?.('codex');
+          await onRefreshProvider?.(selectedProvider.providerId);
         } catch {
           setConnectionError('Connection updated, but failed to refresh provider status.');
         }
@@ -901,77 +774,11 @@ export const ProviderRuntimeSettingsDialog = ({
                     {selectedProvider.authenticated &&
                     (selectedProvider.authMethod === 'oauth_token' ||
                       selectedProvider.authMethod === 'claude.ai')
-                      ? selectedProvider.providerId === 'codex'
-                        ? 'Reconnect Codex'
-                        : 'Reconnect Anthropic'
+                      ? 'Reconnect Anthropic'
                       : getProviderConnectLabel(selectedProvider)}
                   </Button>
                 ) : null}
               </div>
-
-              {selectedProvider.providerId === 'codex' &&
-              selectedProvider.connection?.apiKeyBetaAvailable &&
-              !selectedProvider.connection.apiKeyBetaEnabled &&
-              !showConnectionMethodCards ? (
-                <div
-                  className="space-y-3 rounded-md border p-3"
-                  style={{ borderColor: 'var(--color-border-subtle)' }}
-                >
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div
-                      className="rounded-md border p-3"
-                      style={{
-                        borderColor: 'rgba(74, 222, 128, 0.3)',
-                        backgroundColor: 'rgba(74, 222, 128, 0.08)',
-                      }}
-                    >
-                      <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                        Codex subscription
-                      </div>
-                      <div className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Use your Codex sign-in session and subscription access.
-                      </div>
-                      <div
-                        className="mt-3 inline-flex rounded-full px-2 py-0.5 text-[11px]"
-                        style={{
-                          color: '#86efac',
-                          backgroundColor: 'rgba(74, 222, 128, 0.14)',
-                        }}
-                      >
-                        Current
-                      </div>
-                    </div>
-                    <div
-                      className="rounded-md border p-3"
-                      style={{ borderColor: 'var(--color-border-subtle)' }}
-                    >
-                      <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                        OpenAI API key (Beta)
-                      </div>
-                      <div className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Use OPENAI_API_KEY and OpenAI API billing for Codex.
-                      </div>
-                      <div className="mt-3">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={connectionBusy}
-                          onClick={() => void handleCodexBetaToggle(true)}
-                        >
-                          {pendingConnectionAction === 'codex-beta-on' ? (
-                            <>
-                              <Loader2 className="mr-1 size-3.5 animate-spin" />
-                              Enabling...
-                            </>
-                          ) : (
-                            'Enable API key mode'
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
 
               {showConnectionMethodCards ? (
                 <div className="space-y-2">
@@ -1055,20 +862,6 @@ export const ProviderRuntimeSettingsDialog = ({
                   <span style={{ color: 'var(--color-text-secondary)' }}>
                     {selectedProvider.connection.apiKeySourceLabel}
                   </span>
-                ) : null}
-                {selectedProvider.providerId === 'codex' &&
-                selectedProvider.connection?.apiKeyBetaEnabled ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleCodexBetaToggle(false)}
-                    className="text-xs underline-offset-2 hover:underline"
-                    style={{ color: 'var(--color-text-muted)' }}
-                    disabled={connectionBusy}
-                  >
-                    {pendingConnectionAction === 'codex-beta-off'
-                      ? 'Disabling...'
-                      : 'Disable API key mode'}
-                  </button>
                 ) : null}
               </div>
 

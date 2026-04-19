@@ -48,6 +48,7 @@ import {
 } from '@shared/utils/inboxNoise';
 import { isLeadAgentType, isLeadMember } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isDefaultProviderModelSelection } from '@shared/utils/providerModelSelection';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
@@ -390,7 +391,7 @@ function getConfiguredRuntimeBackend(providerId: TeamProviderId): string | null 
     case 'gemini':
       return runtimeConfig.gemini;
     case 'codex':
-      return runtimeConfig.codex;
+      return migrateProviderBackendId('codex', runtimeConfig.codex) ?? 'codex-native';
     case 'anthropic':
     default:
       return null;
@@ -420,7 +421,9 @@ function buildRuntimeLaunchWarning(
   const providerLabel = getTeamProviderLabel(providerId);
   const modelLabel = request.model?.trim() || 'default';
   const effortLabel = request.effort ?? 'default';
-  const backend = request.providerBackendId?.trim() || getConfiguredRuntimeBackend(providerId);
+  const backend =
+    migrateProviderBackendId(providerId, request.providerBackendId?.trim()) ||
+    getConfiguredRuntimeBackend(providerId);
   const flags: string[] = [];
   if (env.CLAUDE_CODE_USE_GEMINI === '1') flags.push('USE_GEMINI');
   if (env.CLAUDE_CODE_USE_OPENAI === '1') flags.push('USE_OPENAI');
@@ -466,10 +469,12 @@ function logRuntimeLaunchSnapshot(
   const providerId = resolveTeamProviderId(request.providerId);
   const snapshot = {
     providerId,
-    providerBackendId: request.providerBackendId ?? null,
+    providerBackendId: migrateProviderBackendId(providerId, request.providerBackendId) ?? null,
     model: request.model ?? null,
     effort: request.effort ?? null,
-    configuredBackend: request.providerBackendId?.trim() || getConfiguredRuntimeBackend(providerId),
+    configuredBackend:
+      migrateProviderBackendId(providerId, request.providerBackendId?.trim()) ||
+      getConfiguredRuntimeBackend(providerId),
     promptSize: options?.promptSize ?? null,
     expectedMembersCount: options?.expectedMembersCount ?? null,
     geminiRuntimeAuth:
@@ -1159,8 +1164,10 @@ function shouldSkipResumeForProviderRuntimeChange(
     return { skip: false };
   }
 
-  const requestedBackendId = request.providerBackendId?.trim() || null;
-  const previousBackendId = persistedProviderBackendId?.trim() || null;
+  const requestedBackendId =
+    migrateProviderBackendId(providerId, request.providerBackendId?.trim()) || null;
+  const previousBackendId =
+    migrateProviderBackendId(providerId, persistedProviderBackendId?.trim()) || null;
   if (requestedBackendId && previousBackendId && requestedBackendId !== previousBackendId) {
     return {
       skip: true,

@@ -323,16 +323,8 @@ export function sortTeamProviderModels(
 export function isCodexChatGptSubscriptionProviderStatus(
   providerStatus?: RuntimeAwareProviderStatus | null
 ): boolean {
-  if (providerStatus?.providerId !== 'codex') {
-    return false;
-  }
-
-  const endpointLabel = providerStatus.backend?.endpointLabel?.toLowerCase() ?? '';
-  return (
-    providerStatus.authMethod === 'oauth_token' &&
-    (providerStatus.backend?.kind === 'adapter' ||
-      endpointLabel.includes('chatgpt.com/backend-api/codex/responses'))
-  );
+  void providerStatus;
+  return false;
 }
 
 function isRuntimeHiddenTeamModel(

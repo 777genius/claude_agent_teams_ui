@@ -325,31 +325,24 @@ describe('ClaudeMultimodelBridgeService', () => {
           codex: {
             supported: true,
             authenticated: true,
-            authMethod: 'oauth_token',
+            authMethod: 'api_key',
             verificationState: 'verified',
-            canLoginFromUi: true,
-            statusMessage: 'Codex native lane is wired but remains locked for normal selection.',
-            detailMessage: 'Use the fallback adapter/API lane unless the experimental native lane is explicitly enabled.',
+            canLoginFromUi: false,
+            statusMessage: 'Codex native runtime ready',
+            detailMessage: 'Codex native runtime is ready through the local codex exec seam.',
             selectedBackendId: 'codex-native',
             resolvedBackendId: 'codex-native',
             availableBackends: [
               {
-                id: 'auto',
-                label: 'Auto',
+                id: 'codex-native',
+                label: 'Codex native',
                 selectable: true,
                 recommended: true,
                 available: true,
-              },
-              {
-                id: 'codex-native',
-                label: 'Codex native',
-                selectable: false,
-                recommended: false,
-                available: true,
-                state: 'locked',
-                audience: 'internal',
-                statusMessage: 'Experimental native lane',
-                detailMessage: 'Phase 0 keeps the lane locked behind rollout policy.',
+                state: 'ready',
+                audience: 'general',
+                statusMessage: 'Ready',
+                detailMessage: 'Codex native runtime is ready through the local codex exec seam.',
               },
             ],
             externalRuntimeDiagnostics: [
@@ -368,7 +361,7 @@ describe('ClaudeMultimodelBridgeService', () => {
                 plugins: {
                   status: 'unsupported',
                   ownership: 'shared',
-                  reason: 'codex-native phase 0 keeps plugin execution disabled.',
+                  reason: 'Plugins are not currently guaranteed for codex-native sessions in the multimodel runtime.',
                 },
                 mcp: {
                   status: 'unsupported',
@@ -417,16 +410,12 @@ describe('ClaudeMultimodelBridgeService', () => {
       },
       availableBackends: [
         expect.objectContaining({
-          id: 'auto',
-          selectable: true,
-        }),
-        expect.objectContaining({
           id: 'codex-native',
-          selectable: false,
+          selectable: true,
           available: true,
-          state: 'locked',
-          audience: 'internal',
-          statusMessage: 'Experimental native lane',
+          state: 'ready',
+          audience: 'general',
+          statusMessage: 'Ready',
         }),
       ],
       externalRuntimeDiagnostics: [
@@ -444,7 +433,7 @@ describe('ClaudeMultimodelBridgeService', () => {
     expect(getProviderCurrentRuntimeSummary(codex!)).toBeNull();
   });
 
-  it('preserves codex-native internal unlock readiness from runtime status payloads', async () => {
+  it('preserves codex-native ready truth from runtime status payloads', async () => {
     execCliMock.mockResolvedValue({
       stdout: JSON.stringify({
         providers: {
@@ -461,12 +450,12 @@ describe('ClaudeMultimodelBridgeService', () => {
                 id: 'codex-native',
                 label: 'Codex native',
                 selectable: true,
-                recommended: false,
+                recommended: true,
                 available: true,
                 state: 'ready',
-                audience: 'internal',
-                statusMessage: 'Ready for internal use',
-                detailMessage: 'Internal rollout only.',
+                audience: 'general',
+                statusMessage: 'Ready',
+                detailMessage: 'Codex native runtime is ready through the local codex exec seam.',
               },
             ],
             capabilities: {
@@ -502,8 +491,8 @@ describe('ClaudeMultimodelBridgeService', () => {
       selectable: true,
       available: true,
       state: 'ready',
-      audience: 'internal',
-      statusMessage: 'Ready for internal use',
+      audience: 'general',
+      statusMessage: 'Ready',
     });
   });
 
@@ -517,8 +506,8 @@ describe('ClaudeMultimodelBridgeService', () => {
             authMethod: null,
             verificationState: 'unknown',
             canLoginFromUi: false,
-            statusMessage: 'Codex native runtime not ready',
-            detailMessage: 'Codex native runtime requires the codex CLI binary to be installed.',
+            statusMessage: 'Codex native runtime unavailable',
+            detailMessage: 'Codex native runtime requires the codex CLI binary to be installed and discoverable.',
             selectedBackendId: 'codex-native',
             resolvedBackendId: null,
             availableBackends: [
@@ -529,9 +518,9 @@ describe('ClaudeMultimodelBridgeService', () => {
                 recommended: false,
                 available: false,
                 state: 'runtime-missing',
-                audience: 'internal',
+                audience: 'general',
                 statusMessage: 'Codex CLI not found',
-                detailMessage: 'Install the codex CLI before enabling the lane.',
+                detailMessage: 'Codex native runtime requires the codex CLI binary to be installed and discoverable.',
               },
             ],
             capabilities: {
@@ -563,7 +552,7 @@ describe('ClaudeMultimodelBridgeService', () => {
       selectable: false,
       available: false,
       state: 'runtime-missing',
-      audience: 'internal',
+      audience: 'general',
       statusMessage: 'Codex CLI not found',
     });
   });

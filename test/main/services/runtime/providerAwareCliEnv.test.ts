@@ -25,7 +25,7 @@ vi.mock('../../../../src/main/services/infrastructure/ConfigManager', () => ({
       runtime: {
         providerBackends: {
           gemini: 'cli',
-          codex: 'adapter',
+          codex: 'codex-native',
         },
       },
     }),
@@ -185,17 +185,16 @@ describe('buildProviderAwareCliEnv', () => {
     expect(augmentAllConfiguredConnectionEnvMock).toHaveBeenCalledWith(
       expect.objectContaining({
         CLAUDE_CODE_GEMINI_BACKEND: 'api',
-        CLAUDE_CODE_CODEX_BACKEND: 'adapter',
+        CLAUDE_CODE_CODEX_BACKEND: 'codex-native',
       })
     );
     expect(result.env.CLAUDE_CODE_GEMINI_BACKEND).toBe('api');
-    expect(result.env.CLAUDE_CODE_CODEX_BACKEND).toBe('adapter');
+    expect(result.env.CLAUDE_CODE_CODEX_BACKEND).toBe('codex-native');
   });
 
-  it('preserves codex-native internal unlock env across provider-aware child env building', async () => {
+  it('preserves codex-native backend env across provider-aware child env building', async () => {
     buildEnrichedEnvMock.mockReturnValue({
       PATH: '/usr/bin',
-      CLAUDE_CODE_CODEX_NATIVE_INTERNAL_UNLOCK: '1',
     });
 
     const { buildProviderAwareCliEnv } = await import(
@@ -207,12 +206,11 @@ describe('buildProviderAwareCliEnv', () => {
 
     expect(applyConfiguredConnectionEnvMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        CLAUDE_CODE_CODEX_BACKEND: 'adapter',
-        CLAUDE_CODE_CODEX_NATIVE_INTERNAL_UNLOCK: '1',
+        CLAUDE_CODE_CODEX_BACKEND: 'codex-native',
       }),
       'codex',
       undefined
     );
-    expect(result.env.CLAUDE_CODE_CODEX_NATIVE_INTERNAL_UNLOCK).toBe('1');
+    expect(result.env.CLAUDE_CODE_CODEX_BACKEND).toBe('codex-native');
   });
 });

@@ -33,16 +33,6 @@ function createCodexProvider(
     resolvedBackendId: 'codex-native',
     availableBackends: [
       {
-        id: 'auto',
-        label: 'Auto',
-        description: 'Automatically choose the best backend.',
-        selectable: true,
-        recommended: true,
-        available: true,
-        state: 'ready',
-        audience: 'general',
-      },
-      {
         id: 'codex-native',
         label: 'Codex native',
         description: 'Use the local codex exec JSON seam.',
@@ -109,29 +99,9 @@ describe('ProviderRuntimeBackendSelector helpers', () => {
     );
   });
 
-  it('hides codex legacy fallbacks from normal selectors when native is selected', () => {
+  it('shows the single native-only codex option after phase 4 migration', () => {
     const provider = createCodexProvider({
       availableBackends: [
-        {
-          id: 'auto',
-          label: 'Auto',
-          description: 'Automatically choose the best backend.',
-          selectable: true,
-          recommended: false,
-          available: true,
-          state: 'ready',
-          audience: 'general',
-        },
-        {
-          id: 'api',
-          label: 'OpenAI API',
-          description: 'Legacy public Responses API fallback.',
-          selectable: true,
-          recommended: false,
-          available: true,
-          state: 'ready',
-          audience: 'internal',
-        },
         {
           id: 'codex-native',
           label: 'Codex native',
@@ -150,21 +120,11 @@ describe('ProviderRuntimeBackendSelector helpers', () => {
     ]);
   });
 
-  it('keeps an explicitly selected legacy codex fallback readable during the soak', () => {
+  it('normalizes migrated legacy codex fallback rows to Codex native', () => {
     const provider = createCodexProvider({
-      selectedBackendId: 'api',
-      resolvedBackendId: 'api',
+      selectedBackendId: 'codex-native',
+      resolvedBackendId: 'codex-native',
       availableBackends: [
-        {
-          id: 'api',
-          label: 'OpenAI API',
-          description: 'Legacy public Responses API fallback.',
-          selectable: true,
-          recommended: false,
-          available: true,
-          state: 'ready',
-          audience: 'internal',
-        },
         {
           id: 'codex-native',
           label: 'Codex native',
@@ -179,10 +139,8 @@ describe('ProviderRuntimeBackendSelector helpers', () => {
     });
     const visibleOptions = getVisibleProviderRuntimeBackendOptions(provider);
 
-    expect(visibleOptions.map((option) => option.id)).toEqual(['api', 'codex-native']);
-    expect(getOptionDisplayLabel(provider, visibleOptions[0], null)).toBe(
-      'Legacy OpenAI fallback'
-    );
-    expect(getProviderRuntimeBackendSummary(provider)).toBe('Legacy OpenAI fallback - internal');
+    expect(visibleOptions.map((option) => option.id)).toEqual(['codex-native']);
+    expect(getOptionDisplayLabel(provider, visibleOptions[0], null)).toBe('Codex native');
+    expect(getProviderRuntimeBackendSummary(provider)).toBe('Codex native');
   });
 });

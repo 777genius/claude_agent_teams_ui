@@ -11,10 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@renderer/components/ui/tooltip';
-import {
-  formatProviderBackendLabel,
-  isLegacyCodexProviderBackendId,
-} from '@renderer/utils/providerBackendIdentity';
+import { formatProviderBackendLabel } from '@renderer/utils/providerBackendIdentity';
 
 import type { CliProviderStatus } from '@shared/types';
 
@@ -60,15 +57,7 @@ export function getProviderRuntimeBackendAudienceLabel(
 export function getVisibleProviderRuntimeBackendOptions(
   provider: CliProviderStatus
 ): NonNullable<CliProviderStatus['availableBackends']> {
-  const options = provider.availableBackends ?? [];
-  if (provider.providerId !== 'codex') {
-    return options;
-  }
-
-  const selectedBackendId = provider.selectedBackendId ?? null;
-  return options.filter(
-    (option) => !isLegacyCodexProviderBackendId(option.id) || option.id === selectedBackendId
-  );
+  return provider.availableBackends ?? [];
 }
 
 export function getOptionDisplayLabel(
@@ -77,17 +66,6 @@ export function getOptionDisplayLabel(
   resolvedOption: NonNullable<CliProviderStatus['availableBackends']>[number] | null
 ): string {
   if (provider.providerId === 'codex') {
-    if (option.id === 'auto') {
-      const currentLabel =
-        resolvedOption && resolvedOption.id !== 'auto'
-          ? (formatProviderBackendLabel(provider.providerId, resolvedOption.id) ??
-            resolvedOption.label)
-          : null;
-      return currentLabel
-        ? `Legacy auto fallback (currently: ${currentLabel})`
-        : 'Legacy auto fallback';
-    }
-
     const legacyLabel = formatProviderBackendLabel(provider.providerId, option.id);
     if (legacyLabel) {
       return legacyLabel;

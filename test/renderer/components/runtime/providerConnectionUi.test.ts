@@ -6,6 +6,7 @@ import {
   getProviderCredentialSummary,
   getProviderCurrentRuntimeSummary,
   isConnectionManagedRuntimeProvider,
+  shouldShowProviderConnectAction,
 } from '@renderer/components/runtime/providerConnectionUi';
 import { createDefaultCliExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
 
@@ -57,6 +58,8 @@ function createCodexProvider(
     resolvedBackendId?: string | null;
     availableBackends?: CliProviderStatus['availableBackends'];
     backend?: CliProviderStatus['backend'];
+    statusMessage?: string | null;
+    canLoginFromUi?: boolean;
   }
 ): CliProviderStatus {
   return {
@@ -64,33 +67,45 @@ function createCodexProvider(
     displayName: 'Codex',
     supported: true,
     authenticated: overrides?.authenticated ?? true,
-    authMethod: overrides?.authMethod ?? 'oauth_token',
+    authMethod: overrides?.authMethod ?? 'api_key',
     verificationState: 'verified',
-    statusMessage: 'Connected',
+    statusMessage: overrides?.statusMessage ?? 'Codex native ready',
     models: ['gpt-5-codex'],
-    canLoginFromUi: true,
+    canLoginFromUi: overrides?.canLoginFromUi ?? false,
     capabilities: {
       teamLaunch: true,
       oneShot: true,
       extensions: createDefaultCliExtensionCapabilities(),
     },
-    selectedBackendId: overrides?.selectedBackendId ?? 'auto',
-    resolvedBackendId: overrides?.resolvedBackendId ?? 'adapter',
-    availableBackends: overrides?.availableBackends ?? [],
+    selectedBackendId: overrides?.selectedBackendId ?? 'codex-native',
+    resolvedBackendId: overrides?.resolvedBackendId ?? 'codex-native',
+    availableBackends:
+      overrides?.availableBackends ??
+      [
+        {
+          id: 'codex-native',
+          label: 'Codex native',
+          description: 'Use codex exec JSON mode.',
+          selectable: true,
+          recommended: true,
+          available: true,
+          state: 'ready',
+          audience: 'general',
+          statusMessage: 'Codex native ready',
+        },
+      ],
     externalRuntimeDiagnostics: [],
     backend:
       overrides?.backend ??
       ({
-        kind: 'adapter',
-        label: 'Codex subscription',
+        kind: 'codex-native',
+        label: 'Codex native',
       } satisfies NonNullable<CliProviderStatus['backend']>),
     connection: {
-      supportsOAuth: true,
+      supportsOAuth: false,
       supportsApiKey: true,
-      configurableAuthModes: ['oauth', 'api_key'],
-      configuredAuthMode: overrides?.configuredAuthMode ?? 'oauth',
-      apiKeyBetaAvailable: true,
-      apiKeyBetaEnabled: overrides?.apiKeyBetaEnabled ?? true,
+      configurableAuthModes: [],
+      configuredAuthMode: overrides?.configuredAuthMode ?? null,
       apiKeyConfigured: overrides?.apiKeyConfigured ?? false,
       apiKeySource: overrides?.apiKeySource ?? null,
       apiKeySourceLabel: overrides?.apiKeySourceLabel ?? null,
@@ -124,202 +139,62 @@ describe('providerConnectionUi', () => {
     );
   });
 
-  it('prefers the actual Codex runtime once the provider is already authenticated', () => {
+  it('treats Codex as lane-managed and hides the old connection-managed runtime summary', () => {
     const provider = createCodexProvider({
-      authenticated: true,
-      authMethod: 'oauth_token',
-      configuredAuthMode: 'api_key',
       apiKeyConfigured: true,
       apiKeySource: 'stored',
       apiKeySourceLabel: 'Stored in app',
-    });
-
-    expect(getProviderCurrentRuntimeSummary(provider)).toBe(
-      'Current runtime: Codex subscription'
-    );
-  });
-
-  it('shows the selected Codex runtime when the provider is not authenticated yet', () => {
-    const provider = createCodexProvider({
-      authenticated: false,
-      authMethod: null,
-      configuredAuthMode: 'api_key',
-      apiKeyConfigured: true,
-      apiKeySource: 'stored',
-      apiKeySourceLabel: 'Stored in app',
-    });
-
-    expect(getProviderCurrentRuntimeSummary(provider)).toBe('Selected runtime: OpenAI API key');
-  });
-
-  it('reports an environment Anthropic API key without claiming it is stored in Manage', () => {
-    const provider = createAnthropicProvider({
-      authenticated: true,
-      authMethod: 'oauth_token',
-      configuredAuthMode: 'oauth',
-      apiKeyConfigured: true,
-      apiKeySource: 'environment',
-      apiKeySourceLabel: 'Detected from ANTHROPIC_API_KEY',
-    });
-
-    expect(getProviderCredentialSummary(provider)).toBe('Detected from ANTHROPIC_API_KEY');
-  });
-
-  it('reports an environment Codex API key without claiming it is stored in Manage', () => {
-    const provider = createCodexProvider({
-      authenticated: true,
-      authMethod: 'oauth_token',
-      configuredAuthMode: 'oauth',
-      apiKeyConfigured: true,
-      apiKeySource: 'environment',
-      apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
-    });
-
-    expect(getProviderCredentialSummary(provider)).toBe('Detected from OPENAI_API_KEY');
-  });
-
-  it('tells the user when a stored Codex key exists but API key mode is still disabled', () => {
-    const provider = createCodexProvider({
-      authenticated: true,
-      authMethod: 'oauth_token',
-      configuredAuthMode: 'oauth',
-      apiKeyBetaEnabled: false,
-      apiKeyConfigured: true,
-      apiKeySource: 'stored',
-      apiKeySourceLabel: 'Stored in app',
-    });
-
-    expect(getProviderCredentialSummary(provider)).toBe(
-      'OpenAI API key is saved in Manage. Enable API key mode to use it.'
-    );
-  });
-
-  it('treats Codex as lane-managed once explicit backend options exist', () => {
-    const provider = createCodexProvider({
-      availableBackends: [
-        {
-          id: 'auto',
-          label: 'Auto',
-          description: 'Automatically choose the best backend.',
-          selectable: true,
-          recommended: true,
-          available: true,
-        },
-        {
-          id: 'codex-native',
-          label: 'Codex native',
-          description: 'Use codex exec JSON mode.',
-          selectable: true,
-          recommended: false,
-          available: true,
-        },
-      ],
-      selectedBackendId: 'codex-native',
-      resolvedBackendId: 'codex-native',
-      backend: {
-        kind: 'codex-native',
-        label: 'Codex native',
-      },
     });
 
     expect(isConnectionManagedRuntimeProvider(provider)).toBe(false);
     expect(getProviderCurrentRuntimeSummary(provider)).toBeNull();
   });
 
-  it('does not tell the user to enable API key mode when codex-native is already selected', () => {
+  it('shows stored Codex API keys as immediately usable for native runtime', () => {
     const provider = createCodexProvider({
-      apiKeyBetaEnabled: false,
-      configuredAuthMode: 'api_key',
       apiKeyConfigured: true,
       apiKeySource: 'stored',
       apiKeySourceLabel: 'Stored in app',
-      selectedBackendId: 'codex-native',
-      resolvedBackendId: 'codex-native',
-      availableBackends: [
-        {
-          id: 'codex-native',
-          label: 'Codex native',
-          description: 'Use codex exec JSON mode.',
-          selectable: true,
-          recommended: false,
-          available: true,
-        },
-      ],
-      backend: {
-        kind: 'codex-native',
-        label: 'Codex native',
-      },
     });
 
     expect(getProviderCredentialSummary(provider)).toBe('Saved API key available in Manage');
   });
 
-  it('keeps locked codex-native lanes visible instead of flattening them to connected-via-api-key', () => {
+  it('shows environment Codex credentials without claiming they are stored in Manage', () => {
     const provider = createCodexProvider({
-      authenticated: true,
-      authMethod: 'api_key',
-      statusMessage: 'Codex native runtime ready',
-      selectedBackendId: 'codex-native',
-      resolvedBackendId: 'codex-native',
-      availableBackends: [
-        {
-          id: 'codex-native',
-          label: 'Codex native',
-          description: 'Use codex exec JSON mode.',
-          selectable: false,
-          recommended: false,
-          available: true,
-          state: 'locked',
-          audience: 'internal',
-          statusMessage: 'Ready but locked',
-          detailMessage: 'Internal rollout only.',
-        },
-      ],
-      backend: {
-        kind: 'codex-native',
-        label: 'Codex native',
-      },
+      apiKeyConfigured: true,
+      apiKeySource: 'environment',
+      apiKeySourceLabel: 'Detected from CODEX_API_KEY',
     });
 
-    expect(formatProviderStatusText(provider)).toBe('Ready but locked');
+    expect(getProviderCredentialSummary(provider)).toBe('Detected from CODEX_API_KEY');
   });
 
-  it('keeps internal codex-native ready state explicit instead of showing a generic auth label', () => {
+  it('surfaces native backend status instead of flattening Codex to connected-via-api-key text', () => {
     const provider = createCodexProvider({
-      authenticated: true,
-      authMethod: 'api_key',
-      statusMessage: 'Codex native runtime ready',
-      selectedBackendId: 'codex-native',
-      resolvedBackendId: 'codex-native',
       availableBackends: [
         {
           id: 'codex-native',
           label: 'Codex native',
           description: 'Use codex exec JSON mode.',
           selectable: true,
-          recommended: false,
+          recommended: true,
           available: true,
           state: 'ready',
-          audience: 'internal',
-          statusMessage: 'Ready for internal use',
-          detailMessage: 'Internal rollout only.',
+          audience: 'general',
+          statusMessage: 'Codex native ready',
         },
       ],
-      backend: {
-        kind: 'codex-native',
-        label: 'Codex native',
-      },
     });
 
-    expect(formatProviderStatusText(provider)).toBe('Ready for internal use');
+    expect(formatProviderStatusText(provider)).toBe('Codex native ready');
   });
 
   it('surfaces native auth-required state from the selected backend option', () => {
     const provider = createCodexProvider({
       authenticated: false,
       authMethod: null,
-      statusMessage: 'Codex native runtime not ready',
-      selectedBackendId: 'codex-native',
+      statusMessage: 'Codex native not ready',
       resolvedBackendId: null,
       availableBackends: [
         {
@@ -327,10 +202,10 @@ describe('providerConnectionUi', () => {
           label: 'Codex native',
           description: 'Use codex exec JSON mode.',
           selectable: false,
-          recommended: false,
+          recommended: true,
           available: false,
           state: 'authentication-required',
-          audience: 'internal',
+          audience: 'general',
           statusMessage: 'Authentication required',
           detailMessage: 'Set CODEX_API_KEY.',
         },
@@ -341,30 +216,13 @@ describe('providerConnectionUi', () => {
     expect(formatProviderStatusText(provider)).toBe('Authentication required');
   });
 
-  it('surfaces native runtime-missing state from the selected backend option', () => {
+  it('never shows a Connect action for Codex after the native-only cutover', () => {
     const provider = createCodexProvider({
       authenticated: false,
       authMethod: null,
-      statusMessage: 'Codex native runtime not ready',
-      selectedBackendId: 'codex-native',
-      resolvedBackendId: null,
-      availableBackends: [
-        {
-          id: 'codex-native',
-          label: 'Codex native',
-          description: 'Use codex exec JSON mode.',
-          selectable: false,
-          recommended: false,
-          available: false,
-          state: 'runtime-missing',
-          audience: 'internal',
-          statusMessage: 'Codex CLI not found',
-          detailMessage: 'Install the codex CLI before enabling the lane.',
-        },
-      ],
-      backend: null,
+      canLoginFromUi: false,
     });
 
-    expect(formatProviderStatusText(provider)).toBe('Codex CLI not found');
+    expect(shouldShowProviderConnectAction(provider)).toBe(false);
   });
 });

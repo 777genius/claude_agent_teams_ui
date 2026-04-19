@@ -259,17 +259,17 @@ describe('TeamModelSelector disabled Codex models', () => {
     });
   });
 
-  it('shows 5.1 Codex Max as a disabled tile on the ChatGPT subscription path', async () => {
+  it('keeps 5.1 Codex Max selectable on the native Codex path', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliStatus = {
       providers: [
         {
           providerId: 'codex',
-          authMethod: 'oauth_token',
+          authMethod: 'api_key',
           backend: {
-            kind: 'adapter',
-            label: 'Default adapter',
-            endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+            kind: 'codex-native',
+            label: 'Codex native',
+            endpointLabel: 'codex exec --json',
           },
           models: ['gpt-5.4', 'gpt-5.1-codex-max'],
           modelVerificationState: 'idle',
@@ -295,23 +295,20 @@ describe('TeamModelSelector disabled Codex models', () => {
       await Promise.resolve();
     });
 
-    const disabledButton = Array.from(host.querySelectorAll('button')).find((button) =>
+    const button = Array.from(host.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('5.1 Codex Max')
     );
 
-    expect(disabledButton).not.toBeNull();
-    expect(disabledButton?.getAttribute('aria-disabled')).toBe('true');
-    expect(disabledButton?.textContent).toContain('Disabled');
-    expect(disabledButton?.getAttribute('title')).toContain(
-      'Not available with Codex ChatGPT subscription'
-    );
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('aria-disabled')).toBe('false');
+    expect(button?.textContent).not.toContain('Disabled');
 
     await act(async () => {
-      disabledButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await Promise.resolve();
     });
 
-    expect(onValueChange).not.toHaveBeenCalled();
+    expect(onValueChange).toHaveBeenCalledWith('gpt-5.1-codex-max');
 
     await act(async () => {
       root.unmount();

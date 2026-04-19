@@ -166,21 +166,21 @@ function createApiKeyMisconfiguredProvider(
     statusMessage:
       providerId === 'anthropic'
         ? 'Anthropic API key mode is enabled, but no ANTHROPIC_API_KEY is configured.'
-        : 'Codex API key mode is enabled, but no OPENAI_API_KEY is configured.',
+        : 'Codex native runtime requires OPENAI_API_KEY or CODEX_API_KEY.',
     models: [],
-    canLoginFromUi: true,
+    canLoginFromUi: providerId === 'anthropic',
     capabilities: {
       teamLaunch: true,
       oneShot: true,
     },
     connection: {
-      supportsOAuth: true,
+      supportsOAuth: providerId === 'anthropic',
       supportsApiKey: true,
       configurableAuthModes:
-        providerId === 'anthropic' ? ['auto', 'oauth', 'api_key'] : ['oauth', 'api_key'],
-      configuredAuthMode: 'api_key',
-      apiKeyBetaAvailable: providerId === 'codex' ? true : undefined,
-      apiKeyBetaEnabled: providerId === 'codex' ? true : undefined,
+        providerId === 'anthropic' ? ['auto', 'oauth', 'api_key'] : [],
+      configuredAuthMode: providerId === 'anthropic' ? 'api_key' : null,
+      apiKeyBetaAvailable: undefined,
+      apiKeyBetaEnabled: undefined,
       apiKeyConfigured: false,
       apiKeySource: null,
       apiKeySourceLabel: null,
@@ -194,22 +194,22 @@ function createApiKeyModeProviderIssue(providerId: 'anthropic' | 'codex'): Recor
     statusMessage:
       providerId === 'anthropic'
         ? 'Anthropic API key was rejected by the runtime.'
-        : 'OpenAI API key was rejected by the runtime.',
+        : 'Codex native runtime is unavailable because the configured API key was rejected.',
     connection: {
       ...(createApiKeyMisconfiguredProvider(providerId) as { connection: Record<string, unknown> })
         .connection,
       apiKeyConfigured: true,
       apiKeySource: 'stored',
       apiKeySourceLabel:
-        providerId === 'anthropic' ? 'Stored Anthropic API key' : 'Stored OpenAI API key',
+        providerId === 'anthropic' ? 'Stored Anthropic API key' : 'Stored Codex API key',
     },
   };
 }
 
 function createCodexNativeRolloutProvider(
   overrides?: Partial<Record<string, unknown>> & {
-    state?: 'ready' | 'locked' | 'authentication-required' | 'runtime-missing' | 'degraded';
-    audience?: 'general' | 'internal';
+    state?: 'ready' | 'authentication-required' | 'runtime-missing' | 'degraded';
+    audience?: 'general';
     selectable?: boolean;
     available?: boolean;
     statusMessage?: string | null;
@@ -220,23 +220,16 @@ function createCodexNativeRolloutProvider(
     providerId: 'codex',
     displayName: 'Codex',
     supported: true,
-    authenticated:
-      overrides?.state === 'ready' || overrides?.state === 'locked' || overrides?.available === true,
-    authMethod:
-      overrides?.state === 'ready' || overrides?.state === 'locked' || overrides?.available === true
-        ? 'api_key'
-        : null,
+    authenticated: overrides?.state === 'ready' || overrides?.available === true,
+    authMethod: overrides?.state === 'ready' || overrides?.available === true ? 'api_key' : null,
     verificationState:
-      overrides?.state === 'ready' || overrides?.state === 'locked' || overrides?.available === true
-        ? 'verified'
-        : 'unknown',
-    statusMessage: overrides?.statusMessage ?? 'Ready but locked',
-    detailMessage: overrides?.detailMessage ?? 'Internal rollout only.',
+      overrides?.state === 'ready' || overrides?.available === true ? 'verified' : 'unknown',
+    statusMessage: overrides?.statusMessage ?? 'Ready',
+    detailMessage:
+      overrides?.detailMessage ?? 'Codex native runtime is ready through the local codex exec seam.',
     selectedBackendId: 'codex-native',
     resolvedBackendId:
-      overrides?.state === 'ready' || overrides?.state === 'locked' || overrides?.available === true
-        ? 'codex-native'
-        : null,
+      overrides?.state === 'ready' || overrides?.available === true ? 'codex-native' : null,
     models: ['gpt-5-codex'],
     canLoginFromUi: false,
     capabilities: {
@@ -248,17 +241,18 @@ function createCodexNativeRolloutProvider(
         id: 'codex-native',
         label: 'Codex native',
         description: 'Use codex exec JSON mode.',
-        selectable: overrides?.selectable ?? false,
-        recommended: false,
+        selectable: overrides?.selectable ?? true,
+        recommended: true,
         available: overrides?.available ?? true,
-        state: overrides?.state ?? 'locked',
-        audience: overrides?.audience ?? 'internal',
-        statusMessage: overrides?.statusMessage ?? 'Ready but locked',
-        detailMessage: overrides?.detailMessage ?? 'Internal rollout only.',
+        state: overrides?.state ?? 'ready',
+        audience: overrides?.audience ?? 'general',
+        statusMessage: overrides?.statusMessage ?? 'Ready',
+        detailMessage:
+          overrides?.detailMessage ?? 'Codex native runtime is ready through the local codex exec seam.',
       },
     ],
     backend:
-      overrides?.state === 'ready' || overrides?.state === 'locked' || overrides?.available === true
+      overrides?.state === 'ready' || overrides?.available === true
         ? {
             kind: 'codex-native',
             label: 'Codex native',
@@ -403,12 +397,12 @@ describe('CLI status visibility during completed install state', () => {
     const onSelectBackend = providerRuntimeSettingsDialogProps?.onSelectBackend;
     expect(onSelectBackend).toBeTypeOf('function');
 
-    await expect(onSelectBackend?.('codex', 'api')).rejects.toThrow(
+    await expect(onSelectBackend?.('codex', 'codex-native')).rejects.toThrow(
       'Runtime updated, but failed to refresh provider status.'
     );
     expect(storeState.updateConfig).toHaveBeenCalledWith('runtime', {
       providerBackends: {
-        codex: 'api',
+        codex: 'codex-native',
       },
     });
     expect(storeState.fetchCliProviderStatus).toHaveBeenCalledWith('codex');
@@ -770,7 +764,7 @@ describe('CLI status visibility during completed install state', () => {
     });
   });
 
-  it('shows runtime model availability badges on the dashboard', async () => {
+  it('shows runtime model availability badges on the dashboard without hiding native Codex models', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliInstallerState = 'idle';
     storeState.cliStatus = createInstalledCliStatus({
@@ -786,7 +780,7 @@ describe('CLI status visibility during completed install state', () => {
           displayName: 'Codex',
           supported: true,
           authenticated: true,
-          authMethod: 'oauth_token',
+          authMethod: 'api_key',
           verificationState: 'verified',
           modelVerificationState: 'verified',
           statusMessage: null,
@@ -806,15 +800,15 @@ describe('CLI status visibility during completed install state', () => {
               checkedAt: '2026-04-16T12:00:00.000Z',
             },
           ],
-          canLoginFromUi: true,
+          canLoginFromUi: false,
           capabilities: {
             teamLaunch: true,
             oneShot: true,
           },
           backend: {
-            kind: 'openai',
-            label: 'OpenAI',
-            endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+            kind: 'codex-native',
+            label: 'Codex native',
+            endpointLabel: 'codex exec --json',
           },
         },
       ],
@@ -830,9 +824,9 @@ describe('CLI status visibility during completed install state', () => {
     });
 
     expect(host.textContent).toContain('5.4');
-    expect(host.textContent).not.toContain('5.1-codex-max');
+    expect(host.textContent).toContain('5.1-codex-max');
     expect(host.textContent).not.toContain('5.2-codex');
-    expect(host.textContent).not.toContain('Unavailable');
+    expect(host.textContent).toContain('Unavailable');
 
     await act(async () => {
       root.unmount();
@@ -840,7 +834,7 @@ describe('CLI status visibility during completed install state', () => {
     });
   });
 
-  it('keeps dashboard codex-native rollout truth explicit for locked internal lanes', async () => {
+  it('keeps dashboard codex-native truth explicit for ready native lanes', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliInstallerState = 'idle';
     storeState.cliStatus = createInstalledCliStatus({
@@ -852,10 +846,12 @@ describe('CLI status visibility during completed install state', () => {
       authLoggedIn: true,
       providers: [
         createCodexNativeRolloutProvider({
-          state: 'locked',
+          state: 'ready',
           available: true,
-          selectable: false,
-          statusMessage: 'Ready but locked',
+          selectable: true,
+          audience: 'general',
+          statusMessage: 'Ready',
+          detailMessage: 'Codex native runtime is ready through the local codex exec seam.',
         }),
       ],
     });
@@ -869,8 +865,8 @@ describe('CLI status visibility during completed install state', () => {
       await Promise.resolve();
     });
 
-    expect(host.textContent).toContain('Ready but locked');
-    expect(host.textContent).toContain('Runtime: Codex native - internal - locked');
+    expect(host.textContent).toContain('Ready');
+    expect(host.textContent).toContain('Runtime: Codex native');
     expect(host.textContent).not.toContain('Connected via API key');
 
     await act(async () => {
@@ -898,7 +894,7 @@ describe('CLI status visibility during completed install state', () => {
           available: false,
           selectable: false,
           statusMessage: 'Codex CLI not found',
-          detailMessage: 'Install the codex CLI before enabling the lane.',
+          detailMessage: 'Codex native runtime requires the codex CLI binary to be installed and discoverable.',
           backend: null,
           resolvedBackendId: null,
         }),
@@ -915,7 +911,7 @@ describe('CLI status visibility during completed install state', () => {
     });
 
     expect(host.textContent).toContain('Codex CLI not found');
-    expect(host.textContent).toContain('Runtime: Codex native - internal - runtime missing');
+    expect(host.textContent).toContain('Runtime: Codex native - runtime missing');
     expect(host.textContent).not.toContain('Connected via API key');
 
     await act(async () => {

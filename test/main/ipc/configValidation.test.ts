@@ -240,7 +240,7 @@ describe('configValidation', () => {
     }
   });
 
-  it('accepts Codex runtime backend updates for api and codex-native', () => {
+  it('normalizes legacy Codex runtime backend updates to codex-native', () => {
     const apiResult = validateConfigUpdatePayload('runtime', {
       providerBackends: {
         codex: 'api',
@@ -251,7 +251,7 @@ describe('configValidation', () => {
     if (apiResult.valid) {
       expect(apiResult.data).toEqual({
         providerBackends: {
-          codex: 'api',
+          codex: 'codex-native',
         },
       });
     }
@@ -281,7 +281,7 @@ describe('configValidation', () => {
 
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.error).toContain('auto, adapter, api, codex-native');
+      expect(result.error).toContain('runtime.providerBackends.codex must be one of: codex-native');
     }
   });
 });

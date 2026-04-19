@@ -51,7 +51,7 @@ describe('ProvisioningProviderStatusList', () => {
             {
               providerId: 'codex',
               status: 'failed',
-              backendSummary: 'Default adapter',
+              backendSummary: 'Codex native',
               details: [
                 '5.4 Mini - verified',
                 '5.1 Codex Max - unavailable - Not available with Codex ChatGPT subscription',
@@ -64,7 +64,7 @@ describe('ProvisioningProviderStatusList', () => {
     });
 
     expect(host.textContent).toContain(
-      'Codex (Default adapter): Selected model checks - 1 model unavailable, 1 verified'
+      'Codex (Codex native): Selected model checks - 1 model unavailable, 1 verified'
     );
     expect(host.textContent).toContain('5.4 Mini - verified');
     expect(host.textContent).toContain(
@@ -110,7 +110,7 @@ describe('ProvisioningProviderStatusList', () => {
             {
               providerId: 'codex',
               status: 'notes',
-              backendSummary: 'Default adapter',
+              backendSummary: 'Codex native',
               details: ['5.3 Codex - check failed - Model verification timed out'],
             },
           ],
@@ -120,7 +120,7 @@ describe('ProvisioningProviderStatusList', () => {
     });
 
     expect(host.textContent).toContain(
-      'Codex (Default adapter): Selected model checks - 1 model timed out'
+      'Codex (Codex native): Selected model checks - 1 model timed out'
     );
     expect(host.textContent).toContain('5.3 Codex - check failed - Model verification timed out');
 
@@ -143,7 +143,7 @@ describe('ProvisioningProviderStatusList', () => {
             {
               providerId: 'codex',
               status: 'notes',
-              backendSummary: 'Default adapter',
+              backendSummary: 'Codex native',
               details: [
                 'Preflight check for `orchestrator-cli -p` did not complete. Proceeding anyway. Details: Timeout running: orchestrator-cli -p Output only the single word PONG. --output-format text --model gpt-5.4-mini --max-turns 1 --no-session-persistence',
               ],
@@ -154,7 +154,7 @@ describe('ProvisioningProviderStatusList', () => {
       await Promise.resolve();
     });
 
-    expect(host.textContent).toContain('Codex (Default adapter): CLI preflight did not complete');
+    expect(host.textContent).toContain('Codex (Codex native): CLI preflight did not complete');
 
     await act(async () => {
       root.unmount();
@@ -179,36 +179,26 @@ describe('ProvisioningProviderStatusList', () => {
             selectable: false,
             recommended: false,
             available: true,
-            state: 'locked',
-            audience: 'internal',
-            statusMessage: 'Ready but locked',
+            state: 'ready',
+            audience: 'general',
+            statusMessage: 'Ready',
           },
         ],
       })
-    ).toBe('Codex native - internal, locked');
+    ).toBe('Codex native');
   });
 
-  it('marks explicit legacy codex fallback summaries as legacy during the soak', () => {
+  it('normalizes persisted legacy codex fallback summaries to Codex native', () => {
     expect(
       getProvisioningProviderBackendSummary({
         providerId: 'codex',
         selectedBackendId: 'api',
         resolvedBackendId: 'api',
         backend: {
-          kind: 'api',
-          label: 'OpenAI API',
+          kind: 'codex-native',
+          label: 'Codex native',
         },
         availableBackends: [
-          {
-            id: 'api',
-            label: 'OpenAI API',
-            description: 'Legacy public Responses API fallback.',
-            selectable: true,
-            recommended: false,
-            available: true,
-            state: 'ready',
-            audience: 'internal',
-          },
           {
             id: 'codex-native',
             label: 'Codex native',
@@ -221,6 +211,6 @@ describe('ProvisioningProviderStatusList', () => {
           },
         ],
       })
-    ).toBe('Legacy OpenAI fallback - internal');
+    ).toBe('Codex native');
   });
 });

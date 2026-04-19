@@ -5,6 +5,8 @@
 
 import * as path from 'path';
 
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
+
 import type {
   AppConfig,
   DisplayConfig,
@@ -450,11 +452,13 @@ function validateRuntimeSection(data: unknown): ValidationSuccess<'runtime'> | V
         ) {
           return {
             valid: false,
-            error:
-              'runtime.providerBackends.codex must be one of: auto, adapter, api, codex-native',
+            error: 'runtime.providerBackends.codex must be one of: codex-native',
           };
         }
-        providerBackends.codex = backendId;
+        providerBackends.codex = migrateProviderBackendId(
+          'codex',
+          backendId
+        ) as RuntimeConfig['providerBackends']['codex'];
         continue;
       }
 

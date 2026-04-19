@@ -1013,7 +1013,7 @@ describe('TeamProvisioningService', () => {
     expect(launchArgs).toContain(leadSessionId);
   });
 
-  it('skips --resume when the persisted runtime backend lane changed', async () => {
+  it('keeps --resume when a persisted legacy Codex backend normalizes to codex-native', async () => {
     allowConsoleLogs();
     const teamName = 'resume-backend-change-team';
     const leadSessionId = 'lead-session-backend-change';
@@ -1066,8 +1066,8 @@ describe('TeamProvisioningService', () => {
 
     const launchArgs = vi.mocked(spawnCli).mock.calls.at(-1)?.[1] as string[];
     expect(launchArgs).toBeTruthy();
-    expect(launchArgs).not.toContain('--resume');
-    expect(launchArgs).not.toContain(leadSessionId);
+    expect(launchArgs).toContain('--resume');
+    expect(launchArgs).toContain(leadSessionId);
   });
 
   it('seeds the current lead session id immediately when launch resumes an existing session', async () => {

@@ -15,11 +15,11 @@ function createCodexProviderStatus(
   return {
     providerId: 'codex',
     models,
-    authMethod: 'oauth_token',
+    authMethod: 'api_key',
     backend: {
-      kind: 'adapter',
-      label: 'Default adapter',
-      endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+      kind: 'codex-native',
+      label: 'Codex native',
+      endpointLabel: 'codex exec --json',
     },
     authenticated: true,
     supported: true,
@@ -39,7 +39,7 @@ describe('teamModelAvailability', () => {
     ]);
   });
 
-  it('filters Codex models that are UI-disabled even if runtime reports them', () => {
+  it('filters only the Codex models that remain UI-disabled on the native runtime path', () => {
     const providerStatus = createCodexProviderStatus([
       'gpt-5.4',
       'gpt-5.3-codex-spark',
@@ -48,16 +48,19 @@ describe('teamModelAvailability', () => {
       'gpt-5.1-codex-max',
     ]);
 
-    expect(getAvailableTeamProviderModels('codex', providerStatus)).toEqual(['gpt-5.4']);
+    expect(getAvailableTeamProviderModels('codex', providerStatus)).toEqual([
+      'gpt-5.4',
+      'gpt-5.1-codex-max',
+    ]);
   });
 
-  it('keeps 5.1 Codex Max available outside the ChatGPT subscription path', () => {
+  it('keeps 5.1 Codex Max available on the native runtime path', () => {
     const providerStatus = createCodexProviderStatus(['gpt-5.4', 'gpt-5.1-codex-max'], {
       authMethod: 'api_key',
       backend: {
-        kind: 'openai',
-        label: 'OpenAI',
-        endpointLabel: 'api.openai.com/v1/responses',
+        kind: 'codex-native',
+        label: 'Codex native',
+        endpointLabel: 'codex exec --json',
       },
     });
 
