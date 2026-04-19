@@ -1311,6 +1311,7 @@ export class TeamDataService {
         }
         nextByName.add(name.toLowerCase());
         const prev = existingByName.get(name.toLowerCase());
+        const isSameActiveMember = Boolean(prev && prev.removedAt == null);
         return {
           name,
           role: member.role?.trim() || undefined,
@@ -1322,6 +1323,7 @@ export class TeamDataService {
               ? member.effort
               : undefined,
           agentType: prev?.agentType ?? 'general-purpose',
+          agentId: isSameActiveMember ? prev?.agentId : undefined,
           color: prev?.color,
           joinedAt: prev?.joinedAt ?? joinedAt,
           removedAt: undefined,

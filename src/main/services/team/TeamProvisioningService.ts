@@ -1065,19 +1065,57 @@ function sleep(ms: number): Promise<void> {
 async function waitForPidsToExit(
   pids: readonly number[],
   opts: { timeoutMs: number; pollMs: number }
-): Promise<void> {
+): Promise<number[]> {
   if (pids.length === 0) {
-    return;
+    return [];
   }
 
   const deadline = Date.now() + opts.timeoutMs;
+  let remainingPids = [...new Set(pids)];
   while (Date.now() < deadline) {
-    const remaining = pids.filter((pid) => isProcessAlive(pid));
-    if (remaining.length === 0) {
-      return;
+    remainingPids = remainingPids.filter((pid) => isProcessAlive(pid));
+    if (remainingPids.length === 0) {
+      return [];
     }
     await sleep(opts.pollMs);
   }
+
+  return remainingPids;
+}
+
+async function waitForTmuxPanesToExit(
+  paneIds: readonly string[],
+  opts: { timeoutMs: number; pollMs: number }
+): Promise<string[]> {
+  const normalizedPaneIds = [...new Set(paneIds.map((paneId) => paneId.trim()).filter(Boolean))];
+  if (normalizedPaneIds.length === 0) {
+    return [];
+  }
+
+  const deadline = Date.now() + opts.timeoutMs;
+  let remainingPaneIds = normalizedPaneIds;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    let livePanePidById: Map<string, number>;
+    try {
+      livePanePidById = await listTmuxPanePidsForCurrentPlatform(remainingPaneIds);
+      lastError = null;
+    } catch (error) {
+      lastError = error;
+      await sleep(opts.pollMs);
+      continue;
+    }
+    remainingPaneIds = remainingPaneIds.filter((paneId) => livePanePidById.has(paneId));
+    if (remainingPaneIds.length === 0) {
+      return [];
+    }
+    await sleep(opts.pollMs);
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+  return remainingPaneIds;
 }
 
 async function waitForChildProcessToExit(
@@ -4100,6 +4138,23 @@ export class TeamProvisioningService {
     }
   }
 
+  private clearMemberSpawnToolTracking(run: ProvisioningRun, memberName: string): void {
+    let removed = false;
+    for (const [toolUseId, trackedMemberName] of run.memberSpawnToolUseIds.entries()) {
+      if (trackedMemberName !== memberName) continue;
+      run.memberSpawnToolUseIds.delete(toolUseId);
+      removed = true;
+    }
+
+    if (removed) {
+      this.appendMemberBootstrapDiagnostic(
+        run,
+        memberName,
+        'cleared stale spawn tool tracking before manual restart'
+      );
+    }
+  }
+
   /**
    * Update spawn status for a specific team member and emit a change event.
    */
@@ -4182,6 +4237,11 @@ export class TeamProvisioningService {
       next.launchState = 'failed_to_start';
     } else if (status === 'offline') {
       Object.assign(next, createInitialMemberSpawnStatusEntry(), { updatedAt });
+      next.error = undefined;
+      next.hardFailureReason = undefined;
+      next.livenessSource = undefined;
+      next.firstSpawnAcceptedAt = undefined;
+      next.lastHeartbeatAt = undefined;
     }
 
     next.launchState = deriveMemberLaunchState(next);
@@ -4202,8 +4262,12 @@ export class TeamProvisioningService {
     }
 
     run.memberSpawnStatuses.set(memberName, next);
-    if ((status === 'online' && next.bootstrapConfirmed) || status === 'offline') {
-      run.pendingMemberRestarts.delete(memberName);
+    if (
+      (status === 'online' && (next.bootstrapConfirmed || livenessSource === 'process')) ||
+      status === 'offline' ||
+      status === 'error'
+    ) {
+      run.pendingMemberRestarts?.delete(memberName);
     }
     this.syncMemberLaunchGraceCheck(run, memberName, next);
 
@@ -4441,20 +4505,38 @@ export class TeamProvisioningService {
       throw new Error(`Team "${teamName}" is not currently running`);
     }
 
-    const config = await this.configReader.getConfig(teamName);
-    const configuredMembers = config?.members ?? [];
-    let metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>> = [];
-    try {
-      metaMembers = await this.membersMetaStore.getMembers(teamName);
-    } catch {
-      metaMembers = [];
-    }
+    const readCurrentConfiguredMember = async (): Promise<{
+      config: TeamConfig | null;
+      configuredMembers: TeamConfig['members'];
+      metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>>;
+      configuredMember: ReturnType<TeamProvisioningService['resolveEffectiveConfiguredMember']>;
+    }> => {
+      const config = await this.configReader.getConfig(teamName);
+      const configuredMembers = config?.members ?? [];
+      let metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>> = [];
+      try {
+        metaMembers = await this.membersMetaStore.getMembers(teamName);
+      } catch {
+        metaMembers = [];
+      }
 
-    const configuredMember = this.resolveEffectiveConfiguredMember(
-      configuredMembers,
-      metaMembers,
-      memberName
-    );
+      return {
+        config,
+        configuredMembers,
+        metaMembers,
+        configuredMember: this.resolveEffectiveConfiguredMember(
+          configuredMembers,
+          metaMembers,
+          memberName
+        ),
+      };
+    };
+
+    let { config, configuredMembers, metaMembers, configuredMember } =
+      await readCurrentConfiguredMember();
+    if (!config) {
+      throw new Error(`Team "${teamName}" configuration is no longer available`);
+    }
     if (!configuredMember) {
       throw new Error(`Member "${memberName}" is not configured in team "${teamName}"`);
     }
@@ -4484,6 +4566,8 @@ export class TeamProvisioningService {
       );
     }
 
+    this.agentRuntimeSnapshotCache.delete(teamName);
+    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
     const liveRuntimeByMember = await this.getLiveTeamAgentRuntimeMetadata(teamName);
     const livePids = new Set<number>();
     let hasAliveRuntimeWithoutPid = false;
@@ -4506,6 +4590,7 @@ export class TeamProvisioningService {
       );
     }
 
+    const tmuxPaneIdsToVerify: string[] = [];
     for (const persistedRuntimeMember of persistedRuntimeMembers) {
       const paneId =
         typeof persistedRuntimeMember.tmuxPaneId === 'string'
@@ -4515,6 +4600,7 @@ export class TeamProvisioningService {
       if (!paneId || backendType !== 'tmux') {
         continue;
       }
+      tmuxPaneIdsToVerify.push(paneId);
       try {
         killTmuxPaneForCurrentPlatformSync(paneId);
         logger.info(
@@ -4542,15 +4628,73 @@ export class TeamProvisioningService {
     }
 
     if (livePids.size > 0) {
-      await waitForPidsToExit(Array.from(livePids), {
+      const lingeringPids = await waitForPidsToExit(Array.from(livePids), {
         timeoutMs: 1_500,
         pollMs: 100,
       });
+      if (lingeringPids.length > 0) {
+        throw new Error(
+          `Restart for teammate "${memberName}" is still waiting for the previous process to exit (${lingeringPids.join(', ')}).`
+        );
+      }
+    }
+
+    if (tmuxPaneIdsToVerify.length > 0) {
+      let lingeringPaneIds: string[];
+      try {
+        lingeringPaneIds = await waitForTmuxPanesToExit(tmuxPaneIdsToVerify, {
+          timeoutMs: 1_500,
+          pollMs: 100,
+        });
+      } catch (error) {
+        throw new Error(
+          `Restart for teammate "${memberName}" could not verify that the previous tmux pane exited: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+      if (lingeringPaneIds.length > 0) {
+        throw new Error(
+          `Restart for teammate "${memberName}" is still waiting for the previous tmux pane to exit (${lingeringPaneIds.join(', ')}).`
+        );
+      }
+    }
+
+    this.setMemberSpawnStatus(run, memberName, 'offline');
+
+    const latestRunId = this.getAliveRunId(teamName);
+    const currentRun = this.runs.get(runId);
+    if (
+      latestRunId !== runId ||
+      !currentRun ||
+      currentRun !== run ||
+      currentRun.processKilled ||
+      currentRun.cancelRequested
+    ) {
+      throw new Error(`Team "${teamName}" is not currently running`);
+    }
+
+    ({ config, configuredMembers, metaMembers, configuredMember } =
+      await readCurrentConfiguredMember());
+    if (!config) {
+      throw new Error(`Team "${teamName}" configuration disappeared while restart was in progress`);
+    }
+    if (!configuredMember) {
+      throw new Error(
+        `Member "${memberName}" is no longer configured in team "${teamName}" after restart preparation`
+      );
+    }
+    if (configuredMember.removedAt) {
+      throw new Error(`Member "${memberName}" was removed while restart was in progress`);
+    }
+    if (isLeadMember({ name: memberName, agentType: configuredMember.agentType })) {
+      throw new Error('Lead restart is not supported from member controls');
     }
 
     this.agentRuntimeSnapshotCache.delete(teamName);
     this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
-    this.setMemberSpawnStatus(run, memberName, 'offline');
+    this.resetRuntimeToolActivity(run, memberName);
+    this.clearMemberSpawnToolTracking(run, memberName);
     this.setMemberSpawnStatus(run, memberName, 'spawning');
     this.appendMemberBootstrapDiagnostic(run, memberName, 'manual restart requested from UI');
     run.pendingMemberRestarts.set(memberName, {
@@ -4613,6 +4757,10 @@ export class TeamProvisioningService {
       return;
     }
     if (!entry.firstSpawnAcceptedAt) {
+      if (existing) {
+        clearTimeout(existing);
+        this.pendingTimeouts.delete(key);
+      }
       return;
     }
     const remainingMs =
@@ -8402,6 +8550,23 @@ export class TeamProvisioningService {
       });
     }
 
+    for (const member of metaMembers) {
+      const memberName = typeof member?.name === 'string' ? member.name.trim() : '';
+      if (!memberName || isLeadMember({ name: memberName, agentType: member.agentType })) {
+        continue;
+      }
+      const runtimeModel =
+        member.model?.trim() ||
+        this.findConfiguredMemberModel(configuredMembers, memberName) ||
+        this.findEffectiveRunMemberModel(run, memberName);
+      upsertMetadata(memberName, {
+        ...(runtimeModel ? { model: runtimeModel } : {}),
+        ...(typeof member.agentId === 'string' && member.agentId.trim()
+          ? { agentId: member.agentId.trim() }
+          : {}),
+      });
+    }
+
     for (const member of run?.effectiveMembers ?? []) {
       const memberName = member.name?.trim() ?? '';
       if (!memberName || isLeadMember(member) || memberName.toLowerCase() === 'user') {
@@ -8448,12 +8613,14 @@ export class TeamProvisioningService {
             ? processPid
             : undefined;
       const status = this.findTrackedMemberSpawnStatus(run, memberName);
+      const mayInferAliveFromStatusOnly = status?.launchState !== 'failed_to_start';
       const alive =
         typeof resolvedPid === 'number' && resolvedPid > 0
           ? true
           : backendType === 'tmux'
             ? false
-            : Boolean(status?.runtimeAlive || status?.bootstrapConfirmed);
+            : mayInferAliveFromStatusOnly &&
+              Boolean(status?.runtimeAlive || status?.bootstrapConfirmed);
       metadataByMember.set(memberName, {
         ...metadata,
         alive,
@@ -9670,6 +9837,16 @@ export class TeamProvisioningService {
       }
 
       if (outcome === 'already_running') {
+        if (run.pendingMemberRestarts.has(memberName)) {
+          run.pendingMemberRestarts.delete(memberName);
+          this.setMemberSpawnStatus(
+            run,
+            memberName,
+            'error',
+            buildRestartStillRunningReason(memberName)
+          );
+          return true;
+        }
         this.setMemberSpawnStatus(run, memberName, 'online', undefined, 'process');
         return true;
       }
