@@ -240,9 +240,7 @@ export class ProviderConnectionService {
       return null;
     }
 
-    return codexRuntimeBackend === CODEX_NATIVE_BACKEND_ID
-      ? 'Codex native requires OPENAI_API_KEY or CODEX_API_KEY. Add a stored or environment API key before launching Codex.'
-      : 'Codex requires OPENAI_API_KEY or CODEX_API_KEY. Add a stored or environment API key before launching Codex.';
+    return 'Codex native requires OPENAI_API_KEY or CODEX_API_KEY. Add a stored or environment API key before launching Codex.';
   }
 
   async getConfiguredConnectionIssues(

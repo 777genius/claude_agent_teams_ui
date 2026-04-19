@@ -181,9 +181,7 @@ function getConnectionAlert(provider: CliProviderStatus): string | null {
   }
 
   if (provider.providerId === 'codex' && !provider.connection?.apiKeyConfigured) {
-    return isCodexNativeLane(provider)
-      ? 'No OPENAI_API_KEY or CODEX_API_KEY credential is available yet.'
-      : 'No OPENAI_API_KEY credential is available yet.';
+    return 'No OPENAI_API_KEY or CODEX_API_KEY credential is available yet.';
   }
 
   if (

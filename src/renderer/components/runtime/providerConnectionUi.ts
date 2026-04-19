@@ -21,10 +21,6 @@ export function formatProviderAuthModeLabelForProvider(
     return null;
   }
 
-  if (providerId === 'codex' && authMode === 'oauth') {
-    return CODEX_NATIVE_LABEL;
-  }
-
   if (providerId === 'anthropic' && authMode === 'oauth') {
     return ANTHROPIC_SUBSCRIPTION_LABEL;
   }
@@ -57,10 +53,6 @@ export function formatProviderAuthMethodLabelForProvider(
   providerId: CliProviderStatus['providerId'],
   authMethod: string | null
 ): string {
-  if (providerId === 'codex' && authMethod === 'oauth_token') {
-    return CODEX_NATIVE_LABEL;
-  }
-
   if (providerId === 'anthropic' && (authMethod === 'oauth_token' || authMethod === 'claude.ai')) {
     return ANTHROPIC_SUBSCRIPTION_LABEL;
   }
