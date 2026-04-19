@@ -698,7 +698,18 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
   // render path; separators and dividers are their own rows rather than
   // being bundled into Fragments, which is the contract the virtualizer will
   // consume in a follow-up PR.
-  const renderTimelineRow = (row: TimelineRow): React.JSX.Element | null => {
+  //
+  // `suppressEntryAnimation` is set when the caller is the virtualized path:
+  // the virtualizer mounts and unmounts rows as they enter and leave the
+  // viewport, so relying on mount as a signal of "this item is new" would
+  // replay the entry animation every time the user scrolls back to an old
+  // row. In the direct render path the flag stays false and animation still
+  // runs on real data-set additions.
+  const renderTimelineRow = (
+    row: TimelineRow,
+    options?: { suppressEntryAnimation?: boolean }
+  ): React.JSX.Element | null => {
+    const suppressEntry = options?.suppressEntryAnimation === true;
     switch (row.kind) {
       case 'session-separator':
         return (
@@ -735,7 +746,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
             isTeamAlive={pinnedCanBeLive ? isTeamAlive : undefined}
             leadActivity={pinnedCanBeLive ? leadActivity : undefined}
             leadContextUpdatedAt={pinnedCanBeLive ? leadContextUpdatedAt : undefined}
-            isNew={newItemKeys.has(key)}
+            isNew={!suppressEntry && newItemKeys.has(key)}
             onVisible={onMessageVisible}
             observerRoot={observerRoot}
             zebraShade={zebraShadeSet.has(itemIndex)}
@@ -772,7 +783,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
             memberColor={renderProps.memberColor}
             recipientColor={renderProps.recipientColor}
             isUnread={isUnread}
-            isNew={newItemKeys.has(key)}
+            isNew={!suppressEntry && newItemKeys.has(key)}
             zebraShade={zebraShadeSet.has(itemIndex)}
             memberColorMap={colorMap}
             localMemberNames={localMemberNames}
@@ -826,6 +837,14 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
             return (
               <div
                 key={virtualRow.key}
+                // `measureElement` swaps each row's estimated height for its
+                // real rendered height as it mounts, so the virtualizer can
+                // correct totalSize and downstream row positions. The wrapper
+                // div carries no padding/margin, so its bounding box matches
+                // the inner row's bounding box — this is why a merged ref
+                // callback between the observer and `measureElement` isn't
+                // needed here.
+                ref={rowVirtualizer.measureElement}
                 data-index={virtualRow.index}
                 style={{
                   position: 'absolute',
@@ -839,7 +858,7 @@ export const ActivityTimeline = React.memo(function ActivityTimeline({
                   transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
                 }}
               >
-                {renderTimelineRow(row)}
+                {renderTimelineRow(row, { suppressEntryAnimation: true })}
               </div>
             );
           })}
