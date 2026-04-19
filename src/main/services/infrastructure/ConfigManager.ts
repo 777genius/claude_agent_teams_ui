@@ -232,16 +232,12 @@ export interface RuntimeConfig {
 }
 
 export type ProviderConnectionAuthMode = 'auto' | 'oauth' | 'api_key';
-export type CodexProviderConnectionAuthMode = Exclude<ProviderConnectionAuthMode, 'auto'>;
 
 export interface ProviderConnectionsConfig {
   anthropic: {
     authMode: ProviderConnectionAuthMode;
   };
-  codex: {
-    apiKeyBetaEnabled: boolean;
-    authMode: CodexProviderConnectionAuthMode;
-  };
+  codex: Record<string, never>;
 }
 
 export interface DisplayConfig {
@@ -335,10 +331,7 @@ const DEFAULT_CONFIG: AppConfig = {
     anthropic: {
       authMode: 'auto',
     },
-    codex: {
-      apiKeyBetaEnabled: false,
-      authMode: 'oauth',
-    },
+    codex: {},
   },
   runtime: {
     providerBackends: {
@@ -567,10 +560,7 @@ export class ConfigManager {
           ...DEFAULT_CONFIG.providerConnections.anthropic,
           ...(loaded.providerConnections?.anthropic ?? {}),
         },
-        codex: {
-          ...DEFAULT_CONFIG.providerConnections.codex,
-          ...(loaded.providerConnections?.codex ?? {}),
-        },
+        codex: {},
       },
       runtime: {
         providerBackends: {

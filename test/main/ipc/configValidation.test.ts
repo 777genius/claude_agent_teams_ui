@@ -208,7 +208,7 @@ describe('configValidation', () => {
     }
   });
 
-  it('accepts Codex provider connection beta updates', () => {
+  it('normalizes legacy Codex provider connection updates to the native-only config shape', () => {
     const result = validateConfigUpdatePayload('providerConnections', {
       codex: {
         apiKeyBetaEnabled: true,
@@ -219,24 +219,23 @@ describe('configValidation', () => {
     expect(result.valid).toBe(true);
     if (result.valid) {
       expect(result.data).toEqual({
-        codex: {
-          apiKeyBetaEnabled: true,
-          authMode: 'api_key',
-        },
+        codex: {},
       });
     }
   });
 
-  it('rejects invalid Codex auth modes in providerConnections', () => {
+  it('drops unsupported legacy Codex auth modes during providerConnections migration', () => {
     const result = validateConfigUpdatePayload('providerConnections', {
       codex: {
         authMode: 'auto',
       },
     });
 
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.error).toContain('providerConnections.codex.authMode');
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.data).toEqual({
+        codex: {},
+      });
     }
   });
 

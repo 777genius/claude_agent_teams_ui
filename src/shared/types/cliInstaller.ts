@@ -31,8 +31,6 @@ export interface CliProviderConnectionInfo {
   supportsApiKey: boolean;
   configurableAuthModes: CliProviderAuthMode[];
   configuredAuthMode: CliProviderAuthMode | null;
-  apiKeyBetaAvailable?: boolean;
-  apiKeyBetaEnabled?: boolean;
   apiKeyConfigured: boolean;
   apiKeySource: 'stored' | 'environment' | null;
   apiKeySourceLabel?: string | null;

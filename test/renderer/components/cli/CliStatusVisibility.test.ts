@@ -179,8 +179,6 @@ function createApiKeyMisconfiguredProvider(
       configurableAuthModes:
         providerId === 'anthropic' ? ['auto', 'oauth', 'api_key'] : [],
       configuredAuthMode: providerId === 'anthropic' ? 'api_key' : null,
-      apiKeyBetaAvailable: undefined,
-      apiKeyBetaEnabled: undefined,
       apiKeyConfigured: false,
       apiKeySource: null,
       apiKeySourceLabel: null,

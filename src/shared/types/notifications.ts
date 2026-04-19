@@ -328,10 +328,7 @@ export interface AppConfig {
     anthropic: {
       authMode: 'auto' | 'oauth' | 'api_key';
     };
-    codex: {
-      apiKeyBetaEnabled: boolean;
-      authMode: 'oauth' | 'api_key';
-    };
+    codex: Record<string, never>;
   };
   /** Runtime backend preferences for app-launched agent_teams_orchestrator sessions */
   runtime: {

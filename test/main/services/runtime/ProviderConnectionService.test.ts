@@ -17,10 +17,7 @@ describe('ProviderConnectionService', () => {
         anthropic: {
           authMode,
         },
-        codex: {
-          apiKeyBetaEnabled: false,
-          authMode: 'oauth' as const,
-        },
+        codex: {},
       },
       runtime: {
         providerBackends: {
@@ -183,8 +180,6 @@ describe('ProviderConnectionService', () => {
       apiKeySource: null,
       apiKeySourceLabel: null,
     });
-    expect(info.apiKeyBetaAvailable).toBeUndefined();
-    expect(info.apiKeyBetaEnabled).toBeUndefined();
   });
 
   it('mirrors a stored OpenAI key into CODEX_API_KEY for native Codex launches', async () => {

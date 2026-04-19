@@ -10,10 +10,7 @@ interface StoreState {
       anthropic: {
         authMode: 'auto' | 'oauth' | 'api_key';
       };
-      codex: {
-        apiKeyBetaEnabled: boolean;
-        authMode: 'oauth' | 'api_key';
-      };
+      codex: Record<string, never>;
     };
   };
   apiKeys: {
@@ -205,8 +202,6 @@ function createCodexProvider(
       supportsApiKey: true,
       configurableAuthModes: [],
       configuredAuthMode: null,
-      apiKeyBetaAvailable: undefined,
-      apiKeyBetaEnabled: undefined,
       apiKeyConfigured: overrides?.apiKeyConfigured ?? false,
       apiKeySource: overrides?.apiKeySource ?? null,
       apiKeySourceLabel: overrides?.apiKeySourceLabel ?? null,
@@ -323,10 +318,7 @@ describe('ProviderRuntimeSettingsDialog', () => {
         anthropic: {
           authMode: 'auto',
         },
-        codex: {
-          apiKeyBetaEnabled: false,
-          authMode: 'oauth',
-        },
+        codex: {},
       },
     };
     storeState.apiKeys = [];
@@ -348,10 +340,7 @@ describe('ProviderRuntimeSettingsDialog', () => {
               ...storeState.appConfig.providerConnections.anthropic,
               ...(nextProviderConnections.anthropic ?? {}),
             },
-            codex: {
-              ...storeState.appConfig.providerConnections.codex,
-              ...(nextProviderConnections.codex ?? {}),
-            },
+            codex: {},
           },
         };
       }

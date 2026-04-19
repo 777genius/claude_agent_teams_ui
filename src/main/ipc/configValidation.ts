@@ -525,25 +525,7 @@ function validateProviderConnectionsSection(
     const codexUpdate: Partial<ProviderConnectionsConfig['codex']> = {};
 
     for (const [connectionKey, connectionValue] of Object.entries(value)) {
-      if (connectionKey === 'apiKeyBetaEnabled') {
-        if (typeof connectionValue !== 'boolean') {
-          return {
-            valid: false,
-            error: 'providerConnections.codex.apiKeyBetaEnabled must be a boolean',
-          };
-        }
-        codexUpdate.apiKeyBetaEnabled = connectionValue;
-        continue;
-      }
-
-      if (connectionKey === 'authMode') {
-        if (connectionValue !== 'oauth' && connectionValue !== 'api_key') {
-          return {
-            valid: false,
-            error: 'providerConnections.codex.authMode must be one of: oauth, api_key',
-          };
-        }
-        codexUpdate.authMode = connectionValue;
+      if (connectionKey === 'apiKeyBetaEnabled' || connectionKey === 'authMode') {
         continue;
       }
 

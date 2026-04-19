@@ -290,8 +290,6 @@ export class ProviderConnectionService {
       ...capabilities,
       configurableAuthModes,
       configuredAuthMode,
-      apiKeyBetaAvailable: providerId === 'codex' ? undefined : undefined,
-      apiKeyBetaEnabled: providerId === 'codex' ? undefined : undefined,
       apiKeyConfigured: Boolean(storedApiKey?.value.trim() || externalCredential?.value.trim()),
       apiKeySource: storedApiKey?.value.trim()
         ? 'stored'
