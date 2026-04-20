@@ -38,6 +38,7 @@ import { getMemberColorByName } from '@shared/constants/memberColors';
 import { DEFAULT_TOOL_APPROVAL_SETTINGS } from '@shared/types/team';
 import { resolveLanguageName } from '@shared/utils/agentLanguage';
 import { getAnthropicDefaultTeamModel } from '@shared/utils/anthropicModelDefaults';
+import { getErrorMessage } from '@shared/utils/errorHandling';
 import { buildTeamMemberColorMap } from '@shared/utils/teamMemberColors';
 import { parseCliArgs } from '@shared/utils/cliArgsParser';
 import { deriveContextMetrics, inferContextWindowTokens } from '@shared/utils/contextMetrics';
@@ -1130,7 +1131,7 @@ async function waitForTmuxPanesToExit(
   }
 
   if (lastError) {
-    throw lastError;
+    throw lastError instanceof Error ? lastError : new Error(getErrorMessage(lastError));
   }
   return remainingPaneIds;
 }
