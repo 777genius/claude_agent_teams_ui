@@ -333,14 +333,13 @@ export function useSettingsHandlers({
             authMode: 'auto',
           },
           codex: {
-            apiKeyBetaEnabled: false,
-            authMode: 'oauth',
+            preferredAuthMode: 'auto',
           },
         },
         runtime: {
           providerBackends: {
             gemini: 'auto',
-            codex: 'auto',
+            codex: 'codex-native',
           },
         },
         display: {

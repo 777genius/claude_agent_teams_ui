@@ -5,6 +5,8 @@
 
 import * as path from 'path';
 
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
+
 import type {
   AppConfig,
   DisplayConfig,
@@ -442,13 +444,21 @@ function validateRuntimeSection(data: unknown): ValidationSuccess<'runtime'> | V
       }
 
       if (providerId === 'codex') {
-        if (backendId !== 'auto' && backendId !== 'adapter') {
+        if (
+          backendId !== 'auto' &&
+          backendId !== 'adapter' &&
+          backendId !== 'api' &&
+          backendId !== 'codex-native'
+        ) {
           return {
             valid: false,
-            error: 'runtime.providerBackends.codex must be one of: auto, adapter',
+            error: 'runtime.providerBackends.codex must be one of: codex-native',
           };
         }
-        providerBackends.codex = backendId;
+        providerBackends.codex = migrateProviderBackendId(
+          'codex',
+          backendId
+        ) as RuntimeConfig['providerBackends']['codex'];
         continue;
       }
 
@@ -515,25 +525,24 @@ function validateProviderConnectionsSection(
     const codexUpdate: Partial<ProviderConnectionsConfig['codex']> = {};
 
     for (const [connectionKey, connectionValue] of Object.entries(value)) {
-      if (connectionKey === 'apiKeyBetaEnabled') {
-        if (typeof connectionValue !== 'boolean') {
-          return {
-            valid: false,
-            error: 'providerConnections.codex.apiKeyBetaEnabled must be a boolean',
-          };
-        }
-        codexUpdate.apiKeyBetaEnabled = connectionValue;
+      if (connectionKey === 'apiKeyBetaEnabled' || connectionKey === 'authMode') {
         continue;
       }
 
-      if (connectionKey === 'authMode') {
-        if (connectionValue !== 'oauth' && connectionValue !== 'api_key') {
+      if (connectionKey === 'preferredAuthMode') {
+        if (
+          connectionValue !== 'auto' &&
+          connectionValue !== 'chatgpt' &&
+          connectionValue !== 'api_key'
+        ) {
           return {
             valid: false,
-            error: 'providerConnections.codex.authMode must be one of: oauth, api_key',
+            error:
+              'providerConnections.codex.preferredAuthMode must be one of: auto, chatgpt, api_key',
           };
         }
-        codexUpdate.authMode = connectionValue;
+
+        codexUpdate.preferredAuthMode = connectionValue;
         continue;
       }
 

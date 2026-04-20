@@ -20,6 +20,12 @@ process.env.UV_THREADPOOL_SIZE ??= '16';
 import './sentry';
 
 import {
+  createCodexAccountFeature,
+  type CodexAccountFeatureFacade,
+  registerCodexAccountIpc,
+  removeCodexAccountIpc,
+} from '@features/codex-account/main';
+import {
   createRecentProjectsFeature,
   type RecentProjectsFeatureFacade,
   registerRecentProjectsIpc,
@@ -39,6 +45,7 @@ import { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import { TeamInboxWriter } from '@main/services/team/TeamInboxWriter';
 import { TeamMcpConfigBuilder } from '@main/services/team/TeamMcpConfigBuilder';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
+import { providerConnectionService } from '@main/services/runtime/ProviderConnectionService';
 import {
   CONTEXT_CHANGED,
   SCHEDULE_CHANGE,
@@ -111,6 +118,7 @@ import {
 } from './utils/safeWebContentsSend';
 import { syncTelemetryFlag } from './sentry';
 import {
+  ActiveTeamRegistry,
   BoardTaskActivityDetailService,
   BoardTaskActivityRecordSource,
   BoardTaskActivityService,
@@ -130,6 +138,11 @@ import {
   TaskBoundaryParser,
   TeamDataService,
   TeamLogSourceTracker,
+  TeamTaskStallJournal,
+  TeamTaskStallMonitor,
+  TeamTaskStallNotifier,
+  TeamTaskStallPolicy,
+  TeamTaskStallSnapshotSource,
   TeammateToolTracker,
   TeamMemberLogsFinder,
   TeamProvisioningService,
@@ -408,6 +421,7 @@ let contextRegistry: ServiceContextRegistry;
 let notificationManager: NotificationManager;
 let updaterService: UpdaterService;
 let sshConnectionManager: SshConnectionManager;
+let codexAccountFeature: CodexAccountFeatureFacade | null = null;
 let recentProjectsFeature: RecentProjectsFeatureFacade;
 let teamDataService: TeamDataService;
 let teamProvisioningService: TeamProvisioningService;
@@ -415,6 +429,7 @@ let cliInstallerService: CliInstallerService;
 let ptyTerminalService: PtyTerminalService;
 let httpServer: HttpServer;
 let schedulerService: SchedulerService;
+let teamTaskStallMonitor: TeamTaskStallMonitor | null = null;
 let skillsWatcherService: SkillsWatcherService | null = null;
 let teamBackupService: TeamBackupService | null = null;
 let branchStatusService: BranchStatusService | null = null;
@@ -848,6 +863,13 @@ async function initializeServices(): Promise<void> {
 
   const taskChangePresenceRepository = new JsonTaskChangePresenceRepository();
   const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
+  teamTaskStallMonitor = new TeamTaskStallMonitor(
+    new ActiveTeamRegistry(teamDataService, teamLogSourceTracker),
+    new TeamTaskStallSnapshotSource(),
+    new TeamTaskStallPolicy(),
+    new TeamTaskStallJournal(),
+    new TeamTaskStallNotifier(teamDataService)
+  );
   let teammateToolTracker: TeammateToolTracker | null = null;
   branchStatusService = new BranchStatusService((event) => {
     safeSendToRenderer(mainWindow, TEAM_PROJECT_BRANCH_CHANGE, event);
@@ -930,6 +952,7 @@ async function initializeServices(): Promise<void> {
   // Allow TeamProvisioningService to trigger team refresh events (e.g. live lead replies).
   const teamChangeEmitter = (event: TeamChangeEvent): void => {
     forwardTeamChange(event);
+    teamTaskStallMonitor?.noteTeamChange(event);
     if (event.type === 'lead-activity' && event.detail === 'offline') {
       teammateToolTracker?.handleTeamOffline(event.teamName);
     }
@@ -939,6 +962,7 @@ async function initializeServices(): Promise<void> {
   teamLogSourceTracker.onLogSourceChange((teamName) => {
     teammateToolTracker?.handleLogSourceChange(teamName);
   });
+  teamTaskStallMonitor.start();
 
   // Allow SchedulerService to push schedule events to renderer
   schedulerService.setChangeEmitter((event) => {
@@ -959,6 +983,11 @@ async function initializeServices(): Promise<void> {
     getLocalContext: () => contextRegistry.get('local'),
     logger: createLogger('Feature:RecentProjects'),
   });
+  codexAccountFeature = createCodexAccountFeature({
+    logger: createLogger('Feature:CodexAccount'),
+    configManager,
+  });
+  providerConnectionService.setCodexAccountFeature(codexAccountFeature);
 
   // startProcessHealthPolling() is deferred to after window creation
   // (did-finish-load handler) to avoid thread pool contention at startup.
@@ -1013,6 +1042,7 @@ async function initializeServices(): Promise<void> {
     crossTeamService,
     teamBackupService ?? undefined
   );
+  registerCodexAccountIpc(ipcMain, codexAccountFeature);
   registerRecentProjectsIpc(ipcMain, recentProjectsFeature);
 
   // Forward SSH state changes to renderer and HTTP SSE clients
@@ -1142,6 +1172,10 @@ function shutdownServices(): void {
   if (teamDataService) {
     teamDataService.stopProcessHealthPolling();
   }
+  if (teamTaskStallMonitor) {
+    void teamTaskStallMonitor.stop();
+    teamTaskStallMonitor = null;
+  }
   branchStatusService?.dispose();
   branchStatusService = null;
 
@@ -1151,6 +1185,9 @@ function shutdownServices(): void {
   }
 
   void skillsWatcherService?.stopAll();
+  providerConnectionService.setCodexAccountFeature(null);
+  void codexAccountFeature?.dispose();
+  codexAccountFeature = null;
 
   // Kill all PTY processes
   if (ptyTerminalService) {
@@ -1159,6 +1196,7 @@ function shutdownServices(): void {
 
   // Remove IPC handlers
   removeIpcHandlers();
+  removeCodexAccountIpc(ipcMain);
   removeRecentProjectsIpc(ipcMain);
 
   // Dispose backup service timers
@@ -1438,6 +1476,7 @@ function createWindow(): void {
     if (teamProvisioningService) {
       teamProvisioningService.setMainWindow(null);
     }
+    codexAccountFeature?.setMainWindow(null);
     setEditorMainWindow(null);
     setReviewMainWindow(null);
     cleanupEditorState();
@@ -1472,6 +1511,7 @@ function createWindow(): void {
   if (teamProvisioningService) {
     teamProvisioningService.setMainWindow(mainWindow);
   }
+  codexAccountFeature?.setMainWindow(mainWindow);
   setEditorMainWindow(mainWindow);
   setReviewMainWindow(mainWindow);
 

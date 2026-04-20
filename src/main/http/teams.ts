@@ -1,6 +1,7 @@
 import { validateTeamName } from '@main/ipc/guards';
 import { getErrorMessage } from '@shared/utils/errorHandling';
 import { createLogger } from '@shared/utils/logger';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isAbsolute } from 'path';
 
 import type { HttpServices } from './index';
@@ -100,6 +101,13 @@ function parseLaunchRequest(teamName: string, body: unknown): TeamLaunchRequest 
               throw new HttpBadRequestError('providerId must be anthropic, codex, or gemini');
             })();
   const prompt = assertOptionalString(payload.prompt, 'prompt');
+  const rawProviderBackendId = assertOptionalString(payload.providerBackendId, 'providerBackendId');
+  const providerBackendId = migrateProviderBackendId(providerId, rawProviderBackendId);
+  if (rawProviderBackendId && !providerBackendId) {
+    throw new HttpBadRequestError(
+      'providerBackendId must be one of auto, adapter, api, cli-sdk, or codex-native'
+    );
+  }
   const model = assertOptionalString(payload.model, 'model');
   const effort = assertOptionalEffort(payload.effort);
   const clearContext = assertOptionalBoolean(payload.clearContext, 'clearContext');
@@ -111,6 +119,9 @@ function parseLaunchRequest(teamName: string, body: unknown): TeamLaunchRequest 
     teamName,
     cwd: assertAbsoluteCwd(payload.cwd),
     providerId,
+    ...(providerBackendId && {
+      providerBackendId,
+    }),
     ...(prompt && {
       prompt,
     }),

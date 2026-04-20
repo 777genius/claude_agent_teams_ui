@@ -35,7 +35,7 @@ describe('runProviderPrepareDiagnostics', () => {
         },
         'gpt-5.2-codex': {
           status: 'failed',
-          line: '5.2 Codex - unavailable - Not available with Codex ChatGPT subscription',
+          line: '5.2 Codex - unavailable - Not available on this Codex native runtime',
           warningLine: null,
         },
       })
@@ -47,7 +47,7 @@ describe('runProviderPrepareDiagnostics', () => {
       },
       'gpt-5.2-codex': {
         status: 'failed',
-        line: '5.2 Codex - unavailable - Not available with Codex ChatGPT subscription',
+        line: '5.2 Codex - unavailable - Not available on this Codex native runtime',
         warningLine: null,
       },
     });
@@ -129,14 +129,14 @@ describe('runProviderPrepareDiagnostics', () => {
     expect(result.status).toBe('failed');
     expect(result.details).toEqual([
       '5.4 - verified',
-      '5.2 Codex - unavailable - Not available with Codex ChatGPT subscription',
+      '5.2 Codex - unavailable - Not available on this Codex native runtime',
     ]);
     expect(progressUpdates.at(-1)).toEqual({
       completedCount: 2,
       totalCount: 2,
       details: [
         '5.4 - verified',
-        '5.2 Codex - unavailable - Not available with Codex ChatGPT subscription',
+        '5.2 Codex - unavailable - Not available on this Codex native runtime',
       ],
     });
     expect(prepareProvisioning).toHaveBeenCalledTimes(2);
@@ -173,7 +173,7 @@ describe('runProviderPrepareDiagnostics', () => {
 
     expect(result.status).toBe('failed');
     expect(result.details).toEqual([
-      '5.1 Codex Max - unavailable - Not available with Codex ChatGPT subscription',
+      '5.1 Codex Max - unavailable - Not available on this Codex native runtime',
     ]);
   });
 
@@ -357,7 +357,7 @@ describe('runProviderPrepareDiagnostics', () => {
     expect(result.details).toEqual([
       '5.2 - verified',
       '5.4 Mini - verified',
-      '5.2 Codex - unavailable - Not available with Codex ChatGPT subscription',
+      '5.2 Codex - unavailable - Not available on this Codex native runtime',
     ]);
     expect(prepareProvisioning).toHaveBeenCalledTimes(2);
     expect(prepareProvisioning).toHaveBeenNthCalledWith(

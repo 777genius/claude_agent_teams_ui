@@ -329,15 +329,14 @@ export interface AppConfig {
       authMode: 'auto' | 'oauth' | 'api_key';
     };
     codex: {
-      apiKeyBetaEnabled: boolean;
-      authMode: 'oauth' | 'api_key';
+      preferredAuthMode: 'auto' | 'chatgpt' | 'api_key';
     };
   };
   /** Runtime backend preferences for app-launched agent_teams_orchestrator sessions */
   runtime: {
     providerBackends: {
       gemini: 'auto' | 'api' | 'cli-sdk';
-      codex: 'auto' | 'adapter';
+      codex: 'codex-native';
     };
   };
   /** Display and UI settings */

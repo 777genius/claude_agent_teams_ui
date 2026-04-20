@@ -9,12 +9,21 @@ import { atomicWriteAsync } from './atomicWrite';
 
 import type { TeamMember } from '@shared/types';
 
-interface TeamMembersMetaFile {
+export interface TeamMembersMetaFile {
   version: 1;
+  providerBackendId?: string;
   members: TeamMember[];
 }
 
 const MAX_META_FILE_BYTES = 256 * 1024;
+
+function normalizeOptionalBackendId(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 function normalizeMember(member: TeamMember): TeamMember | null {
   const trimmedName = member.name?.trim();
@@ -45,15 +54,15 @@ export class TeamMembersMetaStore {
     return path.join(getTeamsBasePath(), teamName, 'members.meta.json');
   }
 
-  async getMembers(teamName: string): Promise<TeamMember[]> {
+  async getMeta(teamName: string): Promise<TeamMembersMetaFile | null> {
     const metaPath = this.getMetaPath(teamName);
     try {
       const stat = await fs.promises.stat(metaPath);
       if (!stat.isFile()) {
-        return [];
+        return null;
       }
       if (stat.isFile() && stat.size > MAX_META_FILE_BYTES) {
-        return [];
+        return null;
       }
     } catch {
       // ignore - readFile below will handle ENOENT and throw on other errors
@@ -63,10 +72,10 @@ export class TeamMembersMetaStore {
       raw = await readFileUtf8WithTimeout(metaPath, 5_000);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return [];
+        return null;
       }
       if (error instanceof FileReadTimeoutError) {
-        return [];
+        return null;
       }
       throw error;
     }
@@ -75,15 +84,15 @@ export class TeamMembersMetaStore {
     try {
       parsed = JSON.parse(raw) as unknown;
     } catch {
-      return [];
+      return null;
     }
     if (!parsed || typeof parsed !== 'object') {
-      return [];
+      return null;
     }
 
     const file = parsed as Partial<TeamMembersMetaFile>;
     if (!Array.isArray(file.members)) {
-      return [];
+      return null;
     }
 
     const deduped = new Map<string, TeamMember>();
@@ -107,10 +116,22 @@ export class TeamMembersMetaStore {
       }
     }
 
-    return Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      version: 1,
+      providerBackendId: normalizeOptionalBackendId(file.providerBackendId),
+      members: Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name)),
+    };
   }
 
-  async writeMembers(teamName: string, members: TeamMember[]): Promise<void> {
+  async getMembers(teamName: string): Promise<TeamMember[]> {
+    return (await this.getMeta(teamName))?.members ?? [];
+  }
+
+  async writeMembers(
+    teamName: string,
+    members: TeamMember[],
+    options?: { providerBackendId?: string }
+  ): Promise<void> {
     const deduped = new Map<string, TeamMember>();
     for (const member of members) {
       const normalized = normalizeMember(member);
@@ -131,6 +152,7 @@ export class TeamMembersMetaStore {
 
     const payload: TeamMembersMetaFile = {
       version: 1,
+      providerBackendId: normalizeOptionalBackendId(options?.providerBackendId),
       members: Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name)),
     };
 

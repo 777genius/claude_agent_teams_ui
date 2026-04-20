@@ -9,6 +9,7 @@ const augmentConfiguredConnectionEnvMock = vi.fn();
 const applyConfiguredConnectionEnvMock = vi.fn();
 const applyAllConfiguredConnectionEnvMock = vi.fn();
 const getConfiguredConnectionIssuesMock = vi.fn();
+const getConfiguredConnectionLaunchArgsMock = vi.fn();
 
 vi.mock('@main/utils/cliEnv', () => ({
   buildEnrichedEnv: (...args: Parameters<typeof buildEnrichedEnvMock>) => buildEnrichedEnvMock(...args),
@@ -25,7 +26,7 @@ vi.mock('../../../../src/main/services/infrastructure/ConfigManager', () => ({
       runtime: {
         providerBackends: {
           gemini: 'cli',
-          codex: 'adapter',
+          codex: 'codex-native',
         },
       },
     }),
@@ -42,6 +43,9 @@ vi.mock('../../../../src/main/services/runtime/ProviderConnectionService', () =>
       applyConfiguredConnectionEnvMock(...args),
     applyAllConfiguredConnectionEnv: (...args: Parameters<typeof applyAllConfiguredConnectionEnvMock>) =>
       applyAllConfiguredConnectionEnvMock(...args),
+    getConfiguredConnectionLaunchArgs: (
+      ...args: Parameters<typeof getConfiguredConnectionLaunchArgsMock>
+    ) => getConfiguredConnectionLaunchArgsMock(...args),
     getConfiguredConnectionIssues: (...args: Parameters<typeof getConfiguredConnectionIssuesMock>) =>
       getConfiguredConnectionIssuesMock(...args),
   },
@@ -70,6 +74,7 @@ describe('buildProviderAwareCliEnv', () => {
     applyAllConfiguredConnectionEnvMock.mockImplementation((env: NodeJS.ProcessEnv) =>
       Promise.resolve(env)
     );
+    getConfiguredConnectionLaunchArgsMock.mockResolvedValue([]);
     getConfiguredConnectionIssuesMock.mockResolvedValue({});
   });
 
@@ -98,11 +103,13 @@ describe('buildProviderAwareCliEnv', () => {
         CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1',
         CLAUDE_CODE_ENTRY_PROVIDER: 'anthropic',
       }),
-      'anthropic'
+      'anthropic',
+      undefined
     );
     expect(result.connectionIssues).toEqual({
       anthropic: 'missing key',
     });
+    expect(result.providerArgs).toEqual([]);
   });
 
   it('builds shared env for generic CLI launches when no provider is specified', async () => {
@@ -124,6 +131,7 @@ describe('buildProviderAwareCliEnv', () => {
       })
     );
     expect(result.connectionIssues).toEqual({});
+    expect(result.providerArgs).toEqual([]);
   });
 
   it('uses non-destructive credential augmentation for PTY-style envs', async () => {
@@ -144,6 +152,7 @@ describe('buildProviderAwareCliEnv', () => {
       })
     );
     expect(result.connectionIssues).toEqual({});
+    expect(result.providerArgs).toEqual([]);
   });
 
   it('preserves caller-provided HOME and USERPROFILE overrides', async () => {
@@ -163,10 +172,12 @@ describe('buildProviderAwareCliEnv', () => {
         HOME: '/Users/electron-home',
         USERPROFILE: '/Users/electron-home',
       }),
-      'anthropic'
+      'anthropic',
+      undefined
     );
     expect(result.env.HOME).toBe('/Users/electron-home');
     expect(result.env.USERPROFILE).toBe('/Users/electron-home');
+    expect(result.providerArgs).toEqual([]);
   });
 
   it('preserves explicit backend overrides passed by the caller', async () => {
@@ -183,10 +194,62 @@ describe('buildProviderAwareCliEnv', () => {
     expect(augmentAllConfiguredConnectionEnvMock).toHaveBeenCalledWith(
       expect.objectContaining({
         CLAUDE_CODE_GEMINI_BACKEND: 'api',
-        CLAUDE_CODE_CODEX_BACKEND: 'adapter',
+        CLAUDE_CODE_CODEX_BACKEND: 'codex-native',
       })
     );
     expect(result.env.CLAUDE_CODE_GEMINI_BACKEND).toBe('api');
-    expect(result.env.CLAUDE_CODE_CODEX_BACKEND).toBe('adapter');
+    expect(result.env.CLAUDE_CODE_CODEX_BACKEND).toBe('codex-native');
+    expect(result.providerArgs).toEqual([]);
+  });
+
+  it('preserves codex-native backend env across provider-aware child env building', async () => {
+    buildEnrichedEnvMock.mockReturnValue({
+      PATH: '/usr/bin',
+    });
+
+    const { buildProviderAwareCliEnv } = await import(
+      '../../../../src/main/services/runtime/providerAwareCliEnv'
+    );
+    const result = await buildProviderAwareCliEnv({
+      providerId: 'codex',
+    });
+
+    expect(applyConfiguredConnectionEnvMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CLAUDE_CODE_CODEX_BACKEND: 'codex-native',
+      }),
+      'codex',
+      undefined
+    );
+    expect(result.env.CLAUDE_CODE_CODEX_BACKEND).toBe('codex-native');
+    expect(result.providerArgs).toEqual([]);
+  });
+
+  it('returns provider launch args for strict codex launches', async () => {
+    getConfiguredConnectionLaunchArgsMock.mockResolvedValue([
+      '--settings',
+      '{"codex":{"forced_login_method":"chatgpt"}}',
+    ]);
+
+    const { buildProviderAwareCliEnv } = await import(
+      '../../../../src/main/services/runtime/providerAwareCliEnv'
+    );
+    const result = await buildProviderAwareCliEnv({
+      binaryPath: '/mock/claude-multimodel',
+      providerId: 'codex',
+    });
+
+    expect(getConfiguredConnectionLaunchArgsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CLAUDE_CODE_CODEX_BACKEND: 'codex-native',
+      }),
+      'codex',
+      undefined,
+      '/mock/claude-multimodel'
+    );
+    expect(result.providerArgs).toEqual([
+      '--settings',
+      '{"codex":{"forced_login_method":"chatgpt"}}',
+    ]);
   });
 });

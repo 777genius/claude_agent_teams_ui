@@ -176,7 +176,7 @@ export const TeamGraphTab = ({
               getNodeWorldPosition?: (nodeId: string) => { x: number; y: number } | null;
               focusEdgeIds?: ReadonlySet<string> | null;
             };
-            const { getViewportSize, focusNodeIds } = extraHudProps;
+            const { getViewportSize, focusNodeIds, filters } = extraHudProps;
 
             return (
               <>
@@ -199,7 +199,7 @@ export const TeamGraphTab = ({
                   getNodeWorldPosition={extraHudProps.getNodeWorldPosition}
                   getViewportSize={getViewportSize}
                   focusNodeIds={focusNodeIds}
-                  enabled={isActive}
+                  enabled={isActive && (filters?.showActivity ?? true)}
                   onOpenTaskDetail={dispatchOpenTask}
                   onOpenMemberProfile={dispatchOpenProfile}
                 />

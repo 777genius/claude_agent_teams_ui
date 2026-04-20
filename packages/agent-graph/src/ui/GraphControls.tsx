@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
+  Activity,
   Columns3,
   Expand,
   Settings2,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 
 export interface GraphFilterState {
+  showActivity: boolean;
   showTasks: boolean;
   showProcesses: boolean;
   showEdges: boolean;
@@ -219,6 +221,13 @@ export function GraphControls({
                   border: '1px solid rgba(100, 200, 255, 0.12)',
                 }}
               >
+                <ToolbarToggle
+                  active={filters.showActivity}
+                  onClick={() => toggle('showActivity')}
+                  icon={<Activity size={13} />}
+                  label="Activity"
+                  block
+                />
                 <ToolbarToggle
                   active={filters.showTasks}
                   onClick={() => toggle('showTasks')}

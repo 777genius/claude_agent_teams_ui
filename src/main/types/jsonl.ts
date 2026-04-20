@@ -198,9 +198,22 @@ export interface AssistantEntry extends ConversationalEntry {
 
 export interface SystemEntry extends ConversationalEntry {
   type: 'system';
-  subtype: 'turn_duration' | 'init';
-  durationMs: number;
+  subtype?: 'turn_duration' | 'init' | 'informational' | 'permission_retry' | 'api_retry' | string;
+  durationMs?: number;
   isMeta: boolean;
+  content?: string;
+  level?: 'info' | 'warning' | 'error' | 'suggestion' | string;
+  toolUseID?: string;
+  preventContinuation?: boolean;
+  codexNativeWarningSource?: string;
+  codexNativeThreadStatus?: string;
+  codexNativeThreadId?: string;
+  codexNativeCompletionPolicy?: 'ephemeral' | 'persistent' | string;
+  codexNativeHistoryCompleteness?: string;
+  codexNativeFinalUsageAuthority?: string;
+  codexNativeExecutablePath?: string;
+  codexNativeExecutableSource?: string;
+  codexNativeExecutableVersion?: string | null;
 }
 
 export interface SummaryEntry extends BaseEntry {

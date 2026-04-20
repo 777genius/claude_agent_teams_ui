@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { getTeamProviderLabel as getCatalogTeamProviderLabel } from '@renderer/utils/teamModelCatalog';
+import { formatProviderBackendLabel } from '@renderer/utils/providerBackendIdentity';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 
 import type { TeamProviderId } from '@shared/types';
@@ -34,7 +35,7 @@ export function getProvisioningProviderBackendSummary(
   provider:
     | Pick<
         CliProviderStatus,
-        'selectedBackendId' | 'resolvedBackendId' | 'availableBackends' | 'backend'
+        'providerId' | 'selectedBackendId' | 'resolvedBackendId' | 'availableBackends' | 'backend'
       >
     | null
     | undefined
@@ -46,12 +47,53 @@ export function getProvisioningProviderBackendSummary(
   const options = provider.availableBackends ?? [];
   const optionById = new Map(options.map((option) => [option.id, option.label]));
   const effectiveBackendId = provider.resolvedBackendId ?? provider.selectedBackendId;
+  const effectiveOption = options.find((option) => option.id === effectiveBackendId) ?? null;
+  const inferredProviderId =
+    provider.providerId ??
+    (effectiveBackendId === 'codex-native' || options.some((option) => option.id === 'codex-native')
+      ? 'codex'
+      : undefined);
+  const normalizedLabel =
+    formatProviderBackendLabel(inferredProviderId, effectiveBackendId ?? undefined) ?? null;
 
-  if (effectiveBackendId) {
-    return optionById.get(effectiveBackendId) ?? provider.backend?.label ?? effectiveBackendId;
+  const baseSummary = effectiveBackendId
+    ? (normalizedLabel ??
+      optionById.get(effectiveBackendId) ??
+      provider.backend?.label ??
+      effectiveBackendId)
+    : (provider.backend?.label ?? null);
+
+  if (!baseSummary) {
+    return null;
   }
 
-  return provider.backend?.label ?? null;
+  const suffixes: string[] = [];
+  if (effectiveOption?.audience === 'internal') {
+    suffixes.push('internal');
+  }
+  if (effectiveOption?.state && effectiveOption.state !== 'ready') {
+    switch (effectiveOption.state) {
+      case 'locked':
+        suffixes.push('locked');
+        break;
+      case 'disabled':
+        suffixes.push('disabled');
+        break;
+      case 'authentication-required':
+        suffixes.push('auth required');
+        break;
+      case 'runtime-missing':
+        suffixes.push('runtime missing');
+        break;
+      case 'degraded':
+        suffixes.push('degraded');
+        break;
+      default:
+        break;
+    }
+  }
+
+  return suffixes.length > 0 ? `${baseSummary} - ${suffixes.join(', ')}` : baseSummary;
 }
 
 export function updateProviderCheck(

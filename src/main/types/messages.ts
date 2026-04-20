@@ -109,6 +109,19 @@ export interface ParsedMessage {
   isCompactSummary?: boolean;
   /** API request ID for deduplicating streaming entries */
   requestId?: string;
+  /** System-message severity when available in the raw transcript */
+  level?: string;
+  /** Raw system subtype when available in the transcript */
+  subtype?: string;
+  codexNativeWarningSource?: string;
+  codexNativeThreadStatus?: string;
+  codexNativeThreadId?: string;
+  codexNativeCompletionPolicy?: string;
+  codexNativeHistoryCompleteness?: string;
+  codexNativeFinalUsageAuthority?: string;
+  codexNativeExecutablePath?: string;
+  codexNativeExecutableSource?: string;
+  codexNativeExecutableVersion?: string | null;
 }
 
 // =============================================================================

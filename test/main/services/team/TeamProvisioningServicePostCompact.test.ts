@@ -459,14 +459,11 @@ describe('TeamProvisioningService post-compact lifecycle', () => {
       result: {},
     });
 
-    // Allow the void async injection to run
-    await new Promise((r) => setTimeout(r, 50));
-
-    // A follow-up reminder was triggered: in-flight again, pending consumed
-    expect(run.postCompactReminderInFlight).toBe(true);
-    expect(run.pendingPostCompactReminder).toBe(false);
-    // Verify a second write happened (the follow-up reminder)
-    expect(writeSpy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(run.postCompactReminderInFlight).toBe(true);
+      expect(run.pendingPostCompactReminder).toBe(false);
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+    });
 
     await svc.cancelProvisioning(runId);
   });

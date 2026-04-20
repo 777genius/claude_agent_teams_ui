@@ -58,6 +58,7 @@ const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 
 const TEAM_ROOT_FILES = [
   'config.json',
+  'team.meta.json',
   'kanban-state.json',
   'sentMessages.json',
   'sent-cross-team.json',

@@ -166,6 +166,7 @@ function areLaunchParamsEquivalent(
   if (!left || !right) return left === right;
   return (
     left.providerId === right.providerId &&
+    left.providerBackendId === right.providerBackendId &&
     left.model === right.model &&
     left.effort === right.effort
   );

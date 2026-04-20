@@ -47,6 +47,7 @@ describe('resolveLaunchDialogPrefill', () => {
 
     expect(result).toEqual({
       providerId: 'codex',
+      providerBackendId: 'codex-native',
       model: 'gpt-5.4',
       effort: 'medium',
       limitContext: false,
@@ -89,6 +90,7 @@ describe('resolveLaunchDialogPrefill', () => {
 
     expect(result).toEqual({
       providerId: 'codex',
+      providerBackendId: 'codex-native',
       model: 'gpt-5.4',
       effort: 'medium',
       limitContext: false,
@@ -101,6 +103,7 @@ describe('resolveLaunchDialogPrefill', () => {
       savedRequest: null,
       previousLaunchParams: {
         providerId: 'codex',
+        providerBackendId: 'codex-native',
         model: 'gpt-5.3-codex',
         effort: 'high',
       },
@@ -116,8 +119,72 @@ describe('resolveLaunchDialogPrefill', () => {
 
     expect(result).toEqual({
       providerId: 'codex',
+      providerBackendId: 'codex-native',
       model: 'gpt-5.3-codex',
       effort: 'high',
+      limitContext: false,
+    });
+  });
+
+  it('falls back to a saved request backend lane when no previous launch params exist', () => {
+    const result = resolveLaunchDialogPrefill({
+      members: [],
+      savedRequest: {
+        teamName: 'vector-room-2',
+        cwd: '/Users/test/project',
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.4',
+        effort: 'medium',
+        members: [],
+      } as TeamCreateRequest,
+      previousLaunchParams: undefined,
+      multimodelEnabled: true,
+      storedProviderId: 'anthropic',
+      storedEffort: 'medium',
+      storedLimitContext: false,
+      getStoredModel: createStoredModelGetter({
+        anthropic: 'haiku',
+        codex: 'gpt-5.4',
+      }),
+    });
+
+    expect(result).toEqual({
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+      effort: 'medium',
+      limitContext: false,
+    });
+  });
+
+  it('defaults new Codex launch flows to codex-native when no backend was persisted', () => {
+    const result = resolveLaunchDialogPrefill({
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          providerId: 'codex',
+          model: 'gpt-5.4',
+          effort: 'medium',
+        },
+      ] as ResolvedTeamMember[],
+      savedRequest: null,
+      previousLaunchParams: undefined,
+      multimodelEnabled: true,
+      storedProviderId: 'codex',
+      storedEffort: 'medium',
+      storedLimitContext: false,
+      getStoredModel: createStoredModelGetter({
+        codex: 'gpt-5.4',
+      }),
+    });
+
+    expect(result).toEqual({
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+      effort: 'medium',
       limitContext: false,
     });
   });
@@ -203,6 +270,7 @@ describe('resolveLaunchDialogPrefill', () => {
 
     expect(result).toEqual({
       providerId: 'codex',
+      providerBackendId: 'codex-native',
       model: 'custom-model[1m]',
       effort: 'medium',
       limitContext: false,
@@ -230,6 +298,7 @@ describe('resolveLaunchDialogPrefill', () => {
 
     expect(result).toEqual({
       providerId: 'codex',
+      providerBackendId: 'codex-native',
       model: 'custom-model[1m]',
       effort: 'medium',
       limitContext: false,

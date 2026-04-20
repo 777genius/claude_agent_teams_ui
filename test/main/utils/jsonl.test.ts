@@ -276,5 +276,145 @@ describe('jsonl', () => {
       expect(parsed?.sourceToolUseID).toBe('call-bash-real');
       expect(parsed?.toolResults[0]?.toolUseId).toBe('call-bash-real');
     });
+
+    it('parses codex-native projected assistant rows with usage intact', () => {
+      const parsed = parseJsonlLine(
+        JSON.stringify({
+          parentUuid: 'user-1',
+          isSidechain: false,
+          userType: 'external',
+          cwd: '/tmp/project',
+          sessionId: 'session-native-1',
+          version: '1.0.0',
+          gitBranch: 'main',
+          type: 'assistant',
+          uuid: 'assistant-native-1',
+          requestId: 'native-request-1',
+          timestamp: '2026-04-19T10:00:00.000Z',
+          message: {
+            role: 'assistant',
+            model: 'gpt-5-codex',
+            id: 'msg-native-1',
+            type: 'message',
+            stop_reason: 'end_turn',
+            stop_sequence: null,
+            usage: {
+              input_tokens: 12,
+              cache_read_input_tokens: 4,
+              output_tokens: 2,
+            },
+            content: [{ type: 'text', text: 'OK' }],
+          },
+        }),
+      );
+
+      expect(parsed).toMatchObject({
+        uuid: 'assistant-native-1',
+        type: 'assistant',
+        content: [{ type: 'text', text: 'OK' }],
+        requestId: 'native-request-1',
+        usage: {
+          input_tokens: 12,
+          cache_read_input_tokens: 4,
+          output_tokens: 2,
+        },
+      });
+    });
+
+    it('parses modern system warning rows without dropping content or severity', () => {
+      const parsed = parseJsonlLine(
+        JSON.stringify({
+          parentUuid: null,
+          isSidechain: false,
+          userType: 'external',
+          cwd: '/tmp/project',
+          sessionId: 'session-native-1',
+          version: '1.0.0',
+          gitBranch: 'main',
+          type: 'system',
+          uuid: 'system-native-warning-1',
+          timestamp: '2026-04-19T10:00:01.000Z',
+          subtype: 'informational',
+          level: 'warning',
+          isMeta: false,
+          content: 'native stderr warning',
+        }),
+      );
+
+      expect(parsed).toMatchObject({
+        uuid: 'system-native-warning-1',
+        type: 'system',
+        content: 'native stderr warning',
+        level: 'warning',
+        subtype: 'informational',
+        isMeta: false,
+      });
+    });
+
+    it('parses codex-native execution-summary and warning metadata from projected system rows', () => {
+      const warningParsed = parseJsonlLine(
+        JSON.stringify({
+          parentUuid: null,
+          isSidechain: false,
+          userType: 'external',
+          cwd: '/tmp/project',
+          sessionId: 'session-native-warning',
+          version: '1.0.0',
+          gitBranch: 'main',
+          type: 'system',
+          uuid: 'system-native-warning-2',
+          timestamp: '2026-04-19T10:00:02.000Z',
+          subtype: 'codex_native_warning',
+          level: 'warning',
+          isMeta: false,
+          content: 'thread/read failed while backfilling turn items for turn completion',
+          codexNativeWarningSource: 'history',
+        }),
+      );
+
+      expect(warningParsed).toMatchObject({
+        uuid: 'system-native-warning-2',
+        subtype: 'codex_native_warning',
+        codexNativeWarningSource: 'history',
+      });
+
+      const summaryParsed = parseJsonlLine(
+        JSON.stringify({
+          parentUuid: null,
+          isSidechain: false,
+          userType: 'external',
+          cwd: '/tmp/project',
+          sessionId: 'session-native-summary',
+          version: '1.0.0',
+          gitBranch: 'main',
+          type: 'system',
+          uuid: 'system-native-summary-1',
+          timestamp: '2026-04-19T10:00:03.000Z',
+          subtype: 'codex_native_execution_summary',
+          level: 'info',
+          isMeta: false,
+          content:
+            'Codex native execution summary: thread=thread-ephemeral, completion=ephemeral, history=live-only, usageAuthority=live-turn-completed, binary=codex-cli 0.117.0',
+          codexNativeThreadId: 'thread-ephemeral',
+          codexNativeCompletionPolicy: 'ephemeral',
+          codexNativeHistoryCompleteness: 'live-only',
+          codexNativeFinalUsageAuthority: 'live-turn-completed',
+          codexNativeExecutablePath: '/usr/local/bin/codex',
+          codexNativeExecutableSource: 'system-path',
+          codexNativeExecutableVersion: 'codex-cli 0.117.0',
+        }),
+      );
+
+      expect(summaryParsed).toMatchObject({
+        uuid: 'system-native-summary-1',
+        subtype: 'codex_native_execution_summary',
+        codexNativeThreadId: 'thread-ephemeral',
+        codexNativeCompletionPolicy: 'ephemeral',
+        codexNativeHistoryCompleteness: 'live-only',
+        codexNativeFinalUsageAuthority: 'live-turn-completed',
+        codexNativeExecutableSource: 'system-path',
+        codexNativeExecutableVersion: 'codex-cli 0.117.0',
+      });
+    });
   });
 });

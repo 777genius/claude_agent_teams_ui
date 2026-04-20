@@ -10,6 +10,9 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 import {
   SessionParser,
@@ -170,6 +173,145 @@ describe('SessionParser', () => {
         expect(sidechainMessages).toHaveLength(1);
         expect(mainMessages).toHaveLength(2);
       });
+    });
+  });
+
+  describe('parseSessionFile', () => {
+    it('keeps codex-native projected assistant usage and modern system warnings parseable', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-parser-native-'));
+      const filePath = path.join(tempDir, 'native-session.jsonl');
+
+      try {
+        fs.writeFileSync(
+          filePath,
+          [
+            JSON.stringify({
+              parentUuid: null,
+              isSidechain: false,
+              userType: 'external',
+              cwd: '/tmp/project',
+              sessionId: 'session-native-parse',
+              version: '1.0.0',
+              gitBranch: 'main',
+              type: 'system',
+              uuid: 'system-native-warning-1',
+              timestamp: '2026-04-19T10:00:00.000Z',
+              subtype: 'codex_native_warning',
+              level: 'warning',
+              isMeta: false,
+              content: 'native stderr warning',
+              codexNativeWarningSource: 'process',
+            }),
+            JSON.stringify({
+              parentUuid: 'user-native-1',
+              isSidechain: false,
+              userType: 'external',
+              cwd: '/tmp/project',
+              sessionId: 'session-native-parse',
+              version: '1.0.0',
+              gitBranch: 'main',
+              type: 'assistant',
+              uuid: 'assistant-native-1',
+              requestId: 'native-request-1',
+              timestamp: '2026-04-19T10:00:01.000Z',
+              message: {
+                role: 'assistant',
+                model: 'gpt-5.4-mini',
+                id: 'msg-native-1',
+                type: 'message',
+                stop_reason: 'end_turn',
+                stop_sequence: null,
+                usage: {
+                  input_tokens: 12,
+                  cache_read_input_tokens: 4,
+                  output_tokens: 2,
+                },
+                content: [{ type: 'text', text: 'OK' }],
+              },
+            }),
+          ].join('\n'),
+          'utf8',
+        );
+
+        const parsed = await parser.parseSessionFile(filePath);
+
+        expect(parsed.byType.system).toMatchObject([
+          {
+            uuid: 'system-native-warning-1',
+            content: 'native stderr warning',
+            level: 'warning',
+            subtype: 'codex_native_warning',
+            codexNativeWarningSource: 'process',
+          },
+        ]);
+        expect(parsed.byType.assistant).toMatchObject([
+          {
+            uuid: 'assistant-native-1',
+            requestId: 'native-request-1',
+            usage: {
+              input_tokens: 12,
+              cache_read_input_tokens: 4,
+              output_tokens: 2,
+            },
+          },
+        ]);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps codex-native execution summary metadata parseable for replay and history truth', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-parser-native-summary-'));
+      const filePath = path.join(tempDir, 'native-summary-session.jsonl');
+
+      try {
+        fs.writeFileSync(
+          filePath,
+          [
+            JSON.stringify({
+              parentUuid: null,
+              isSidechain: false,
+              userType: 'external',
+              cwd: '/tmp/project',
+              sessionId: 'session-native-summary',
+              version: '1.0.0',
+              gitBranch: 'main',
+              type: 'system',
+              uuid: 'system-native-summary-1',
+              timestamp: '2026-04-19T10:00:02.000Z',
+              subtype: 'codex_native_execution_summary',
+              level: 'info',
+              isMeta: false,
+              content:
+                'Codex native execution summary: thread=thread-persistent, completion=persistent, history=explicit-hydration-required, usageAuthority=live-turn-completed, binary=codex-cli 0.117.0',
+              codexNativeThreadId: 'thread-persistent',
+              codexNativeCompletionPolicy: 'persistent',
+              codexNativeHistoryCompleteness: 'explicit-hydration-required',
+              codexNativeFinalUsageAuthority: 'live-turn-completed',
+              codexNativeExecutablePath: '/usr/local/bin/codex',
+              codexNativeExecutableSource: 'system-path',
+              codexNativeExecutableVersion: 'codex-cli 0.117.0',
+            }),
+          ].join('\n'),
+          'utf8',
+        );
+
+        const parsed = await parser.parseSessionFile(filePath);
+
+        expect(parsed.byType.system).toMatchObject([
+          {
+            uuid: 'system-native-summary-1',
+            subtype: 'codex_native_execution_summary',
+            codexNativeThreadId: 'thread-persistent',
+            codexNativeCompletionPolicy: 'persistent',
+            codexNativeHistoryCompleteness: 'explicit-hydration-required',
+            codexNativeExecutableSource: 'system-path',
+            codexNativeExecutableVersion: 'codex-cli 0.117.0',
+          },
+        ]);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 

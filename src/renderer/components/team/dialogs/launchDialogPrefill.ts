@@ -1,4 +1,5 @@
 import { normalizeCreateLaunchProviderForUi } from '@renderer/utils/geminiUiFreeze';
+import { getDefaultProviderBackendId } from '@renderer/utils/providerBackendIdentity';
 import { normalizeExplicitTeamModelForUi } from '@renderer/utils/teamModelAvailability';
 import { extractProviderScopedBaseModel } from '@renderer/utils/teamModelContext';
 import { isLeadMember } from '@shared/utils/leadDetection';
@@ -8,6 +9,7 @@ import type { ResolvedTeamMember, TeamCreateRequest, TeamProviderId } from '@sha
 
 interface PreviousLaunchParamsLike {
   providerId?: TeamProviderId;
+  providerBackendId?: string;
   model?: string;
   effort?: string;
   limitContext?: boolean;
@@ -26,6 +28,7 @@ interface LaunchDialogPrefillInput {
 
 interface LaunchDialogPrefillResult {
   providerId: TeamProviderId;
+  providerBackendId?: string;
   model: string;
   effort: string;
   limitContext: boolean;
@@ -101,6 +104,11 @@ export function resolveLaunchDialogPrefill({
 
   return {
     providerId,
+    providerBackendId:
+      previousLaunchParams?.providerBackendId?.trim() ||
+      savedRequest?.providerBackendId?.trim() ||
+      getDefaultProviderBackendId(providerId) ||
+      undefined,
     model: matchingModel
       ? normalizeExplicitTeamModelForUi(providerId, matchingModel)
       : getStoredModel(providerId),

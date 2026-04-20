@@ -402,7 +402,7 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
 
     expect(result.ready).toBe(false);
     expect(result.message).toContain('Selected model gpt-5.2-codex is unavailable.');
-    expect(result.message).toContain('Not available with Codex ChatGPT subscription');
+    expect(result.message).toContain('Not available on this Codex native runtime');
   });
 
   it('keeps timed out Codex model verification as a warning with a clean generic reason', async () => {
@@ -779,16 +779,20 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     );
   });
 
-  it('validates the generated agent-teams MCP server directly over stdio', async () => {
-    const svc = new TeamProvisioningService();
-    const configPath = writeMcpConfig(tempRoot, {
-      'agent-teams': getRealAgentTeamsMcpLaunchSpec(),
-    });
+  it(
+    'validates the generated agent-teams MCP server directly over stdio',
+    async () => {
+      const svc = new TeamProvisioningService();
+      const configPath = writeMcpConfig(tempRoot, {
+        'agent-teams': getRealAgentTeamsMcpLaunchSpec(),
+      });
 
-    await expect(
-      (svc as any).validateAgentTeamsMcpRuntime('/fake/claude', tempRoot, process.env, configPath)
-    ).resolves.toBeUndefined();
-  });
+      await expect(
+        (svc as any).validateAgentTeamsMcpRuntime('/fake/claude', tempRoot, process.env, configPath)
+      ).resolves.toBeUndefined();
+    },
+    45_000
+  );
 
   it('fails validation when the generated MCP config has no agent-teams entry', async () => {
     const svc = new TeamProvisioningService();

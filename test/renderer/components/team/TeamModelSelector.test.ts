@@ -6,7 +6,6 @@ import {
 } from '@renderer/components/team/dialogs/TeamModelSelector';
 import {
   GPT_5_1_CODEX_MINI_UI_DISABLED_REASON,
-  GPT_5_1_CODEX_MAX_CHATGPT_UI_DISABLED_REASON,
   GPT_5_2_CODEX_UI_DISABLED_REASON,
   GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON,
   getAvailableTeamProviderModels,
@@ -49,15 +48,15 @@ describe('formatTeamModelSummary', () => {
     expect(getTeamModelUiDisabledReason('anthropic', 'gpt-5.1-codex-mini')).toBeNull();
   });
 
-  it('disables 5.1 Codex Max only on the Codex ChatGPT subscription path', () => {
-    const chatgptCodexProviderStatus = {
+  it('keeps 5.1 Codex Max available on the native Codex path', () => {
+    const nativeCodexProviderStatus = {
       providerId: 'codex' as const,
       models: ['gpt-5.4', 'gpt-5.1-codex-max'],
-      authMethod: 'oauth_token' as const,
+      authMethod: 'api_key' as const,
       backend: {
-        kind: 'adapter',
-        label: 'Default adapter',
-        endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+        kind: 'codex-native',
+        label: 'Codex native',
+        endpointLabel: 'codex exec --json',
       },
       modelVerificationState: 'verified' as const,
       modelAvailability: [],
@@ -66,14 +65,14 @@ describe('formatTeamModelSummary', () => {
     };
 
     expect(
-      getTeamModelUiDisabledReason('codex', 'gpt-5.1-codex-max', chatgptCodexProviderStatus)
-    ).toBe(GPT_5_1_CODEX_MAX_CHATGPT_UI_DISABLED_REASON);
-    expect(normalizeTeamModelForUi('codex', 'gpt-5.1-codex-max', chatgptCodexProviderStatus)).toBe(
-      ''
+      getTeamModelUiDisabledReason('codex', 'gpt-5.1-codex-max', nativeCodexProviderStatus)
+    ).toBeNull();
+    expect(normalizeTeamModelForUi('codex', 'gpt-5.1-codex-max', nativeCodexProviderStatus)).toBe(
+      'gpt-5.1-codex-max'
     );
     expect(
-      getTeamModelSelectionError('codex', 'gpt-5.1-codex-max', chatgptCodexProviderStatus)
-    ).toContain('Temporarily disabled for team agents when using Codex ChatGPT subscription');
+      getTeamModelSelectionError('codex', 'gpt-5.1-codex-max', nativeCodexProviderStatus)
+    ).toBeNull();
     expect(getTeamModelUiDisabledReason('codex', 'gpt-5.1-codex-max')).toBeNull();
   });
 
@@ -88,11 +87,11 @@ describe('formatTeamModelSummary', () => {
     const codexProviderStatus = {
       providerId: 'codex' as const,
       models: ['gpt-5.4', 'gpt-5.3-codex'],
-      authMethod: 'oauth_token' as const,
+      authMethod: 'api_key' as const,
       backend: {
-        kind: 'adapter',
-        label: 'Default adapter',
-        endpointLabel: 'chatgpt.com/backend-api/codex/responses',
+        kind: 'codex-native',
+        label: 'Codex native',
+        endpointLabel: 'codex exec --json',
       },
       modelVerificationState: 'verified' as const,
       modelAvailability: [

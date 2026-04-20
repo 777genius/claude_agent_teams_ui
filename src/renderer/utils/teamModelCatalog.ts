@@ -28,9 +28,9 @@ export const TEAM_MODEL_UI_DISABLED_BADGE_LABEL = 'Disabled';
 export const GPT_5_1_CODEX_MINI_UI_DISABLED_REASON =
   'Temporarily disabled for team agents - this model has been less reliable with task and reply tool contracts.';
 export const GPT_5_1_CODEX_MAX_CHATGPT_UI_DISABLED_REASON =
-  'Temporarily disabled for team agents when using Codex ChatGPT subscription - this model has been observed returning "Not available with Codex ChatGPT subscription".';
+  'Temporarily disabled for team agents - this model is not currently available on the Codex native runtime.';
 export const GPT_5_2_CODEX_UI_DISABLED_REASON =
-  'Temporarily disabled for team agents - this model has been observed returning "Not available with Codex ChatGPT subscription".';
+  'Temporarily disabled for team agents - this model is not currently available on the Codex native runtime.';
 export const GPT_5_3_CODEX_SPARK_UI_DISABLED_REASON =
   'Temporarily disabled for team agents - this model has been less reliable with bootstrap, task, and reply tool contracts.';
 
@@ -327,11 +327,9 @@ export function isCodexChatGptSubscriptionProviderStatus(
     return false;
   }
 
-  const endpointLabel = providerStatus.backend?.endpointLabel?.toLowerCase() ?? '';
   return (
-    providerStatus.authMethod === 'oauth_token' &&
-    (providerStatus.backend?.kind === 'adapter' ||
-      endpointLabel.includes('chatgpt.com/backend-api/codex/responses'))
+    providerStatus.authMethod === 'chatgpt' ||
+    providerStatus.backend?.authMethodDetail === 'chatgpt'
   );
 }
 

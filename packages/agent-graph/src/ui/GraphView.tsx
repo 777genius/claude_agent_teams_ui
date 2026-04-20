@@ -70,6 +70,7 @@ export interface GraphViewProps {
     onSelectNode: (nodeId: string) => void;
   }) => React.ReactNode;
   renderHud?: (props: {
+    filters: GraphFilterState;
     getLaunchAnchorScreenPlacement: (
       leadNodeId: string,
     ) => { x: number; y: number; scale: number; visible: boolean } | null;
@@ -112,6 +113,7 @@ export function GraphView({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [interactionLocked, setInteractionLocked] = useState(false);
   const [filters, setFilters] = useState<GraphFilterState>({
+    showActivity: config?.showActivity ?? true,
     showTasks: config?.showTasks ?? true,
     showProcesses: config?.showProcesses ?? true,
     showEdges: true,
@@ -1016,6 +1018,7 @@ export function GraphView({
       {renderHud ? (
         <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden">
           {renderHud({
+            filters,
             getLaunchAnchorScreenPlacement,
             getActivityWorldRect,
             getTransientHandoffSnapshot,

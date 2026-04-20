@@ -41,7 +41,7 @@ describe('resolveMemberRuntimeSummary', () => {
     const spawnEntry = createSpawnEntry({ runtimeModel: 'claude-opus-4-7', runtimeAlive: true });
 
     expect(resolveMemberRuntimeSummary(member, undefined, spawnEntry)).toBe(
-      'Anthropic · Opus 4.7 · Medium'
+      'Anthropic · Opus 4.7 · Medium · Codex'
     );
   });
 
@@ -61,7 +61,9 @@ describe('resolveMemberRuntimeSummary', () => {
       runtimeModel: 'gpt-5.4-mini',
     });
 
-    expect(resolveMemberRuntimeSummary(member, undefined, spawnEntry)).toBe('5.4 Mini · Medium');
+    expect(resolveMemberRuntimeSummary(member, undefined, spawnEntry)).toBe(
+      '5.4 Mini · Medium · Codex'
+    );
   });
 
   it('appends runtime memory when a live process snapshot is available', () => {
@@ -77,7 +79,43 @@ describe('resolveMemberRuntimeSummary', () => {
     };
 
     expect(resolveMemberRuntimeSummary(member, undefined, undefined, runtimeEntry)).toBe(
-      '5.4 Mini · Medium · 256.0 MB'
+      '5.4 Mini · Medium · Codex · 256.0 MB'
     );
+  });
+
+  it('keeps the persisted backend lane visible in the runtime summary', () => {
+    const member = createMember({ model: 'gpt-5.4-mini' });
+
+    expect(
+      resolveMemberRuntimeSummary(
+        member,
+        {
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4-mini',
+          effort: 'medium',
+          limitContext: false,
+        },
+        undefined
+      )
+    ).toBe('5.4 Mini · Medium · Codex');
+  });
+
+  it('normalizes persisted legacy Codex lanes to the native runtime summary', () => {
+    const member = createMember({ model: 'gpt-5.4-mini' });
+
+    expect(
+      resolveMemberRuntimeSummary(
+        member,
+        {
+          providerId: 'codex',
+          providerBackendId: 'api',
+          model: 'gpt-5.4-mini',
+          effort: 'medium',
+          limitContext: false,
+        },
+        undefined
+      )
+    ).toBe('5.4 Mini · Medium · Codex');
   });
 });

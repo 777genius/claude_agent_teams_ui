@@ -1523,6 +1523,7 @@ export interface GlobalTaskDetailState {
 /** Per-team launch parameters shown in the header badge. */
 export interface TeamLaunchParams {
   providerId?: 'anthropic' | 'codex' | 'gemini';
+  providerBackendId?: string;
   model?: string; // 'opus' | 'sonnet' | 'haiku'
   effort?: EffortLevel;
   limitContext?: boolean;
@@ -4179,11 +4180,14 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   },
 
   restartMember: async (teamName: string, memberName: string) => {
-    await unwrapIpc('team:restartMember', () => api.teams.restartMember(teamName, memberName));
-    await Promise.all([
-      get().fetchMemberSpawnStatuses(teamName),
-      get().fetchTeamAgentRuntime(teamName),
-    ]);
+    try {
+      await unwrapIpc('team:restartMember', () => api.teams.restartMember(teamName, memberName));
+    } finally {
+      await Promise.allSettled([
+        get().fetchMemberSpawnStatuses(teamName),
+        get().fetchTeamAgentRuntime(teamName),
+      ]);
+    }
   },
 
   removeMember: async (teamName: string, memberName: string) => {
@@ -4419,6 +4423,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
       const baseModel = extractBaseModel(request.model, request.providerId);
       const params: TeamLaunchParams = {
         providerId: request.providerId ?? 'anthropic',
+        providerBackendId: request.providerBackendId,
         model: baseModel || 'default',
         effort: request.effort,
         limitContext: request.limitContext ?? false,
@@ -4590,6 +4595,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
       const baseModel = extractBaseModel(request.model, request.providerId);
       const params: TeamLaunchParams = {
         providerId: request.providerId ?? 'anthropic',
+        providerBackendId: request.providerBackendId,
         model: baseModel || 'default',
         effort: request.effort,
         limitContext: request.limitContext ?? false,

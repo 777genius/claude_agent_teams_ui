@@ -784,12 +784,14 @@ export interface TeamViewSnapshot {
 
 export type EffortLevel = 'low' | 'medium' | 'high';
 export type TeamProviderId = 'anthropic' | 'codex' | 'gemini';
+export type TeamProviderBackendId = 'auto' | 'adapter' | 'api' | 'cli-sdk' | 'codex-native';
 
 export interface TeamLaunchRequest {
   teamName: string;
   cwd: string;
   prompt?: string;
   providerId?: TeamProviderId;
+  providerBackendId?: TeamProviderBackendId;
   model?: string;
   effort?: EffortLevel;
   /** When true, context window is limited to 200K tokens instead of the default. */
@@ -928,6 +930,7 @@ export interface TeamAgentRuntimeSnapshot {
   teamName: string;
   updatedAt: string;
   runId: string | null;
+  providerBackendId?: TeamProviderBackendId;
   members: Record<string, TeamAgentRuntimeEntry>;
 }
 
@@ -1037,6 +1040,7 @@ export interface TeamCreateRequest {
   cwd: string;
   prompt?: string;
   providerId?: TeamProviderId;
+  providerBackendId?: TeamProviderBackendId;
   model?: string;
   effort?: EffortLevel;
   /** When true, context window is limited to 200K tokens instead of the default. */
@@ -1056,6 +1060,7 @@ export interface TeamCreateConfigRequest {
   color?: string;
   members: TeamProvisioningMemberInput[];
   cwd?: string;
+  providerBackendId?: TeamProviderBackendId;
 }
 
 export interface TeamCreateResponse {

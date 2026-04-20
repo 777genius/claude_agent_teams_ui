@@ -12,7 +12,7 @@ describe('getProvisioningModelIssue', () => {
             status: 'failed',
             details: [
               '5.4 Mini - verified',
-              '5.1 Codex Max - unavailable - Not available with Codex ChatGPT subscription',
+              '5.1 Codex Max - unavailable - Not available on this Codex native runtime',
             ],
           },
         ],
@@ -23,8 +23,8 @@ describe('getProvisioningModelIssue', () => {
       providerId: 'codex',
       modelId: 'gpt-5.1-codex-max',
       kind: 'unavailable',
-      reason: 'Not available with Codex ChatGPT subscription',
-      detail: '5.1 Codex Max - unavailable - Not available with Codex ChatGPT subscription',
+      reason: 'Not available on this Codex native runtime',
+      detail: '5.1 Codex Max - unavailable - Not available on this Codex native runtime',
     });
   });
 
@@ -37,7 +37,7 @@ describe('getProvisioningModelIssue', () => {
             status: 'failed',
             details: [
               '5.4 Mini - verified',
-              '5.1 Codex Max - unavailable - Not available with Codex ChatGPT subscription',
+              '5.1 Codex Max - unavailable - Not available on this Codex native runtime',
             ],
           },
         ],

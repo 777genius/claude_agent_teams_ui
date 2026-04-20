@@ -1,5 +1,6 @@
 import { formatTeamModelSummary } from '@renderer/components/team/dialogs/TeamModelSelector';
 import { formatBytes } from '@renderer/utils/formatters';
+import { formatTeamProviderBackendLabel } from '@renderer/utils/providerBackendIdentity';
 import { inferTeamProviderIdFromModel } from '@shared/utils/teamProvider';
 
 import type { TeamLaunchParams } from '@renderer/store/slices/teamSlice';
@@ -9,6 +10,21 @@ import type {
   TeamAgentRuntimeEntry,
   TeamProviderId,
 } from '@shared/types';
+
+function normalizeMemberBackendLabel(
+  providerId: TeamProviderId,
+  backendLabel: string | undefined
+): string | undefined {
+  if (!backendLabel) {
+    return undefined;
+  }
+
+  if (providerId === 'codex' && backendLabel === 'Codex native') {
+    return 'Codex';
+  }
+
+  return backendLabel;
+}
 
 function isMemberLaunchPending(spawnEntry: MemberSpawnStatusEntry | undefined): boolean {
   if (!spawnEntry) {
@@ -34,6 +50,10 @@ export function resolveMemberRuntimeSummary(
   const configuredModel = member.model?.trim() || launchParams?.model?.trim() || '';
   const configuredEffort = member.effort ?? launchParams?.effort;
   const runtimeModel = spawnEntry?.runtimeModel?.trim() || runtimeEntry?.runtimeModel?.trim();
+  const backendLabel = normalizeMemberBackendLabel(
+    configuredProvider,
+    formatTeamProviderBackendLabel(configuredProvider, launchParams?.providerBackendId)
+  );
   const memorySuffix =
     typeof runtimeEntry?.rssBytes === 'number' && runtimeEntry.rssBytes > 0
       ? ` · ${formatBytes(runtimeEntry.rssBytes)}`
@@ -41,12 +61,14 @@ export function resolveMemberRuntimeSummary(
 
   if (runtimeModel && (isMemberLaunchPending(spawnEntry) || configuredModel.length === 0)) {
     const runtimeProvider = inferTeamProviderIdFromModel(runtimeModel) ?? configuredProvider;
-    return `${formatTeamModelSummary(runtimeProvider, runtimeModel, configuredEffort)}${memorySuffix}`;
+    const summary = formatTeamModelSummary(runtimeProvider, runtimeModel, configuredEffort);
+    return `${summary}${backendLabel ? ` · ${backendLabel}` : ''}${memorySuffix}`;
   }
 
   if (isMemberLaunchPending(spawnEntry)) {
     return undefined;
   }
 
-  return `${formatTeamModelSummary(configuredProvider, configuredModel, configuredEffort)}${memorySuffix}`;
+  const summary = formatTeamModelSummary(configuredProvider, configuredModel, configuredEffort);
+  return `${summary}${backendLabel ? ` · ${backendLabel}` : ''}${memorySuffix}`;
 }

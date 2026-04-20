@@ -27,7 +27,7 @@ describe('buildProviderPrepareModelCacheKey', () => {
     const input = {
       cwd: '/tmp/project',
       providerId: 'codex' as const,
-      backendSummary: 'Default adapter',
+      backendSummary: 'Codex native',
       limitContext: false,
     };
 

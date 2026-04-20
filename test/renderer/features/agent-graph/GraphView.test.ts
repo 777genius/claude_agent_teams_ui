@@ -31,6 +31,7 @@ const hoisted = vi.hoisted(() => ({
     time: 0,
   },
   clearTransientOwnerPositions: vi.fn(),
+  graphControlsProps: null as null | Record<string, unknown>,
 }));
 
 vi.mock('../../../../packages/agent-graph/src/hooks/useGraphCamera', () => ({
@@ -69,7 +70,10 @@ vi.mock('../../../../packages/agent-graph/src/hooks/useGraphSimulation', () => (
 }));
 
 vi.mock('../../../../packages/agent-graph/src/ui/GraphControls', () => ({
-  GraphControls: () => null,
+  GraphControls: (props: Record<string, unknown>) => {
+    hoisted.graphControlsProps = props;
+    return null;
+  },
 }));
 
 vi.mock('../../../../packages/agent-graph/src/ui/GraphOverlay', () => ({
@@ -95,6 +99,7 @@ describe('GraphView pan interactions', () => {
     hoisted.interaction.isDragging.current = false;
     hoisted.simulationState.nodes = [];
     hoisted.simulationState.edges = [];
+    hoisted.graphControlsProps = null;
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -396,5 +401,72 @@ describe('GraphView pan interactions', () => {
 
     expect(hoisted.interaction.handleMouseUp).toHaveBeenCalledTimes(1);
     expect(hoisted.clearTransientOwnerPositions).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes activity filter state to renderHud and updates it through graph controls', async () => {
+    const renderHud = vi.fn(() => null);
+
+    await act(async () => {
+      root.render(
+        React.createElement(GraphView, {
+          data: {
+            teamName: 'demo-team',
+            nodes: [],
+            edges: [],
+            particles: [],
+          },
+          config: {
+            animationEnabled: false,
+            showActivity: false,
+          },
+          renderHud,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(renderHud).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          showActivity: false,
+        }),
+      })
+    );
+
+    const controlsProps = hoisted.graphControlsProps as
+      | {
+          filters: {
+            showActivity: boolean;
+            showTasks: boolean;
+            showProcesses: boolean;
+            showEdges: boolean;
+            paused: boolean;
+          };
+          onFiltersChange: (filters: {
+            showActivity: boolean;
+            showTasks: boolean;
+            showProcesses: boolean;
+            showEdges: boolean;
+            paused: boolean;
+          }) => void;
+        }
+      | null;
+    expect(controlsProps).not.toBeNull();
+
+    await act(async () => {
+      controlsProps?.onFiltersChange({
+        ...controlsProps!.filters,
+        showActivity: true,
+      });
+      await Promise.resolve();
+    });
+
+    expect(renderHud).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          showActivity: true,
+        }),
+      })
+    );
   });
 });

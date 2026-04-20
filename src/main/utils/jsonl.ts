@@ -244,6 +244,17 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
   let gitBranch: string | undefined;
   let agentId: string | undefined;
   let agentName: string | undefined;
+  let level: string | undefined;
+  let subtype: string | undefined;
+  let codexNativeWarningSource: string | undefined;
+  let codexNativeThreadStatus: string | undefined;
+  let codexNativeThreadId: string | undefined;
+  let codexNativeCompletionPolicy: string | undefined;
+  let codexNativeHistoryCompleteness: string | undefined;
+  let codexNativeFinalUsageAuthority: string | undefined;
+  let codexNativeExecutablePath: string | undefined;
+  let codexNativeExecutableSource: string | undefined;
+  let codexNativeExecutableVersion: string | null | undefined;
   let isSidechain = false;
   let isMeta = false;
   let userType: string | undefined;
@@ -283,7 +294,19 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
       agentId = entry.agentId;
       requestId = entry.requestId;
     } else if (entry.type === 'system') {
+      content = entry.content ?? '';
       isMeta = entry.isMeta ?? false;
+      level = entry.level;
+      subtype = entry.subtype;
+      codexNativeWarningSource = entry.codexNativeWarningSource;
+      codexNativeThreadStatus = entry.codexNativeThreadStatus;
+      codexNativeThreadId = entry.codexNativeThreadId;
+      codexNativeCompletionPolicy = entry.codexNativeCompletionPolicy;
+      codexNativeHistoryCompleteness = entry.codexNativeHistoryCompleteness;
+      codexNativeFinalUsageAuthority = entry.codexNativeFinalUsageAuthority;
+      codexNativeExecutablePath = entry.codexNativeExecutablePath;
+      codexNativeExecutableSource = entry.codexNativeExecutableSource;
+      codexNativeExecutableVersion = entry.codexNativeExecutableVersion;
     }
   }
 
@@ -310,6 +333,17 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
     isMeta,
     userType,
     isCompactSummary,
+    level,
+    subtype,
+    codexNativeWarningSource,
+    codexNativeThreadStatus,
+    codexNativeThreadId,
+    codexNativeCompletionPolicy,
+    codexNativeHistoryCompleteness,
+    codexNativeFinalUsageAuthority,
+    codexNativeExecutablePath,
+    codexNativeExecutableSource,
+    codexNativeExecutableVersion,
     // Tool info
     toolCalls,
     toolResults: toolResultsList,

@@ -62,7 +62,7 @@ export function normalizeProviderModelProbeFailureReason(message: string): strin
   if (
     /The '[^']+' model is not supported when using Codex with a ChatGPT account\./i.test(trimmed)
   ) {
-    return 'Not available with Codex ChatGPT subscription';
+    return 'Not available on this Codex native runtime';
   }
   if (/The requested model is not available for your account\./i.test(trimmed)) {
     return 'Not available for this account';

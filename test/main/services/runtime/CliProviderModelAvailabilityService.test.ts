@@ -96,7 +96,7 @@ describe('CliProviderModelAvailabilityService', () => {
             expect.objectContaining({
               modelId: 'gpt-5.4',
               status: 'unavailable',
-              reason: 'Not available with Codex ChatGPT subscription',
+              reason: 'Not available on this Codex native runtime',
             }),
           ],
         })

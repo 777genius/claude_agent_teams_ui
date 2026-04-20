@@ -36,6 +36,7 @@ describe('GraphControls', () => {
       root.render(
         React.createElement(GraphControls, {
           filters: {
+            showActivity: true,
             showTasks: true,
             showProcesses: true,
             showEdges: true,
@@ -88,6 +89,7 @@ describe('GraphControls', () => {
       root.render(
         React.createElement(GraphControls, {
           filters: {
+            showActivity: true,
             showTasks: true,
             showProcesses: true,
             showEdges: true,
@@ -106,6 +108,64 @@ describe('GraphControls', () => {
     });
 
     expect(host.querySelector('button[aria-label="Show sidebar"]')).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('toggles activity visibility from graph settings', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onFiltersChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        React.createElement(GraphControls, {
+          filters: {
+            showActivity: true,
+            showTasks: true,
+            showProcesses: true,
+            showEdges: true,
+            paused: false,
+          },
+          onFiltersChange,
+          onZoomIn: vi.fn(),
+          onZoomOut: vi.fn(),
+          onZoomToFit: vi.fn(),
+          teamName: 'demo-team',
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const settingsButton = host.querySelector('button[aria-label="Graph settings"]');
+    expect(settingsButton).not.toBeNull();
+
+    await act(async () => {
+      settingsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const activityButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Activity')
+    );
+    expect(activityButton).not.toBeUndefined();
+
+    await act(async () => {
+      activityButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      showActivity: false,
+      showTasks: true,
+      showProcesses: true,
+      showEdges: true,
+      paused: false,
+    });
 
     await act(async () => {
       root.unmount();

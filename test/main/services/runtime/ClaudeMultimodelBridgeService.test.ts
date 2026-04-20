@@ -2,6 +2,11 @@
 import type { PathLike } from 'fs';
 import * as path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  getProviderConnectionModeSummary,
+  getProviderCurrentRuntimeSummary,
+  isConnectionManagedRuntimeProvider,
+} from '@renderer/components/runtime/providerConnectionUi';
 
 const execCliMock = vi.fn();
 const buildProviderAwareCliEnvMock = vi.fn();
@@ -291,6 +296,264 @@ describe('ClaudeMultimodelBridgeService', () => {
           apiKeys: { status: 'supported' },
         },
       },
+    });
+  });
+
+  it('keeps codex-native lane truth honest from unified runtime status through renderer summaries', async () => {
+    execCliMock.mockResolvedValue({
+      stdout: JSON.stringify({
+        providers: {
+          anthropic: {
+            supported: true,
+            authenticated: true,
+            authMethod: 'oauth_token',
+            verificationState: 'verified',
+            canLoginFromUi: true,
+            models: ['claude-sonnet-4-5'],
+            capabilities: {
+              teamLaunch: true,
+              oneShot: true,
+              extensions: {
+                plugins: { status: 'supported', ownership: 'shared', reason: null },
+                mcp: { status: 'supported', ownership: 'shared', reason: null },
+                skills: { status: 'supported', ownership: 'shared', reason: null },
+                apiKeys: { status: 'supported', ownership: 'shared', reason: null },
+              },
+            },
+            backend: { kind: 'anthropic', label: 'Anthropic' },
+          },
+          codex: {
+            supported: true,
+            authenticated: true,
+            authMethod: 'api_key',
+            verificationState: 'verified',
+            canLoginFromUi: false,
+            statusMessage: 'Codex native runtime ready',
+            detailMessage: 'Codex native runtime is ready through the local codex exec seam.',
+            selectedBackendId: 'codex-native',
+            resolvedBackendId: 'codex-native',
+            availableBackends: [
+              {
+                id: 'codex-native',
+                label: 'Codex native',
+                selectable: true,
+                recommended: true,
+                available: true,
+                state: 'ready',
+                audience: 'general',
+                statusMessage: 'Ready',
+                detailMessage: 'Codex native runtime is ready through the local codex exec seam.',
+              },
+            ],
+            externalRuntimeDiagnostics: [
+              {
+                id: 'codex-cli',
+                label: 'Codex CLI',
+                detected: true,
+                statusMessage: 'Detected',
+                detailMessage: 'System codex binary available.',
+              },
+            ],
+            capabilities: {
+              teamLaunch: true,
+              oneShot: true,
+              extensions: {
+                plugins: {
+                  status: 'unsupported',
+                  ownership: 'shared',
+                  reason: 'Plugins are not currently guaranteed for codex-native sessions in the multimodel runtime.',
+                },
+                mcp: {
+                  status: 'unsupported',
+                  ownership: 'shared',
+                  reason: 'Headless-limited lane',
+                },
+                skills: {
+                  status: 'unsupported',
+                  ownership: 'shared',
+                  reason: 'Headless-limited lane',
+                },
+                apiKeys: { status: 'supported', ownership: 'shared', reason: null },
+              },
+            },
+            backend: {
+              kind: 'codex-native',
+              label: 'Codex native',
+              authMethodDetail: 'API key',
+            },
+          },
+          gemini: {
+            supported: false,
+            authenticated: false,
+          },
+        },
+      }),
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const { ClaudeMultimodelBridgeService } =
+      await import('@main/services/runtime/ClaudeMultimodelBridgeService');
+    const service = new ClaudeMultimodelBridgeService();
+
+    const providers = await service.getProviderStatuses('/mock/agent_teams_orchestrator');
+    const codex = providers.find((provider) => provider.providerId === 'codex');
+
+    expect(codex).toMatchObject({
+      providerId: 'codex',
+      authenticated: true,
+      selectedBackendId: 'codex-native',
+      resolvedBackendId: 'codex-native',
+      backend: {
+        kind: 'codex-native',
+        label: 'Codex native',
+      },
+      availableBackends: [
+        expect.objectContaining({
+          id: 'codex-native',
+          selectable: true,
+          available: true,
+          state: 'ready',
+          audience: 'general',
+          statusMessage: 'Ready',
+        }),
+      ],
+      externalRuntimeDiagnostics: [
+        expect.objectContaining({
+          id: 'codex-cli',
+          detected: true,
+        }),
+      ],
+    });
+    expect(codex?.capabilities.extensions.plugins).toMatchObject({
+      status: 'unsupported',
+    });
+    expect(isConnectionManagedRuntimeProvider(codex!)).toBe(true);
+    expect(getProviderConnectionModeSummary(codex!)).toBeNull();
+    expect(getProviderCurrentRuntimeSummary(codex!)).toBe('Current runtime: Codex native');
+  });
+
+  it('preserves codex-native ready truth from runtime status payloads', async () => {
+    execCliMock.mockResolvedValue({
+      stdout: JSON.stringify({
+        providers: {
+          codex: {
+            supported: true,
+            authenticated: true,
+            authMethod: 'api_key',
+            verificationState: 'verified',
+            canLoginFromUi: false,
+            selectedBackendId: 'codex-native',
+            resolvedBackendId: 'codex-native',
+            availableBackends: [
+              {
+                id: 'codex-native',
+                label: 'Codex native',
+                selectable: true,
+                recommended: true,
+                available: true,
+                state: 'ready',
+                audience: 'general',
+                statusMessage: 'Ready',
+                detailMessage: 'Codex native runtime is ready through the local codex exec seam.',
+              },
+            ],
+            capabilities: {
+              teamLaunch: true,
+              oneShot: true,
+              extensions: {
+                plugins: { status: 'unsupported', ownership: 'shared', reason: 'Phase 1' },
+                mcp: { status: 'unsupported', ownership: 'shared', reason: 'Phase 1' },
+                skills: { status: 'unsupported', ownership: 'shared', reason: 'Phase 1' },
+                apiKeys: { status: 'supported', ownership: 'shared', reason: null },
+              },
+            },
+            backend: {
+              kind: 'codex-native',
+              label: 'Codex native',
+              authMethodDetail: 'api_key',
+            },
+          },
+        },
+      }),
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const { ClaudeMultimodelBridgeService } =
+      await import('@main/services/runtime/ClaudeMultimodelBridgeService');
+    const service = new ClaudeMultimodelBridgeService();
+
+    const codex = await service.getProviderStatus('/mock/agent_teams_orchestrator', 'codex');
+
+    expect(codex.availableBackends?.find((backend) => backend.id === 'codex-native')).toMatchObject({
+      id: 'codex-native',
+      selectable: true,
+      available: true,
+      state: 'ready',
+      audience: 'general',
+      statusMessage: 'Ready',
+    });
+  });
+
+  it('preserves codex-native runtime-missing rollout states from runtime status payloads', async () => {
+    execCliMock.mockResolvedValue({
+      stdout: JSON.stringify({
+        providers: {
+          codex: {
+            supported: true,
+            authenticated: false,
+            authMethod: null,
+            verificationState: 'unknown',
+            canLoginFromUi: false,
+            statusMessage: 'Codex native runtime unavailable',
+            detailMessage: 'Codex native runtime requires the codex CLI binary to be installed and discoverable.',
+            selectedBackendId: 'codex-native',
+            resolvedBackendId: null,
+            availableBackends: [
+              {
+                id: 'codex-native',
+                label: 'Codex native',
+                selectable: false,
+                recommended: false,
+                available: false,
+                state: 'runtime-missing',
+                audience: 'general',
+                statusMessage: 'Codex CLI not found',
+                detailMessage: 'Codex native runtime requires the codex CLI binary to be installed and discoverable.',
+              },
+            ],
+            capabilities: {
+              teamLaunch: true,
+              oneShot: true,
+              extensions: {
+                plugins: { status: 'unsupported', ownership: 'shared', reason: 'Phase 1' },
+                mcp: { status: 'unsupported', ownership: 'shared', reason: 'Phase 1' },
+                skills: { status: 'unsupported', ownership: 'shared', reason: 'Phase 1' },
+                apiKeys: { status: 'supported', ownership: 'shared', reason: null },
+              },
+            },
+            backend: null,
+          },
+        },
+      }),
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const { ClaudeMultimodelBridgeService } =
+      await import('@main/services/runtime/ClaudeMultimodelBridgeService');
+    const service = new ClaudeMultimodelBridgeService();
+
+    const codex = await service.getProviderStatus('/mock/agent_teams_orchestrator', 'codex');
+
+    expect(codex.availableBackends?.find((backend) => backend.id === 'codex-native')).toMatchObject({
+      id: 'codex-native',
+      selectable: false,
+      available: false,
+      state: 'runtime-missing',
+      audience: 'general',
+      statusMessage: 'Codex CLI not found',
     });
   });
 });

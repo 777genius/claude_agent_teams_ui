@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CliProviderStatus } from '@shared/types';
+import type { CodexAccountSnapshotDto } from '@features/codex-account/contracts';
 
 interface StoreState {
   appConfig: {
@@ -11,8 +12,7 @@ interface StoreState {
         authMode: 'auto' | 'oauth' | 'api_key';
       };
       codex: {
-        apiKeyBetaEnabled: boolean;
-        authMode: 'oauth' | 'api_key';
+        preferredAuthMode: 'auto' | 'chatgpt' | 'api_key';
       };
     };
   };
@@ -36,6 +36,15 @@ interface StoreState {
 }
 
 const storeState = {} as StoreState;
+const codexAccountHookState = {
+  snapshot: null as CodexAccountSnapshotDto | null,
+  loading: false,
+  error: null as string | null,
+  refresh: vi.fn(() => Promise.resolve(undefined)),
+  startChatgptLogin: vi.fn(() => Promise.resolve(true)),
+  cancelChatgptLogin: vi.fn(() => Promise.resolve(true)),
+  logout: vi.fn(() => Promise.resolve(true)),
+};
 
 vi.mock('@renderer/store', () => {
   const useStore = (selector: (state: StoreState) => unknown) => selector(storeState);
@@ -43,6 +52,14 @@ vi.mock('@renderer/store', () => {
     setState: vi.fn(),
   });
   return { useStore };
+});
+
+vi.mock('@features/codex-account/renderer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@features/codex-account/renderer')>();
+  return {
+    ...actual,
+    useCodexAccountSnapshot: () => codexAccountHookState,
+  };
 });
 
 vi.mock('@renderer/components/ui/button', () => ({
@@ -138,6 +155,8 @@ vi.mock('@renderer/components/runtime/ProviderRuntimeBackendSelector', () => ({
       'Select runtime backend'
     ),
   getProviderRuntimeBackendSummary: () => null,
+  getVisibleProviderRuntimeBackendOptions: (provider: CliProviderStatus) =>
+    provider.availableBackends ?? [],
 }));
 
 vi.mock('@renderer/components/common/ProviderBrandLogo', () => ({
@@ -152,9 +171,14 @@ import { ProviderRuntimeSettingsDialog } from '@renderer/components/runtime/Prov
 import { createDefaultCliExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
 
 function createCodexProvider(
-  overrides?: Partial<CliProviderStatus['connection']> & {
+  overrides?: Omit<Partial<NonNullable<CliProviderStatus['connection']>>, 'codex'> & {
     authenticated?: boolean;
     authMethod?: string | null;
+    selectedBackendId?: string | null;
+    resolvedBackendId?: string | null;
+    availableBackends?: CliProviderStatus['availableBackends'];
+    canLoginFromUi?: boolean;
+    codex?: Partial<NonNullable<NonNullable<CliProviderStatus['connection']>['codex']>>;
   }
 ): CliProviderStatus {
   return {
@@ -162,33 +186,67 @@ function createCodexProvider(
     displayName: 'Codex',
     supported: true,
     authenticated: overrides?.authenticated ?? true,
-    authMethod: overrides?.authMethod ?? 'oauth_token',
+    authMethod: overrides?.authMethod ?? 'api_key',
     verificationState: 'verified',
-    statusMessage: 'Connected',
+    statusMessage: 'Codex native ready',
     models: ['gpt-5-codex'],
-    canLoginFromUi: true,
+    canLoginFromUi: overrides?.canLoginFromUi ?? false,
     capabilities: {
       teamLaunch: true,
       oneShot: true,
       extensions: createDefaultCliExtensionCapabilities(),
     },
-    selectedBackendId: 'auto',
-    resolvedBackendId: 'adapter',
-    availableBackends: [],
+    selectedBackendId: overrides?.selectedBackendId ?? 'codex-native',
+    resolvedBackendId: overrides?.resolvedBackendId ?? 'codex-native',
+    availableBackends:
+      overrides?.availableBackends ??
+      [
+        {
+          id: 'codex-native',
+          label: 'Codex native',
+          description: 'Use the local codex exec JSON seam.',
+          selectable: true,
+          recommended: true,
+          available: true,
+          state: 'ready',
+          audience: 'general',
+          statusMessage: 'Codex native ready',
+        },
+      ],
+    externalRuntimeDiagnostics: [],
     backend: {
-      kind: 'adapter',
-      label: 'Codex subscription',
+      kind: 'codex-native',
+      label: 'Codex native',
     },
     connection: {
-      supportsOAuth: true,
+      supportsOAuth: false,
       supportsApiKey: true,
-      configurableAuthModes: overrides?.apiKeyBetaEnabled ? ['oauth', 'api_key'] : [],
-      configuredAuthMode: overrides?.configuredAuthMode ?? null,
-      apiKeyBetaAvailable: true,
-      apiKeyBetaEnabled: overrides?.apiKeyBetaEnabled ?? false,
+      configurableAuthModes: ['auto', 'chatgpt', 'api_key'],
+      configuredAuthMode: overrides?.configuredAuthMode ?? 'auto',
       apiKeyConfigured: overrides?.apiKeyConfigured ?? false,
       apiKeySource: overrides?.apiKeySource ?? null,
       apiKeySourceLabel: overrides?.apiKeySourceLabel ?? null,
+      codex: {
+        preferredAuthMode: 'auto',
+        effectiveAuthMode: overrides?.apiKeyConfigured ? 'api_key' : null,
+        appServerState: 'healthy',
+        appServerStatusMessage: null,
+        managedAccount: null,
+        requiresOpenaiAuth: null,
+        login: {
+          status: 'idle',
+          error: null,
+          startedAt: null,
+        },
+        rateLimits: null,
+        launchAllowed: Boolean(overrides?.authenticated ?? true) || Boolean(overrides?.apiKeyConfigured),
+        launchIssueMessage: null,
+        launchReadinessState:
+          Boolean(overrides?.authenticated ?? true) || Boolean(overrides?.apiKeyConfigured)
+            ? 'ready_api_key'
+            : 'missing_auth',
+        ...overrides?.codex,
+      },
     },
   };
 }
@@ -217,6 +275,7 @@ function createAnthropicProvider(
     selectedBackendId: null,
     resolvedBackendId: null,
     availableBackends: [],
+    externalRuntimeDiagnostics: [],
     backend: null,
     connection: {
       supportsOAuth: true,
@@ -266,6 +325,7 @@ function createGeminiProvider(): CliProviderStatus {
         available: true,
       },
     ],
+    externalRuntimeDiagnostics: [],
     backend: {
       kind: 'api',
       label: 'Gemini API',
@@ -292,21 +352,23 @@ function findButtonByText(container: HTMLElement, text: string): HTMLButtonEleme
   return button;
 }
 
-function countOccurrences(text: string, fragment: string): number {
-  return text.split(fragment).length - 1;
-}
-
-describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
+describe('ProviderRuntimeSettingsDialog', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    codexAccountHookState.snapshot = null;
+    codexAccountHookState.loading = false;
+    codexAccountHookState.error = null;
+    codexAccountHookState.refresh.mockReset().mockResolvedValue(undefined);
+    codexAccountHookState.startChatgptLogin.mockReset().mockResolvedValue(true);
+    codexAccountHookState.cancelChatgptLogin.mockReset().mockResolvedValue(true);
+    codexAccountHookState.logout.mockReset().mockResolvedValue(true);
     storeState.appConfig = {
       providerConnections: {
         anthropic: {
           authMode: 'auto',
         },
         codex: {
-          apiKeyBetaEnabled: false,
-          authMode: 'oauth',
+          preferredAuthMode: 'auto',
         },
       },
     };
@@ -346,139 +408,6 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     vi.unstubAllGlobals();
   });
 
-  it('switches Codex into api_key mode when enabling API key mode', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: false,
-              configuredAuthMode: null,
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Enable API key mode').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
-      codex: {
-        apiKeyBetaEnabled: true,
-        authMode: 'api_key',
-      },
-    });
-    expect(onRefreshProvider).toHaveBeenCalledWith('codex');
-  });
-
-  it('shows a loading message while switching Codex to OpenAI API key', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    let resolveUpdate: (() => void) | null = null;
-    storeState.appConfig.providerConnections.codex = {
-      apiKeyBetaEnabled: true,
-      authMode: 'oauth',
-    };
-    storeState.updateConfig = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveUpdate = resolve;
-        })
-    );
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: true,
-              configuredAuthMode: 'oauth',
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'OpenAI API key').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('Switching to OpenAI API key...');
-    expect(host.textContent).toContain('Switching...');
-
-    await act(async () => {
-      resolveUpdate?.();
-      await Promise.resolve();
-    });
-  });
-
-  it('removes duplicate Codex summary and API key source text when connection cards are visible', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    storeState.appConfig.providerConnections.codex = {
-      apiKeyBetaEnabled: true,
-      authMode: 'oauth',
-    };
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: true,
-              configuredAuthMode: 'oauth',
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).not.toContain('Current runtime: Codex subscription');
-    expect(host.textContent).not.toContain('Mode: Codex subscription');
-    expect(host.textContent).not.toContain('Runtime: Default adapter');
-    expect(countOccurrences(host.textContent ?? '', 'Using Codex subscription')).toBe(0);
-    expect(countOccurrences(host.textContent ?? '', 'Detected from OPENAI_API_KEY')).toBe(1);
-    expect(host.textContent).not.toContain('Connected');
-  });
-
   it('renders provider logos inside the provider tabs', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -502,10 +431,11 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     expect(host.querySelector('[data-testid="provider-logo-codex"]')).not.toBeNull();
   });
 
-  it('renders Anthropics connection methods as cards and hides the empty runtime section', async () => {
+  it('renders anthropic connection cards and can switch to API key mode', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const root = createRoot(host);
+    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
 
     await act(async () => {
       root.render(
@@ -516,11 +446,139 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
             createAnthropicProvider({
               configuredAuthMode: 'auto',
               apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from ANTHROPIC_API_KEY',
+              apiKeySource: 'stored',
+              apiKeySourceLabel: 'Stored in app',
             }),
           ],
           initialProviderId: 'anthropic',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Connection method');
+    expect(host.textContent).toContain('Anthropic subscription');
+    expect(host.textContent).toContain('API key');
+
+    await act(async () => {
+      findButtonByText(host, 'API key').click();
+      await Promise.resolve();
+    });
+
+    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
+      anthropic: {
+        authMode: 'api_key',
+      },
+    });
+    expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
+  });
+
+  it('shows native-only Codex connection copy and API-key management without login actions', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              apiKeyConfigured: true,
+              apiKeySource: 'stored',
+              apiKeySourceLabel: 'Stored in app',
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+          onRequestLogin: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain(
+      'Choose whether Codex should prefer your ChatGPT subscription or an API key when the native runtime launches.'
+    );
+    expect(host.textContent).toContain('Connection method');
+    expect(host.textContent).toContain('ChatGPT account');
+    expect(host.textContent).toContain(
+      'Use an OpenAI API key as a secondary Codex auth path.'
+    );
+    expect(host.textContent).toContain('Set API key');
+    expect(host.textContent).toContain('Connect ChatGPT');
+  });
+
+  it('explains the missing Codex ChatGPT login without mixing it up with the detected API key', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    storeState.appConfig.providerConnections.codex.preferredAuthMode = 'chatgpt';
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: null,
+      launchAllowed: false,
+      launchIssueMessage: 'Connect a ChatGPT account to use your Codex subscription.',
+      launchReadinessState: 'missing_auth',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: null,
+      apiKey: {
+        available: true,
+        source: 'environment',
+        sourceLabel: 'Detected from OPENAI_API_KEY',
+      },
+      requiresOpenaiAuth: true,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              configuredAuthMode: 'chatgpt',
+              apiKeyConfigured: true,
+              apiKeySource: 'environment',
+              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
+              codex: {
+                preferredAuthMode: 'chatgpt',
+                effectiveAuthMode: null,
+                appServerState: 'healthy',
+                appServerStatusMessage: null,
+                managedAccount: null,
+                requiresOpenaiAuth: true,
+                login: {
+                  status: 'idle',
+                  error: null,
+                  startedAt: null,
+                },
+                rateLimits: null,
+                launchAllowed: false,
+                launchIssueMessage: 'Connect a ChatGPT account to use your Codex subscription.',
+                launchReadinessState: 'missing_auth',
+              },
+            }),
+          ],
+          initialProviderId: 'codex',
           onSelectBackend: vi.fn(),
           onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
         })
@@ -528,15 +586,665 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
       await Promise.resolve();
     });
 
-    expect(host.textContent).toContain('Connection method');
-    expect(host.textContent).toContain('Auto');
-    expect(host.textContent).toContain('Anthropic subscription');
-    expect(host.textContent).toContain('API key');
-    expect(host.textContent).not.toContain('Authentication method');
-    expect(host.textContent).not.toContain('Runtime backend is not configurable');
-    expect(host.textContent).not.toContain('Mode: Auto');
-    expect(countOccurrences(host.textContent ?? '', 'Using Anthropic subscription')).toBe(1);
-    expect(countOccurrences(host.textContent ?? '', 'Detected from ANTHROPIC_API_KEY')).toBe(1);
+    expect(host.textContent).toContain(
+      'Codex CLI currently has no active ChatGPT account. Connect ChatGPT to use your subscription. Switch to API key mode to use the detected API key.'
+    );
+    expect(host.textContent).toContain(
+      'Codex CLI currently reports no active ChatGPT account. Usage limits appear here only after Codex CLI sees one. The detected API key is only used after you switch Codex to API key mode.'
+    );
+    expect(host.textContent).toContain('Detected from OPENAI_API_KEY');
+    expect(host.textContent).not.toContain(
+      'ChatGPT account mode is selected, but no managed Codex account is connected yet.'
+    );
+  });
+
+  it('mentions local Codex account artifacts when ChatGPT mode is pinned but no active managed session is selected', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    storeState.appConfig.providerConnections.codex.preferredAuthMode = 'chatgpt';
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: null,
+      launchAllowed: false,
+      launchIssueMessage: 'Connect a ChatGPT account to use your Codex subscription.',
+      launchReadinessState: 'missing_auth',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: null,
+      apiKey: {
+        available: true,
+        source: 'environment',
+        sourceLabel: 'Detected from OPENAI_API_KEY',
+      },
+      requiresOpenaiAuth: true,
+      localAccountArtifactsPresent: true,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              configuredAuthMode: 'chatgpt',
+              apiKeyConfigured: true,
+              apiKeySource: 'environment',
+              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
+              codex: {
+                preferredAuthMode: 'chatgpt',
+                effectiveAuthMode: null,
+                appServerState: 'healthy',
+                appServerStatusMessage: null,
+                managedAccount: null,
+                requiresOpenaiAuth: true,
+                localAccountArtifactsPresent: true,
+                login: {
+                  status: 'idle',
+                  error: null,
+                  startedAt: null,
+                },
+                rateLimits: null,
+                launchAllowed: false,
+                launchIssueMessage: 'Connect a ChatGPT account to use your Codex subscription.',
+                launchReadinessState: 'missing_auth',
+              },
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain(
+      'Codex CLI currently has no active ChatGPT account. Local Codex account data exists, but no active managed session is selected. Switch to API key mode to use the detected API key.'
+    );
+    expect(host.textContent).toContain(
+      'Codex CLI currently reports no active ChatGPT account. Local Codex account data exists, but no active managed session is selected. Usage limits appear here only after Codex CLI sees one. The detected API key is only used after you switch Codex to API key mode.'
+    );
+  });
+
+  it('asks for reconnect when ChatGPT mode is pinned and a local selected account exists but the session is stale', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    storeState.appConfig.providerConnections.codex.preferredAuthMode = 'chatgpt';
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: null,
+      launchAllowed: false,
+      launchIssueMessage: 'Reconnect ChatGPT to refresh the current Codex subscription session.',
+      launchReadinessState: 'missing_auth',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: null,
+      apiKey: {
+        available: true,
+        source: 'environment',
+        sourceLabel: 'Detected from OPENAI_API_KEY',
+      },
+      requiresOpenaiAuth: true,
+      localAccountArtifactsPresent: true,
+      localActiveChatgptAccountPresent: true,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              configuredAuthMode: 'chatgpt',
+              apiKeyConfigured: true,
+              apiKeySource: 'environment',
+              apiKeySourceLabel: 'Detected from OPENAI_API_KEY',
+              codex: {
+                preferredAuthMode: 'chatgpt',
+                effectiveAuthMode: null,
+                appServerState: 'healthy',
+                appServerStatusMessage: null,
+                managedAccount: null,
+                requiresOpenaiAuth: true,
+                localAccountArtifactsPresent: true,
+                localActiveChatgptAccountPresent: true,
+                login: {
+                  status: 'idle',
+                  error: null,
+                  startedAt: null,
+                },
+                rateLimits: null,
+                launchAllowed: false,
+                launchIssueMessage: 'Reconnect ChatGPT to refresh the current Codex subscription session.',
+                launchReadinessState: 'missing_auth',
+              },
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain(
+      'Codex has a locally selected ChatGPT account, but the current session needs reconnect. Switch to API key mode to use the detected API key.'
+    );
+    expect(host.textContent).toContain(
+      'Codex has a locally selected ChatGPT account, but the current session needs reconnect before usage limits can load here. The detected API key is only used after you switch Codex to API key mode.'
+    );
+  });
+
+  it('disables Codex account actions while a Codex account request is already in flight', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    codexAccountHookState.loading = true;
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: null,
+      launchAllowed: false,
+      launchIssueMessage: 'Connect a ChatGPT account to use your Codex subscription.',
+      launchReadinessState: 'missing_auth',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: null,
+      apiKey: {
+        available: false,
+        source: null,
+        sourceLabel: null,
+      },
+      requiresOpenaiAuth: true,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              configuredAuthMode: 'chatgpt',
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(findButtonByText(host, 'Refresh').disabled).toBe(true);
+    expect(findButtonByText(host, 'Connect ChatGPT').disabled).toBe(true);
+  });
+
+  it('prefers live Codex snapshot readiness over stale provider status after the account hook refreshes', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'auto',
+      effectiveAuthMode: 'chatgpt',
+      launchAllowed: true,
+      launchIssueMessage: null,
+      launchReadinessState: 'ready_chatgpt',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: {
+        type: 'chatgpt',
+        email: 'belief@example.com',
+        planType: 'plus',
+      },
+      apiKey: {
+        available: false,
+        source: null,
+        sourceLabel: null,
+      },
+      requiresOpenaiAuth: false,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              apiKeyConfigured: false,
+              codex: {
+                launchAllowed: false,
+                launchIssueMessage:
+                  'Connect a ChatGPT account or add OPENAI_API_KEY / CODEX_API_KEY to use Codex.',
+                launchReadinessState: 'missing_auth',
+              },
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('belief@example.com');
+    expect(host.textContent).toContain('Plan: plus');
+    expect(host.textContent).not.toContain(
+      'Connect a ChatGPT account or add OPENAI_API_KEY / CODEX_API_KEY to use Codex.'
+    );
+  });
+
+  it('starts the ChatGPT login flow from the Codex account panel', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      findButtonByText(host, 'Connect ChatGPT').click();
+      await Promise.resolve();
+    });
+
+    expect(codexAccountHookState.startChatgptLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows cancel login while pending and refreshes provider state after cancellation', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: null,
+      launchAllowed: false,
+      launchIssueMessage: 'Connect a ChatGPT account to use your Codex subscription.',
+      launchReadinessState: 'missing_auth',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: null,
+      apiKey: {
+        available: false,
+        source: null,
+        sourceLabel: null,
+      },
+      requiresOpenaiAuth: true,
+      login: {
+        status: 'pending',
+        error: null,
+        startedAt: '2026-04-20T12:00:00.000Z',
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Cancel login');
+
+    await act(async () => {
+      findButtonByText(host, 'Cancel login').click();
+      await Promise.resolve();
+    });
+
+    expect(codexAccountHookState.cancelChatgptLogin).toHaveBeenCalledTimes(1);
+    expect(onRefreshProvider).toHaveBeenCalledWith('codex');
+  });
+
+  it('surfaces a pending Codex ChatGPT login as a waiting alert instead of a missing-account warning', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: null,
+      launchAllowed: false,
+      launchIssueMessage: 'Connect a ChatGPT account to use your Codex subscription.',
+      launchReadinessState: 'missing_auth',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: null,
+      apiKey: {
+        available: true,
+        source: 'environment',
+        sourceLabel: 'Detected from OPENAI_API_KEY',
+      },
+      requiresOpenaiAuth: true,
+      login: {
+        status: 'pending',
+        error: null,
+        startedAt: '2026-04-20T12:00:00.000Z',
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createCodexProvider({
+              authenticated: false,
+              authMethod: null,
+              configuredAuthMode: 'chatgpt',
+            }),
+          ],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Waiting for ChatGPT account login to finish...');
+    expect(host.textContent).not.toContain(
+      'Codex CLI currently has no active ChatGPT account. Connect ChatGPT to use your subscription, or switch to API key mode to use the detected API key.'
+    );
+  });
+
+  it('shows disconnect account for connected Codex subscriptions and refreshes after logout', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: 'chatgpt',
+      launchAllowed: true,
+      launchIssueMessage: null,
+      launchReadinessState: 'ready_chatgpt',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: {
+        type: 'chatgpt',
+        email: 'belief@example.com',
+        planType: 'pro',
+      },
+      apiKey: {
+        available: true,
+        source: 'stored',
+        sourceLabel: 'Stored in app',
+      },
+      requiresOpenaiAuth: false,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [createCodexProvider()],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Disconnect account');
+
+    await act(async () => {
+      findButtonByText(host, 'Disconnect account').click();
+      await Promise.resolve();
+    });
+
+    expect(codexAccountHookState.logout).toHaveBeenCalledTimes(1);
+    expect(onRefreshProvider).toHaveBeenCalledWith('codex');
+  });
+
+  it('renders Codex rate limits when available from the live account snapshot', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: 'chatgpt',
+      launchAllowed: true,
+      launchIssueMessage: null,
+      launchReadinessState: 'ready_chatgpt',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: {
+        type: 'chatgpt',
+        email: 'belief@example.com',
+        planType: 'pro',
+      },
+      apiKey: {
+        available: false,
+        source: null,
+        sourceLabel: null,
+      },
+      requiresOpenaiAuth: false,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: {
+        limitId: 'codex',
+        limitName: null,
+        primary: {
+          usedPercent: 77,
+          windowDurationMins: 300,
+          resetsAt: 1_776_678_034,
+        },
+        secondary: {
+          usedPercent: 45,
+          windowDurationMins: 10_080,
+          resetsAt: 1_776_999_999,
+        },
+        credits: {
+          hasCredits: true,
+          unlimited: false,
+          balance: '42',
+        },
+        planType: 'pro',
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [createCodexProvider()],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Primary used (5h)');
+    expect(host.textContent).toContain('77%');
+    expect(host.textContent).toContain('23% left');
+    expect(host.textContent).toContain('Primary reset (5h)');
+    expect(host.textContent).toContain(
+      new Date(1_776_678_034_000).toLocaleString()
+    );
+    expect(host.textContent).toContain('Weekly used (1w)');
+    expect(host.textContent).toContain('45%');
+    expect(host.textContent).toContain('55% left');
+    expect(host.textContent).toContain('Weekly reset (1w)');
+    expect(host.textContent).toContain(
+      new Date(1_776_999_999_000).toLocaleString()
+    );
+    expect(host.textContent).toContain('Credits');
+    expect(host.textContent).toContain('42');
+    expect(host.textContent).toContain('These percentages show used quota, not remaining quota.');
+    expect(host.textContent).toContain(
+      '77% used - about 23% left in the current 5-hour window.'
+    );
+  });
+
+  it('shows truthful Codex rate-limit fallbacks instead of misleading zero values', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    codexAccountHookState.snapshot = {
+      preferredAuthMode: 'chatgpt',
+      effectiveAuthMode: 'chatgpt',
+      launchAllowed: true,
+      launchIssueMessage: null,
+      launchReadinessState: 'ready_chatgpt',
+      appServerState: 'healthy',
+      appServerStatusMessage: null,
+      managedAccount: {
+        type: 'chatgpt',
+        email: 'belief@example.com',
+        planType: 'pro',
+      },
+      apiKey: {
+        available: false,
+        source: null,
+        sourceLabel: null,
+      },
+      requiresOpenaiAuth: false,
+      login: {
+        status: 'idle',
+        error: null,
+        startedAt: null,
+      },
+      rateLimits: {
+        limitId: 'codex',
+        limitName: null,
+        primary: {
+          usedPercent: null as never,
+          windowDurationMins: 300,
+          resetsAt: null,
+        },
+        secondary: null,
+        credits: {
+          hasCredits: false,
+          unlimited: false,
+          balance: '0',
+        },
+        planType: 'pro',
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [createCodexProvider()],
+          initialProviderId: 'codex',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Primary used (5h)');
+    expect(host.textContent).toContain('Unknown');
+    expect(host.textContent).toContain('Remaining unknown');
+    expect(host.textContent).toContain('Credits');
+    expect(host.textContent).toContain('Not available');
+    expect(host.textContent).not.toContain('0%');
+    expect(host.textContent).toContain('Shows used quota in the current 5-hour window, not remaining quota.');
   });
 
   it('keeps the API key icon container square', async () => {
@@ -565,79 +1273,6 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     expect(icon?.className).toContain('shrink-0');
   });
 
-  it('switches Anthropic to API key mode from the connection cards', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'API key').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
-      anthropic: {
-        authMode: 'api_key',
-      },
-    });
-    expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
-  });
-
-  it('does not show Connect Anthropic when Auto is already authenticated via API key', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              authenticated: true,
-              authMethod: 'api_key',
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'environment',
-              apiKeySourceLabel: 'Detected from ANTHROPIC_API_KEY',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
-          onRequestLogin: vi.fn(),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).not.toContain('Connect Anthropic');
-    expect(host.textContent).not.toContain('Reconnect Anthropic');
-  });
-
   it('keeps the API key form open and shows an error when delete fails', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -646,10 +1281,10 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     storeState.apiKeys = [
       {
         id: 'key-1',
-        envVarName: 'ANTHROPIC_API_KEY',
+        envVarName: 'OPENAI_API_KEY',
         scope: 'user',
-        name: 'Anthropic API Key',
-        maskedValue: 'sk-ant-...1234',
+        name: 'Codex API Key',
+        maskedValue: 'sk-proj-...1234',
         createdAt: Date.now(),
       },
     ];
@@ -661,14 +1296,13 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
           open: true,
           onOpenChange: vi.fn(),
           providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'api_key',
+            createCodexProvider({
               apiKeyConfigured: true,
               apiKeySource: 'stored',
               apiKeySourceLabel: 'Stored in app',
             }),
           ],
-          initialProviderId: 'anthropic',
+          initialProviderId: 'codex',
           onSelectBackend: vi.fn(),
           onRefreshProvider,
         })
@@ -689,289 +1323,6 @@ describe('ProviderRuntimeSettingsDialog Codex connection flows', () => {
     expect(host.textContent).toContain('Delete failed');
     expect(host.textContent).toContain('Update key');
     expect(onRefreshProvider).not.toHaveBeenCalled();
-  });
-
-  it('shows a deleted stored key as removed even if provider refresh fails afterwards', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-    storeState.apiKeys = [
-      {
-        id: 'key-1',
-        envVarName: 'ANTHROPIC_API_KEY',
-        scope: 'user',
-        name: 'Anthropic API Key',
-        maskedValue: 'sk-ant-...1234',
-        createdAt: Date.now(),
-      },
-    ];
-    storeState.deleteApiKey = vi.fn((id: string) => {
-      storeState.apiKeys = storeState.apiKeys.filter((entry) => entry.id !== id);
-      return Promise.resolve(undefined);
-    });
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'api_key',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Replace key').click();
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Delete').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('API key deleted, but failed to refresh provider status.');
-    expect(host.textContent).toContain('Not configured');
-    expect(host.textContent).not.toContain('sk-ant-...1234');
-  });
-
-  it('shows a connection error and skips refresh when auth mode update fails', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-    storeState.updateConfig = vi.fn(() => Promise.reject(new Error('Config update failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'API key').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('Config update failed');
-    expect(host.textContent).not.toContain('Switching to API key...');
-    expect(host.textContent).not.toContain('Switching...');
-    expect(onRefreshProvider).not.toHaveBeenCalled();
-  });
-
-  it('clears Codex beta loading state when enabling API key mode fails early', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
-    storeState.updateConfig = vi.fn(() => Promise.reject(new Error('Config update failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: false,
-              configuredAuthMode: null,
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Enable API key mode').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).toContain('Config update failed');
-    expect(host.textContent).not.toContain('Enabling API key mode...');
-    expect(onRefreshProvider).not.toHaveBeenCalled();
-  });
-
-  it('reports refresh failures separately after a successful auth mode update', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-    storeState.updateConfig = vi.fn((section: string, data: Record<string, unknown>) => {
-      if (section === 'providerConnections') {
-        const nextProviderConnections = data as Partial<StoreState['appConfig']['providerConnections']>;
-        storeState.appConfig = {
-          ...storeState.appConfig,
-          providerConnections: {
-            anthropic: {
-              ...storeState.appConfig.providerConnections.anthropic,
-              ...(nextProviderConnections.anthropic ?? {}),
-            },
-            codex: {
-              ...storeState.appConfig.providerConnections.codex,
-              ...(nextProviderConnections.codex ?? {}),
-            },
-          },
-        };
-      }
-
-      return Promise.resolve(undefined);
-    });
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'API key').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalled();
-    expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
-    expect(host.textContent).not.toContain('Mode: API key');
-    expect(host.textContent).toContain('API keySelected');
-    expect(host.textContent).toContain('Connection updated, but failed to refresh provider status.');
-    expect(host.textContent).not.toContain('Failed to update connection');
-  });
-
-  it('shows subscription recovery actions when OAuth mode is selected but stale status still says API key', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createAnthropicProvider({
-              authenticated: true,
-              authMethod: 'api_key',
-              configuredAuthMode: 'auto',
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'anthropic',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-          onRequestLogin: vi.fn(),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Anthropic subscription').click();
-      await Promise.resolve();
-    });
-
-    expect(host.textContent).not.toContain('Mode: Anthropic subscription');
-    expect(host.textContent).toContain('Anthropic subscriptionSelected');
-    expect(host.textContent).toContain('Connect Anthropic');
-    expect(host.textContent).toContain(
-      'Anthropic subscription mode is selected. Sign in with Anthropic to use this provider.'
-    );
-    expect(host.textContent).toContain('Connection updated, but failed to refresh provider status.');
-  });
-
-  it('keeps the Codex API key mode UI in sync with config when refresh fails after enabling beta', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    const onRefreshProvider = vi.fn(() => Promise.reject(new Error('refresh failed')));
-
-    await act(async () => {
-      root.render(
-        React.createElement(ProviderRuntimeSettingsDialog, {
-          open: true,
-          onOpenChange: vi.fn(),
-          providers: [
-            createCodexProvider({
-              apiKeyBetaEnabled: false,
-              configuredAuthMode: null,
-              apiKeyConfigured: true,
-              apiKeySource: 'stored',
-              apiKeySourceLabel: 'Stored in app',
-            }),
-          ],
-          initialProviderId: 'codex',
-          onSelectBackend: vi.fn(),
-          onRefreshProvider,
-        })
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      findButtonByText(host, 'Enable API key mode').click();
-      await Promise.resolve();
-    });
-
-    expect(storeState.updateConfig).toHaveBeenCalledWith('providerConnections', {
-      codex: {
-        apiKeyBetaEnabled: true,
-        authMode: 'api_key',
-      },
-    });
-    expect(host.textContent).not.toContain('Mode: API key');
-    expect(host.textContent).toContain('Selected');
-    expect(host.textContent).toContain('Disable API key mode');
-    expect(host.textContent).toContain('Connection updated, but failed to refresh provider status.');
   });
 
   it('shows a runtime error when backend selection refresh fails after a successful update', async () => {

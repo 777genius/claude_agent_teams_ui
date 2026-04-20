@@ -152,7 +152,7 @@ export const TeamGraphOverlay = ({
             getNodeWorldPosition?: (nodeId: string) => { x: number; y: number } | null;
             focusEdgeIds?: ReadonlySet<string> | null;
           };
-          const { getViewportSize, focusNodeIds } = extraHudProps;
+          const { getViewportSize, focusNodeIds, filters } = extraHudProps;
 
           return (
             <>
@@ -174,6 +174,7 @@ export const TeamGraphOverlay = ({
                 getNodeWorldPosition={extraHudProps.getNodeWorldPosition}
                 getViewportSize={getViewportSize}
                 focusNodeIds={focusNodeIds}
+                enabled={filters?.showActivity ?? true}
                 onOpenTaskDetail={onOpenTaskDetail}
                 onOpenMemberProfile={onOpenMemberProfile}
               />

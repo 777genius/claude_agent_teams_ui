@@ -208,7 +208,7 @@ describe('configValidation', () => {
     }
   });
 
-  it('accepts Codex provider connection beta updates', () => {
+  it('normalizes legacy Codex provider connection updates to the native-only config shape', () => {
     const result = validateConfigUpdatePayload('providerConnections', {
       codex: {
         apiKeyBetaEnabled: true,
@@ -219,24 +219,68 @@ describe('configValidation', () => {
     expect(result.valid).toBe(true);
     if (result.valid) {
       expect(result.data).toEqual({
-        codex: {
-          apiKeyBetaEnabled: true,
-          authMode: 'api_key',
-        },
+        codex: {},
       });
     }
   });
 
-  it('rejects invalid Codex auth modes in providerConnections', () => {
+  it('drops unsupported legacy Codex auth modes during providerConnections migration', () => {
     const result = validateConfigUpdatePayload('providerConnections', {
       codex: {
         authMode: 'auto',
       },
     });
 
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.data).toEqual({
+        codex: {},
+      });
+    }
+  });
+
+  it('normalizes legacy Codex runtime backend updates to codex-native', () => {
+    const apiResult = validateConfigUpdatePayload('runtime', {
+      providerBackends: {
+        codex: 'api',
+      },
+    });
+
+    expect(apiResult.valid).toBe(true);
+    if (apiResult.valid) {
+      expect(apiResult.data).toEqual({
+        providerBackends: {
+          codex: 'codex-native',
+        },
+      });
+    }
+
+    const nativeResult = validateConfigUpdatePayload('runtime', {
+      providerBackends: {
+        codex: 'codex-native',
+      },
+    });
+
+    expect(nativeResult.valid).toBe(true);
+    if (nativeResult.valid) {
+      expect(nativeResult.data).toEqual({
+        providerBackends: {
+          codex: 'codex-native',
+        },
+      });
+    }
+  });
+
+  it('rejects unknown Codex runtime backends', () => {
+    const result = validateConfigUpdatePayload('runtime', {
+      providerBackends: {
+        codex: 'native',
+      },
+    });
+
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.error).toContain('providerConnections.codex.authMode');
+      expect(result.error).toContain('runtime.providerBackends.codex must be one of: codex-native');
     }
   });
 });
