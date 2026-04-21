@@ -26,6 +26,9 @@ const storeState = {
 vi.mock('@renderer/api', () => ({
   isElectronMode: () => true,
   api: {
+    getCodexAccountSnapshot: vi.fn(async () => null),
+    refreshCodexAccountSnapshot: vi.fn(async () => null),
+    onCodexAccountSnapshotChanged: vi.fn(() => () => {}),
     getProjects: vi.fn(async () => [
       {
         id: 'project-1',
@@ -226,11 +229,14 @@ vi.mock('@renderer/hooks/useChipDraftPersistence', () => ({
 }));
 
 vi.mock('@renderer/hooks/useDraftPersistence', () => ({
-  useDraftPersistence: () => ({
-    value: '',
-    setValue: vi.fn(),
-    isSaved: false,
-  }),
+  useDraftPersistence: () => {
+    const [value, setValue] = React.useState('');
+    return {
+      value,
+      setValue,
+      isSaved: false,
+    };
+  },
 }));
 
 vi.mock('@renderer/hooks/useFileListCacheWarmer', () => ({
@@ -290,14 +296,62 @@ vi.mock('@renderer/components/team/dialogs/ProvisioningProviderStatusList', () =
 }));
 
 vi.mock('@renderer/components/team/dialogs/TeamModelSelector', () => ({
-  TeamModelSelector: () => React.createElement('div', null, 'team-model-selector'),
+  TeamModelSelector: ({ value }: { value: string }) =>
+    React.createElement('div', { 'data-testid': 'team-model-selector' }, `model:${value}`),
   computeEffectiveTeamModel: (model: string) => model || undefined,
   formatTeamModelSummary: (providerId: string, model: string, effort?: string) =>
     [providerId, model, effort].filter(Boolean).join(' '),
 }));
 
 vi.mock('@renderer/components/team/dialogs/EffortLevelSelector', () => ({
-  EffortLevelSelector: () => React.createElement('div', null, 'effort-selector'),
+  EffortLevelSelector: ({ value }: { value: string }) =>
+    React.createElement('div', { 'data-testid': 'effort-selector' }, `effort:${value}`),
+}));
+
+vi.mock('@renderer/components/team/dialogs/AnthropicFastModeSelector', () => ({
+  AnthropicFastModeSelector: ({
+    value,
+    onValueChange,
+  }: {
+    value: string;
+    onValueChange: (value: 'inherit' | 'on' | 'off') => void;
+  }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'fast-mode-selector' },
+      React.createElement('span', null, `fast:${value}`),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          onClick: () => onValueChange('on'),
+        },
+        'set fast on'
+      )
+    ),
+}));
+
+vi.mock('@renderer/components/team/dialogs/CodexFastModeSelector', () => ({
+  CodexFastModeSelector: ({
+    value,
+    onValueChange,
+  }: {
+    value: string;
+    onValueChange: (value: 'inherit' | 'on' | 'off') => void;
+  }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'codex-fast-mode-selector' },
+      React.createElement('span', null, `codex-fast:${value}`),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          onClick: () => onValueChange('on'),
+        },
+        'set codex fast on'
+      )
+    ),
 }));
 
 import { api } from '@renderer/api';
@@ -314,6 +368,8 @@ describe('LaunchTeamDialog', () => {
     document.body.innerHTML = '';
     localStorage.clear();
     vi.clearAllMocks();
+    storeState.cliStatus = { providers: [] };
+    storeState.launchParamsByTeam = {};
   });
 
   it('renders relaunch-specific title, warning and submit label', async () => {
@@ -421,6 +477,326 @@ describe('LaunchTeamDialog', () => {
         effort: 'medium',
       },
     ]);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('prefills and saves Anthropic schedule runtime contract including max effort and fast mode', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      flavor: 'agent_teams_orchestrator',
+      providers: [
+        {
+          providerId: 'anthropic',
+          status: 'ready',
+          modelCatalog: {
+            schemaVersion: 1,
+            providerId: 'anthropic',
+            source: 'anthropic-models-api',
+            status: 'ready',
+            fetchedAt: '2026-04-21T00:00:00.000Z',
+            defaultLaunchModel: 'claude-opus-4-6',
+            models: [
+              {
+                id: 'claude-opus-4-6',
+                launchModel: 'claude-opus-4-6',
+                displayName: 'Opus 4.6',
+                hidden: false,
+                supportedReasoningEfforts: ['low', 'medium', 'high', 'max'],
+                defaultReasoningEffort: 'high',
+                supportsFastMode: true,
+                source: 'anthropic-models-api',
+              },
+            ],
+          },
+          runtimeCapabilities: {
+            fastMode: {
+              supported: true,
+              available: true,
+              reason: null,
+              source: 'runtime',
+            },
+          },
+        },
+      ],
+    } as any;
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(LaunchTeamDialog, {
+          mode: 'schedule',
+          open: true,
+          teamName: 'team-alpha',
+          onClose: vi.fn(),
+          schedule: {
+            id: 'schedule-1',
+            teamName: 'team-alpha',
+            label: 'Nightly',
+            cronExpression: '0 9 * * 1-5',
+            timezone: 'UTC',
+            status: 'active',
+            warmUpMinutes: 15,
+            maxConsecutiveFailures: 3,
+            consecutiveFailures: 0,
+            maxTurns: 50,
+            createdAt: '2026-04-21T00:00:00.000Z',
+            updatedAt: '2026-04-21T00:00:00.000Z',
+            launchConfig: {
+              cwd: '/tmp/project',
+              prompt: 'Run the scheduled check',
+              providerId: 'anthropic',
+              model: 'claude-opus-4-6',
+              effort: 'max',
+              fastMode: 'on',
+              resolvedFastMode: true,
+              skipPermissions: true,
+            },
+          } as any,
+        })
+      );
+      await flush();
+    });
+
+    expect(host.textContent).toContain('model:claude-opus-4-6');
+    expect(host.textContent).toContain('effort:max');
+    expect(host.textContent).toContain('fast:on');
+
+    const submitButton = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Save Changes'
+    );
+    expect(submitButton).toBeTruthy();
+
+    await act(async () => {
+      submitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSchedule).toHaveBeenCalledTimes(1);
+    expect(updateSchedule.mock.calls[0]?.[1]).toMatchObject({
+      launchConfig: {
+        cwd: '/tmp/project',
+        prompt: 'Run the scheduled check',
+        providerId: 'anthropic',
+        model: 'claude-opus-4-6',
+        effort: 'max',
+        fastMode: 'on',
+        resolvedFastMode: true,
+        skipPermissions: true,
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('preserves Codex schedule backend lane and effort in edit saves', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      flavor: 'agent_teams_orchestrator',
+      providers: [
+        {
+          providerId: 'codex',
+          status: 'ready',
+          selectedBackendId: 'codex-native',
+          resolvedBackendId: 'codex-native',
+        },
+      ],
+    } as any;
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(LaunchTeamDialog, {
+          mode: 'schedule',
+          open: true,
+          teamName: 'team-alpha',
+          onClose: vi.fn(),
+          schedule: {
+            id: 'schedule-2',
+            teamName: 'team-alpha',
+            label: 'Codex job',
+            cronExpression: '0 10 * * 1-5',
+            timezone: 'UTC',
+            status: 'active',
+            warmUpMinutes: 15,
+            maxConsecutiveFailures: 3,
+            consecutiveFailures: 0,
+            maxTurns: 50,
+            createdAt: '2026-04-21T00:00:00.000Z',
+            updatedAt: '2026-04-21T00:00:00.000Z',
+            launchConfig: {
+              cwd: '/tmp/project',
+              prompt: 'Run Codex scheduled check',
+              providerId: 'codex',
+              providerBackendId: 'codex-native',
+              model: 'gpt-5.4',
+              effort: 'xhigh',
+              skipPermissions: true,
+            },
+          } as any,
+        })
+      );
+      await flush();
+    });
+
+    const submitButton = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Save Changes'
+    );
+    expect(submitButton).toBeTruthy();
+
+    await act(async () => {
+      submitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSchedule).toHaveBeenCalledTimes(1);
+    expect(updateSchedule.mock.calls[0]?.[1]).toMatchObject({
+      launchConfig: {
+        cwd: '/tmp/project',
+        prompt: 'Run Codex scheduled check',
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.4',
+        effort: 'xhigh',
+        fastMode: 'inherit',
+        resolvedFastMode: false,
+        skipPermissions: true,
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('saves Codex schedule Fast mode when GPT-5.4 ChatGPT eligibility is available', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      flavor: 'agent_teams_orchestrator',
+      providers: [
+        {
+          providerId: 'codex',
+          status: 'ready',
+          authenticated: true,
+          authMethod: 'chatgpt',
+          selectedBackendId: 'codex-native',
+          resolvedBackendId: 'codex-native',
+          modelCatalog: {
+            schemaVersion: 1,
+            providerId: 'codex',
+            source: 'app-server',
+            status: 'ready',
+            fetchedAt: '2026-04-21T00:00:00.000Z',
+            defaultModelId: 'gpt-5.4',
+            defaultLaunchModel: 'gpt-5.4',
+            models: [
+              {
+                id: 'gpt-5.4',
+                launchModel: 'gpt-5.4',
+                displayName: 'GPT-5.4',
+                hidden: false,
+                supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+                defaultReasoningEffort: 'medium',
+                source: 'app-server',
+              },
+            ],
+          },
+          connection: {
+            codex: {
+              effectiveAuthMode: 'chatgpt',
+              launchAllowed: true,
+              launchIssueMessage: null,
+              launchReadinessState: 'ready_chatgpt',
+            },
+          },
+        },
+      ],
+    } as any;
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(LaunchTeamDialog, {
+          mode: 'schedule',
+          open: true,
+          teamName: 'team-alpha',
+          onClose: vi.fn(),
+          schedule: {
+            id: 'schedule-3',
+            teamName: 'team-alpha',
+            label: 'Codex fast job',
+            cronExpression: '0 10 * * 1-5',
+            timezone: 'UTC',
+            status: 'active',
+            warmUpMinutes: 15,
+            maxConsecutiveFailures: 3,
+            consecutiveFailures: 0,
+            maxTurns: 50,
+            createdAt: '2026-04-21T00:00:00.000Z',
+            updatedAt: '2026-04-21T00:00:00.000Z',
+            launchConfig: {
+              cwd: '/tmp/project',
+              prompt: 'Run Codex scheduled check',
+              providerId: 'codex',
+              providerBackendId: 'codex-native',
+              model: 'gpt-5.4',
+              effort: 'xhigh',
+              fastMode: 'inherit',
+              resolvedFastMode: false,
+              skipPermissions: true,
+            },
+          } as any,
+        })
+      );
+      await flush();
+    });
+
+    const fastButton = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'set codex fast on'
+    );
+    expect(fastButton).toBeTruthy();
+    await act(async () => {
+      fastButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const submitButton = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Save Changes'
+    );
+    expect(submitButton).toBeTruthy();
+
+    await act(async () => {
+      submitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSchedule).toHaveBeenCalledTimes(1);
+    expect(updateSchedule.mock.calls[0]?.[1]).toMatchObject({
+      launchConfig: {
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.4',
+        effort: 'xhigh',
+        fastMode: 'on',
+        resolvedFastMode: true,
+      },
+    });
 
     await act(async () => {
       root.unmount();

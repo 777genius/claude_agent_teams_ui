@@ -9,6 +9,12 @@ import {
   mergeCodexCliStatusWithSnapshot,
   useCodexAccountSnapshot,
 } from '@features/codex-account/renderer';
+import {
+  buildCodexFastModeArgs,
+  reconcileCodexRuntimeSelections,
+  resolveCodexFastMode,
+  resolveCodexRuntimeSelection,
+} from '@features/codex-runtime-profile/renderer';
 import { api } from '@renderer/api';
 import {
   buildMemberDraftColorMap,
@@ -1073,28 +1079,75 @@ export const CreateTeamDialog = ({
       selectedProviderId,
     ]
   );
+  const codexRuntimeSelection = useMemo(
+    () =>
+      selectedProviderId === 'codex'
+        ? resolveCodexRuntimeSelection({
+            source: {
+              providerStatus: runtimeProviderStatusById.get('codex'),
+              providerBackendId: resolveUiOwnedProviderBackendId(
+                'codex',
+                runtimeProviderStatusById.get('codex')
+              ),
+            },
+            selectedModel,
+          })
+        : null,
+    [runtimeProviderStatusById, selectedModel, selectedProviderId]
+  );
+  const codexFastModeResolution = useMemo(
+    () =>
+      selectedProviderId === 'codex' && codexRuntimeSelection
+        ? resolveCodexFastMode({
+            selection: codexRuntimeSelection,
+            selectedFastMode,
+          })
+        : null,
+    [codexRuntimeSelection, selectedFastMode, selectedProviderId]
+  );
 
   useEffect(() => {
-    if (selectedProviderId !== 'anthropic') {
+    if (selectedProviderId !== 'anthropic' && selectedProviderId !== 'codex') {
       setAnthropicRuntimeNotice(null);
       return;
     }
 
-    const reconciliation = reconcileAnthropicRuntimeSelections({
-      selection:
-        anthropicRuntimeSelection ??
-        resolveAnthropicRuntimeSelection({
-          source: {
-            modelCatalog: null,
-            runtimeCapabilities: null,
-          },
-          selectedModel,
-          limitContext,
-        }),
-      selectedEffort,
-      selectedFastMode,
-      providerFastModeDefault: anthropicProviderFastModeDefault,
-    });
+    const reconciliation =
+      selectedProviderId === 'anthropic'
+        ? reconcileAnthropicRuntimeSelections({
+            selection:
+              anthropicRuntimeSelection ??
+              resolveAnthropicRuntimeSelection({
+                source: {
+                  modelCatalog: null,
+                  runtimeCapabilities: null,
+                },
+                selectedModel,
+                limitContext,
+              }),
+            selectedEffort,
+            selectedFastMode,
+            providerFastModeDefault: anthropicProviderFastModeDefault,
+          })
+        : {
+            nextEffort: selectedEffort,
+            effortResetReason: null,
+            ...reconcileCodexRuntimeSelections({
+              selection:
+                codexRuntimeSelection ??
+                resolveCodexRuntimeSelection({
+                  source: {
+                    providerStatus: runtimeProviderStatusById.get('codex'),
+                    providerBackendId: resolveUiOwnedProviderBackendId(
+                      'codex',
+                      runtimeProviderStatusById.get('codex')
+                    ),
+                  },
+                  selectedModel,
+                }),
+              selectedFastMode,
+            }),
+          };
 
     const notices: string[] = [];
     if (reconciliation.nextEffort !== selectedEffort) {
@@ -1115,7 +1168,9 @@ export const CreateTeamDialog = ({
   }, [
     anthropicProviderFastModeDefault,
     anthropicRuntimeSelection,
+    codexRuntimeSelection,
     limitContext,
+    runtimeProviderStatusById,
     selectedEffort,
     selectedFastMode,
     selectedModel,
@@ -1144,7 +1199,10 @@ export const CreateTeamDialog = ({
         ) ?? undefined,
       model: effectiveModel,
       effort: (selectedEffort as EffortLevel) || undefined,
-      fastMode: selectedProviderId === 'anthropic' ? selectedFastMode : undefined,
+      fastMode:
+        selectedProviderId === 'anthropic' || selectedProviderId === 'codex'
+          ? selectedFastMode
+          : undefined,
       limitContext,
       skipPermissions,
       worktree: worktreeEnabled && worktreeName.trim() ? worktreeName.trim() : undefined,
@@ -1262,11 +1320,14 @@ export const CreateTeamDialog = ({
         ? { fastMode: true, fastModePerSessionOptIn: false }
         : { fastMode: false };
       args.push('--settings', JSON.stringify(fastSettings));
+    } else if (selectedProviderId === 'codex') {
+      args.push(...buildCodexFastModeArgs(codexFastModeResolution?.resolvedFastMode));
     }
     return args;
   }, [
     anthropicFastModeResolution?.resolvedFastMode,
     anthropicRuntimeSelection?.defaultEffort,
+    codexFastModeResolution?.resolvedFastMode,
     effectiveModel,
     selectedEffort,
     selectedProviderId,

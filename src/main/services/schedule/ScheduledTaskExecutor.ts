@@ -8,9 +8,11 @@
  * (thinking blocks, tool cards, markdown) via CliLogsRichView.
  */
 
+import { buildCodexFastModeArgs } from '@features/codex-runtime-profile/main';
 import { killProcessTree, spawnCli } from '@main/utils/childProcess';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import { createLogger } from '@shared/utils/logger';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 
 import { buildProviderAwareCliEnv } from '../runtime/providerAwareCliEnv';
 import { ClaudeBinaryResolver } from '../team/ClaudeBinaryResolver';
@@ -23,6 +25,52 @@ const logger = createLogger('Service:ScheduledTaskExecutor');
 const STDOUT_MAX_BYTES = 512 * 1024; // 512KB — stream-json is verbose (JSON wrappers, thinking, tool_use)
 const STDERR_MAX_BYTES = 16 * 1024; // 16KB
 const SUMMARY_MAX_CHARS = 500;
+
+function buildAnthropicFastModeArgs(config: ScheduleLaunchConfig): string[] {
+  if (config.providerId !== 'anthropic' || typeof config.resolvedFastMode !== 'boolean') {
+    return [];
+  }
+
+  const settings = config.resolvedFastMode
+    ? {
+        fastMode: true,
+        fastModePerSessionOptIn: false,
+      }
+    : {
+        fastMode: false,
+      };
+
+  return ['--settings', JSON.stringify(settings)];
+}
+
+function buildProviderFastModeArgs(config: ScheduleLaunchConfig): string[] {
+  if (config.providerId === 'anthropic') {
+    return buildAnthropicFastModeArgs(config);
+  }
+  if (config.providerId === 'codex') {
+    return buildCodexFastModeArgs(config.resolvedFastMode);
+  }
+  return [];
+}
+
+function validateFastModeLaunchConfig(config: ScheduleLaunchConfig): void {
+  if (
+    config.providerId === 'codex' &&
+    config.fastMode === 'on' &&
+    config.resolvedFastMode !== true
+  ) {
+    throw new Error(
+      'Codex Fast mode was requested for this schedule, but the saved launch profile is not Fast-eligible. Reopen the schedule and save it again with a supported ChatGPT account configuration.'
+    );
+  }
+  if (config.providerId !== 'codex' || config.resolvedFastMode !== true) {
+    return;
+  }
+  const backendId = migrateProviderBackendId('codex', config.providerBackendId);
+  if (backendId !== 'codex-native') {
+    throw new Error('Codex Fast mode requires the native Codex runtime.');
+  }
+}
 
 /**
  * Extracts a human-readable summary from stream-json stdout.
@@ -97,6 +145,8 @@ export class ScheduledTaskExecutor {
 
     const shellEnv = await resolveInteractiveShellEnv();
 
+    validateFastModeLaunchConfig(request.config);
+
     const args = this.buildArgs(request);
 
     logger.info(`[${request.runId}] Spawning: ${binaryPath} ${args.join(' ')}`);
@@ -108,6 +158,7 @@ export class ScheduledTaskExecutor {
     const { env, connectionIssues, providerArgs } = await buildProviderAwareCliEnv({
       binaryPath,
       providerId,
+      providerBackendId: request.config.providerBackendId,
       shellEnv,
       env: {
         ...shellEnv,
@@ -190,6 +241,12 @@ export class ScheduledTaskExecutor {
     if (config.model) {
       args.push('--model', config.model);
     }
+
+    if (config.effort) {
+      args.push('--effort', config.effort);
+    }
+
+    args.push(...buildProviderFastModeArgs(config));
 
     if (config.skipPermissions !== false) {
       args.push('--dangerously-skip-permissions');

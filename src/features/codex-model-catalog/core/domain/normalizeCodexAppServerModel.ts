@@ -9,6 +9,10 @@ export interface CodexAppServerModelLike {
   hidden?: boolean;
   supportedReasoningEfforts?: unknown[];
   defaultReasoningEffort?: unknown;
+  additionalSpeedTiers?: unknown;
+  serviceTiers?: unknown;
+  supportedServiceTiers?: unknown;
+  supportsFastMode?: unknown;
   inputModalities?: unknown;
   supportsPersonality?: boolean;
   isDefault?: boolean;
@@ -89,6 +93,55 @@ function normalizeModalities(value: unknown): string[] {
   return modalities.length > 0 ? modalities : ['text', 'image'];
 }
 
+function normalizeSpeedTier(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value.trim().toLowerCase() || null;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as {
+    id?: unknown;
+    name?: unknown;
+    serviceTier?: unknown;
+    service_tier?: unknown;
+    speedTier?: unknown;
+    speed_tier?: unknown;
+    tier?: unknown;
+  };
+  return (
+    normalizeSpeedTier(candidate.serviceTier) ??
+    normalizeSpeedTier(candidate.service_tier) ??
+    normalizeSpeedTier(candidate.speedTier) ??
+    normalizeSpeedTier(candidate.speed_tier) ??
+    normalizeSpeedTier(candidate.tier) ??
+    normalizeSpeedTier(candidate.id) ??
+    normalizeSpeedTier(candidate.name)
+  );
+}
+
+function hasFastSpeedTier(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => normalizeSpeedTier(item) === 'fast');
+  }
+
+  return normalizeSpeedTier(value) === 'fast';
+}
+
+function normalizeSupportsFastMode(model: CodexAppServerModelLike): boolean {
+  if (model.supportsFastMode === true) {
+    return true;
+  }
+
+  return (
+    hasFastSpeedTier(model.additionalSpeedTiers) ||
+    hasFastSpeedTier(model.serviceTiers) ||
+    hasFastSpeedTier(model.supportedServiceTiers)
+  );
+}
+
 function asBadgeLabel(modelId: string): string {
   return modelId.replace(/^gpt-/, '');
 }
@@ -142,6 +195,7 @@ export function normalizeCodexAppServerModels(
       ),
       inputModalities: normalizeModalities(model.inputModalities),
       supportsPersonality: model.supportsPersonality === true,
+      supportsFastMode: normalizeSupportsFastMode(model),
       isDefault: model.isDefault === true,
       upgrade: Boolean(model.upgrade),
       source: 'app-server',

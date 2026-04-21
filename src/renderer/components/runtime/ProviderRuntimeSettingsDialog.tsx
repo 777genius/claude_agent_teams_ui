@@ -12,6 +12,13 @@ import {
   normalizeCodexResetTimestamp,
   useCodexAccountSnapshot,
 } from '@features/codex-account/renderer';
+import {
+  CODEX_FAST_CREDIT_COST_MULTIPLIER,
+  CODEX_FAST_MODEL_ID,
+  CODEX_FAST_SPEED_MULTIPLIER,
+  resolveCodexFastMode,
+  resolveCodexRuntimeSelection,
+} from '@features/codex-runtime-profile/renderer';
 import { ProviderBrandLogo } from '@renderer/components/common/ProviderBrandLogo';
 import { Button } from '@renderer/components/ui/button';
 import {
@@ -746,6 +753,32 @@ export const ProviderRuntimeSettingsDialog = ({
     selectedProvider ?? null,
     configuredAuthMode
   );
+  const codexFastCapability = useMemo(() => {
+    if (selectedProvider?.providerId !== 'codex') {
+      return null;
+    }
+    const fastProbeModel =
+      selectedProvider.modelCatalog?.models.find((model) => model.supportsFastMode === true)
+        ?.launchModel ?? CODEX_FAST_MODEL_ID;
+    const selection = resolveCodexRuntimeSelection({
+      source: {
+        providerStatus: selectedProvider,
+        accountSnapshot: codexAccount.snapshot,
+      },
+      selectedModel: fastProbeModel,
+    });
+    return resolveCodexFastMode({
+      selection,
+      selectedFastMode: 'on',
+    });
+  }, [codexAccount.snapshot, selectedProvider]);
+  const codexFastCapabilityHint =
+    selectedProvider?.providerId === 'codex' && codexFastCapability
+      ? codexFastCapability.selectable
+        ? `Fast mode can be enabled per team or schedule for Fast-capable Codex models with your ChatGPT account. It is about ${CODEX_FAST_SPEED_MULTIPLIER}x faster and costs ${CODEX_FAST_CREDIT_COST_MULTIPLIER}x credits.`
+        : (codexFastCapability.disabledReason ??
+          'Codex Fast mode is currently unavailable for this account or runtime.')
+      : null;
   const hasSubscriptionSession =
     selectedProvider?.providerId === 'anthropic'
       ? selectedProvider.authMethod === 'oauth_token' || selectedProvider.authMethod === 'claude.ai'
@@ -1410,6 +1443,25 @@ export const ProviderRuntimeSettingsDialog = ({
                       }}
                     >
                       {codexAccountPanelHint}
+                    </div>
+                  ) : null}
+
+                  {codexFastCapabilityHint ? (
+                    <div
+                      className="rounded-md border px-3 py-2 text-xs"
+                      style={{
+                        borderColor: codexFastCapability?.selectable
+                          ? 'rgba(34, 197, 94, 0.28)'
+                          : 'var(--color-border-subtle)',
+                        color: codexFastCapability?.selectable
+                          ? '#86efac'
+                          : 'var(--color-text-secondary)',
+                        backgroundColor: codexFastCapability?.selectable
+                          ? 'rgba(34, 197, 94, 0.08)'
+                          : 'transparent',
+                      }}
+                    >
+                      {codexFastCapabilityHint}
                     </div>
                   ) : null}
 

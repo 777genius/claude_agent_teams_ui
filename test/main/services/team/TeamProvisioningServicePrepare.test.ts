@@ -572,7 +572,9 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
       geminiRuntimeAuth: null,
     });
     vi.spyOn(svc as any, 'spawnProbe').mockRejectedValue(
-      new Error("The 'gpt-5.2-codex' model is not supported when using Codex with a ChatGPT account.")
+      new Error(
+        "The 'gpt-5.2-codex' model is not supported when using Codex with a ChatGPT account."
+      )
     );
 
     const result = await svc.prepareForProvisioning(tempRoot, {
@@ -701,8 +703,7 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
         SHELL: '/bin/zsh',
       },
       connectionIssues: {
-        anthropic:
-          'Anthropic API key mode is enabled, but no ANTHROPIC_API_KEY is configured.',
+        anthropic: 'Anthropic API key mode is enabled, but no ANTHROPIC_API_KEY is configured.',
       },
     });
 
@@ -715,9 +716,9 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
   it('does not treat assistant-text 401 noise as an auth failure', () => {
     const svc = new TeamProvisioningService();
 
-    expect((svc as any).isAuthFailureWarning('assistant mentioned 401 unauthorized', 'assistant')).toBe(
-      false
-    );
+    expect(
+      (svc as any).isAuthFailureWarning('assistant mentioned 401 unauthorized', 'assistant')
+    ).toBe(false);
     expect((svc as any).isAuthFailureWarning('invalid api key', 'stderr')).toBe(true);
   });
 
@@ -772,7 +773,11 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
 
     await (svc as any).handleProvisioningTurnComplete(run);
 
-    expect(handleAuthFailureInOutput).not.toHaveBeenCalledWith(run, expect.any(String), 'pre-complete');
+    expect(handleAuthFailureInOutput).not.toHaveBeenCalledWith(
+      run,
+      expect.any(String),
+      'pre-complete'
+    );
     expect(run.onProgress).toHaveBeenCalledWith(
       expect.objectContaining({
         runId: 'run-1',
@@ -829,7 +834,11 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
 
     await (svc as any).handleProvisioningTurnComplete(run);
 
-    expect(handleAuthFailureInOutput).toHaveBeenCalledWith(run, '[ERROR] invalid api key', 'pre-complete');
+    expect(handleAuthFailureInOutput).toHaveBeenCalledWith(
+      run,
+      '[ERROR] invalid api key',
+      'pre-complete'
+    );
     expect(run.onProgress).not.toHaveBeenCalledWith(
       expect.objectContaining({
         runId: 'run-2',
@@ -973,6 +982,187 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     });
   });
 
+  it('builds Codex launch identity with explicit Fast only for eligible GPT-5.4 ChatGPT launches', () => {
+    const svc = new TeamProvisioningService();
+    const launchIdentity = (svc as any).buildProviderModelLaunchIdentity({
+      request: {
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.4',
+        effort: 'xhigh',
+        fastMode: 'on',
+      },
+      facts: {
+        defaultModel: 'gpt-5.4',
+        modelIds: new Set(['gpt-5.4']),
+        modelCatalog: {
+          schemaVersion: 1,
+          providerId: 'codex',
+          source: 'app-server',
+          status: 'ready',
+          fetchedAt: '2026-04-21T00:00:00.000Z',
+          staleAt: '2026-04-21T00:01:00.000Z',
+          defaultModelId: 'gpt-5.4',
+          defaultLaunchModel: 'gpt-5.4',
+          models: [
+            {
+              id: 'gpt-5.4',
+              launchModel: 'gpt-5.4',
+              displayName: 'GPT-5.4',
+              hidden: false,
+              supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+              defaultReasoningEffort: 'medium',
+              inputModalities: ['text'],
+              supportsPersonality: false,
+              isDefault: true,
+              upgrade: false,
+              source: 'app-server',
+            },
+          ],
+          diagnostics: {
+            configReadState: 'ready',
+            appServerState: 'healthy',
+          },
+        },
+        runtimeCapabilities: {
+          modelCatalog: { dynamic: true, source: 'app-server' },
+          reasoningEffort: {
+            supported: true,
+            values: ['low', 'medium', 'high', 'xhigh'],
+            configPassthrough: true,
+          },
+        },
+        providerStatus: {
+          providerId: 'codex',
+          authenticated: true,
+          authMethod: 'chatgpt',
+          selectedBackendId: 'codex-native',
+          resolvedBackendId: 'codex-native',
+          modelCatalog: {
+            schemaVersion: 1,
+            providerId: 'codex',
+            source: 'app-server',
+            status: 'ready',
+            fetchedAt: '2026-04-21T00:00:00.000Z',
+            staleAt: '2026-04-21T00:01:00.000Z',
+            defaultModelId: 'gpt-5.4',
+            defaultLaunchModel: 'gpt-5.4',
+            models: [
+              {
+                id: 'gpt-5.4',
+                launchModel: 'gpt-5.4',
+                displayName: 'GPT-5.4',
+                hidden: false,
+                supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+                defaultReasoningEffort: 'medium',
+                inputModalities: ['text'],
+                supportsPersonality: false,
+                isDefault: true,
+                upgrade: false,
+                source: 'app-server',
+              },
+            ],
+            diagnostics: {
+              configReadState: 'ready',
+              appServerState: 'healthy',
+            },
+          },
+          connection: {
+            codex: {
+              effectiveAuthMode: 'chatgpt',
+              launchAllowed: true,
+              launchIssueMessage: null,
+              launchReadinessState: 'ready_chatgpt',
+            },
+          },
+        },
+      },
+    });
+
+    expect(launchIdentity).toMatchObject({
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      selectedModel: 'gpt-5.4',
+      resolvedLaunchModel: 'gpt-5.4',
+      selectedEffort: 'xhigh',
+      resolvedEffort: 'xhigh',
+      selectedFastMode: 'on',
+      resolvedFastMode: true,
+      fastResolutionReason: null,
+    });
+  });
+
+  it('rejects explicit Codex Fast before launch when auth or model eligibility is invalid', () => {
+    const svc = new TeamProvisioningService();
+    const facts = {
+      defaultModel: 'gpt-5.4-mini',
+      modelIds: new Set(['gpt-5.4-mini']),
+      modelCatalog: {
+        schemaVersion: 1,
+        providerId: 'codex',
+        source: 'app-server',
+        status: 'ready',
+        fetchedAt: '2026-04-21T00:00:00.000Z',
+        staleAt: '2026-04-21T00:01:00.000Z',
+        defaultModelId: 'gpt-5.4-mini',
+        defaultLaunchModel: 'gpt-5.4-mini',
+        models: [
+          {
+            id: 'gpt-5.4-mini',
+            launchModel: 'gpt-5.4-mini',
+            displayName: 'GPT-5.4 Mini',
+            hidden: false,
+            supportedReasoningEfforts: ['low', 'medium', 'high'],
+            defaultReasoningEffort: 'medium',
+            inputModalities: ['text'],
+            supportsPersonality: false,
+            isDefault: true,
+            upgrade: false,
+            source: 'app-server',
+          },
+        ],
+        diagnostics: {
+          configReadState: 'ready',
+          appServerState: 'healthy',
+        },
+      },
+      runtimeCapabilities: {
+        modelCatalog: { dynamic: true, source: 'app-server' },
+        reasoningEffort: {
+          supported: true,
+          values: ['low', 'medium', 'high'],
+          configPassthrough: true,
+        },
+      },
+      providerStatus: {
+        providerId: 'codex',
+        authenticated: true,
+        authMethod: 'api_key',
+        selectedBackendId: 'codex-native',
+        resolvedBackendId: 'codex-native',
+        modelCatalog: null,
+        connection: {
+          codex: {
+            effectiveAuthMode: 'api_key',
+            launchAllowed: true,
+            launchIssueMessage: null,
+            launchReadinessState: 'ready_api_key',
+          },
+        },
+      },
+    };
+
+    expect(() =>
+      (svc as any).validateRuntimeLaunchSelection({
+        actorLabel: 'Team lead',
+        providerId: 'codex',
+        model: 'gpt-5.4-mini',
+        fastMode: 'on',
+        facts,
+      })
+    ).toThrow('enables Codex Fast mode');
+  });
+
   it('rejects Anthropic max and fast when the exact resolved launch model does not support them', () => {
     const svc = new TeamProvisioningService();
     const facts = {
@@ -1107,21 +1297,17 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     );
   });
 
-  it(
-    'validates the generated agent-teams MCP server directly over stdio',
-    async () => {
-      const svc = new TeamProvisioningService();
-      const configPath = writeMcpConfig(tempRoot, {
-        'agent-teams': getRealAgentTeamsMcpLaunchSpec(),
-      });
-      vi.mocked(spawnCli).mockImplementation(spawnRealCli);
+  it('validates the generated agent-teams MCP server directly over stdio', async () => {
+    const svc = new TeamProvisioningService();
+    const configPath = writeMcpConfig(tempRoot, {
+      'agent-teams': getRealAgentTeamsMcpLaunchSpec(),
+    });
+    vi.mocked(spawnCli).mockImplementation(spawnRealCli);
 
-      await expect(
-        (svc as any).validateAgentTeamsMcpRuntime('/fake/claude', tempRoot, process.env, configPath)
-      ).resolves.toBeUndefined();
-    },
-    45_000
-  );
+    await expect(
+      (svc as any).validateAgentTeamsMcpRuntime('/fake/claude', tempRoot, process.env, configPath)
+    ).resolves.toBeUndefined();
+  }, 45_000);
 
   it('fails validation when the generated MCP config has no agent-teams entry', async () => {
     const svc = new TeamProvisioningService();

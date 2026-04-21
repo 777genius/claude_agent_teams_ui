@@ -312,8 +312,7 @@ function createMemberSpawnRun(params?: {
     memberSpawnStatuses,
     memberSpawnToolUseIds: new Map(),
     pendingMemberRestarts: new Map(),
-    memberSpawnLeadInboxCursorByMember:
-      params?.memberSpawnLeadInboxCursorByMember ?? new Map(),
+    memberSpawnLeadInboxCursorByMember: params?.memberSpawnLeadInboxCursorByMember ?? new Map(),
     provisioningOutputParts: [],
     activeToolCalls: new Map(),
     isLaunch: false,
@@ -814,12 +813,10 @@ describe('TeamProvisioningService', () => {
       run.cancelRequested = false;
 
       const sendMessageToRun = vi.fn(async () => {});
-      const getConfig = vi
-        .fn()
-        .mockResolvedValue({
-          name: 'Edited Team',
-          members: [{ name: 'team-lead', agentType: 'team-lead' }],
-        });
+      const getConfig = vi.fn().mockResolvedValue({
+        name: 'Edited Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      });
       const getMembers = vi
         .fn()
         .mockResolvedValueOnce([
@@ -894,12 +891,10 @@ describe('TeamProvisioningService', () => {
       run.cancelRequested = false;
 
       const sendMessageToRun = vi.fn(async () => {});
-      const getConfig = vi
-        .fn()
-        .mockResolvedValue({
-          name: 'Edited Team',
-          members: [{ name: 'team-lead', agentType: 'team-lead' }],
-        });
+      const getConfig = vi.fn().mockResolvedValue({
+        name: 'Edited Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      });
       const getMembers = vi
         .fn()
         .mockResolvedValueOnce([
@@ -1349,8 +1344,8 @@ describe('TeamProvisioningService', () => {
       (svc as any).aliveRunByTeam.set('tmux-team', run.runId);
       (svc as any).runs.set(run.runId, run);
 
-      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockImplementation(async () =>
-        new Map([['%2', 999]])
+      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockImplementation(
+        async () => new Map([['%2', 999]])
       );
 
       const restartPromise = expect(svc.restartMember('tmux-team', 'forge')).rejects.toThrow(
@@ -1410,8 +1405,8 @@ describe('TeamProvisioningService', () => {
       vi.mocked(killTmuxPaneForCurrentPlatformSync).mockImplementation(() => {
         throw new Error('pane kill failed');
       });
-      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockImplementation(async () =>
-        new Map([['%2', 999]])
+      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockImplementation(
+        async () => new Map([['%2', 999]])
       );
 
       const restartPromise = expect(svc.restartMember('tmux-team', 'forge')).rejects.toThrow(
@@ -1636,8 +1631,8 @@ describe('TeamProvisioningService', () => {
           backendType: 'process',
         },
       ]);
-      (svc as any).findLiveProcessPidByAgentId = vi.fn(() =>
-        new Map([['forge@process-team', process.pid]])
+      (svc as any).findLiveProcessPidByAgentId = vi.fn(
+        () => new Map([['forge@process-team', process.pid]])
       );
       (svc as any).liveTeamAgentRuntimeMetadataCache.set('process-team', {
         expiresAtMs: Date.now() + 60_000,
@@ -1700,8 +1695,8 @@ describe('TeamProvisioningService', () => {
         ]),
       };
       (svc as any).readPersistedRuntimeMembers = vi.fn(() => []);
-      (svc as any).findLiveProcessPidByAgentId = vi.fn(() =>
-        new Map([['forge@process-team', process.pid]])
+      (svc as any).findLiveProcessPidByAgentId = vi.fn(
+        () => new Map([['forge@process-team', process.pid]])
       );
       (svc as any).aliveRunByTeam.set('process-team', run.runId);
       (svc as any).runs.set(run.runId, run);
@@ -1927,6 +1922,77 @@ describe('TeamProvisioningService', () => {
     expect(mcpConfigBuilder.writeConfigFile).toHaveBeenCalledWith(tempClaudeRoot);
     expect(mcpConfigBuilder.removeConfigFile).toHaveBeenCalledWith('/mock/mcp-config-create.json');
     expect(teamMetaStore.deleteMeta).toHaveBeenCalledWith('cleanup-team');
+  });
+
+  it('passes official Codex Fast config overrides when launch identity resolves Fast', async () => {
+    allowConsoleLogs();
+    vi.mocked(ClaudeBinaryResolver.resolve).mockResolvedValue('/mock/claude');
+    vi.mocked(spawnCli).mockImplementation(() => {
+      throw new Error('spawn EINVAL');
+    });
+
+    const mcpConfigBuilder = {
+      writeConfigFile: vi.fn(async () => '/mock/mcp-config-create.json'),
+      removeConfigFile: vi.fn(async () => {}),
+    };
+    const membersMetaStore = {
+      writeMembers: vi.fn(async () => {}),
+    };
+    const teamMetaStore = {
+      writeMeta: vi.fn(async () => {}),
+      deleteMeta: vi.fn(async () => {}),
+    };
+
+    const svc = new TeamProvisioningService(
+      undefined,
+      undefined,
+      membersMetaStore as any,
+      undefined,
+      mcpConfigBuilder as any,
+      teamMetaStore as any
+    );
+    (svc as any).buildProvisioningEnv = vi.fn(async () => ({
+      env: { CODEX_API_KEY: 'test' },
+      authSource: 'codex_runtime',
+    }));
+    (svc as any).validateAgentTeamsMcpRuntime = vi.fn(async () => {});
+    (svc as any).pathExists = vi.fn(async () => false);
+    (svc as any).resolveAndValidateLaunchIdentity = vi.fn(async () => ({
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      selectedModel: 'gpt-5.4',
+      selectedModelKind: 'explicit',
+      resolvedLaunchModel: 'gpt-5.4',
+      catalogId: 'gpt-5.4',
+      catalogSource: 'app-server',
+      catalogFetchedAt: '2026-04-21T00:00:00.000Z',
+      selectedEffort: 'xhigh',
+      resolvedEffort: 'xhigh',
+      selectedFastMode: 'on',
+      resolvedFastMode: true,
+      fastResolutionReason: null,
+    }));
+
+    await expect(
+      svc.createTeam(
+        {
+          teamName: 'codex-fast-team',
+          cwd: tempClaudeRoot,
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          effort: 'xhigh',
+          fastMode: 'on',
+          members: [{ name: 'alice' }],
+        },
+        () => {}
+      )
+    ).rejects.toThrow('spawn EINVAL');
+
+    const launchArgs = vi.mocked(spawnCli).mock.calls[0]?.[1] as string[];
+    expect(launchArgs).toEqual(
+      expect.arrayContaining(['-c', 'service_tier="fast"', '-c', 'features.fast_mode=true'])
+    );
   });
 
   it('removes generated MCP config when launchTeam spawn fails synchronously', async () => {
@@ -3279,16 +3345,17 @@ describe('TeamProvisioningService', () => {
 
   it('clears stale failed_to_start state when live runtime metadata proves the teammate is alive', async () => {
     const svc = new TeamProvisioningService();
-    (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(async () =>
-      new Map([
-        [
-          'bob',
-          {
-            alive: true,
-            model: 'gpt-5.2',
-          },
-        ],
-      ])
+    (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(
+      async () =>
+        new Map([
+          [
+            'bob',
+            {
+              alive: true,
+              model: 'gpt-5.2',
+            },
+          ],
+        ])
     );
 
     const result = await (svc as any).attachLiveRuntimeMetadataToStatuses('beacon-desk-4', {
@@ -3315,16 +3382,17 @@ describe('TeamProvisioningService', () => {
 
   it('does not clear an explicit restart failure just because the old runtime is still alive', async () => {
     const svc = new TeamProvisioningService();
-    (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(async () =>
-      new Map([
-        [
-          'bob',
-          {
-            alive: true,
-            model: 'gpt-5.3-codex',
-          },
-        ],
-      ])
+    (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(
+      async () =>
+        new Map([
+          [
+            'bob',
+            {
+              alive: true,
+              model: 'gpt-5.3-codex',
+            },
+          ],
+        ])
     );
 
     const result = await (svc as any).attachLiveRuntimeMetadataToStatuses('beacon-desk-4', {
@@ -3382,7 +3450,12 @@ describe('TeamProvisioningService', () => {
         name: 'Beacon Desk',
         members: [
           { name: 'team-lead', agentType: 'team-lead' },
-          { name: 'bob', agentType: 'general-purpose', providerId: 'codex', model: 'gpt-5.3-codex' },
+          {
+            name: 'bob',
+            agentType: 'general-purpose',
+            providerId: 'codex',
+            model: 'gpt-5.3-codex',
+          },
         ],
       })),
     };
@@ -3571,5 +3644,4 @@ describe('TeamProvisioningService', () => {
       agentToolAccepted: true,
     });
   });
-
 });

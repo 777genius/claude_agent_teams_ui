@@ -171,6 +171,35 @@ describe('ScheduledTaskExecutor', () => {
     await resultPromise;
   });
 
+  it('passes provider backend identity into provider-aware env resolution', async () => {
+    const proc = createMockProcess();
+    mockSpawnCli.mockReturnValue(proc);
+
+    const executor = new ScheduledTaskExecutor();
+    const resultPromise = executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'Run the tests',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+        },
+      })
+    );
+
+    await flushAsync();
+
+    expect(buildProviderAwareCliEnvMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+      })
+    );
+
+    proc.emit('close', 0);
+    await resultPromise;
+  });
+
   it('rejects on process error event', async () => {
     const proc = createMockProcess();
     mockSpawnCli.mockReturnValue(proc);
@@ -248,7 +277,10 @@ describe('ScheduledTaskExecutor', () => {
     await flushAsync();
 
     const longText = 'X'.repeat(1000);
-    const streamLine = JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: longText }] });
+    const streamLine = JSON.stringify({
+      type: 'assistant',
+      content: [{ type: 'text', text: longText }],
+    });
     proc.stdout.emit('data', Buffer.from(streamLine + '\n'));
     proc.emit('close', 0);
 
@@ -266,10 +298,14 @@ describe('ScheduledTaskExecutor', () => {
 
     await flushAsync();
 
-    const lines = [
-      JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'First message' }] }),
-      JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'All tests passed.' }] }),
-    ].join('\n') + '\n';
+    const lines =
+      [
+        JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'First message' }] }),
+        JSON.stringify({
+          type: 'assistant',
+          content: [{ type: 'text', text: 'All tests passed.' }],
+        }),
+      ].join('\n') + '\n';
     proc.stdout.emit('data', Buffer.from(lines));
     proc.emit('close', 0);
 
@@ -341,13 +377,15 @@ describe('ScheduledTaskExecutor', () => {
     mockSpawnCli.mockReturnValue(proc);
 
     const executor = new ScheduledTaskExecutor();
-    void executor.execute(makeRequest({
-      config: {
-        cwd: '/tmp/project',
-        prompt: 'do it',
-        model: 'claude-sonnet-4-5-20250514',
-      },
-    }));
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          model: 'claude-sonnet-4-5-20250514',
+        },
+      })
+    );
     await flushAsync();
 
     const args = mockSpawnCli.mock.calls[0][1] as string[];
@@ -357,18 +395,204 @@ describe('ScheduledTaskExecutor', () => {
     proc.emit('close', 0);
   });
 
+  it('includes --effort when specified', async () => {
+    const proc = createMockProcess();
+    mockSpawnCli.mockReturnValue(proc);
+
+    const executor = new ScheduledTaskExecutor();
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          providerId: 'anthropic',
+          effort: 'max',
+        },
+      })
+    );
+    await flushAsync();
+
+    const args = mockSpawnCli.mock.calls[0][1] as string[];
+    expect(args).toContain('--effort');
+    expect(args).toContain('max');
+
+    proc.emit('close', 0);
+  });
+
+  it('includes resolved Anthropic fast mode settings when specified', async () => {
+    const proc = createMockProcess();
+    mockSpawnCli.mockReturnValue(proc);
+
+    const executor = new ScheduledTaskExecutor();
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          providerId: 'anthropic',
+          fastMode: 'on',
+          resolvedFastMode: true,
+        },
+      })
+    );
+    await flushAsync();
+
+    const args = mockSpawnCli.mock.calls[0][1] as string[];
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '--settings',
+        JSON.stringify({ fastMode: true, fastModePerSessionOptIn: false }),
+      ])
+    );
+
+    proc.emit('close', 0);
+  });
+
+  it('includes resolved Anthropic fast-off settings without re-reading global defaults', async () => {
+    const proc = createMockProcess();
+    mockSpawnCli.mockReturnValue(proc);
+
+    const executor = new ScheduledTaskExecutor();
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          providerId: 'anthropic',
+          fastMode: 'inherit',
+          resolvedFastMode: false,
+        },
+      })
+    );
+    await flushAsync();
+
+    const args = mockSpawnCli.mock.calls[0][1] as string[];
+    expect(args).toEqual(
+      expect.arrayContaining(['--settings', JSON.stringify({ fastMode: false })])
+    );
+
+    proc.emit('close', 0);
+  });
+
+  it('includes Codex native fast config only when resolved fast mode is true', async () => {
+    const proc = createMockProcess();
+    mockSpawnCli.mockReturnValue(proc);
+
+    const executor = new ScheduledTaskExecutor();
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          fastMode: 'on',
+          resolvedFastMode: true,
+        },
+      })
+    );
+    await flushAsync();
+
+    const args = mockSpawnCli.mock.calls[0][1] as string[];
+    expect(args).toEqual(
+      expect.arrayContaining(['-c', 'service_tier="fast"', '-c', 'features.fast_mode=true'])
+    );
+
+    proc.emit('close', 0);
+  });
+
+  it('does not include Codex fast config when resolved fast mode is false', async () => {
+    const proc = createMockProcess();
+    mockSpawnCli.mockReturnValue(proc);
+
+    const executor = new ScheduledTaskExecutor();
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          fastMode: 'inherit',
+          resolvedFastMode: false,
+        },
+      })
+    );
+    await flushAsync();
+
+    const args = mockSpawnCli.mock.calls[0][1] as string[];
+    expect(args).not.toContain('service_tier="fast"');
+    expect(args).not.toContain('features.fast_mode=true');
+
+    proc.emit('close', 0);
+  });
+
+  it('rejects explicit Codex schedule Fast before spawn when saved eligibility is false', async () => {
+    const executor = new ScheduledTaskExecutor();
+
+    await expect(
+      executor.execute(
+        makeRequest({
+          config: {
+            cwd: '/tmp/project',
+            prompt: 'do it',
+            providerId: 'codex',
+            providerBackendId: 'codex-native',
+            model: 'gpt-5.4-mini',
+            fastMode: 'on',
+            resolvedFastMode: false,
+          },
+        })
+      )
+    ).rejects.toThrow('Codex Fast mode was requested');
+
+    expect(mockSpawnCli).not.toHaveBeenCalled();
+  });
+
+  it('does not hard-code Codex Fast schedules to GPT-5.4 when saved eligibility is true', async () => {
+    const proc = createMockProcess();
+    mockSpawnCli.mockReturnValue(proc);
+
+    const executor = new ScheduledTaskExecutor();
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.5',
+          fastMode: 'on',
+          resolvedFastMode: true,
+        },
+      })
+    );
+    await flushAsync();
+
+    const args = mockSpawnCli.mock.calls[0][1] as string[];
+    expect(args).toEqual(
+      expect.arrayContaining(['-c', 'service_tier="fast"', '-c', 'features.fast_mode=true'])
+    );
+
+    proc.emit('close', 0);
+  });
+
   it('excludes --dangerously-skip-permissions when skipPermissions is false', async () => {
     const proc = createMockProcess();
     mockSpawnCli.mockReturnValue(proc);
 
     const executor = new ScheduledTaskExecutor();
-    void executor.execute(makeRequest({
-      config: {
-        cwd: '/tmp/project',
-        prompt: 'do it',
-        skipPermissions: false,
-      },
-    }));
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          skipPermissions: false,
+        },
+      })
+    );
     await flushAsync();
 
     const args = mockSpawnCli.mock.calls[0][1] as string[];
@@ -382,14 +606,16 @@ describe('ScheduledTaskExecutor', () => {
     mockSpawnCli.mockReturnValue(proc);
 
     const executor = new ScheduledTaskExecutor();
-    void executor.execute(makeRequest({
-      config: {
-        cwd: '/tmp/project',
-        prompt: 'do it',
-        allowedTools: ['Read', 'Write'],
-        disallowedTools: ['Bash'],
-      },
-    }));
+    void executor.execute(
+      makeRequest({
+        config: {
+          cwd: '/tmp/project',
+          prompt: 'do it',
+          allowedTools: ['Read', 'Write'],
+          disallowedTools: ['Bash'],
+        },
+      })
+    );
     await flushAsync();
 
     const args = mockSpawnCli.mock.calls[0][1] as string[];
@@ -476,9 +702,11 @@ describe('ScheduledTaskExecutor', () => {
     mockResolveShellEnv.mockResolvedValue({ MY_VAR: 'test' });
 
     const executor = new ScheduledTaskExecutor();
-    void executor.execute(makeRequest({
-      config: { cwd: '/home/user/project', prompt: 'test' },
-    }));
+    void executor.execute(
+      makeRequest({
+        config: { cwd: '/home/user/project', prompt: 'test' },
+      })
+    );
     await flushAsync();
 
     const opts = mockSpawnCli.mock.calls[0][2];
@@ -520,8 +748,7 @@ describe('ScheduledTaskExecutor', () => {
     buildProviderAwareCliEnvMock.mockResolvedValue({
       env: { SHELL: '/bin/zsh' },
       connectionIssues: {
-        anthropic:
-          'Anthropic API key mode is enabled, but no ANTHROPIC_API_KEY is configured.',
+        anthropic: 'Anthropic API key mode is enabled, but no ANTHROPIC_API_KEY is configured.',
       },
     });
 

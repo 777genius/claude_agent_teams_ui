@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
 import { AnthropicFastModeSelector } from '@renderer/components/team/dialogs/AnthropicFastModeSelector';
+import { CodexFastModeSelector } from '@renderer/components/team/dialogs/CodexFastModeSelector';
 import { ProviderBrandLogo } from '@renderer/components/common/ProviderBrandLogo';
 import { EffortLevelSelector } from '@renderer/components/team/dialogs/EffortLevelSelector';
 import { LimitContextCheckbox } from '@renderer/components/team/dialogs/LimitContextCheckbox';
@@ -175,6 +176,14 @@ export const LeadModelRow = ({
               providerFastModeDefault={providerFastModeDefault}
               model={model}
               limitContext={limitContext}
+              id="lead-fast-mode"
+            />
+          ) : null}
+          {providerId === 'codex' && onFastModeChange ? (
+            <CodexFastModeSelector
+              value={fastMode}
+              onValueChange={onFastModeChange}
+              model={model}
               id="lead-fast-mode"
             />
           ) : null}

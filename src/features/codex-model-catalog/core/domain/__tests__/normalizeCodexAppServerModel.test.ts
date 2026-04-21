@@ -69,6 +69,29 @@ describe('normalizeCodexAppServerModels', () => {
     expect(result.models[0]?.defaultReasoningEffort).toBe('medium');
   });
 
+  it('preserves Codex Fast support from app-server speed-tier metadata', () => {
+    const result = normalizeCodexAppServerModels([
+      {
+        id: 'gpt-5.5',
+        additionalSpeedTiers: [{ serviceTier: 'fast' }],
+      },
+      {
+        id: 'gpt-5.5-mini',
+        additionalSpeedTiers: ['flex'],
+      },
+      {
+        id: 'gpt-5.6',
+        supportsFastMode: true,
+      },
+    ]);
+
+    expect(result.models.find((model) => model.id === 'gpt-5.5')?.supportsFastMode).toBe(true);
+    expect(result.models.find((model) => model.id === 'gpt-5.5-mini')?.supportsFastMode).toBe(
+      false
+    );
+    expect(result.models.find((model) => model.id === 'gpt-5.6')?.supportsFastMode).toBe(true);
+  });
+
   it('uses model as the launch value and de-duplicates duplicate launch models', () => {
     const result = normalizeCodexAppServerModels([
       {

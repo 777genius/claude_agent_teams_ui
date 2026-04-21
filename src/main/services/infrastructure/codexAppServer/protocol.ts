@@ -132,6 +132,10 @@ export interface CodexAppServerModel {
   hidden?: boolean;
   supportedReasoningEfforts?: (string | CodexAppServerReasoningEffortOption)[];
   defaultReasoningEffort?: string | null;
+  additionalSpeedTiers?: unknown[] | null;
+  serviceTiers?: unknown[] | null;
+  supportedServiceTiers?: unknown[] | null;
+  supportsFastMode?: boolean | null;
   inputModalities?: string[] | null;
   supportsPersonality?: boolean;
   isDefault?: boolean;

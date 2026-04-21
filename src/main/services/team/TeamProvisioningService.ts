@@ -6,6 +6,11 @@ import {
   resolveAnthropicFastMode,
   resolveAnthropicRuntimeSelection,
 } from '@features/anthropic-runtime-profile/main';
+import {
+  buildCodexFastModeArgs,
+  resolveCodexFastMode,
+  resolveCodexRuntimeSelection,
+} from '@features/codex-runtime-profile/main';
 import { ConfigManager } from '@main/services/infrastructure/ConfigManager';
 import { NotificationManager } from '@main/services/infrastructure/NotificationManager';
 import { getAppIconPath } from '@main/utils/appIcon';
@@ -210,6 +215,7 @@ interface OpenCodeRuntimeControlAck {
 
 import type {
   CliProviderModelCatalog,
+  CliProviderStatus,
   ActiveToolCall,
   CliProviderRuntimeCapabilities,
   CrossTeamSendResult,
@@ -430,13 +436,7 @@ interface ProviderModelListCommandResponse {
 }
 
 interface RuntimeStatusCommandResponse {
-  providers?: Record<
-    string,
-    {
-      modelCatalog?: CliProviderModelCatalog | null;
-      runtimeCapabilities?: CliProviderRuntimeCapabilities | null;
-    }
-  >;
+  providers?: Record<string, Partial<CliProviderStatus>>;
 }
 
 interface RuntimeProviderLaunchFacts {
@@ -444,6 +444,9 @@ interface RuntimeProviderLaunchFacts {
   modelIds: Set<string>;
   modelCatalog: CliProviderModelCatalog | null;
   runtimeCapabilities: CliProviderRuntimeCapabilities | null;
+  providerStatus?:
+    | (Partial<CliProviderStatus> & { providerId?: CliProviderStatus['providerId'] })
+    | null;
 }
 
 function extractJsonObjectFromCli<T>(raw: string): T {
@@ -544,6 +547,20 @@ function resolveAnthropicSelectionFromFacts(params: {
   });
 }
 
+function resolveCodexSelectionFromFacts(params: {
+  selectedModel?: string;
+  providerBackendId?: TeamCreateRequest['providerBackendId'];
+  facts: Pick<RuntimeProviderLaunchFacts, 'providerStatus'>;
+}) {
+  return resolveCodexRuntimeSelection({
+    source: {
+      providerStatus: params.facts.providerStatus,
+      providerBackendId: params.providerBackendId,
+    },
+    selectedModel: params.selectedModel,
+  });
+}
+
 function buildAnthropicSettingsArgs(
   providerId: TeamProviderId,
   launchIdentity?: ProviderModelLaunchIdentity | null
@@ -562,6 +579,19 @@ function buildAnthropicSettingsArgs(
       };
 
   return ['--settings', JSON.stringify(settings)];
+}
+
+function buildProviderFastModeArgs(
+  providerId: TeamProviderId,
+  launchIdentity?: ProviderModelLaunchIdentity | null
+): string[] {
+  if (providerId === 'anthropic') {
+    return buildAnthropicSettingsArgs(providerId, launchIdentity);
+  }
+  if (providerId === 'codex') {
+    return buildCodexFastModeArgs(launchIdentity?.resolvedFastMode);
+  }
+  return [];
 }
 
 function isProbeTimeoutMessage(message: string): boolean {
@@ -719,7 +749,9 @@ function buildRuntimeLaunchWarning(
   const fastLabel =
     providerId === 'anthropic'
       ? `, fast ${request.fastMode ?? (getAnthropicFastModeDefault() ? 'inherit:on' : 'inherit:off')}`
-      : '';
+      : providerId === 'codex'
+        ? `, fast ${request.fastMode ?? 'inherit:off'}`
+        : '';
   const backend =
     migrateProviderBackendId(providerId, request.providerBackendId?.trim()) ||
     getConfiguredRuntimeBackend(providerId);
@@ -3244,6 +3276,7 @@ export class TeamProvisioningService {
 
     let runtimeCapabilities: CliProviderRuntimeCapabilities | null = null;
     let modelCatalog: CliProviderModelCatalog | null = null;
+    let providerStatus: RuntimeProviderLaunchFacts['providerStatus'] = null;
     if (
       runtimeStatusResult.status === 'fulfilled' &&
       runtimeStatusResult.value &&
@@ -3253,7 +3286,13 @@ export class TeamProvisioningService {
         const parsed = extractJsonObjectFromCli<RuntimeStatusCommandResponse>(
           runtimeStatusResult.value.stdout
         );
-        const providerStatus = parsed.providers?.[params.providerId];
+        const parsedProviderStatus = parsed.providers?.[params.providerId] ?? null;
+        providerStatus = parsedProviderStatus
+          ? {
+              ...parsedProviderStatus,
+              providerId: parsedProviderStatus.providerId ?? params.providerId,
+            }
+          : null;
         runtimeCapabilities = providerStatus?.runtimeCapabilities ?? null;
         modelCatalog =
           providerStatus?.modelCatalog?.providerId === params.providerId
@@ -3295,6 +3334,7 @@ export class TeamProvisioningService {
       modelIds,
       modelCatalog,
       runtimeCapabilities,
+      providerStatus,
     };
   }
 
@@ -3340,6 +3380,38 @@ export class TeamProvisioningService {
         catalogFetchedAt: selection.catalogFetchedAt,
         selectedEffort: params.request.effort ?? null,
         resolvedEffort: params.request.effort ?? selection.defaultEffort ?? null,
+        selectedFastMode: params.request.fastMode ?? 'inherit',
+        resolvedFastMode: fastResolution.resolvedFastMode,
+        fastResolutionReason: fastResolution.disabledReason,
+      };
+    }
+
+    if (providerId === 'codex') {
+      const selection = resolveCodexSelectionFromFacts({
+        selectedModel: params.request.model,
+        providerBackendId: params.request.providerBackendId,
+        facts: params.facts,
+      });
+      const fastResolution = resolveCodexFastMode({
+        selection,
+        selectedFastMode: params.request.fastMode,
+      });
+      const resolvedCodexModel = selection.resolvedLaunchModel ?? resolvedLaunchModel;
+
+      return {
+        providerId,
+        providerBackendId:
+          migrateProviderBackendId(providerId, params.request.providerBackendId) ??
+          selection.providerBackendId,
+        selectedModel: explicitModel ?? null,
+        selectedModelKind: explicitModel ? 'explicit' : 'default',
+        resolvedLaunchModel: resolvedCodexModel,
+        catalogId:
+          selection.catalogModel?.id?.trim() || selection.resolvedLaunchModel || resolvedCodexModel,
+        catalogSource: selection.catalogSource,
+        catalogFetchedAt: selection.catalogFetchedAt,
+        selectedEffort: params.request.effort ?? null,
+        resolvedEffort: params.request.effort ?? null,
         selectedFastMode: params.request.fastMode ?? 'inherit',
         resolvedFastMode: fastResolution.resolvedFastMode,
         fastResolutionReason: fastResolution.disabledReason,
@@ -3430,6 +3502,23 @@ export class TeamProvisioningService {
     ) {
       throw new Error(
         `${params.actorLabel} uses Codex effort "${params.effort}", but this Agent Teams runtime does not expose Codex reasoning config passthrough yet. Use low, medium, or high for now.`
+      );
+    }
+
+    const codexSelection = resolveCodexSelectionFromFacts({
+      selectedModel: params.model,
+      facts: params.facts,
+    });
+    const codexFastResolution = resolveCodexFastMode({
+      selection: codexSelection,
+      selectedFastMode: params.fastMode,
+    });
+    if ((params.fastMode ?? 'inherit') === 'on' && !codexFastResolution.selectable) {
+      throw new Error(
+        `${params.actorLabel} enables Codex Fast mode, but ${
+          codexFastResolution.disabledReason ??
+          'it is unavailable for the selected runtime, model, or auth mode.'
+        }`
       );
     }
 
@@ -7548,7 +7637,7 @@ export class TeamProvisioningService {
         launchIdentity
       );
       const resolvedProviderId = resolveTeamProviderId(request.providerId);
-      const anthropicSettingsArgs = buildAnthropicSettingsArgs(resolvedProviderId, launchIdentity);
+      const providerFastModeArgs = buildProviderFastModeArgs(resolvedProviderId, launchIdentity);
       const spawnArgs = [
         '--input-format',
         'stream-json',
@@ -7573,7 +7662,7 @@ export class TeamProvisioningService {
           : ['--permission-prompt-tool', 'stdio', '--permission-mode', 'default']),
         ...(launchModelArg ? ['--model', launchModelArg] : []),
         ...(launchIdentity.resolvedEffort ? ['--effort', launchIdentity.resolvedEffort] : []),
-        ...anthropicSettingsArgs,
+        ...providerFastModeArgs,
         ...(request.worktree ? ['--worktree', request.worktree] : []),
         ...parseCliArgs(request.extraCliArgs),
         ...providerArgs,
@@ -8532,14 +8621,14 @@ export class TeamProvisioningService {
         launchIdentity
       );
       const resolvedProviderId = resolveTeamProviderId(request.providerId);
-      const anthropicSettingsArgs = buildAnthropicSettingsArgs(resolvedProviderId, launchIdentity);
+      const providerFastModeArgs = buildProviderFastModeArgs(resolvedProviderId, launchIdentity);
       if (launchModelArg) {
         launchArgs.push('--model', launchModelArg);
       }
       if (launchIdentity.resolvedEffort) {
         launchArgs.push('--effort', launchIdentity.resolvedEffort);
       }
-      launchArgs.push(...anthropicSettingsArgs);
+      launchArgs.push(...providerFastModeArgs);
       if (request.worktree) {
         launchArgs.push('--worktree', request.worktree);
       }
