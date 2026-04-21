@@ -2839,6 +2839,7 @@ export const TeamDetailView = ({
                           name: entry.name,
                           role: entry.role,
                           workflow: entry.workflow,
+                          isolation: entry.isolation,
                           providerId: entry.providerId,
                           model: entry.model,
                           effort: entry.effort,

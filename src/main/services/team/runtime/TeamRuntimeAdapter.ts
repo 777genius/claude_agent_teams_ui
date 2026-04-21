@@ -15,6 +15,7 @@ export interface TeamRuntimeMemberSpec {
   name: string;
   role?: string;
   workflow?: string;
+  isolation?: 'worktree';
   providerId: TeamRuntimeProviderId;
   model?: string;
   effort?: EffortLevel;

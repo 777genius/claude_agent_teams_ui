@@ -128,6 +128,7 @@ export class TeamMemberResolver {
         agentType?: string;
         role?: string;
         workflow?: string;
+        isolation?: 'worktree';
         providerId?: TeamProviderId;
         model?: string;
         effort?: TeamMember['effort'];
@@ -147,6 +148,7 @@ export class TeamMemberResolver {
             agentType: configMember.agentType,
             role: configMember.role,
             workflow: configMember.workflow,
+            isolation: configMember.isolation === 'worktree' ? ('worktree' as const) : undefined,
             providerId,
             model: configMember.model,
             effort: configMember.effort,
@@ -164,6 +166,7 @@ export class TeamMemberResolver {
         agentType?: string;
         role?: string;
         workflow?: string;
+        isolation?: 'worktree';
         providerId?: TeamProviderId;
         model?: string;
         effort?: TeamMember['effort'];
@@ -179,6 +182,7 @@ export class TeamMemberResolver {
             agentType: member.agentType,
             role: member.role,
             workflow: member.workflow,
+            isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
             providerId: member.providerId,
             model: member.model,
             effort: member.effort,
@@ -232,6 +236,7 @@ export class TeamMemberResolver {
         agentType: configMember?.agentType ?? metaMember?.agentType,
         role: configMember?.role ?? metaMember?.role,
         workflow: configMember?.workflow ?? metaMember?.workflow,
+        isolation: configMember?.isolation ?? metaMember?.isolation,
         providerId: configMember?.providerId ?? metaMember?.providerId,
         model: configMember?.model ?? metaMember?.model,
         effort: configMember?.effort ?? metaMember?.effort,

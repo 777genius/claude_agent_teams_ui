@@ -588,6 +588,48 @@ describe('TeamDataService', () => {
     );
   });
 
+  it('persists teammate worktree isolation in replaceMembers', async () => {
+    const writeMembers = vi.fn(async () => {});
+    const membersMetaStore = {
+      getMembers: vi.fn(async () => []),
+      writeMembers,
+    } as never;
+
+    const service = new TeamDataService(
+      { getConfig: vi.fn(), listTeams: vi.fn() } as never,
+      { getTasks: vi.fn(async () => []) } as never,
+      { listInboxNames: vi.fn(async () => []), getMessages: vi.fn(async () => []) } as never,
+      {} as never,
+      {} as never,
+      { resolveMembers: vi.fn(() => []) } as never,
+      {
+        getState: vi.fn(async () => ({ teamName: 'runtime-team', reviewers: [], tasks: {} })),
+      } as never,
+      {} as never,
+      membersMetaStore,
+      { readMessages: vi.fn(async () => []) } as never
+    );
+
+    await service.replaceMembers('runtime-team', {
+      members: [
+        { name: 'alice', role: 'Developer', isolation: 'worktree' },
+        { name: 'bob', role: 'Reviewer' },
+      ],
+    });
+
+    const [, writtenMembers] = writeMembers.mock.calls[0] as unknown as [
+      string,
+      Array<{
+        name: string;
+        isolation?: 'worktree';
+      }>,
+    ];
+    expect(writtenMembers.find((member) => member.name === 'alice')).toMatchObject({
+      isolation: 'worktree',
+    });
+    expect(writtenMembers.find((member) => member.name === 'bob')?.isolation).toBeUndefined();
+  });
+
   it('does not carry over agentId from a previously removed member with the same name', async () => {
     const writeMembers = vi.fn(async () => {});
     const membersMetaStore = {

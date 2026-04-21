@@ -35,6 +35,8 @@ export interface UseCreateTeamDraftResult {
   setMembers: (v: MemberDraft[]) => void;
   syncModelsWithLead: boolean;
   setSyncModelsWithLead: (v: boolean) => void;
+  teammateWorktreeDefault: boolean;
+  setTeammateWorktreeDefault: (v: boolean) => void;
   cwdMode: 'project' | 'custom';
   setCwdMode: (v: 'project' | 'custom') => void;
   selectedProjectPath: string;
@@ -66,12 +68,13 @@ const DEBOUNCE_MS = 400;
 
 function serializeMembers(members: MemberDraft[]): SerializedMemberDraft[] {
   return members.map(
-    ({ id, name, roleSelection, customRole, workflow, providerId, model, effort }) => ({
+    ({ id, name, roleSelection, customRole, workflow, isolation, providerId, model, effort }) => ({
       id,
       name,
       roleSelection,
       customRole,
       workflow,
+      isolation,
       providerId,
       model,
       effort,
@@ -87,6 +90,7 @@ function deserializeMembers(serialized: SerializedMemberDraft[]): MemberDraft[] 
       roleSelection: m.roleSelection,
       customRole: m.customRole,
       workflow: m.workflow,
+      isolation: m.isolation === 'worktree' ? 'worktree' : undefined,
       providerId: m.providerId,
       model: m.model,
       effort: m.effort,
@@ -103,6 +107,7 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
   const [teamName, setTeamNameState] = useState('');
   const [members, setMembersState] = useState<MemberDraft[]>([]);
   const [syncModelsWithLead, setSyncModelsWithLeadState] = useState(true);
+  const [teammateWorktreeDefault, setTeammateWorktreeDefaultState] = useState(false);
   const [cwdMode, setCwdModeState] = useState<'project' | 'custom'>('project');
   const [selectedProjectPath, setSelectedProjectPathState] = useState('');
   const [customCwd, setCustomCwdState] = useState('');
@@ -115,6 +120,7 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
   const teamNameRef = useRef('');
   const membersRef = useRef<MemberDraft[]>([]);
   const syncModelsWithLeadRef = useRef(true);
+  const teammateWorktreeDefaultRef = useRef(false);
   const cwdModeRef = useRef<'project' | 'custom'>('project');
   const selectedProjectPathRef = useRef('');
   const customCwdRef = useRef('');
@@ -141,6 +147,7 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
       teamName: teamNameRef.current,
       members: serializeMembers(membersRef.current),
       syncModelsWithLead: syncModelsWithLeadRef.current,
+      teammateWorktreeDefault: teammateWorktreeDefaultRef.current,
       cwdMode: cwdModeRef.current,
       selectedProjectPath: selectedProjectPathRef.current,
       customCwd: customCwdRef.current,
@@ -201,6 +208,7 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
     teamNameRef.current = snap.teamName;
     membersRef.current = deserialized;
     syncModelsWithLeadRef.current = snap.syncModelsWithLead ?? true;
+    teammateWorktreeDefaultRef.current = snap.teammateWorktreeDefault === true;
     cwdModeRef.current = snap.cwdMode;
     selectedProjectPathRef.current = snap.selectedProjectPath;
     customCwdRef.current = snap.customCwd;
@@ -211,6 +219,7 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
     setTeamNameState(snap.teamName);
     setMembersState(deserialized);
     setSyncModelsWithLeadState(snap.syncModelsWithLead ?? true);
+    setTeammateWorktreeDefaultState(snap.teammateWorktreeDefault === true);
     setCwdModeState(snap.cwdMode);
     setSelectedProjectPathState(snap.selectedProjectPath);
     setCustomCwdState(snap.customCwd);
@@ -280,6 +289,16 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
       userTouchedRef.current = true;
       syncModelsWithLeadRef.current = v;
       setSyncModelsWithLeadState(v);
+      scheduleSave();
+    },
+    [scheduleSave]
+  );
+
+  const setTeammateWorktreeDefault = useCallback(
+    (v: boolean) => {
+      userTouchedRef.current = true;
+      teammateWorktreeDefaultRef.current = v;
+      setTeammateWorktreeDefaultState(v);
       scheduleSave();
     },
     [scheduleSave]
@@ -360,6 +379,7 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
     teamNameRef.current = '';
     membersRef.current = [];
     syncModelsWithLeadRef.current = true;
+    teammateWorktreeDefaultRef.current = false;
     cwdModeRef.current = 'project';
     selectedProjectPathRef.current = '';
     customCwdRef.current = '';
@@ -370,6 +390,7 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
     setTeamNameState('');
     setMembersState([]);
     setSyncModelsWithLeadState(true);
+    setTeammateWorktreeDefaultState(false);
     setCwdModeState('project');
     setSelectedProjectPathState('');
     setCustomCwdState('');
@@ -387,6 +408,8 @@ export function useCreateTeamDraft(): UseCreateTeamDraftResult {
     setMembers,
     syncModelsWithLead,
     setSyncModelsWithLead,
+    teammateWorktreeDefault,
+    setTeammateWorktreeDefault,
     cwdMode,
     setCwdMode,
     selectedProjectPath,

@@ -35,6 +35,7 @@ function normalizeMember(member: TeamMember): TeamMember | null {
     name: trimmedName,
     role: typeof member.role === 'string' ? member.role.trim() || undefined : undefined,
     workflow: typeof member.workflow === 'string' ? member.workflow.trim() || undefined : undefined,
+    isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
     providerId: normalizeOptionalTeamProviderId(member.providerId),
     model: typeof member.model === 'string' ? member.model.trim() || undefined : undefined,
     effort: isTeamEffortLevel(member.effort) ? member.effort : undefined,

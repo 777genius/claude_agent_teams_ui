@@ -361,6 +361,8 @@ export const CreateTeamDialog = ({
     setMembers,
     syncModelsWithLead,
     setSyncModelsWithLead,
+    teammateWorktreeDefault,
+    setTeammateWorktreeDefault,
     cwdMode,
     setCwdMode,
     selectedProjectPath,
@@ -919,6 +921,7 @@ export const CreateTeamDialog = ({
               roleSelection: isCustom ? CUSTOM_ROLE : (m.role ?? ''),
               customRole: isCustom ? m.role : '',
               workflow: m.workflow,
+              isolation: m.isolation === 'worktree' ? 'worktree' : undefined,
               providerId: normalizeOptionalTeamProviderId(m.providerId),
               model: m.model ?? '',
               effort: m.effort,
@@ -926,6 +929,10 @@ export const CreateTeamDialog = ({
             multimodelEnabled
           );
         })
+      );
+      setTeammateWorktreeDefault(
+        initialData.members.length > 0 &&
+          initialData.members.every((member) => member.isolation === 'worktree')
       );
       setSyncModelsWithLead(
         !initialData.members.some((member) => member.providerId || member.model || member.effort)
@@ -1548,6 +1555,9 @@ export const CreateTeamDialog = ({
               onLimitContextChange={setLimitContext}
               syncModelsWithTeammates={syncModelsWithLead}
               onSyncModelsWithTeammatesChange={handleSyncModelsWithLeadChange}
+              showWorktreeIsolationControls={!soloTeam}
+              teammateWorktreeDefault={teammateWorktreeDefault}
+              onTeammateWorktreeDefaultChange={setTeammateWorktreeDefault}
               disableGeminiOption={isGeminiUiFrozen()}
               leadModelIssueText={leadModelIssueText}
               leadFastModeNotice={anthropicRuntimeNotice}

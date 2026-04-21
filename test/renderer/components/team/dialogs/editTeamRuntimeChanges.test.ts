@@ -112,6 +112,36 @@ describe('getMembersRequiringRuntimeRestart', () => {
     expect(result).toEqual([]);
   });
 
+  it('returns existing teammates whose worktree isolation changed', () => {
+    const result = getMembersRequiringRuntimeRestart({
+      previousMembers: [
+        {
+          name: 'alice',
+          role: 'Reviewer',
+          isolation: undefined,
+        } as any,
+        {
+          name: 'bob',
+          role: 'Developer',
+          isolation: 'worktree',
+        } as any,
+      ],
+      nextMembers: [
+        {
+          name: 'alice',
+          role: 'Reviewer',
+          isolation: 'worktree',
+        },
+        {
+          name: 'bob',
+          role: 'Developer',
+        },
+      ],
+    });
+
+    expect(result).toEqual(['alice', 'bob']);
+  });
+
   it('reports live rename and remove of existing teammates separately from runtime restarts', () => {
     const result = getLiveRosterIdentityChanges({
       previousMembers: [

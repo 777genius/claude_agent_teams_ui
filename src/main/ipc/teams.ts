@@ -1274,6 +1274,10 @@ async function validateProvisioningRequest(
     if (workflow !== undefined && typeof workflow !== 'string') {
       return { valid: false, error: 'member workflow must be string' };
     }
+    const isolation = (member as { isolation?: unknown }).isolation;
+    if (isolation !== undefined && isolation !== 'worktree') {
+      return { valid: false, error: 'member isolation must be "worktree" when provided' };
+    }
     const providerValidation = parseOptionalMemberProviderId(
       (member as { providerId?: unknown }).providerId
     );
@@ -1295,6 +1299,7 @@ async function validateProvisioningRequest(
       name: memberName,
       role: typeof role === 'string' ? role.trim() : undefined,
       workflow: typeof workflow === 'string' ? workflow.trim() : undefined,
+      isolation: isolation === 'worktree' ? ('worktree' as const) : undefined,
       providerId: providerValidation.value,
       model: typeof model === 'string' ? model.trim() || undefined : undefined,
       effort: effortValidation.value,
@@ -1572,6 +1577,7 @@ async function handleLaunchTeam(
         name: m.name,
         role: m.role,
         workflow: m.workflow,
+        isolation: m.isolation,
         providerId: m.providerId,
         model: m.model,
         effort: m.effort,
@@ -2760,6 +2766,10 @@ async function handleCreateConfig(
     if (workflow !== undefined && typeof workflow !== 'string') {
       return { success: false, error: 'member workflow must be string' };
     }
+    const isolation = (member as { isolation?: unknown }).isolation;
+    if (isolation !== undefined && isolation !== 'worktree') {
+      return { success: false, error: 'member isolation must be "worktree" when provided' };
+    }
     const providerValidation = parseOptionalMemberProviderId(
       (member as { providerId?: unknown }).providerId
     );
@@ -2781,6 +2791,7 @@ async function handleCreateConfig(
       name: memberName,
       role: typeof role === 'string' ? role.trim() : undefined,
       workflow: typeof workflow === 'string' ? workflow.trim() : undefined,
+      isolation: isolation === 'worktree' ? ('worktree' as const) : undefined,
       providerId: providerValidation.value,
       model: typeof model === 'string' ? model.trim() || undefined : undefined,
       effort: effortValidation.value,
@@ -3189,10 +3200,11 @@ async function handleAddMember(
   if (!payload || typeof payload !== 'object') {
     return { success: false, error: 'Invalid payload' };
   }
-  const { name, role, workflow, providerId, model } = payload as {
+  const { name, role, workflow, isolation, providerId, model } = payload as {
     name?: unknown;
     role?: unknown;
     workflow?: unknown;
+    isolation?: unknown;
     providerId?: unknown;
     model?: unknown;
     effort?: unknown;
@@ -3204,6 +3216,9 @@ async function handleAddMember(
   }
   if (workflow !== undefined && typeof workflow !== 'string') {
     return { success: false, error: 'workflow must be a string' };
+  }
+  if (isolation !== undefined && isolation !== 'worktree') {
+    return { success: false, error: 'isolation must be "worktree" when provided' };
   }
   const providerValidation = parseOptionalMemberProviderId(providerId);
   if (!providerValidation.valid) {
@@ -3227,6 +3242,7 @@ async function handleAddMember(
       name: memberName,
       role: role,
       workflow: typeof workflow === 'string' ? workflow.trim() || undefined : undefined,
+      isolation: isolation === 'worktree' ? ('worktree' as const) : undefined,
       providerId: providerValidation.value,
       model: typeof model === 'string' ? model.trim() || undefined : undefined,
       effort: effortValidation.value,
@@ -3252,6 +3268,7 @@ async function handleAddMember(
         name: memberName,
         ...(typeof role === 'string' ? { role } : {}),
         ...(typeof workflow === 'string' ? { workflow } : {}),
+        ...(isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
         ...(providerValidation.value ? { providerId: providerValidation.value } : {}),
         ...(typeof model === 'string' && model.trim() ? { model: model.trim() } : {}),
         ...(effortValidation.value ? { effort: effortValidation.value } : {}),
@@ -3285,6 +3302,7 @@ async function handleReplaceMembers(
     name: string;
     role?: string;
     workflow?: string;
+    isolation?: 'worktree';
     providerId?: TeamProviderId;
     model?: string;
     effort?: EffortLevel;
@@ -3297,6 +3315,7 @@ async function handleReplaceMembers(
       name?: unknown;
       role?: unknown;
       workflow?: unknown;
+      isolation?: unknown;
       providerId?: unknown;
       model?: unknown;
       effort?: unknown;
@@ -3311,6 +3330,9 @@ async function handleReplaceMembers(
     }
     if (m.workflow !== undefined && typeof m.workflow !== 'string') {
       return { success: false, error: 'member workflow must be string' };
+    }
+    if (m.isolation !== undefined && m.isolation !== 'worktree') {
+      return { success: false, error: 'member isolation must be "worktree" when provided' };
     }
     const providerValidation = parseOptionalMemberProviderId(
       (m as { providerId?: unknown }).providerId
@@ -3332,6 +3354,7 @@ async function handleReplaceMembers(
       name,
       role: typeof m.role === 'string' ? m.role.trim() : undefined,
       workflow: typeof m.workflow === 'string' ? m.workflow.trim() : undefined,
+      isolation: m.isolation === 'worktree' ? ('worktree' as const) : undefined,
       providerId: providerValidation.value,
       model: typeof m.model === 'string' ? m.model.trim() || undefined : undefined,
       effort: effortValidation.value,

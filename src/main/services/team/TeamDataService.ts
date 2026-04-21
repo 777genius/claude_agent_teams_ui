@@ -1216,6 +1216,7 @@ export class TeamDataService {
           name: configMember.name.trim(),
           role: configMember.role,
           workflow: configMember.workflow,
+          isolation: configMember.isolation === 'worktree' ? ('worktree' as const) : undefined,
           agentType: configMember.agentType ?? 'general-purpose',
           color: configMember.color,
           joinedAt: configMember.joinedAt ?? Date.now(),
@@ -1277,6 +1278,7 @@ export class TeamDataService {
       name,
       role: request.role?.trim() || undefined,
       workflow: request.workflow?.trim() || undefined,
+      isolation: request.isolation === 'worktree' ? ('worktree' as const) : undefined,
       providerId:
         request.providerId === 'codex' || request.providerId === 'gemini'
           ? request.providerId
@@ -1316,6 +1318,7 @@ export class TeamDataService {
         name: string;
         role?: string;
         workflow?: string;
+        isolation?: 'worktree';
         providerId?: TeamProviderId;
         model?: string;
         effort?: TeamMember['effort'];
@@ -1358,6 +1361,7 @@ export class TeamDataService {
           name,
           role: member.role?.trim() || undefined,
           workflow: member.workflow?.trim() || undefined,
+          isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
           providerId: normalizeOptionalTeamProviderId(member.providerId),
           model: member.model?.trim() || undefined,
           effort: isTeamEffortLevel(member.effort) ? member.effort : undefined,
@@ -2435,6 +2439,7 @@ export class TeamDataService {
         })(),
         role: member.role?.trim() || undefined,
         workflow: member.workflow?.trim() || undefined,
+        isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
         providerId: normalizeOptionalTeamProviderId(member.providerId),
         model: member.model?.trim() || undefined,
         effort: isTeamEffortLevel(member.effort) ? member.effort : undefined,

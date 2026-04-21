@@ -261,6 +261,21 @@ function resolveResolvedMemberRuntime(
   };
 }
 
+function deriveTeammateWorktreeDefault(
+  members: readonly {
+    name: string;
+    isolation?: 'worktree';
+    removedAt?: number | string | null;
+  }[]
+): boolean {
+  const activeTeammates = members.filter(
+    (member) => !member.removedAt && member.name.trim().toLowerCase() !== 'team-lead'
+  );
+  return (
+    activeTeammates.length > 0 && activeTeammates.every((member) => member.isolation === 'worktree')
+  );
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -351,6 +366,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
     getStoredTeamModel(getStoredTeamProvider())
   );
   const [membersDrafts, setMembersDrafts] = useState<MemberDraft[]>([]);
+  const [teammateWorktreeDefault, setTeammateWorktreeDefault] = useState(false);
   const [syncModelsWithLead, setSyncModelsWithLead] = useState(false);
   const [skipPermissions, setSkipPermissionsRaw] = useState(
     () => localStorage.getItem('team:lastSkipPermissions') !== 'false'
@@ -742,6 +758,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
           normalizeMemberDraftForProviderMode(member, multimodelEnabled)
         )
       );
+      setTeammateWorktreeDefault(deriveTeammateWorktreeDefault(editableMembersSource));
       setSyncModelsWithLead(
         !editableMembersSource.some((member) => member.providerId || member.model || member.effort)
       );
@@ -1004,19 +1021,35 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
       if (
         previousProvider === currentProviderId &&
         previousModel === currentModel &&
-        (previousEffort ?? '') === (currentEffort ?? '')
+        (previousEffort ?? '') === (currentEffort ?? '') &&
+        (previousMember.isolation ?? '') === (member.isolation ?? '')
       ) {
         continue;
       }
 
+      const runtimeMessage =
+        previousProvider !== currentProviderId ||
+        previousModel !== currentModel ||
+        (previousEffort ?? '') !== (currentEffort ?? '')
+          ? `${formatTeamModelSummary(
+              currentProviderId,
+              currentModel,
+              currentEffort
+            )} instead of ${formatTeamModelSummary(previousProvider, previousModel, previousEffort)}`
+          : null;
+      const isolationMessage =
+        previousMember.isolation !== member.isolation
+          ? `${member.isolation === 'worktree' ? 'separate worktree' : 'shared workspace'} instead of ${
+              previousMember.isolation === 'worktree' ? 'separate worktree' : 'shared workspace'
+            }`
+          : null;
+
       notes.push({
         key: `member:${name.toLowerCase()}`,
         memberName: name,
-        message: `${formatTeamModelSummary(
-          currentProviderId,
-          currentModel,
-          currentEffort
-        )} instead of ${formatTeamModelSummary(previousProvider, previousModel, previousEffort)}`,
+        message: [runtimeMessage, isolationMessage]
+          .filter((part): part is string => Boolean(part))
+          .join('; '),
       });
     }
 
@@ -1398,6 +1431,14 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
 
     const summary: string[] = [];
     if (promptDraft.value.trim()) summary.push('Lead prompt');
+    const worktreeMemberCount = effectiveMemberDrafts.filter(
+      (member) => !member.removedAt && member.isolation === 'worktree'
+    ).length;
+    if (worktreeMemberCount > 0) {
+      summary.push(
+        `${worktreeMemberCount} teammate worktree${worktreeMemberCount === 1 ? '' : 's'}`
+      );
+    }
     summary.push(`Provider: ${getProviderLabel(selectedProviderId)}`);
     if (selectedModel) summary.push(`Model: ${selectedModel}`);
     if (selectedEffort) summary.push(`Effort: ${selectedEffort}`);
@@ -1414,6 +1455,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
     return summary;
   }, [
     isLaunchMode,
+    effectiveMemberDrafts,
     promptDraft.value,
     selectedModel,
     selectedProviderId,
@@ -2030,6 +2072,9 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   onLimitContextChange={setLimitContext}
                   syncModelsWithTeammates={syncModelsWithLead}
                   onSyncModelsWithTeammatesChange={setSyncModelsWithLead}
+                  showWorktreeIsolationControls
+                  teammateWorktreeDefault={teammateWorktreeDefault}
+                  onTeammateWorktreeDefaultChange={setTeammateWorktreeDefault}
                   leadWarningText={leadRuntimeWarningText}
                   leadFastModeNotice={anthropicRuntimeNotice}
                   memberWarningById={memberRuntimeWarningById}

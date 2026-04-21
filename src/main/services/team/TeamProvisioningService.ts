@@ -1203,7 +1203,7 @@ interface PendingMemberRestartContext {
   requestedAt: string;
   desired: Pick<
     TeamCreateRequest['members'][number],
-    'name' | 'role' | 'workflow' | 'providerId' | 'model' | 'effort'
+    'name' | 'role' | 'workflow' | 'isolation' | 'providerId' | 'model' | 'effort'
   >;
 }
 
@@ -1650,10 +1650,11 @@ function buildMembersPrompt(members: TeamCreateRequest['members']): string {
           : '';
       const modelPart = member.model?.trim() ? ` [model: ${member.model.trim()}]` : '';
       const effortPart = member.effort ? ` [effort: ${member.effort}]` : '';
+      const isolationPart = member.isolation === 'worktree' ? ' [isolation: worktree]' : '';
       const workflowPart = member.workflow?.trim()
         ? `\n     Workflow/instructions:${formatWorkflowBlock(member.workflow, '       ')}`
         : '';
-      return `- ${member.name}${rolePart}${providerPart}${modelPart}${effortPart}${workflowPart}`;
+      return `- ${member.name}${rolePart}${providerPart}${modelPart}${effortPart}${isolationPart}${workflowPart}`;
     })
     .join('\n');
 }
@@ -2000,13 +2001,29 @@ ${indentMultiline(buildMemberReviewFlowReminder(), '       ')}
      - If you have no tasks, wait for new assignments.`;
 }
 
+function buildAgentToolArgsSuffix(
+  member: Pick<
+    TeamCreateRequest['members'][number],
+    'providerId' | 'model' | 'effort' | 'isolation'
+  >
+): string {
+  const providerPart =
+    member.providerId && member.providerId !== 'anthropic'
+      ? `, provider="${member.providerId}"`
+      : '';
+  const modelPart = member.model?.trim() ? `, model="${member.model.trim()}"` : '';
+  const effortPart = member.effort ? `, effort="${member.effort}"` : '';
+  const isolationPart = member.isolation === 'worktree' ? ', isolation="worktree"' : '';
+  return `${providerPart}${modelPart}${effortPart}${isolationPart}`;
+}
+
 export function buildAddMemberSpawnMessage(
   teamName: string,
   displayName: string,
   leadName: string,
   member: Pick<
     TeamCreateRequest['members'][number],
-    'name' | 'role' | 'workflow' | 'providerId' | 'model' | 'effort'
+    'name' | 'role' | 'workflow' | 'providerId' | 'model' | 'effort' | 'isolation'
   >
 ): string {
   const roleHint =
@@ -2031,16 +2048,11 @@ export function buildAddMemberSpawnMessage(
     teamName,
     leadName
   );
-  const providerPart =
-    member.providerId && member.providerId !== 'anthropic'
-      ? `, provider="${member.providerId}"`
-      : '';
-  const modelPart = member.model?.trim() ? `, model="${member.model.trim()}"` : '';
-  const effortPart = member.effort ? `, effort="${member.effort}"` : '';
+  const agentArgs = buildAgentToolArgsSuffix(member);
 
   return (
     `A new teammate "${member.name}"${roleHint} has been added to the team. ` +
-    `Please spawn them immediately using the **Agent** tool with team_name="${teamName}", name="${member.name}", subagent_type="general-purpose"${providerPart}${modelPart}${effortPart}, and the exact prompt below:${workflowHint}\n\n` +
+    `Please spawn them immediately using the **Agent** tool with team_name="${teamName}", name="${member.name}", subagent_type="general-purpose"${agentArgs}, and the exact prompt below:${workflowHint}\n\n` +
     indentMultiline(prompt, '  ')
   );
 }
@@ -2051,7 +2063,7 @@ export function buildRestartMemberSpawnMessage(
   leadName: string,
   member: Pick<
     TeamCreateRequest['members'][number],
-    'name' | 'role' | 'workflow' | 'providerId' | 'model' | 'effort'
+    'name' | 'role' | 'workflow' | 'providerId' | 'model' | 'effort' | 'isolation'
   >
 ): string {
   const roleHint =
@@ -2076,16 +2088,11 @@ export function buildRestartMemberSpawnMessage(
     teamName,
     leadName
   );
-  const providerPart =
-    member.providerId && member.providerId !== 'anthropic'
-      ? `, provider="${member.providerId}"`
-      : '';
-  const modelPart = member.model?.trim() ? `, model="${member.model.trim()}"` : '';
-  const effortPart = member.effort ? `, effort="${member.effort}"` : '';
+  const agentArgs = buildAgentToolArgsSuffix(member);
 
   return (
     `Teammate "${member.name}"${roleHint} was restarted from the UI. ` +
-    `Please respawn them immediately using the **Agent** tool with team_name="${teamName}", name="${member.name}", subagent_type="general-purpose"${providerPart}${modelPart}${effortPart}, and the exact prompt below. ` +
+    `Please respawn them immediately using the **Agent** tool with team_name="${teamName}", name="${member.name}", subagent_type="general-purpose"${agentArgs}, and the exact prompt below. ` +
     `This is a restart of an existing persistent teammate, not a new teammate. ` +
     `If the Agent tool returns duplicate_skipped with reason bootstrap_pending, treat that as a pending restart and wait for teammate check-in. ` +
     `If it returns duplicate_skipped with reason already_running, do not report success - it means the previous runtime still appears active and the restart may not have applied.${workflowHint ? workflowHint : ''}\n\n` +
@@ -2100,6 +2107,7 @@ interface RuntimeBootstrapMemberSpec {
   model?: string;
   provider?: TeamProviderId;
   effort?: EffortLevel;
+  isolation?: 'worktree';
   agentType?: string;
   description?: string;
   useSplitPane?: boolean;
@@ -2176,6 +2184,7 @@ function buildDeterministicCreateBootstrapSpec(
       ...(member.model?.trim() ? { model: member.model.trim() } : {}),
       ...(member.providerId ? { provider: member.providerId } : {}),
       ...(member.effort ? { effort: member.effort } : {}),
+      ...(member.isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
       ...(member.role?.trim() ? { description: member.role.trim() } : {}),
     })),
     launch: {
@@ -2223,6 +2232,7 @@ function buildDeterministicLaunchBootstrapSpec(
       ...(member.model?.trim() ? { model: member.model.trim() } : {}),
       ...(member.providerId ? { provider: member.providerId } : {}),
       ...(member.effort ? { effort: member.effort } : {}),
+      ...(member.isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
       ...(member.role?.trim() ? { role: member.role.trim() } : {}),
       ...(member.workflow?.trim() ? { workflow: member.workflow.trim() } : {}),
       ...(member.role?.trim() ? { description: member.role.trim() } : {}),
@@ -5873,6 +5883,7 @@ export class TeamProvisioningService {
         name: configuredMember.name,
         role: configuredMember.role,
         workflow: configuredMember.workflow,
+        isolation: configuredMember.isolation === 'worktree' ? ('worktree' as const) : undefined,
         providerId: configuredMember.providerId,
         model: configuredMember.model,
         effort: configuredMember.effort,
@@ -5888,6 +5899,7 @@ export class TeamProvisioningService {
         name: configuredMember.name,
         role: configuredMember.role,
         workflow: configuredMember.workflow,
+        isolation: configuredMember.isolation === 'worktree' ? ('worktree' as const) : undefined,
         providerId: configuredMember.providerId,
         model: configuredMember.model,
         effort: configuredMember.effort,
@@ -7619,6 +7631,7 @@ export class TeamProvisioningService {
             name: m.name.trim(),
             role: m.role?.trim() || undefined,
             workflow: m.workflow?.trim() || undefined,
+            isolation: m.isolation === 'worktree' ? ('worktree' as const) : undefined,
             providerId: normalizeOptionalTeamProviderId(m.providerId),
             model: m.model?.trim() || undefined,
             effort: isTeamEffortLevel(m.effort) ? m.effort : undefined,
@@ -7780,6 +7793,7 @@ export class TeamProvisioningService {
         name: member.name.trim(),
         role: member.role?.trim() || undefined,
         workflow: member.workflow?.trim() || undefined,
+        isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
         providerId: normalizeOptionalTeamProviderId(member.providerId),
         model: member.model?.trim() || undefined,
         effort:
@@ -7893,6 +7907,7 @@ export class TeamProvisioningService {
         name: member.name,
         role: member.role,
         workflow: member.workflow,
+        isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
         providerId: 'opencode',
         model: member.model ?? input.request.model,
         effort: member.effort ?? input.request.effort,
@@ -7992,6 +8007,7 @@ export class TeamProvisioningService {
         name: member.name,
         role: member.role,
         workflow: member.workflow,
+        isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
         providerId: normalizeOptionalTeamProviderId(member.providerId),
         model: member.model,
         effort: member.effort,
@@ -8582,6 +8598,7 @@ export class TeamProvisioningService {
           name: member.name.trim(),
           role: member.role?.trim() || undefined,
           workflow: member.workflow?.trim() || undefined,
+          isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
           providerId: normalizeOptionalTeamProviderId(member.providerId),
           model: member.model?.trim() || undefined,
           effort: isTeamEffortLevel(member.effort) ? member.effort : undefined,
@@ -10015,6 +10032,7 @@ export class TeamProvisioningService {
     name: string;
     role?: string;
     workflow?: string;
+    isolation?: 'worktree';
     providerId?: TeamProviderId;
     model?: string;
     effort?: EffortLevel;
@@ -10039,6 +10057,10 @@ export class TeamProvisioningService {
     const role = metaMember?.role?.trim() || configuredMember?.role?.trim() || undefined;
     const workflow =
       metaMember?.workflow?.trim() || configuredMember?.workflow?.trim() || undefined;
+    const isolation =
+      metaMember?.isolation === 'worktree' || configuredMember?.isolation === 'worktree'
+        ? 'worktree'
+        : undefined;
     const providerId =
       normalizeTeamMemberProviderId(metaMember?.providerId) ??
       normalizeTeamMemberProviderId(configuredMember?.providerId);
@@ -10056,6 +10078,7 @@ export class TeamProvisioningService {
       name,
       ...(role ? { role } : {}),
       ...(workflow ? { workflow } : {}),
+      ...(isolation ? { isolation } : {}),
       ...(providerId ? { providerId } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
@@ -15336,6 +15359,7 @@ export class TeamProvisioningService {
           name: member.name.trim(),
           role: member.role?.trim() || undefined,
           workflow: member.workflow?.trim() || undefined,
+          isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
           providerId: normalizeOptionalTeamProviderId(member.providerId),
           model: member.model?.trim() || undefined,
           effort: isTeamEffortLevel(member.effort) ? member.effort : undefined,
@@ -15378,18 +15402,20 @@ export class TeamProvisioningService {
         const role = typeof member.role === 'string' ? member.role.trim() || undefined : undefined;
         const workflow =
           typeof member.workflow === 'string' ? member.workflow.trim() || undefined : undefined;
+        const isolation = member.isolation === 'worktree' ? 'worktree' : undefined;
         const providerId = normalizeOptionalTeamProviderId(member.providerId);
         const model =
           typeof member.model === 'string' ? member.model.trim() || undefined : undefined;
         const effort = isTeamEffortLevel(member.effort) ? member.effort : undefined;
         const prev = byName.get(name);
         if (!prev) {
-          byName.set(name, { name, role, workflow, providerId, model, effort });
+          byName.set(name, { name, role, workflow, isolation, providerId, model, effort });
         } else {
           byName.set(name, {
             ...prev,
             role: prev.role || role,
             workflow: prev.workflow || workflow,
+            isolation: prev.isolation || isolation,
             providerId: prev.providerId || providerId,
             model: prev.model || model,
             effort: prev.effort || effort,
@@ -15450,13 +15476,14 @@ export class TeamProvisioningService {
             name,
             role: configMember?.role,
             workflow: configMember?.workflow,
+            isolation: configMember?.isolation,
             providerId: configMember?.providerId,
             model: configMember?.model,
             effort: configMember?.effort,
           };
         });
         const memberOverridesUsed = members.some(
-          (member) => member.providerId || member.model || member.effort
+          (member) => member.providerId || member.model || member.effort || member.isolation
         );
         return {
           members,
@@ -15519,6 +15546,7 @@ export class TeamProvisioningService {
           name?: string;
           role?: string;
           workflow?: string;
+          isolation?: string;
           agentType?: string;
           providerId?: string;
           provider?: string;
@@ -15541,6 +15569,7 @@ export class TeamProvisioningService {
           role: typeof member.role === 'string' ? member.role.trim() || undefined : undefined,
           workflow:
             typeof member.workflow === 'string' ? member.workflow.trim() || undefined : undefined,
+          isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
           providerId: normalizeTeamMemberProviderId(member.providerId ?? member.provider),
           model: typeof member.model === 'string' ? member.model.trim() || undefined : undefined,
           effort: isTeamEffortLevel(member.effort) ? member.effort : undefined,

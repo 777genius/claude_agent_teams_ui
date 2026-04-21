@@ -7,6 +7,8 @@ export interface TeamMember {
   role?: string;
   /** Per-agent workflow/instructions injected into spawn prompt. */
   workflow?: string;
+  /** Opt-in runtime isolation for persistent teammates. Omitted means shared workspace. */
+  isolation?: 'worktree';
   providerId?: TeamProviderId;
   model?: string;
   effort?: EffortLevel;
@@ -714,6 +716,7 @@ export interface ResolvedTeamMember {
   agentType?: string;
   role?: string;
   workflow?: string;
+  isolation?: 'worktree';
   providerId?: TeamProviderId;
   model?: string;
   effort?: EffortLevel;
@@ -762,6 +765,7 @@ export interface TeamMemberSnapshot {
   agentType?: string;
   role?: string;
   workflow?: string;
+  isolation?: 'worktree';
   providerId?: TeamProviderId;
   model?: string;
   effort?: EffortLevel;
@@ -1065,6 +1069,8 @@ export interface TeamProvisioningMemberInput {
   role?: string;
   /** Per-agent workflow/instructions injected into spawn prompt. */
   workflow?: string;
+  /** Opt-in: run this teammate in its own git worktree. */
+  isolation?: 'worktree';
   providerId?: TeamProviderId;
   model?: string;
   effort?: EffortLevel;
@@ -1228,6 +1234,7 @@ export interface AddMemberRequest {
   name: string;
   role?: string;
   workflow?: string;
+  isolation?: 'worktree';
   providerId?: TeamProviderId;
   model?: string;
   effort?: EffortLevel;

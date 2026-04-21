@@ -3,7 +3,7 @@ import React from 'react';
 import { FileIcon } from '@renderer/components/team/editor/FileIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { shortcutLabel } from '@renderer/utils/platformKeys';
-import { ChevronDown, ChevronRight, FilePlus, Loader2, Save, Undo2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, FilePlus, GitBranch, Loader2, Save, Undo2 } from 'lucide-react';
 
 import type { FileChangeWithContent, HunkDecision } from '@shared/types';
 import type { FileChangeSummary } from '@shared/types/review';
@@ -175,6 +175,28 @@ export const FileSectionHeader = ({
                 {CONTENT_SOURCE_LABELS[fileContent.contentSource] ?? fileContent.contentSource}
               </span>
             )}
+          </TooltipContent>
+        </Tooltip>
+      )}
+
+      {file.ledgerSummary?.worktreePath && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center gap-1 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] text-blue-300">
+              <GitBranch className="size-3" />
+              WORKTREE
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-sm">
+            <div className="space-y-1">
+              <div className="font-medium text-text">
+                {file.ledgerSummary.worktreeBranch ?? 'Isolated worktree'}
+              </div>
+              <div className="break-all text-text-muted">{file.ledgerSummary.worktreePath}</div>
+              {file.ledgerSummary.dirtyLeaderWarning && (
+                <div className="text-amber-300">{file.ledgerSummary.dirtyLeaderWarning}</div>
+              )}
+            </div>
           </TooltipContent>
         </Tooltip>
       )}
