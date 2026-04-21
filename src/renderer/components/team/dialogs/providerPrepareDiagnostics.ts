@@ -154,6 +154,12 @@ function normalizeModelReason(rawReason: string | null | undefined): string | nu
   if (/The requested model is not available for your account\./i.test(trimmed)) {
     return 'Not available for this account';
   }
+  if (/token refresh failed:\s*401/i.test(trimmed)) {
+    return 'OpenCode provider authentication failed (token refresh 401)';
+  }
+  if (/unauthorized|forbidden|\b401\b|\b403\b/i.test(trimmed)) {
+    return 'OpenCode provider authentication failed';
+  }
   if (
     trimmed.toLowerCase().includes('timeout running:') ||
     trimmed.toLowerCase().includes('timed out') ||
@@ -247,6 +253,19 @@ function extractTimedOutPreflightProbeModelId(detail: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
+function isSuppressibleGenericPreflightWarning(detail: string): boolean {
+  const lower = detail.trim().toLowerCase();
+  if (!lower) {
+    return false;
+  }
+
+  return (
+    lower.includes('preflight check failed') ||
+    (lower.includes('preflight check for `') && lower.includes('-p` did not complete')) ||
+    lower.includes('preflight ping completed but did not return the expected pong')
+  );
+}
+
 function suppressSupersededRuntimeWarnings(params: {
   runtimeDetailLines: string[];
   runtimeWarnings: string[];
@@ -256,16 +275,23 @@ function suppressSupersededRuntimeWarnings(params: {
   runtimeWarnings: string[];
 } {
   const suppressedEntries = new Set<string>();
+  const allSelectedModelsReady =
+    params.modelResultsById.size > 0 &&
+    Array.from(params.modelResultsById.values()).every((result) => result.status === 'ready');
 
   for (const warning of params.runtimeWarnings) {
     const probedModelId = extractTimedOutPreflightProbeModelId(warning);
-    if (!probedModelId) {
+    if (probedModelId) {
+      if (params.modelResultsById.get(probedModelId)?.status !== 'ready') {
+        continue;
+      }
+      suppressedEntries.add(warning);
       continue;
     }
-    if (params.modelResultsById.get(probedModelId)?.status !== 'ready') {
-      continue;
+
+    if (allSelectedModelsReady && isSuppressibleGenericPreflightWarning(warning)) {
+      suppressedEntries.add(warning);
     }
-    suppressedEntries.add(warning);
   }
 
   return {
@@ -283,9 +309,11 @@ function resolveModelResultFromBatch(
   isOnlyModel: boolean
 ): ProviderPrepareDiagnosticsModelResult {
   const modelScopedEntries = getModelScopedEntries(modelId, result);
-  const normalizedReason =
-    getScopedModelReason(modelId, modelScopedEntries) ??
-    (isOnlyModel ? normalizeModelReason(result.message) : null);
+  const hasModelScopedEntries = modelScopedEntries.length > 0;
+  const scopedReason = getScopedModelReason(modelId, modelScopedEntries);
+  const fallbackBatchReason = isOnlyModel
+    ? (getResultReason(modelId, result) ?? normalizeModelReason(result.message))
+    : null;
 
   const hasVerifiedLine = modelScopedEntries.some((entry) =>
     /selected model .* verified for launch\./i.test(entry)
@@ -304,7 +332,12 @@ function resolveModelResultFromBatch(
   if (hasUnavailableLine || (!result.ready && isOnlyModel)) {
     return {
       status: 'failed',
-      line: buildModelFailureLine(providerId, modelId, 'unavailable', normalizedReason),
+      line: buildModelFailureLine(
+        providerId,
+        modelId,
+        'unavailable',
+        scopedReason ?? fallbackBatchReason
+      ),
       warningLine: null,
     };
   }
@@ -312,8 +345,11 @@ function resolveModelResultFromBatch(
   const hasVerificationWarningLine = modelScopedEntries.some((entry) =>
     /selected model .* could not be verified\./i.test(entry)
   );
-  if (hasVerificationWarningLine || ((result.warnings?.length ?? 0) > 0 && isOnlyModel)) {
-    const line = buildModelFailureLine(providerId, modelId, 'check failed', normalizedReason);
+  if (
+    hasVerificationWarningLine ||
+    ((result.warnings?.length ?? 0) > 0 && isOnlyModel && hasModelScopedEntries)
+  ) {
+    const line = buildModelFailureLine(providerId, modelId, 'check failed', scopedReason);
     return {
       status: 'notes',
       line,
@@ -333,7 +369,7 @@ function resolveModelResultFromBatch(
     providerId,
     modelId,
     'check failed',
-    normalizedReason ?? 'Model verification failed'
+    scopedReason ?? 'Model verification failed'
   );
   return {
     status: 'notes',

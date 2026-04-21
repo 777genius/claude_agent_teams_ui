@@ -261,9 +261,9 @@ vi.mock('@renderer/utils/geminiUiFreeze', () => ({
 }));
 
 vi.mock('@renderer/utils/teamModelAvailability', () => ({
-  getTeamModelSelectionError: () => null,
-  isTeamModelAvailableForUi: () => true,
-  normalizeExplicitTeamModelForUi: (_providerId: string, model: string) => model,
+  getTeamModelSelectionError: vi.fn(() => null),
+  isTeamModelAvailableForUi: vi.fn(() => true),
+  normalizeExplicitTeamModelForUi: vi.fn((_providerId: string, model: string) => model),
 }));
 
 vi.mock('@renderer/components/team/dialogs/providerPrepareCacheKey', () => ({
@@ -356,6 +356,8 @@ vi.mock('@renderer/components/team/dialogs/CodexFastModeSelector', () => ({
 
 import { api } from '@renderer/api';
 import { LaunchTeamDialog } from '@renderer/components/team/dialogs/LaunchTeamDialog';
+import { runProviderPrepareDiagnostics } from '@renderer/components/team/dialogs/providerPrepareDiagnostics';
+import { isTeamModelAvailableForUi } from '@renderer/utils/teamModelAvailability';
 
 async function flush(): Promise<void> {
   await Promise.resolve();
@@ -477,6 +479,115 @@ describe('LaunchTeamDialog', () => {
         effort: 'medium',
       },
     ]);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale inherited member models after saved launch hydration for OpenCode', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.mocked(isTeamModelAvailableForUi).mockImplementation(
+      (_providerId, model, providerStatus) => providerStatus?.models?.includes(model ?? '') ?? false
+    );
+    storeState.cliStatus = {
+      flavor: 'agent_teams_orchestrator',
+      providers: [
+        {
+          providerId: 'opencode',
+          supported: true,
+          authenticated: true,
+          authMethod: 'opencode_managed',
+          verificationState: 'verified',
+          statusMessage: null,
+          detailMessage: null,
+          models: ['opencode/minimax-m2.5-free'],
+          capabilities: {
+            teamLaunch: true,
+            oneShot: false,
+          },
+        },
+      ],
+    } as any;
+    vi.mocked(api.teams.getSavedRequest).mockResolvedValue({
+      teamName: 'team-alpha',
+      providerId: 'opencode',
+      model: 'opencode/minimax-m2.5-free',
+      members: [
+        {
+          name: 'alice',
+          role: 'Reviewer',
+          model: 'gemini-3-pro-preview',
+        },
+      ],
+    } as any);
+
+    const onLaunch = vi.fn<
+      (request: { providerId?: string; model?: string }) => Promise<void>
+    >(async () => {});
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(LaunchTeamDialog, {
+          mode: 'launch',
+          open: true,
+          teamName: 'team-alpha',
+          members: [],
+          defaultProjectPath: '/tmp/project',
+          provisioningError: null,
+          clearProvisioningError: vi.fn(),
+          activeTeams: [],
+          onClose: vi.fn(),
+          onLaunch,
+        })
+      );
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const opencodePrepareCalls = vi
+      .mocked(runProviderPrepareDiagnostics)
+      .mock.calls.filter((call) => call[0]?.providerId === 'opencode');
+    expect(opencodePrepareCalls.at(-1)?.[0]?.selectedModelIds).toEqual([
+      'opencode/minimax-m2.5-free',
+    ]);
+
+    const submitButton = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Launch team'
+    );
+    expect(submitButton).toBeTruthy();
+
+    await act(async () => {
+      submitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(vi.mocked(api.teams.replaceMembers)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.teams.replaceMembers).mock.calls[0]?.[1]).toMatchObject({
+      members: [
+        {
+          name: 'alice',
+          role: 'Reviewer',
+          model: '',
+        },
+      ],
+    });
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+    const launchRequest = (onLaunch.mock.calls as Array<
+      [{ providerId?: string; model?: string }]
+    >)[0]?.[0] as
+      | { providerId?: string; model?: string }
+      | undefined;
+    expect(launchRequest).toMatchObject({
+      providerId: 'opencode',
+      model: 'opencode/minimax-m2.5-free',
+    });
 
     await act(async () => {
       root.unmount();

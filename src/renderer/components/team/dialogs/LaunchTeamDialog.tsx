@@ -494,6 +494,10 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   );
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
     setMembersDrafts((prev) => {
       const sanitized = clearInheritedMemberModelsUnavailableForProvider({
         members: prev,
@@ -502,7 +506,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
       });
       return sanitized.changed ? sanitized.members : prev;
     });
-  }, [runtimeProviderStatusById, selectedProviderId]);
+  }, [membersDrafts, open, runtimeProviderStatusById, selectedProviderId]);
 
   useEffect(() => {
     if (multimodelEnabled) {

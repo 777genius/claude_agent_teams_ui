@@ -66,8 +66,8 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
   ) {}
 
   async prepare(input: TeamRuntimeLaunchInput): Promise<TeamRuntimePrepareResult> {
-    const launchMode = resolveOpenCodeTeamLaunchMode(this.options);
-    if (launchMode === 'disabled') {
+    const configuredLaunchMode = resolveOpenCodeTeamLaunchMode(this.options);
+    if (configuredLaunchMode === 'disabled') {
       return {
         ok: false,
         providerId: this.providerId,
@@ -80,11 +80,12 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
       };
     }
 
+    const runtimeOnly = input.runtimeOnly === true;
     const readiness = await this.bridge.checkOpenCodeTeamLaunchReadiness({
       projectPath: input.cwd,
       selectedModel: input.model ?? null,
-      requireExecutionProbe: true,
-      launchMode,
+      requireExecutionProbe: !runtimeOnly,
+      launchMode: runtimeOnly ? undefined : configuredLaunchMode,
     });
 
     if (!readiness.launchAllowed) {
@@ -99,13 +100,17 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
     }
 
     const warnings =
-      launchMode === 'dogfood'
+      configuredLaunchMode === 'dogfood' && !runtimeOnly
         ? [
             'OpenCode dogfood launch mode is active. This is local test mode and may run without production E2E evidence.',
           ]
         : [];
 
-    if (launchMode === 'production' && readiness.supportLevel !== 'production_supported') {
+    if (
+      !runtimeOnly &&
+      configuredLaunchMode === 'production' &&
+      readiness.supportLevel !== 'production_supported'
+    ) {
       return {
         ok: false,
         providerId: this.providerId,
@@ -128,6 +133,7 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
   }
 
   async launch(input: TeamRuntimeLaunchInput): Promise<TeamRuntimeLaunchResult> {
+    const configuredLaunchMode = resolveOpenCodeTeamLaunchMode(this.options);
     const prepared = await this.prepare(input);
     if (!prepared.ok) {
       return blockedLaunchResult(input, prepared.reason, prepared.diagnostics, prepared.warnings);
@@ -149,7 +155,7 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
     const runtimeSnapshot = this.bridge.getLastOpenCodeRuntimeSnapshot?.(input.cwd) ?? null;
     this.lastProjectPathByTeamName.set(input.teamName, input.cwd);
     const data = await this.bridge.launchOpenCodeTeam({
-      mode: resolveOpenCodeTeamLaunchMode(this.options),
+      mode: configuredLaunchMode,
       runId: input.runId,
       teamId: input.teamName,
       teamName: input.teamName,

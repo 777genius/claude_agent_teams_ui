@@ -48,7 +48,8 @@ export type TeamModelRuntimeProviderStatus = Pick<
   | 'backend'
   | 'authenticated'
   | 'supported'
->;
+> &
+  Partial<Pick<CliProviderStatus, 'verificationState' | 'statusMessage'>>;
 
 export type TeamRuntimeModelOption = TeamProviderModelOption & {
   availabilityStatus?: CliProviderModelAvailabilityStatus | null;
@@ -75,6 +76,34 @@ export function isTeamModelUiDisabled(
   providerStatus?: TeamModelRuntimeProviderStatus | null
 ): boolean {
   return getTeamModelUiDisabledReason(providerId, model, providerStatus) !== null;
+}
+
+export function isTeamProviderModelVerificationPending(
+  providerId: SupportedProviderId | undefined,
+  providerStatus?: TeamModelRuntimeProviderStatus | null
+): boolean {
+  if (!providerId || providerId === 'anthropic' || !providerStatus) {
+    return false;
+  }
+
+  if (providerStatus.modelVerificationState === 'verifying') {
+    return true;
+  }
+
+  if (providerStatus.verificationState !== 'unknown') {
+    return false;
+  }
+
+  const hasRuntimeModelTruth =
+    providerStatus.models.length > 0 ||
+    (providerStatus.modelCatalog?.models.length ?? 0) > 0 ||
+    (providerStatus.modelAvailability?.length ?? 0) > 0;
+  if (hasRuntimeModelTruth) {
+    return false;
+  }
+
+  const statusMessage = providerStatus.statusMessage?.trim().toLowerCase() ?? '';
+  return statusMessage.length === 0 || statusMessage === 'checking...';
 }
 
 function getFallbackTeamProviderModels(providerId: SupportedProviderId): string[] {
@@ -304,6 +333,10 @@ export function getAvailableTeamProviderModelOptions(
     return [{ value: '', label: 'Default', badgeLabel: 'Default' }];
   }
 
+  if (isTeamProviderModelVerificationPending(providerId, providerStatus)) {
+    return getFallbackTeamProviderModelOptions(providerId, providerStatus);
+  }
+
   const visibleModels = getRuntimeSelectorModels(providerId, providerStatus);
   return [
     { value: '', label: 'Default', badgeLabel: 'Default' },
@@ -348,6 +381,10 @@ export function isTeamModelAvailableForUi(
     return getRuntimeModelAvailability(providerId, trimmed, providerStatus) === 'available';
   }
 
+  if (isTeamProviderModelVerificationPending(providerId, providerStatus)) {
+    return true;
+  }
+
   return getRuntimeModelAvailability(providerId, trimmed, providerStatus) === 'available';
 }
 
@@ -382,6 +419,10 @@ export function normalizeTeamModelForUi(
     return '';
   }
 
+  if (isTeamProviderModelVerificationPending(providerId, providerStatus)) {
+    return normalized;
+  }
+
   const visibleModels = getVisibleRuntimeModels(providerId, providerStatus);
   if (!visibleModels.includes(trimmed)) {
     return '';
@@ -414,6 +455,10 @@ export function getTeamModelSelectionError(
 
   if (!providerStatus) {
     return `Model "${trimmed}" is waiting for ${getTeamProviderLabel(providerId) ?? providerId} runtime verification. Wait for the model list to load or use Default.`;
+  }
+
+  if (isTeamProviderModelVerificationPending(providerId, providerStatus)) {
+    return null;
   }
 
   const visibleModels = getVisibleRuntimeModels(providerId, providerStatus);

@@ -26,6 +26,7 @@ export interface OpenCodeProductionE2EEvidenceStoreOptions {
 
 export interface OpenCodeProductionE2EEvidenceStoreReadOptions {
   selectedModel?: string | null;
+  projectPathFingerprint?: string | null;
 }
 
 export class OpenCodeProductionE2EEvidenceStore {
@@ -62,7 +63,7 @@ export class OpenCodeProductionE2EEvidenceStore {
       };
     }
 
-    const selection = selectEvidence(result.data, options.selectedModel);
+    const selection = selectEvidence(result.data, options);
     return {
       ok: true,
       evidence: selection.evidence,
@@ -90,7 +91,7 @@ export class OpenCodeProductionE2EEvidenceStore {
 
 function selectEvidence(
   data: OpenCodeProductionE2EEvidenceStoreData,
-  selectedModel: string | null | undefined
+  options: OpenCodeProductionE2EEvidenceStoreReadOptions
 ): {
   evidence: OpenCodeProductionE2EEvidence | null;
   diagnostics: string[];
@@ -103,13 +104,43 @@ function selectEvidence(
     return { evidence: data, diagnostics: [] };
   }
 
-  const modelId = selectedModel?.trim() ?? '';
+  const modelId = options.selectedModel?.trim() ?? '';
+  const projectPathFingerprint = options.projectPathFingerprint?.trim() ?? '';
   if (modelId) {
+    const entries = Object.values(data.entriesByModel).filter(
+      (entry) => entry.selectedModel === modelId
+    );
+    if (entries.length === 0) {
+      return {
+        evidence: null,
+        diagnostics: [
+          `OpenCode production E2E evidence artifact has no entry for selected model ${modelId}`,
+        ],
+      };
+    }
+
+    if (projectPathFingerprint) {
+      const exactMatch = pickNewestEvidence(
+        entries.filter((entry) => entry.projectPathFingerprint === projectPathFingerprint)
+      );
+      if (exactMatch) {
+        return {
+          evidence: exactMatch,
+          diagnostics: [],
+        };
+      }
+
+      return {
+        evidence: null,
+        diagnostics: [
+          `OpenCode production E2E evidence artifact has no entry for selected model ${modelId} and the current working directory`,
+        ],
+      };
+    }
+
     return {
-      evidence: data.entriesByModel[modelId] ?? null,
-      diagnostics: data.entriesByModel[modelId]
-        ? []
-        : [`OpenCode production E2E evidence artifact has no entry for selected model ${modelId}`],
+      evidence: pickNewestEvidence(entries),
+      diagnostics: [],
     };
   }
 
@@ -140,9 +171,33 @@ function upsertEvidence(
     entriesByModel[current.selectedModel] = current;
   }
 
-  entriesByModel[evidence.selectedModel] = evidence;
+  entriesByModel[buildEvidenceKey(evidence)] = evidence;
   return {
     collectionSchemaVersion: 1,
     entriesByModel,
   };
+}
+
+function buildEvidenceKey(evidence: OpenCodeProductionE2EEvidence): string {
+  return [evidence.selectedModel, evidence.projectPathFingerprint ?? 'global'].join('::');
+}
+
+function pickNewestEvidence(
+  entries: OpenCodeProductionE2EEvidence[]
+): OpenCodeProductionE2EEvidence | null {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return entries.slice(1).reduce<OpenCodeProductionE2EEvidence>((latest, entry) => {
+    const latestAt = Date.parse(latest.createdAt);
+    const entryAt = Date.parse(entry.createdAt);
+    if (!Number.isFinite(entryAt)) {
+      return latest;
+    }
+    if (!Number.isFinite(latestAt) || entryAt >= latestAt) {
+      return entry;
+    }
+    return latest;
+  }, entries[0]!);
 }

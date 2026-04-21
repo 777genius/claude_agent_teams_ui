@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import * as path from 'node:path';
+
 export const OPENCODE_PRODUCTION_E2E_EVIDENCE_SCHEMA_VERSION = 1;
 export const OPENCODE_PRODUCTION_E2E_EVIDENCE_COLLECTION_SCHEMA_VERSION = 1;
 
@@ -92,12 +95,25 @@ export interface OpenCodeProductionE2EGateExpectation {
   binaryFingerprint: string | null;
   capabilitySnapshotId: string | null;
   selectedModel: string | null;
+  projectPathFingerprint?: string | null;
   requiredMcpTools?: string[];
 }
 
 export interface OpenCodeProductionE2EGateResult {
   ok: boolean;
   diagnostics: string[];
+}
+
+export function buildOpenCodeProjectPathFingerprint(
+  projectPath: string | null | undefined
+): string | null {
+  const trimmed = projectPath?.trim() ?? '';
+  if (!trimmed) {
+    return null;
+  }
+
+  const normalized = path.resolve(trimmed).replace(/\\/g, '/');
+  return `project:${createHash('sha256').update(normalized).digest('hex')}`;
 }
 
 export function validateOpenCodeProductionE2EEvidence(
@@ -368,6 +384,15 @@ function collectExpectedRuntimeDiagnostics(
     );
   }
 
+  if (
+    expected.projectPathFingerprint &&
+    evidence.projectPathFingerprint !== expected.projectPathFingerprint
+  ) {
+    diagnostics.push(
+      'OpenCode production E2E evidence project context does not match the current working directory'
+    );
+  }
+
   const requiredTools = expected.requiredMcpTools ?? [];
   if (requiredTools.length > 0) {
     const observedTools = new Set(evidence.mcpTools.observedTools);
@@ -418,19 +443,14 @@ function validateOpenCodeProductionE2EEvidenceCollection(
   }
 
   const entries: Record<string, OpenCodeProductionE2EEvidence> = {};
-  for (const [modelId, rawEvidence] of Object.entries(entriesRecord)) {
-    const trimmedModelId = modelId.trim();
-    if (!trimmedModelId) {
-      throw new Error('OpenCode production E2E evidence collection model id must be non-empty');
+  for (const [entryKey, rawEvidence] of Object.entries(entriesRecord)) {
+    const trimmedEntryKey = entryKey.trim();
+    if (!trimmedEntryKey) {
+      throw new Error('OpenCode production E2E evidence collection key must be non-empty');
     }
 
     const evidence = validateOpenCodeProductionE2EEvidence(rawEvidence);
-    if (evidence.selectedModel !== trimmedModelId) {
-      throw new Error(
-        `OpenCode production E2E evidence collection key ${trimmedModelId} does not match selectedModel ${evidence.selectedModel}`
-      );
-    }
-    entries[trimmedModelId] = evidence;
+    entries[trimmedEntryKey] = evidence;
   }
 
   return {

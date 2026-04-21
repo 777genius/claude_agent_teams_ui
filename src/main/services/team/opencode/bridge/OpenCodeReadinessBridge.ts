@@ -1,5 +1,6 @@
 import {
   assertOpenCodeProductionE2EArtifactGate,
+  buildOpenCodeProjectPathFingerprint,
   type OpenCodeProductionE2EEvidence,
 } from '../e2e/OpenCodeProductionE2EEvidence';
 import {
@@ -51,7 +52,7 @@ export interface OpenCodeReadinessBridgeOptions {
 }
 
 export interface OpenCodeProductionE2EEvidenceReadPort {
-  read(input?: { selectedModel?: string | null }): Promise<{
+  read(input?: { selectedModel?: string | null; projectPathFingerprint?: string | null }): Promise<{
     ok: boolean;
     evidence: OpenCodeProductionE2EEvidence | null;
     artifactPath: string;
@@ -128,8 +129,12 @@ export class OpenCodeReadinessBridge implements OpenCodeTeamRuntimeBridgePort {
     }
 
     const expectedModel = input.readiness.modelId ?? input.input.selectedModel;
+    const projectPathFingerprint = buildOpenCodeProjectPathFingerprint(input.input.projectPath);
     const evidenceRead = this.options.productionE2eEvidence
-      ? await this.options.productionE2eEvidence.read({ selectedModel: expectedModel })
+      ? await this.options.productionE2eEvidence.read({
+          selectedModel: expectedModel,
+          projectPathFingerprint,
+        })
       : {
           ok: false,
           evidence: null,
@@ -145,6 +150,7 @@ export class OpenCodeReadinessBridge implements OpenCodeTeamRuntimeBridgePort {
             binaryFingerprint: input.runtime.binaryFingerprint,
             capabilitySnapshotId: input.runtime.capabilitySnapshotId,
             selectedModel: expectedModel,
+            projectPathFingerprint,
             requiredMcpTools: REQUIRED_AGENT_TEAMS_RUNTIME_TOOLS.map((tool) =>
               buildOpenCodeCanonicalMcpToolId('agent-teams', tool)
             ),

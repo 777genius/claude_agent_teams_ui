@@ -6245,6 +6245,7 @@ export class TeamProvisioningService {
           cwd: targetCwd,
           providerId: 'opencode',
           model: selectedModelIds[0],
+          runtimeOnly: selectedModelIds.length === 0,
           skipPermissions: true,
           expectedMembers: [],
           previousLaunchState: null,

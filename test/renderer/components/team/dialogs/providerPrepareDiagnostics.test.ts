@@ -413,4 +413,83 @@ describe('runProviderPrepareDiagnostics', () => {
     expect(result.warnings).toEqual([]);
     expect(result.details).toEqual(['5.4 Mini - verified', '5.4 - verified']);
   });
+
+  it('suppresses a generic runtime preflight note when all selected models verify', async () => {
+    const prepareProvisioning = vi.fn<
+      (
+        cwd?: string,
+        providerId?: TeamProviderId,
+        providerIds?: TeamProviderId[],
+        selectedModels?: string[]
+      ) => Promise<TeamProvisioningPrepareResult>
+    >((_, __, ___, selectedModels) => {
+      if (!selectedModels || selectedModels.length === 0) {
+        return Promise.resolve({
+          ready: true,
+          message: 'CLI is ready to launch (see notes)',
+          warnings: ['orchestrator-cli preflight check failed (exit code 1).'],
+        });
+      }
+
+      return Promise.resolve({
+        ready: true,
+        message: 'CLI is ready to launch (see notes)',
+        warnings: ['orchestrator-cli preflight check failed (exit code 1).'],
+      });
+    });
+
+    const result = await runProviderPrepareDiagnostics({
+      cwd: '/tmp/project',
+      providerId: 'codex',
+      selectedModelIds: ['gpt-5.4'],
+      prepareProvisioning,
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.warnings).toEqual([]);
+    expect(result.details).toEqual(['5.4 - verified']);
+    expect(result.modelResultsById).toEqual({
+      'gpt-5.4': {
+        status: 'ready',
+        line: '5.4 - verified',
+        warningLine: null,
+      },
+    });
+  });
+
+  it('prefers detailed OpenCode auth diagnostics over a generic not_authenticated batch message', async () => {
+    const prepareProvisioning = vi.fn<
+      (
+        cwd?: string,
+        providerId?: TeamProviderId,
+        providerIds?: TeamProviderId[],
+        selectedModels?: string[]
+      ) => Promise<TeamProvisioningPrepareResult>
+    >((_, __, ___, selectedModels) => {
+      if (!selectedModels || selectedModels.length === 0) {
+        return Promise.resolve({
+          ready: true,
+          message: 'CLI is warmed up and ready to launch',
+        });
+      }
+
+      return Promise.resolve({
+        ready: false,
+        message: 'OpenCode: not_authenticated',
+        details: ['Token refresh failed: 401'],
+      });
+    });
+
+    const result = await runProviderPrepareDiagnostics({
+      cwd: '/tmp/project',
+      providerId: 'opencode',
+      selectedModelIds: ['openai/gpt-5.2-codex'],
+      prepareProvisioning,
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.details).toEqual([
+      'GPT-5.2 Codex - unavailable - OpenCode provider authentication failed (token refresh 401)',
+    ]);
+  });
 });

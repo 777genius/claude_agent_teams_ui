@@ -154,4 +154,67 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.panelMessage).toContain('requested model is not available');
     expect(presentation?.compactDetail).toBe('jack failed to start');
   });
+
+  it('prefers live member spawn statuses over a stale persisted launch summary', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-4',
+        teamName: 'codex-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed',
+        messageSeverity: undefined,
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'bob',
+          agentType: 'engineer',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {
+        bob: {
+          status: 'online',
+          launchState: 'runtime_pending_bootstrap',
+          updatedAt: '2026-04-13T10:00:07.000Z',
+          runtimeAlive: true,
+          livenessSource: 'process',
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+          firstSpawnAcceptedAt: '2026-04-13T10:00:01.000Z',
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['bob'],
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 1,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+        },
+      },
+    });
+
+    expect(presentation?.compactTitle).toBe('Finishing launch');
+    expect(presentation?.compactDetail).toBe('1 teammate still joining');
+    expect(presentation?.panelMessage).toBe('1 teammate still joining');
+  });
 });

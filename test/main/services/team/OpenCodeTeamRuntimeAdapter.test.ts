@@ -38,6 +38,25 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     });
   });
 
+  it('uses runtime-only readiness for model-less preflight checks', async () => {
+    const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true, modelId: null }));
+    const adapter = new OpenCodeTeamRuntimeAdapter(bridge, { launchMode: 'production' });
+
+    await expect(adapter.prepare(launchInput({ model: undefined, runtimeOnly: true }))).resolves
+      .toMatchObject({
+        ok: true,
+        providerId: 'opencode',
+        modelId: null,
+      });
+
+    expect(bridge.checkOpenCodeTeamLaunchReadiness).toHaveBeenCalledWith({
+      projectPath: '/repo',
+      selectedModel: null,
+      requireExecutionProbe: false,
+      launchMode: undefined,
+    });
+  });
+
   it('fails closed when launch mode is disabled', async () => {
     const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true }));
     const adapter = new OpenCodeTeamRuntimeAdapter(

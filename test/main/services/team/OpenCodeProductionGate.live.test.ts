@@ -17,6 +17,7 @@ import { OpenCodeReadinessBridge } from '../../../../src/main/services/team/open
 import { OpenCodeStateChangingBridgeCommandService } from '../../../../src/main/services/team/opencode/bridge/OpenCodeStateChangingBridgeCommandService';
 import {
   assertOpenCodeProductionE2EArtifactGate,
+  buildOpenCodeProjectPathFingerprint,
   OPENCODE_PRODUCTION_E2E_EVIDENCE_SCHEMA_VERSION,
   OPENCODE_PRODUCTION_E2E_EVIDENCE_MAX_AGE_MS,
   OPENCODE_PRODUCTION_E2E_READY_CHECKPOINTS,
@@ -29,6 +30,7 @@ import {
   REQUIRED_AGENT_TEAMS_RUNTIME_TOOLS,
 } from '../../../../src/main/services/team/opencode/mcp/OpenCodeMcpToolAvailability';
 import { resolveAgentTeamsMcpLaunchSpec } from '../../../../src/main/services/team/TeamMcpConfigBuilder';
+import { applyOpenCodeAutoUpdatePolicy } from '../../../../src/main/services/runtime/openCodeAutoUpdatePolicy';
 
 import type {
   OpenCodeBridgeRuntimeSnapshot,
@@ -99,8 +101,8 @@ liveDescribe('OpenCode production gate live e2e', () => {
       selectedModel,
       requireExecutionProbe: false,
     });
-    const runtime = readinessBridge.getLastOpenCodeRuntimeSnapshot(PROJECT_PATH);
-    if (!runtime) {
+    const initialRuntime = readinessBridge.getLastOpenCodeRuntimeSnapshot(PROJECT_PATH);
+    if (!initialRuntime) {
       throw new Error(
         `OpenCode live readiness did not return runtime snapshot: ${[
           ...readiness.diagnostics,
@@ -108,8 +110,8 @@ liveDescribe('OpenCode production gate live e2e', () => {
         ].join('; ')}`
       );
     }
-    expect(runtime?.version).toBe('1.14.19');
-    expect(runtime?.capabilitySnapshotId).toBeTruthy();
+    expect(initialRuntime?.version).toBe('1.14.19');
+    expect(initialRuntime?.capabilitySnapshotId).toBeTruthy();
 
     const runId = `opencode-e2e-${Date.now()}`;
     const teamName = `opencode-e2e-team-${Date.now()}`;
@@ -136,7 +138,7 @@ liveDescribe('OpenCode production gate live e2e', () => {
           },
         ],
         leadPrompt: 'Live OpenCode production gate e2e',
-        expectedCapabilitySnapshotId: runtime?.capabilitySnapshotId ?? null,
+        expectedCapabilitySnapshotId: initialRuntime?.capabilitySnapshotId ?? null,
         manifestHighWatermark: null,
       });
 
@@ -148,7 +150,7 @@ liveDescribe('OpenCode production gate live e2e', () => {
         teamId: teamName,
         teamName,
         projectPath: PROJECT_PATH,
-        expectedCapabilitySnapshotId: runtime?.capabilitySnapshotId ?? null,
+        expectedCapabilitySnapshotId: initialRuntime?.capabilitySnapshotId ?? null,
         manifestHighWatermark: null,
         expectedMembers: [{ name: memberName, model: selectedModel }],
         reason: 'production_gate_e2e',
@@ -182,19 +184,36 @@ liveDescribe('OpenCode production gate live e2e', () => {
         teamId: teamName,
         teamName,
         projectPath: PROJECT_PATH,
-        expectedCapabilitySnapshotId: runtime?.capabilitySnapshotId ?? null,
+        expectedCapabilitySnapshotId: initialRuntime?.capabilitySnapshotId ?? null,
         manifestHighWatermark: null,
         reason: 'production_gate_e2e_cleanup',
         force: true,
       });
       expect(stop.stopped).toBe(true);
 
+      const finalReadiness = await readinessBridge.checkOpenCodeTeamLaunchReadiness({
+        projectPath: PROJECT_PATH,
+        selectedModel,
+        requireExecutionProbe: true,
+      });
+      const finalRuntime = readinessBridge.getLastOpenCodeRuntimeSnapshot(PROJECT_PATH);
+      if (!finalRuntime) {
+        throw new Error(
+          `OpenCode final readiness did not return runtime snapshot: ${[
+            ...finalReadiness.diagnostics,
+            ...finalReadiness.missing,
+          ].join('; ')}`
+        );
+      }
+      expect(finalRuntime.version).toBe('1.14.19');
+      expect(finalRuntime.capabilitySnapshotId).toBeTruthy();
+
       const candidate = buildCandidateEvidence({
         runId,
         teamName,
         memberName,
         selectedModel,
-        runtime: runtime!,
+        runtime: finalRuntime,
         readinessObservedTools: readiness.evidence.observedMcpTools,
         launch,
         reconcile,
@@ -207,10 +226,11 @@ liveDescribe('OpenCode production gate live e2e', () => {
         evidence: candidate,
         artifactPath: candidate.artifactPath,
         expected: {
-          opencodeVersion: runtime?.version ?? null,
-          binaryFingerprint: runtime?.binaryFingerprint ?? null,
-          capabilitySnapshotId: runtime?.capabilitySnapshotId ?? null,
+          opencodeVersion: finalRuntime.version ?? null,
+          binaryFingerprint: finalRuntime.binaryFingerprint ?? null,
+          capabilitySnapshotId: finalRuntime.capabilitySnapshotId ?? null,
           selectedModel,
+          projectPathFingerprint: buildOpenCodeProjectPathFingerprint(PROJECT_PATH),
           requiredMcpTools: REQUIRED_AGENT_TEAMS_RUNTIME_TOOLS.map((tool) =>
             buildOpenCodeCanonicalMcpToolId('agent-teams', tool)
           ),
@@ -230,7 +250,7 @@ liveDescribe('OpenCode production gate live e2e', () => {
             teamId: teamName,
             teamName,
             projectPath: PROJECT_PATH,
-            expectedCapabilitySnapshotId: runtime?.capabilitySnapshotId ?? null,
+            expectedCapabilitySnapshotId: initialRuntime?.capabilitySnapshotId ?? null,
             manifestHighWatermark: null,
             reason: 'production_gate_e2e_finally_cleanup',
             force: true,
@@ -373,7 +393,7 @@ function buildCandidateEvidence(input: {
     binaryFingerprint: input.runtime.binaryFingerprint ?? 'unknown',
     capabilitySnapshotId: input.runtime.capabilitySnapshotId ?? 'unknown',
     selectedModel: input.selectedModel,
-    projectPathFingerprint: null,
+    projectPathFingerprint: buildOpenCodeProjectPathFingerprint(PROJECT_PATH),
     requiredSignals: {
       ...Object.fromEntries(
         OPENCODE_PRODUCTION_E2E_REQUIRED_SIGNALS.map((signal) => [signal, true])
@@ -433,23 +453,9 @@ function withBunOnPath(pathValue: string): string {
 
 function createStableBridgeEnv(): NodeJS.ProcessEnv {
   const realHome = os.userInfo().homedir;
-  const passThroughKeys = [
-    'USER',
-    'LOGNAME',
-    'SHELL',
-    'TMPDIR',
-    'LANG',
-    'LC_ALL',
-    'OPENCODE_E2E_MODEL',
-    'OPENCODE_DISABLE_CLAUDE_CODE',
-    'OPENCODE_DISABLE_AUTOUPDATE',
-  ];
+  const env = applyOpenCodeAutoUpdatePolicy({ ...process.env });
   return {
-    ...Object.fromEntries(
-      passThroughKeys
-        .map((key) => [key, process.env[key]] as const)
-        .filter((entry): entry is readonly [string, string] => typeof entry[1] === 'string')
-    ),
+    ...env,
     HOME: realHome,
     USERPROFILE: realHome,
   };

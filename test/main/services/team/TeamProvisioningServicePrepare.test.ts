@@ -92,6 +92,7 @@ vi.mock('@main/utils/childProcess', () => ({
 
 import { TeamProvisioningService } from '@main/services/team/TeamProvisioningService';
 import { ClaudeBinaryResolver } from '@main/services/team/ClaudeBinaryResolver';
+import { TeamRuntimeAdapterRegistry } from '@main/services/team/runtime';
 import { spawnCli } from '@main/utils/childProcess';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 
@@ -325,6 +326,59 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
       )
     ).rejects.toThrow('OpenCode team launch is not enabled in the legacy Claude stream-json');
     expect(ClaudeBinaryResolver.resolve).not.toHaveBeenCalled();
+  });
+
+  it('marks model-less OpenCode prepare as runtime-only and keeps model checks strict', async () => {
+    const prepare = vi.fn(async () => ({
+      ok: true as const,
+      providerId: 'opencode' as const,
+      modelId: null,
+      diagnostics: [],
+      warnings: [],
+    }));
+    const registry = new TeamRuntimeAdapterRegistry([
+      {
+        providerId: 'opencode',
+        prepare,
+        launch: vi.fn(),
+        reconcile: vi.fn(),
+        stop: vi.fn(),
+      } as any,
+    ]);
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeAdapterRegistry(registry);
+
+    await expect(
+      svc.prepareForProvisioning(tempRoot, {
+        providerId: 'opencode',
+        forceFresh: true,
+      })
+    ).resolves.toMatchObject({
+      ready: true,
+      message: 'CLI is warmed up and ready to launch',
+    });
+    expect(prepare).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        providerId: 'opencode',
+        model: undefined,
+        runtimeOnly: true,
+      })
+    );
+
+    await svc.prepareForProvisioning(tempRoot, {
+      providerId: 'opencode',
+      forceFresh: true,
+      modelIds: ['opencode/minimax-m2.5-free'],
+    });
+    expect(prepare).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        providerId: 'opencode',
+        model: 'opencode/minimax-m2.5-free',
+        runtimeOnly: false,
+      })
+    );
   });
 
   it('keys the prepare probe cache by cwd', async () => {

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   assertOpenCodeProductionE2EArtifactGate,
+  buildOpenCodeProjectPathFingerprint,
   OPENCODE_PRODUCTION_E2E_READY_CHECKPOINTS,
   OPENCODE_PRODUCTION_E2E_REQUIRED_SIGNALS,
   validateOpenCodeProductionE2EEvidence,
@@ -43,6 +44,7 @@ describe('OpenCodeProductionE2EEvidence', () => {
           binaryFingerprint: 'version:1.14.19',
           capabilitySnapshotId: 'cap-1',
           selectedModel: 'openai/gpt-5.4-mini',
+          projectPathFingerprint: 'project-a',
           requiredMcpTools: ['agent-teams_runtime_deliver_message'],
         },
       })
@@ -73,6 +75,7 @@ describe('OpenCodeProductionE2EEvidence', () => {
           binaryFingerprint: 'version:1.14.19',
           capabilitySnapshotId: 'cap-1',
           selectedModel: 'openai/gpt-5.4-mini',
+          projectPathFingerprint: 'project-a',
           requiredMcpTools: ['agent-teams_runtime_deliver_message'],
         },
       })
@@ -167,6 +170,56 @@ describe('OpenCodeProductionE2EEvidence', () => {
       evidence: null,
       diagnostics: [
         'OpenCode production E2E evidence artifact has no entry for selected model openai/gpt-5.4-mini',
+      ],
+    });
+  });
+
+  it('stores production evidence for the same raw model across multiple project contexts', async () => {
+    const filePath = path.join(tempDir, 'production-e2e-evidence.json');
+    const store = new OpenCodeProductionE2EEvidenceStore({
+      filePath,
+      clock: () => now,
+    });
+
+    await store.write(
+      passingEvidence({
+        evidenceId: 'e2e-project-a',
+        selectedModel: 'opencode/minimax-m2.5-free',
+        projectPathFingerprint: buildOpenCodeProjectPathFingerprint('/repo-a'),
+      })
+    );
+    await store.write(
+      passingEvidence({
+        evidenceId: 'e2e-project-b',
+        selectedModel: 'opencode/minimax-m2.5-free',
+        projectPathFingerprint: buildOpenCodeProjectPathFingerprint('/repo-b'),
+      })
+    );
+
+    await expect(
+      store.read({
+        selectedModel: 'opencode/minimax-m2.5-free',
+        projectPathFingerprint: buildOpenCodeProjectPathFingerprint('/repo-b'),
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      evidence: {
+        evidenceId: 'e2e-project-b',
+        selectedModel: 'opencode/minimax-m2.5-free',
+      },
+      diagnostics: [],
+    });
+
+    await expect(
+      store.read({
+        selectedModel: 'opencode/minimax-m2.5-free',
+        projectPathFingerprint: buildOpenCodeProjectPathFingerprint('/repo-c'),
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      evidence: null,
+      diagnostics: [
+        'OpenCode production E2E evidence artifact has no entry for selected model opencode/minimax-m2.5-free and the current working directory',
       ],
     });
   });

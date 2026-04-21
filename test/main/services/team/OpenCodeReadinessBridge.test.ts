@@ -8,6 +8,7 @@ import {
 import {
   OPENCODE_PRODUCTION_E2E_READY_CHECKPOINTS,
   OPENCODE_PRODUCTION_E2E_REQUIRED_SIGNALS,
+  buildOpenCodeProjectPathFingerprint,
   type OpenCodeProductionE2EEvidence,
 } from '../../../../src/main/services/team/opencode/e2e/OpenCodeProductionE2EEvidence';
 import {
@@ -167,6 +168,7 @@ describe('OpenCodeReadinessBridge', () => {
     });
     expect(evidence.read).toHaveBeenCalledWith({
       selectedModel: 'openai/gpt-5.4-mini',
+      projectPathFingerprint: buildOpenCodeProjectPathFingerprint('/repo'),
     });
   });
 
@@ -365,7 +367,7 @@ function productionEvidence(
     binaryFingerprint: 'bin-1',
     capabilitySnapshotId: 'cap-1',
     selectedModel: 'openai/gpt-5.4-mini',
-    projectPathFingerprint: 'project-a',
+    projectPathFingerprint: buildOpenCodeProjectPathFingerprint('/repo'),
     requiredSignals: Object.fromEntries(
       OPENCODE_PRODUCTION_E2E_REQUIRED_SIGNALS.map((signal) => [signal, true])
     ) as OpenCodeProductionE2EEvidence['requiredSignals'],
