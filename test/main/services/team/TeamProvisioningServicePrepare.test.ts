@@ -224,7 +224,12 @@ function spawnRealCli(
   args: readonly string[],
   options?: Parameters<typeof spawn>[2]
 ) {
-  return options ? spawn(command, [...args], options) : spawn(command, [...args]);
+  const spawnOptions = options ?? {};
+  const needsWindowsCommandShell = process.platform === 'win32' && /\.(bat|cmd)$/i.test(command);
+  return spawn(command, [...args], {
+    ...spawnOptions,
+    ...(needsWindowsCommandShell ? { shell: true } : {}),
+  });
 }
 
 async function removeTempRoot(dirPath: string): Promise<void> {
