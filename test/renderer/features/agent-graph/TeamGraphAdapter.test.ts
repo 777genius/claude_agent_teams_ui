@@ -1360,6 +1360,35 @@ describe('TeamGraphAdapter particles', () => {
     });
   });
 
+  it('treats permission-blocked spawn state as awaiting approval even without pending approval feed', () => {
+    const adapter = TeamGraphAdapter.create();
+    const teamData = createBaseTeamData();
+
+    adapter.adapt(teamData, 'my-team');
+
+    const graph = adapter.adapt(teamData, 'my-team', {
+      alice: {
+        status: 'online',
+        launchState: 'runtime_pending_permission',
+        runtimeAlive: true,
+        agentToolAccepted: true,
+        bootstrapConfirmed: false,
+        hardFailure: false,
+        updatedAt: '2026-04-08T20:00:00.000Z',
+      },
+    });
+
+    expect(findNode(graph, 'member:my-team:alice')).toMatchObject({
+      state: 'waiting',
+      spawnStatus: 'online',
+      launchVisualState: 'permission_pending',
+      launchStatusLabel: 'awaiting permission',
+      exceptionTone: 'warning',
+      exceptionLabel: 'awaiting approval',
+      pendingApproval: false,
+    });
+  });
+
   it('refreshes unread comment badges when comment read state changes without task changes', () => {
     const adapter = TeamGraphAdapter.create();
     const teamData = createBaseTeamData({
