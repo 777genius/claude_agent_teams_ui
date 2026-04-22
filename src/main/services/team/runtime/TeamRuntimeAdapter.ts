@@ -69,6 +69,7 @@ export interface TeamRuntimeMemberLaunchEvidence {
   bootstrapConfirmed: boolean;
   hardFailure: boolean;
   hardFailureReason?: string;
+  pendingPermissionRequestIds?: string[];
   sessionId?: string;
   backendType?: TeamAgentRuntimeBackendType;
   runtimePid?: number;

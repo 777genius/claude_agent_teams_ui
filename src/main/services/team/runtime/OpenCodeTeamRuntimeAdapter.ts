@@ -440,7 +440,9 @@ function mapBridgeMemberToRuntimeEvidence(
       ? 'failed_to_start'
       : confirmed
         ? 'confirmed_alive'
-        : 'runtime_pending_bootstrap',
+        : launchState === 'permission_blocked'
+          ? 'runtime_pending_permission'
+          : 'runtime_pending_bootstrap',
     agentToolAccepted: confirmed || pendingRuntimeObserved,
     runtimeAlive: confirmed || pendingRuntimeObserved,
     bootstrapConfirmed: confirmed,

@@ -12017,6 +12017,7 @@ export class TeamProvisioningService {
                 bootstrapConfirmed: evidenceEntry.bootstrapConfirmed,
                 hardFailure: evidenceEntry.hardFailure,
                 hardFailureReason: evidenceEntry.hardFailureReason,
+                pendingPermissionRequestIds: evidenceEntry.pendingPermissionRequestIds,
                 diagnostics: evidenceEntry.diagnostics,
               }
             : null,

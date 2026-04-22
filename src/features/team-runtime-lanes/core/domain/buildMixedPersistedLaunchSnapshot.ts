@@ -36,6 +36,7 @@ export interface MixedSecondaryLaneMemberStateInput {
     bootstrapConfirmed?: boolean;
     hardFailure?: boolean;
     hardFailureReason?: string;
+    pendingPermissionRequestIds?: string[];
     diagnostics?: string[];
   } | null;
   pendingReason?: string;
@@ -46,12 +47,16 @@ function deriveMemberLaunchState(params: {
   bootstrapConfirmed?: boolean;
   runtimeAlive?: boolean;
   agentToolAccepted?: boolean;
+  pendingPermissionRequestIds?: string[];
 }): MemberLaunchState {
   if (params.hardFailure) {
     return 'failed_to_start';
   }
   if (params.bootstrapConfirmed) {
     return 'confirmed_alive';
+  }
+  if ((params.pendingPermissionRequestIds?.length ?? 0) > 0) {
+    return 'runtime_pending_permission';
   }
   if (params.runtimeAlive || params.agentToolAccepted) {
     return 'runtime_pending_bootstrap';
@@ -62,14 +67,21 @@ function deriveMemberLaunchState(params: {
 function buildDiagnostics(
   member: Pick<
     PersistedTeamLaunchMemberState,
-    'agentToolAccepted' | 'runtimeAlive' | 'bootstrapConfirmed' | 'hardFailureReason' | 'sources'
+    | 'agentToolAccepted'
+    | 'runtimeAlive'
+    | 'bootstrapConfirmed'
+    | 'hardFailureReason'
+    | 'sources'
+    | 'pendingPermissionRequestIds'
   >
 ): string[] {
   const diagnostics: string[] = [];
   if (member.agentToolAccepted) diagnostics.push('spawn accepted');
   if (member.runtimeAlive) diagnostics.push('runtime alive');
   if (member.bootstrapConfirmed) diagnostics.push('late heartbeat received');
-  if (member.runtimeAlive && !member.bootstrapConfirmed) {
+  if ((member.pendingPermissionRequestIds?.length ?? 0) > 0) {
+    diagnostics.push('waiting for permission approval');
+  } else if (member.runtimeAlive && !member.bootstrapConfirmed) {
     diagnostics.push('waiting for teammate check-in');
   }
   if (member.hardFailureReason)
@@ -140,6 +152,7 @@ function createPrimaryLaneMemberState(params: {
         bootstrapConfirmed: runtime?.bootstrapConfirmed,
         runtimeAlive: runtime?.runtimeAlive,
         agentToolAccepted: runtime?.agentToolAccepted,
+        pendingPermissionRequestIds: runtime?.pendingPermissionRequestIds,
       }),
     agentToolAccepted: runtime?.agentToolAccepted === true,
     runtimeAlive: runtime?.runtimeAlive === true,
@@ -171,6 +184,7 @@ function createSecondaryLaneMemberState(
       bootstrapConfirmed: evidence?.bootstrapConfirmed,
       runtimeAlive: evidence?.runtimeAlive,
       agentToolAccepted: evidence?.agentToolAccepted,
+      pendingPermissionRequestIds: evidence?.pendingPermissionRequestIds,
     });
   const base: PersistedTeamLaunchMemberState = {
     name: params.member.name.trim(),
@@ -200,6 +214,9 @@ function createSecondaryLaneMemberState(
     bootstrapConfirmed: evidence?.bootstrapConfirmed === true,
     hardFailure: evidence?.hardFailure === true || launchState === 'failed_to_start',
     hardFailureReason,
+    pendingPermissionRequestIds: evidence?.pendingPermissionRequestIds?.length
+      ? [...new Set(evidence.pendingPermissionRequestIds)]
+      : undefined,
     firstSpawnAcceptedAt: evidence?.agentToolAccepted ? params.updatedAt : undefined,
     lastHeartbeatAt: evidence?.bootstrapConfirmed ? params.updatedAt : undefined,
     lastRuntimeAliveAt: evidence?.runtimeAlive ? params.updatedAt : undefined,

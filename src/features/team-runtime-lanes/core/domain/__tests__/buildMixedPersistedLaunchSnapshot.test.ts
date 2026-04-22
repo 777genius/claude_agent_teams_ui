@@ -230,4 +230,79 @@ describe('buildMixedPersistedLaunchSnapshot', () => {
     });
     expect(snapshot.teamLaunchState).toBe('partial_failure');
   });
+
+  it('preserves permission-blocked side-lane members as runtime_pending_permission', () => {
+    const snapshot = buildMixedPersistedLaunchSnapshot({
+      teamName: 'mixed-team',
+      launchPhase: 'active',
+      updatedAt: '2026-04-22T10:05:00.000Z',
+      leadDefaults: {
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        selectedFastMode: 'off',
+        resolvedFastMode: false,
+        launchIdentity: null,
+      },
+      primaryMembers: [{ name: 'alice', providerId: 'codex', model: 'gpt-5.4', effort: 'high' }],
+      primaryStatuses: {
+        alice: {
+          launchState: 'confirmed_alive',
+          status: 'online',
+          agentToolAccepted: true,
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          hardFailure: false,
+          livenessSource: 'heartbeat',
+          firstSpawnAcceptedAt: '2026-04-22T10:00:00.000Z',
+          lastHeartbeatAt: '2026-04-22T10:01:00.000Z',
+          updatedAt: '2026-04-22T10:05:00.000Z',
+        } as never,
+      },
+      secondaryMembers: [
+        {
+          laneId: 'secondary:opencode:bob',
+          member: {
+            name: 'bob',
+            providerId: 'opencode',
+            model: 'minimax-m2.5-free',
+            effort: 'medium',
+          },
+          leadDefaults: {
+            providerId: 'codex',
+            providerBackendId: 'codex-native',
+            selectedFastMode: 'off',
+            resolvedFastMode: false,
+            launchIdentity: null,
+          },
+          evidence: {
+            launchState: 'runtime_pending_permission',
+            agentToolAccepted: true,
+            runtimeAlive: true,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            pendingPermissionRequestIds: ['opencode:run-1:perm_1'],
+          },
+        },
+      ],
+    });
+
+    expect(snapshot.members.bob).toMatchObject({
+      laneKind: 'secondary',
+      laneOwnerProviderId: 'opencode',
+      launchState: 'runtime_pending_permission',
+      runtimeAlive: true,
+      agentToolAccepted: true,
+      bootstrapConfirmed: false,
+      pendingPermissionRequestIds: ['opencode:run-1:perm_1'],
+      hardFailure: false,
+    });
+    expect(snapshot.members.bob.diagnostics).toContain('waiting for permission approval');
+    expect(snapshot.summary).toEqual({
+      confirmedCount: 1,
+      pendingCount: 1,
+      failedCount: 0,
+      runtimeAlivePendingCount: 1,
+    });
+    expect(snapshot.teamLaunchState).toBe('partial_pending');
+  });
 });
