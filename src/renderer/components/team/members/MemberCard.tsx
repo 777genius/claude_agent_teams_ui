@@ -124,6 +124,7 @@ export const MemberCard = ({
   const runtimeAdvisoryTitle = launchPresentation.runtimeAdvisoryTitle;
   const presenceLabel = launchPresentation.presenceLabel;
   const spawnCardClass = launchPresentation.cardClass;
+  const launchVisualState = launchPresentation.launchVisualState;
   const launchStatusLabel = launchPresentation.launchStatusLabel;
   const colors = getTeamColorSet(memberColor);
   const { isLight } = useTheme();
@@ -148,7 +149,12 @@ export const MemberCard = ({
     !activityTask &&
     !runtimeSummary;
   const showLaunchBadge =
-    !isRemoved && !activityTask && (presenceLabel === 'starting' || presenceLabel === 'connecting');
+    !isRemoved &&
+    !activityTask &&
+    !runtimeAdvisoryLabel &&
+    (presenceLabel === 'starting' ||
+      presenceLabel === 'connecting' ||
+      launchVisualState === 'runtime_pending');
   const launchBadgeLabel =
     presenceLabel === 'starting' ? presenceLabel : (launchStatusLabel ?? presenceLabel);
   const showRuntimeAdvisoryBadge =
@@ -271,7 +277,7 @@ export const MemberCard = ({
             <span className="flex shrink-0 items-center gap-1">
               <Loader2
                 className="size-3.5 shrink-0 animate-spin text-[var(--color-text-muted)]"
-                aria-label={presenceLabel}
+                aria-label={launchBadgeLabel}
               />
               <Badge
                 variant="secondary"
