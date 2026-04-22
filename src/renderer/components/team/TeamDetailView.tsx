@@ -41,6 +41,7 @@ import { createChipFromSelection } from '@renderer/utils/chipUtils';
 import { sumContextInjectionTokens } from '@renderer/utils/contextMath';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { formatProjectPath } from '@renderer/utils/pathDisplay';
+import { buildPendingRuntimeSummaryCopy } from '@renderer/utils/teamLaunchSummaryCopy';
 import { buildTaskCountsByOwner, normalizePath } from '@renderer/utils/pathNormalize';
 import { nameColorSet } from '@renderer/utils/projectColor';
 import { resolveProjectIdByPath } from '@renderer/utils/projectLookup';
@@ -263,7 +264,12 @@ const TeamOfflineStatusBanner = memo(function TeamOfflineStatusBanner({
   const message =
     summary?.teamLaunchState === 'partial_pending'
       ? summary.runtimeAlivePendingCount != null && summary.runtimeAlivePendingCount > 0
-        ? `Last launch is still reconciling - ${summary.confirmedCount ?? 0}/${summary.expectedMemberCount ?? summary.memberCount} teammates confirmed alive, ${summary.runtimeAlivePendingCount} runtime${summary.runtimeAlivePendingCount === 1 ? '' : 's'} pending bootstrap`
+        ? buildPendingRuntimeSummaryCopy({
+            confirmedCount: summary.confirmedCount,
+            expectedMemberCount: summary.expectedMemberCount,
+            memberCount: summary.memberCount,
+            runtimeAlivePendingCount: summary.runtimeAlivePendingCount,
+          })
         : 'Last launch is still reconciling'
       : summary?.partialLaunchFailure
         ? summary.missingMemberCount > 0
