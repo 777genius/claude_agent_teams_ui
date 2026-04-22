@@ -105,8 +105,14 @@ export function summarizePersistedLaunchMembers(
   let failedCount = 0;
   let runtimeAlivePendingCount = 0;
   const normalizedExpected = expectedMembers.map(normalizeMemberName).filter(Boolean);
+  const memberNames = Array.from(
+    new Set([
+      ...normalizedExpected,
+      ...Object.keys(members).map(normalizeMemberName).filter(Boolean),
+    ])
+  );
 
-  for (const memberName of normalizedExpected) {
+  for (const memberName of memberNames) {
     const entry = members[memberName];
     if (!entry) {
       pendingCount += 1;

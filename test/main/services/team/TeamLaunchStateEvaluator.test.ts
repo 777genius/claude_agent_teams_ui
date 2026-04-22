@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { snapshotToMemberSpawnStatuses } from '../../../../src/main/services/team/TeamLaunchStateEvaluator';
+import {
+  snapshotToMemberSpawnStatuses,
+  summarizePersistedLaunchMembers,
+} from '../../../../src/main/services/team/TeamLaunchStateEvaluator';
 
 describe('TeamLaunchStateEvaluator', () => {
   it('keeps member spawn statuses for persisted members even when expectedMembers is stale', () => {
@@ -53,6 +56,29 @@ describe('TeamLaunchStateEvaluator', () => {
       launchState: 'runtime_pending_permission',
       status: 'online',
       pendingPermissionRequestIds: ['req-1'],
+    });
+  });
+
+  it('counts persisted members in launch summary even when expectedMembers is stale', () => {
+    const summary = summarizePersistedLaunchMembers(
+      ['alice'],
+      {
+        alice: {
+          launchState: 'runtime_pending_bootstrap',
+          runtimeAlive: false,
+        },
+        bob: {
+          launchState: 'runtime_pending_permission',
+          runtimeAlive: true,
+        },
+      } as any
+    );
+
+    expect(summary).toEqual({
+      confirmedCount: 0,
+      pendingCount: 2,
+      failedCount: 0,
+      runtimeAlivePendingCount: 1,
     });
   });
 });
