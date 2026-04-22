@@ -393,6 +393,7 @@ function mapOpenCodeLaunchDataToRuntimeResult(
               : [
                   `OpenCode bridge response did not include ${member.name}; keeping the member pending until lane state materializes.`,
                 ]),
+            ...(bridgeMember?.diagnostics ?? []),
             ...(bridgeMember?.evidence ?? []).map(
               (evidence) => `${evidence.kind} at ${evidence.observedAt}`
             ),

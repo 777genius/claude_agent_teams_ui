@@ -252,6 +252,7 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
           sessionId: 'oc-session-1',
           launchState: 'permission_blocked',
           pendingPermissionRequestIds: ['perm-1', 'perm-1', 'perm-2'],
+          diagnostics: ['waiting for permission approval'],
           runtimePid: 123,
           model: 'openai/gpt-5.4-mini',
           evidence: [
@@ -278,7 +279,9 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
       { launchMode: 'dogfood' }
     );
 
-    await expect(adapter.launch(launchInput())).resolves.toMatchObject({
+    const result = await adapter.launch(launchInput());
+
+    expect(result).toMatchObject({
       teamLaunchState: 'partial_pending',
       members: {
         alice: {
@@ -289,6 +292,13 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
           agentToolAccepted: true,
           bootstrapConfirmed: false,
           hardFailure: false,
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      members: {
+        alice: {
+          diagnostics: expect.arrayContaining(['waiting for permission approval']),
         },
       },
     });
