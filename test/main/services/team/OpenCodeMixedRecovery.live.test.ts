@@ -79,6 +79,7 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
       const bridgeEnv = {
         ...createStableBridgeEnv(),
         PATH: withBunOnPath(process.env.PATH ?? ''),
+        XDG_DATA_HOME: path.join(tempDir, 'xdg-data-single'),
         CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
         CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
       };
@@ -185,6 +186,7 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
       const bridgeEnv = {
         ...createStableBridgeEnv(),
         PATH: withBunOnPath(process.env.PATH ?? ''),
+        XDG_DATA_HOME: path.join(tempDir, 'xdg-data-multi'),
         CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
         CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
       };

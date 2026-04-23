@@ -2482,6 +2482,110 @@ describe('TeamProvisioningService', () => {
       );
     });
 
+    it('marks an OpenCode secondary lane degraded when readiness fails before runtime materializes', async () => {
+      const teamName = 'mixed-prelaunch-failure';
+      const svc = new TeamProvisioningService();
+      const adapterLaunch = vi.fn(async (input: Record<string, unknown>) => ({
+        runId: String(input.runId),
+        teamName: String(input.teamName),
+        launchPhase: 'finished',
+        teamLaunchState: 'partial_failure',
+        members: {
+          bob: {
+            memberName: 'bob',
+            providerId: 'opencode',
+            launchState: 'failed_to_start',
+            agentToolAccepted: false,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: true,
+            hardFailureReason: 'unknown_error',
+            diagnostics: [
+              'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+              'opencode_bridge_unknown_outcome: OpenCode bridge command timed out',
+            ],
+          },
+        },
+        warnings: [],
+        diagnostics: [
+          'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+        ],
+      }));
+
+      const registry = new TeamRuntimeAdapterRegistry([
+        {
+          providerId: 'opencode',
+          prepare: vi.fn(),
+          launch: adapterLaunch,
+          reconcile: vi.fn(),
+          stop: vi.fn(),
+        } as any,
+      ]);
+      svc.setRuntimeAdapterRegistry(registry);
+
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => null),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+      });
+      run.isLaunch = true;
+      run.request = {
+        teamName,
+        cwd: '/tmp/mixed-prelaunch-failure',
+        providerId: 'codex',
+        model: 'gpt-5.4',
+        effort: 'high',
+        skipPermissions: true,
+      };
+      run.effectiveMembers = [
+        {
+          name: 'alice',
+          role: 'Reviewer',
+          providerId: 'codex',
+          model: 'gpt-5.4',
+          effort: 'high',
+        },
+      ];
+      run.mixedSecondaryLanes = [
+        {
+          laneId: 'secondary:opencode:bob',
+          providerId: 'opencode',
+          member: {
+            name: 'bob',
+            role: 'Developer',
+            providerId: 'opencode',
+            model: 'minimax-m2.5-free',
+            effort: 'medium',
+          },
+          runId: null,
+          state: 'queued',
+          result: null,
+          warnings: [],
+          diagnostics: [],
+        },
+      ];
+
+      await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
+      await vi.waitFor(() => {
+        expect(adapterLaunch).toHaveBeenCalledTimes(1);
+      });
+      await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
+        lanes: {
+          'secondary:opencode:bob': {
+            state: 'degraded',
+            diagnostics: expect.arrayContaining([
+              'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+            ]),
+          },
+        },
+      });
+    });
+
     it('starts all queued OpenCode secondary lanes without letting the first in-flight lane block its siblings', async () => {
       const svc = new TeamProvisioningService();
       const registry = new TeamRuntimeAdapterRegistry([

@@ -1324,6 +1324,47 @@ function isNeverSpawnedDuringLaunchReason(reason?: string): boolean {
   return reason?.trim() === 'Teammate was never spawned during launch.';
 }
 
+function collectRuntimeLaunchFailureDiagnostics(
+  result: TeamRuntimeLaunchResult,
+  memberName: string
+): string[] {
+  const member = result.members[memberName];
+  return [...(member?.diagnostics ?? []), member?.hardFailureReason, ...result.diagnostics].filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  );
+}
+
+function isReconciliableOpenCodeUnknownOutcome(diagnostics: readonly string[]): boolean {
+  return diagnostics.some((diagnostic) =>
+    /outcome must be reconciled before retry/i.test(diagnostic)
+  );
+}
+
+function isDefinitiveOpenCodePreLaunchFailure(
+  result: TeamRuntimeLaunchResult,
+  memberName: string
+): boolean {
+  const member = result.members[memberName];
+  if (!member) {
+    return false;
+  }
+  const hardFailed = member.launchState === 'failed_to_start' || member.hardFailure === true;
+  if (!hardFailed) {
+    return false;
+  }
+  const runtimeMaterialized =
+    member.agentToolAccepted ||
+    member.runtimeAlive ||
+    member.bootstrapConfirmed ||
+    typeof member.sessionId === 'string';
+  if (runtimeMaterialized) {
+    return false;
+  }
+  return !isReconciliableOpenCodeUnknownOutcome(
+    collectRuntimeLaunchFailureDiagnostics(result, memberName)
+  );
+}
+
 function isLaunchGraceWindowFailureReason(reason?: string): boolean {
   return reason?.trim() === 'Teammate did not join within the launch grace window.';
 }
@@ -12438,7 +12479,20 @@ export class TeamProvisioningService {
       lane.warnings = [...result.warnings];
       lane.diagnostics = [...migration.diagnostics, ...result.diagnostics];
 
-      if (result.teamLaunchState === 'partial_failure') {
+      if (isDefinitiveOpenCodePreLaunchFailure(result, lane.member.name)) {
+        const diagnostics = [
+          ...migration.diagnostics,
+          ...collectRuntimeLaunchFailureDiagnostics(result, lane.member.name),
+        ];
+        await upsertOpenCodeRuntimeLaneIndexEntry({
+          teamsBasePath: getTeamsBasePath(),
+          teamName: run.teamName,
+          laneId: lane.laneId,
+          state: 'degraded',
+          diagnostics,
+        }).catch(() => undefined);
+        this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
+      } else if (result.teamLaunchState === 'partial_failure') {
         this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
       }
     } catch (error) {
