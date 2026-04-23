@@ -5802,6 +5802,34 @@ describe('TeamProvisioningService', () => {
     });
   });
 
+  it('treats suffixed live runtime names as alive during persisted launch reconcile', async () => {
+    const teamName = 'suffixed-live-runtime-team';
+    const leadSessionId = 'lead-session';
+    writeLaunchConfig(teamName, '/Users/test/proj', leadSessionId, ['alice']);
+    writeLaunchState(teamName, leadSessionId, {
+      alice: {
+        launchState: 'runtime_pending_bootstrap',
+        agentToolAccepted: true,
+        runtimeAlive: false,
+        bootstrapConfirmed: false,
+        hardFailure: false,
+        hardFailureReason: undefined,
+        firstSpawnAcceptedAt: new Date(Date.now() - 5_000).toISOString(),
+      },
+    });
+
+    const svc = new TeamProvisioningService();
+    (svc as any).getLiveTeamAgentNames = vi.fn(async () => new Set(['alice-2']));
+
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.statuses.alice).toMatchObject({
+      status: 'online',
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: true,
+    });
+  });
+
   it('returns persisted expectedMembers as the union of expected and materialized launch members', async () => {
     const teamName = 'persisted-union-member-spawn-team';
     const teamDir = path.join(tempTeamsBase, teamName);

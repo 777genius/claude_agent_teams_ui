@@ -12666,14 +12666,12 @@ export class TeamProvisioningService {
         current.bootstrapConfirmed = true;
         current.lastHeartbeatAt = current.lastHeartbeatAt ?? bootstrapMember.lastHeartbeatAt;
       }
-      const matchedRuntimeNames = [...configMembers].filter((name) => {
-        if (name === expected) return true;
-        const parsed = parseNumericSuffixName(name);
-        return parsed !== null && parsed.suffix >= 2 && parsed.base === expected;
-      });
-      const runtimeAlive =
-        liveAgentNames.has(expected) ||
-        matchedRuntimeNames.some((runtimeName) => liveAgentNames.has(runtimeName));
+      const matchedConfigNames = [...configMembers].filter((name) =>
+        matchesTeamMemberIdentity(name, expected)
+      );
+      const runtimeAlive = [...liveAgentNames].some((name) =>
+        matchesTeamMemberIdentity(name, expected)
+      );
       const heartbeatMessage = leadInboxMessages.find((message) => {
         if (typeof message.from !== 'string' || message.from.trim() !== expected) return false;
         if (
@@ -12705,9 +12703,9 @@ export class TeamProvisioningService {
       current.sources = {
         ...(current.sources ?? {}),
         processAlive: runtimeAlive || undefined,
-        configRegistered: matchedRuntimeNames.length > 0 || undefined,
+        configRegistered: matchedConfigNames.length > 0 || undefined,
         configDrift:
-          heartbeatMessage != null && matchedRuntimeNames.length === 0
+          heartbeatMessage != null && matchedConfigNames.length === 0
             ? true
             : current.sources?.configDrift,
         inboxHeartbeat: heartbeatMessage != null ? true : current.sources?.inboxHeartbeat,
