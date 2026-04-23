@@ -86,25 +86,46 @@ const ACTIVE_PROVISIONING_STATES = new Set([
   'verifying',
 ]);
 
-function getFailedSpawnDetails(
-  memberSpawnStatuses: MemberSpawnStatusCollection
-): FailedSpawnDetail[] {
-  if (!memberSpawnStatuses) {
+function getFailedSpawnDetails(params: {
+  memberSpawnStatuses: MemberSpawnStatusCollection;
+  memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
+}): FailedSpawnDetail[] {
+  const names = new Set<string>();
+  if (params.memberSpawnStatuses instanceof Map) {
+    for (const name of params.memberSpawnStatuses.keys()) {
+      names.add(name);
+    }
+  } else if (params.memberSpawnStatuses) {
+    for (const name of Object.keys(params.memberSpawnStatuses)) {
+      names.add(name);
+    }
+  }
+  for (const name of Object.keys(params.memberSpawnSnapshotStatuses ?? {})) {
+    names.add(name);
+  }
+
+  if (names.size === 0) {
     return [];
   }
-  const entries =
-    memberSpawnStatuses instanceof Map
-      ? [...memberSpawnStatuses.entries()]
-      : Object.entries(memberSpawnStatuses);
 
-  return entries
-    .filter(([, entry]) => entry.launchState === 'failed_to_start' || entry.status === 'error')
+  return [...names]
+    .map((name) => {
+      const liveEntry =
+        params.memberSpawnStatuses instanceof Map
+          ? params.memberSpawnStatuses.get(name)
+          : params.memberSpawnStatuses?.[name];
+      const snapshotEntry = params.memberSpawnSnapshotStatuses?.[name];
+      return [name, liveEntry ?? snapshotEntry] as const;
+    })
+    .filter(
+      ([, entry]) => entry && (entry.launchState === 'failed_to_start' || entry.status === 'error')
+    )
     .map(([name, entry]) => ({
       name,
       reason:
-        typeof entry.hardFailureReason === 'string' && entry.hardFailureReason.trim().length > 0
+        typeof entry?.hardFailureReason === 'string' && entry.hardFailureReason.trim().length > 0
           ? entry.hardFailureReason.trim()
-          : typeof entry.error === 'string' && entry.error.trim().length > 0
+          : typeof entry?.error === 'string' && entry.error.trim().length > 0
             ? entry.error.trim()
             : null,
     }))
@@ -241,7 +262,10 @@ export function buildTeamProvisioningPresentation({
     memberSpawnStatuses,
     memberSpawnSnapshot,
   });
-  const failedSpawnDetails = getFailedSpawnDetails(memberSpawnStatuses);
+  const failedSpawnDetails = getFailedSpawnDetails({
+    memberSpawnStatuses,
+    memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
+  });
   const failedSpawnPanelMessage = buildFailedSpawnPanelMessage(failedSpawnDetails);
   const failedSpawnCompactDetail = buildFailedSpawnCompactDetail(failedSpawnDetails);
   const genericFailedSpawnPanelMessage = buildGenericFailedSpawnPanelMessage(

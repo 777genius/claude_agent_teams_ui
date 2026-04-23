@@ -576,6 +576,70 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.compactTone).toBe('warning');
   });
 
+  it('surfaces persisted failed teammate reasons when live member statuses are missing', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-4c',
+        teamName: 'codex-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed with teammate errors',
+        messageSeverity: 'warning',
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'jack',
+          agentType: 'engineer',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {},
+      memberSpawnSnapshot: {
+        expectedMembers: ['jack'],
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 0,
+          failedCount: 1,
+          runtimeAlivePendingCount: 0,
+        },
+        statuses: {
+          jack: {
+            status: 'error',
+            launchState: 'failed_to_start',
+            hardFailureReason: 'The requested model is not available for your account.',
+            updatedAt: '2026-04-13T10:00:03.000Z',
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: true,
+            agentToolAccepted: true,
+            firstSpawnAcceptedAt: '2026-04-13T10:00:01.000Z',
+          },
+        },
+      },
+    });
+
+    expect(presentation?.panelMessage).toContain('jack failed to start');
+    expect(presentation?.panelMessage).toContain('requested model is not available');
+    expect(presentation?.compactDetail).toBe('jack failed to start');
+  });
+
   it('prefers live confirmed teammates over a stale persisted launch summary', () => {
     const presentation = buildTeamProvisioningPresentation({
       progress: {
