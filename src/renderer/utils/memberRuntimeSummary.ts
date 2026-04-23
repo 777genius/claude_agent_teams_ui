@@ -48,17 +48,21 @@ export function resolveMemberRuntimeSummary(
 ): string | undefined {
   const memberProviderBackendId = (member as ResolvedTeamMember & { providerBackendId?: string })
     .providerBackendId;
+  const memberModel = member.model?.trim() || '';
+  const runtimeModel = spawnEntry?.runtimeModel?.trim() || runtimeEntry?.runtimeModel?.trim();
+  const inferredMemberProvider =
+    inferTeamProviderIdFromModel(memberModel) ?? inferTeamProviderIdFromModel(runtimeModel);
   const configuredProvider: TeamProviderId =
-    member.providerId ?? launchParams?.providerId ?? 'anthropic';
+    member.providerId ?? inferredMemberProvider ?? launchParams?.providerId ?? 'anthropic';
+  const memberProviderForInheritance = member.providerId ?? inferredMemberProvider;
   const inheritsLeadRuntimeDefaults =
-    member.providerId == null ||
+    memberProviderForInheritance == null ||
     launchParams?.providerId == null ||
-    member.providerId === launchParams.providerId;
+    memberProviderForInheritance === launchParams.providerId;
   const configuredModel =
-    member.model?.trim() || (inheritsLeadRuntimeDefaults ? launchParams?.model?.trim() || '' : '');
+    memberModel || (inheritsLeadRuntimeDefaults ? launchParams?.model?.trim() || '' : '');
   const configuredEffort =
     member.effort ?? (inheritsLeadRuntimeDefaults ? launchParams?.effort : undefined);
-  const runtimeModel = spawnEntry?.runtimeModel?.trim() || runtimeEntry?.runtimeModel?.trim();
   const configuredProviderBackendId =
     memberProviderBackendId ??
     (inheritsLeadRuntimeDefaults ? launchParams?.providerBackendId : undefined);

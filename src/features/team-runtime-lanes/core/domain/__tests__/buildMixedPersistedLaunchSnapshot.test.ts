@@ -129,6 +129,7 @@ describe('buildMixedPersistedLaunchSnapshot', () => {
             runtimeAlive: true,
             bootstrapConfirmed: true,
             hardFailure: false,
+            runtimePid: 333,
             diagnostics: ['spawn accepted', 'late heartbeat received'],
           },
         },
@@ -143,6 +144,7 @@ describe('buildMixedPersistedLaunchSnapshot', () => {
       launchState: 'confirmed_alive',
       runtimeAlive: true,
       bootstrapConfirmed: true,
+      runtimePid: 333,
     });
     expect(snapshot.summary).toEqual({
       confirmedCount: 2,

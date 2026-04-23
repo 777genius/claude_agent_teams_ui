@@ -169,4 +169,58 @@ describe('resolveMemberRuntimeSummary', () => {
       )
     ).toBe('nemotron-3-super-free · via OpenCode');
   });
+
+  it('infers OpenCode from an OpenCode model when member provider metadata is missing', () => {
+    const member = createMember({
+      providerId: undefined,
+      providerBackendId: undefined,
+      model: 'opencode/minimax-m2.5-free',
+      effort: undefined,
+    });
+
+    expect(
+      resolveMemberRuntimeSummary(
+        member,
+        {
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          effort: 'medium',
+          limitContext: false,
+        },
+        undefined
+      )
+    ).toBe('minimax-m2.5-free · via OpenCode');
+  });
+
+  it('appends memory for OpenCode side-lane runtime snapshots without adding Codex backend text', () => {
+    const member = createMember({
+      providerId: 'opencode',
+      providerBackendId: undefined,
+      model: 'opencode/minimax-m2.5-free',
+      effort: undefined,
+    });
+
+    expect(
+      resolveMemberRuntimeSummary(
+        member,
+        {
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          effort: 'medium',
+          limitContext: false,
+        },
+        undefined,
+        {
+          memberName: 'alice',
+          alive: true,
+          restartable: false,
+          runtimeModel: 'opencode/minimax-m2.5-free',
+          rssBytes: 183.9 * 1024 * 1024,
+          updatedAt: '2026-04-18T18:00:00.000Z',
+        }
+      )
+    ).toBe('minimax-m2.5-free · via OpenCode · 183.9 MB');
+  });
 });

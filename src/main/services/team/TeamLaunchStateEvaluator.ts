@@ -53,6 +53,12 @@ function normalizePendingPermissionRequestIds(value: unknown): string[] | undefi
   return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
 }
 
+function normalizeRuntimePid(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : undefined;
+}
+
 function normalizeMemberName(name: string): string {
   return name.trim();
 }
@@ -333,6 +339,7 @@ function normalizePersistedMemberState(
     pendingPermissionRequestIds: normalizePendingPermissionRequestIds(
       parsed.pendingPermissionRequestIds
     ),
+    runtimePid: normalizeRuntimePid(parsed.runtimePid),
     firstSpawnAcceptedAt:
       typeof parsed.firstSpawnAcceptedAt === 'string' ? parsed.firstSpawnAcceptedAt : undefined,
     lastHeartbeatAt:
@@ -395,12 +402,18 @@ export function createPersistedLaunchSnapshot(params: {
   if (launchPhase !== 'active') {
     for (const name of expectedMembers) {
       const member = members[name];
+      const isRecoverableOpenCodeSecondaryLane =
+        member?.laneKind === 'secondary' &&
+        member.laneOwnerProviderId === 'opencode' &&
+        typeof member.laneId === 'string' &&
+        member.laneId.trim().length > 0;
       if (
         member?.launchState === 'starting' &&
         !member.agentToolAccepted &&
         !member.runtimeAlive &&
         !member.bootstrapConfirmed &&
-        !member.hardFailure
+        !member.hardFailure &&
+        !isRecoverableOpenCodeSecondaryLane
       ) {
         member.hardFailure = true;
         member.hardFailureReason =

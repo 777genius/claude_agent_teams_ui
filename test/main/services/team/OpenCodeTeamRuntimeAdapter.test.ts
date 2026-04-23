@@ -42,12 +42,13 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true, modelId: null }));
     const adapter = new OpenCodeTeamRuntimeAdapter(bridge, { launchMode: 'production' });
 
-    await expect(adapter.prepare(launchInput({ model: undefined, runtimeOnly: true }))).resolves
-      .toMatchObject({
-        ok: true,
-        providerId: 'opencode',
-        modelId: null,
-      });
+    await expect(
+      adapter.prepare(launchInput({ model: undefined, runtimeOnly: true }))
+    ).resolves.toMatchObject({
+      ok: true,
+      providerId: 'opencode',
+      modelId: null,
+    });
 
     expect(bridge.checkOpenCodeTeamLaunchReadiness).toHaveBeenCalledWith({
       projectPath: '/repo',
@@ -57,11 +58,38 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     });
   });
 
+  it('surfaces unknown readiness failures with the concrete bridge diagnostic on launch', async () => {
+    const bridge = bridgePort(
+      readiness({
+        state: 'unknown_error',
+        launchAllowed: false,
+        diagnostics: [
+          'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+        ],
+        missing: ['OpenCode bridge command timed out'],
+      })
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(bridge, { launchMode: 'production' });
+
+    await expect(adapter.launch(launchInput())).resolves.toMatchObject({
+      teamLaunchState: 'partial_failure',
+      members: {
+        alice: {
+          launchState: 'failed_to_start',
+          hardFailureReason:
+            'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+          diagnostics: [
+            'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+            'OpenCode bridge command timed out',
+          ],
+        },
+      },
+    });
+  });
+
   it('fails closed when launch mode is disabled', async () => {
     const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true }));
-    const adapter = new OpenCodeTeamRuntimeAdapter(
-      bridge
-    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(bridge);
 
     await expect(adapter.prepare(launchInput())).resolves.toMatchObject({
       ok: false,
@@ -72,27 +100,81 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     expect(bridge.checkOpenCodeTeamLaunchReadiness).not.toHaveBeenCalled();
   });
 
+  it('rejects non-OpenCode members before readiness or launch bridge dispatch', async () => {
+    const launchOpenCodeTeam = vi.fn();
+    const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
+      launchOpenCodeTeam,
+    });
+    const adapter = new OpenCodeTeamRuntimeAdapter(bridge, { launchMode: 'production' });
+
+    const result = await adapter.launch(
+      launchInput({
+        expectedMembers: [
+          {
+            name: 'bob',
+            providerId: 'codex',
+            model: 'gpt-5.4-mini',
+            cwd: '/repo',
+          },
+        ],
+      })
+    );
+
+    expect(result.teamLaunchState).toBe('partial_failure');
+    expect(result.members.bob).toMatchObject({
+      launchState: 'failed_to_start',
+      hardFailure: true,
+      hardFailureReason: 'opencode_invalid_expected_members',
+      diagnostics: [
+        'OpenCode runtime adapter received non-OpenCode member "bob" with provider "codex".',
+      ],
+    });
+    expect(bridge.checkOpenCodeTeamLaunchReadiness).not.toHaveBeenCalled();
+    expect(launchOpenCodeTeam).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty OpenCode rosters before readiness or launch bridge dispatch', async () => {
+    const launchOpenCodeTeam = vi.fn();
+    const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
+      launchOpenCodeTeam,
+    });
+    const adapter = new OpenCodeTeamRuntimeAdapter(bridge, { launchMode: 'production' });
+
+    const result = await adapter.launch(launchInput({ expectedMembers: [] }));
+
+    expect(result.teamLaunchState).toBe('partial_failure');
+    expect(result.members).toEqual({});
+    expect(result.diagnostics).toEqual([
+      'OpenCode runtime adapter requires at least one expected OpenCode member.',
+    ]);
+    expect(bridge.checkOpenCodeTeamLaunchReadiness).not.toHaveBeenCalled();
+    expect(launchOpenCodeTeam).not.toHaveBeenCalled();
+  });
+
   it('maps ready bridge launch data to successful runtime evidence only with required checkpoints', async () => {
-    const launchOpenCodeTeam = vi.fn(async () => ({
-      runId: 'run-1',
-      teamLaunchState: 'ready',
-      members: {
-        alice: {
-          sessionId: 'oc-session-1',
-          launchState: 'confirmed_alive',
-          runtimePid: 123,
-          model: 'openai/gpt-5.4-mini',
-          evidence: [
-            { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
-            { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
-            { kind: 'member_ready', observedAt: '2026-04-21T00:00:00.000Z' },
-            { kind: 'run_ready', observedAt: '2026-04-21T00:00:00.000Z' },
-          ],
-        },
-      },
-      warnings: [],
-      diagnostics: [],
-    }) satisfies OpenCodeLaunchTeamCommandData);
+    const launchOpenCodeTeam = vi.fn(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'ready',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'confirmed_alive',
+              runtimePid: 123,
+              model: 'openai/gpt-5.4-mini',
+              evidence: [
+                { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'member_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'run_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+              ],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
     const adapter = new OpenCodeTeamRuntimeAdapter(
       bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
         getLastOpenCodeRuntimeSnapshot: vi.fn(() => ({
@@ -130,6 +212,70 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     );
   });
 
+  it('does not mark the lane clean_success when ready bridge data omits an expected member', async () => {
+    const launchOpenCodeTeam = vi.fn(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'ready',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'confirmed_alive',
+              runtimePid: 123,
+              model: 'openai/gpt-5.4-mini',
+              evidence: [
+                { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'member_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'run_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+              ],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+          durableCheckpoints: [
+            { name: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
+            { name: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+            { name: 'run_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+          ],
+          manifestHighWatermark: null,
+          runtimeStoreManifestHighWatermark: null,
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
+        launchOpenCodeTeam,
+      }),
+      { launchMode: 'dogfood' }
+    );
+
+    const result = await adapter.launch({
+      ...launchInput(),
+      expectedMembers: [
+        ...launchInput().expectedMembers,
+        {
+          name: 'bob',
+          providerId: 'opencode',
+          model: 'openai/gpt-5.4-mini',
+          cwd: '/repo',
+        },
+      ],
+    });
+
+    expect(result.teamLaunchState).toBe('partial_pending');
+    expect(result.launchPhase).toBe('active');
+    expect(result.members.alice?.launchState).toBe('confirmed_alive');
+    expect(result.members.bob).toMatchObject({
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: false,
+      hardFailure: false,
+    });
+    expect(result.members.bob?.diagnostics).toContain(
+      'OpenCode bridge response did not include bob; keeping the member pending until lane state materializes.'
+    );
+  });
+
   it('reconciles from existing persisted launch snapshot without treating OpenCode as truth', async () => {
     const snapshot = launchSnapshot();
     const adapter = new OpenCodeTeamRuntimeAdapter(
@@ -162,24 +308,72 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     });
   });
 
-  it('keeps missing bridge members pending while reconcile is still launching', async () => {
-    const reconcileOpenCodeTeam = vi.fn(async () => ({
-      runId: 'run-1',
-      teamLaunchState: 'launching',
-      members: {
-        alice: {
-          sessionId: 'oc-session-1',
-          launchState: 'confirmed_alive',
-          model: 'openai/gpt-5.4-mini',
-          evidence: [{ kind: 'member_ready', observedAt: '2026-04-21T00:00:00.000Z' }],
-        },
-      },
-      warnings: [],
+  it('sends direct teammate messages through the OpenCode message bridge', async () => {
+    const sendOpenCodeTeamMessage = vi.fn(async () => ({
+      accepted: true,
+      sessionId: 'oc-session-bob',
+      memberName: 'bob',
+      runtimePid: 456,
       diagnostics: [],
-      durableCheckpoints: [],
-      manifestHighWatermark: null,
-      runtimeStoreManifestHighWatermark: null,
-    }) satisfies OpenCodeLaunchTeamCommandData);
+    }));
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
+        sendOpenCodeTeamMessage,
+      })
+    );
+
+    await expect(
+      adapter.sendMessageToMember({
+        runId: 'run-1',
+        teamName: 'team-a',
+        laneId: 'secondary:opencode:bob',
+        memberName: 'bob',
+        cwd: '/repo',
+        text: 'hello bob',
+        messageId: 'msg-1',
+      })
+    ).resolves.toEqual({
+      ok: true,
+      providerId: 'opencode',
+      memberName: 'bob',
+      sessionId: 'oc-session-bob',
+      runtimePid: 456,
+      diagnostics: [],
+    });
+    expect(sendOpenCodeTeamMessage).toHaveBeenCalledWith({
+      runId: 'run-1',
+      laneId: 'secondary:opencode:bob',
+      teamId: 'team-a',
+      teamName: 'team-a',
+      projectPath: '/repo',
+      memberName: 'bob',
+      text: 'hello bob',
+      messageId: 'msg-1',
+      agent: 'teammate',
+    });
+  });
+
+  it('keeps missing bridge members pending while reconcile is still launching', async () => {
+    const reconcileOpenCodeTeam = vi.fn(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'launching',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'confirmed_alive',
+              model: 'openai/gpt-5.4-mini',
+              evidence: [{ kind: 'member_ready', observedAt: '2026-04-21T00:00:00.000Z' }],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+          durableCheckpoints: [],
+          manifestHighWatermark: null,
+          runtimeStoreManifestHighWatermark: null,
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
     const adapter = new OpenCodeTeamRuntimeAdapter(
       bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
         reconcileOpenCodeTeam,
@@ -244,27 +438,30 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
   });
 
   it('maps permission-blocked bridge members to runtime_pending_permission instead of bootstrap pending', async () => {
-    const launchOpenCodeTeam = vi.fn(async () => ({
-      runId: 'run-1',
-      teamLaunchState: 'permission_blocked',
-      members: {
-        alice: {
-          sessionId: 'oc-session-1',
-          launchState: 'permission_blocked',
-          pendingPermissionRequestIds: ['perm-1', 'perm-1', 'perm-2'],
-          diagnostics: ['waiting for permission approval'],
-          runtimePid: 123,
-          model: 'openai/gpt-5.4-mini',
-          evidence: [
-            { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
-            { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
-            { kind: 'permission_blocked', observedAt: '2026-04-21T00:00:00.000Z' },
-          ],
-        },
-      },
-      warnings: [],
-      diagnostics: [],
-    }) satisfies OpenCodeLaunchTeamCommandData);
+    const launchOpenCodeTeam = vi.fn(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'permission_blocked',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'permission_blocked',
+              pendingPermissionRequestIds: ['perm-1', 'perm-1', 'perm-2'],
+              diagnostics: ['waiting for permission approval'],
+              runtimePid: 123,
+              model: 'openai/gpt-5.4-mini',
+              evidence: [
+                { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'permission_blocked', observedAt: '2026-04-21T00:00:00.000Z' },
+              ],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
     const adapter = new OpenCodeTeamRuntimeAdapter(
       bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
         getLastOpenCodeRuntimeSnapshot: vi.fn(() => ({
@@ -305,27 +502,30 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
   });
 
   it('keeps missing bridge members in bootstrap pending even when another member blocks on permission', async () => {
-    const launchOpenCodeTeam = vi.fn(async () => ({
-      runId: 'run-1',
-      teamLaunchState: 'permission_blocked',
-      members: {
-        alice: {
-          sessionId: 'oc-session-1',
-          launchState: 'permission_blocked',
-          pendingPermissionRequestIds: ['perm-1'],
-          diagnostics: ['waiting for permission approval'],
-          runtimePid: 123,
-          model: 'openai/gpt-5.4-mini',
-          evidence: [
-            { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
-            { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
-            { kind: 'permission_blocked', observedAt: '2026-04-21T00:00:00.000Z' },
-          ],
-        },
-      },
-      warnings: [],
-      diagnostics: [],
-    }) satisfies OpenCodeLaunchTeamCommandData);
+    const launchOpenCodeTeam = vi.fn(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'permission_blocked',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'permission_blocked',
+              pendingPermissionRequestIds: ['perm-1'],
+              diagnostics: ['waiting for permission approval'],
+              runtimePid: 123,
+              model: 'openai/gpt-5.4-mini',
+              evidence: [
+                { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'permission_blocked', observedAt: '2026-04-21T00:00:00.000Z' },
+              ],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
     const adapter = new OpenCodeTeamRuntimeAdapter(
       bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
         getLastOpenCodeRuntimeSnapshot: vi.fn(() => ({

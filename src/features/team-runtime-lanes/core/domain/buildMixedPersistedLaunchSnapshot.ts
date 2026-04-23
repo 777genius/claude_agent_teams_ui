@@ -37,6 +37,7 @@ export interface MixedSecondaryLaneMemberStateInput {
     hardFailure?: boolean;
     hardFailureReason?: string;
     pendingPermissionRequestIds?: string[];
+    runtimePid?: number;
     diagnostics?: string[];
   } | null;
   pendingReason?: string;
@@ -217,6 +218,12 @@ function createSecondaryLaneMemberState(
     pendingPermissionRequestIds: evidence?.pendingPermissionRequestIds?.length
       ? [...new Set(evidence.pendingPermissionRequestIds)]
       : undefined,
+    runtimePid:
+      typeof evidence?.runtimePid === 'number' &&
+      Number.isFinite(evidence.runtimePid) &&
+      evidence.runtimePid > 0
+        ? Math.trunc(evidence.runtimePid)
+        : undefined,
     firstSpawnAcceptedAt: evidence?.agentToolAccepted ? params.updatedAt : undefined,
     lastHeartbeatAt: evidence?.bootstrapConfirmed ? params.updatedAt : undefined,
     lastRuntimeAliveAt: evidence?.runtimeAlive ? params.updatedAt : undefined,

@@ -935,6 +935,7 @@ export interface PersistedTeamLaunchMemberState {
   hardFailure: boolean;
   hardFailureReason?: string;
   pendingPermissionRequestIds?: string[];
+  runtimePid?: number;
   firstSpawnAcceptedAt?: string;
   lastHeartbeatAt?: string;
   lastRuntimeAliveAt?: string;

@@ -22,6 +22,8 @@ import type {
   OpenCodeLaunchTeamCommandBody,
   OpenCodeLaunchTeamCommandData,
   OpenCodeReconcileTeamCommandBody,
+  OpenCodeSendMessageCommandBody,
+  OpenCodeSendMessageCommandData,
   OpenCodeStopTeamCommandBody,
   OpenCodeStopTeamCommandData,
   OpenCodeTeamLaunchMode,
@@ -46,6 +48,7 @@ export interface OpenCodeReadinessBridgeOptions {
   timeoutMs?: number;
   launchTimeoutMs?: number;
   reconcileTimeoutMs?: number;
+  sendTimeoutMs?: number;
   stopTimeoutMs?: number;
   stateChangingCommands?: Pick<OpenCodeStateChangingBridgeCommandService, 'execute'>;
   productionE2eEvidence?: OpenCodeProductionE2EEvidenceReadPort;
@@ -76,6 +79,7 @@ export interface OpenCodeReadinessBridgeCommandBody {
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const DEFAULT_LAUNCH_TIMEOUT_MS = 120_000;
 const DEFAULT_RECONCILE_TIMEOUT_MS = 30_000;
+const DEFAULT_SEND_TIMEOUT_MS = 30_000;
 const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 
 export class OpenCodeReadinessBridge implements OpenCodeTeamRuntimeBridgePort {
@@ -266,6 +270,37 @@ export class OpenCodeReadinessBridge implements OpenCodeTeamRuntimeBridgePort {
           code: result.error.kind,
           severity: 'error',
           message: `OpenCode stop bridge failed: ${result.error.message}`,
+        },
+        ...result.diagnostics.map((event) => ({
+          code: event.type,
+          severity: event.severity,
+          message: event.message,
+        })),
+      ],
+    };
+  }
+
+  async sendOpenCodeTeamMessage(
+    input: OpenCodeSendMessageCommandBody
+  ): Promise<OpenCodeSendMessageCommandData> {
+    const result = await this.bridge.execute<
+      OpenCodeSendMessageCommandBody,
+      OpenCodeSendMessageCommandData
+    >('opencode.sendMessage', input, {
+      cwd: input.projectPath,
+      timeoutMs: this.options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS,
+    });
+    if (result.ok) {
+      return result.data;
+    }
+    return {
+      accepted: false,
+      memberName: input.memberName,
+      diagnostics: [
+        {
+          code: result.error.kind,
+          severity: 'error',
+          message: `OpenCode message bridge failed: ${result.error.message}`,
         },
         ...result.diagnostics.map((event) => ({
           code: event.type,

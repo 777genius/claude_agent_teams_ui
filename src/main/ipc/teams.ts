@@ -2553,14 +2553,15 @@ async function handleSendMessage(
     });
 
     // Teammate inbox relay DISABLED (2026-03-23).
-    // Teammates read their own inbox files directly via fs.watch — confirmed empirically.
+    // Codex/Claude teammates read their own inbox files directly via fs.watch.
     // Relaying through the lead (relayMemberInboxMessages) caused multiple bugs:
     //   1. Lead responded to user instead of forwarding to the teammate
     //   2. Duplicate messages (relay loop: markInboxMessagesRead → FileWatcher → relay again)
     //   3. Fragile LLM-dependent prompt chain for routing
-    // The message is already persisted in inboxes/{member}.json above — that's sufficient.
+    // The message is already persisted in inboxes/{member}.json above.
     // Teammate responses go to inboxes/user.json and are read by TeamInboxReader.
-    // Lead relay (relayLeadInboxMessages) is still needed — lead reads stdin only, not inbox.
+    // Lead relay (relayLeadInboxMessages) is still needed because lead reads stdin only, not inbox.
+    // OpenCode secondary lanes do not watch these inbox files, so they need runtime bridge delivery.
     //
     // if (!isLeadRecipient && isAlive) {
     //   try {
@@ -2569,6 +2570,29 @@ async function handleSendMessage(
     //     logger.warn(`Relay after sendMessage failed for teammate "${memberName}": ${String(e)}`);
     //   }
     // }
+    if (!isLeadRecipient && isAlive) {
+      void provisioning
+        .deliverOpenCodeMemberMessage(tn, {
+          memberName,
+          text: memberDeliveryText,
+          messageId: result.messageId,
+        })
+        .then((delivery) => {
+          if (delivery.delivered || delivery.reason === 'recipient_is_not_opencode') {
+            return;
+          }
+          logger.warn(
+            `OpenCode runtime delivery after sendMessage failed for teammate "${memberName}": ${
+              delivery.reason ?? 'unknown error'
+            }`
+          );
+        })
+        .catch((e: unknown) =>
+          logger.warn(
+            `OpenCode runtime delivery after sendMessage crashed for teammate "${memberName}": ${String(e)}`
+          )
+        );
+    }
 
     // Best-effort relay for lead via inbox
     if (isLeadRecipient && isAlive) {

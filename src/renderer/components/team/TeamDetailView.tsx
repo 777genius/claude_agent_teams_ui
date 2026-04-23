@@ -40,6 +40,10 @@ import {
 import { createChipFromSelection } from '@renderer/utils/chipUtils';
 import { sumContextInjectionTokens } from '@renderer/utils/contextMath';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import {
+  hasUnresolvedMemberSpawnStatus,
+  MEMBER_SPAWN_STATUS_REFRESH_MS,
+} from '@renderer/utils/memberSpawnStatusPolling';
 import { formatProjectPath } from '@renderer/utils/pathDisplay';
 import { buildPendingRuntimeSummaryCopy } from '@renderer/utils/teamLaunchSummaryCopy';
 import { buildTaskCountsByOwner, normalizePath } from '@renderer/utils/pathNormalize';
@@ -374,27 +378,46 @@ const TeamSpawnStatusWatcher = memo(function TeamSpawnStatusWatcher({
   isTeamProvisioning: boolean;
   isTeamAlive?: boolean;
 }): null {
-  const { leadActivity, memberSpawnStatuses, fetchMemberSpawnStatuses } = useStore(
-    useShallow((s) => ({
-      leadActivity: s.leadActivityByTeam[teamName],
-      memberSpawnStatuses: s.memberSpawnStatusesByTeam[teamName],
-      fetchMemberSpawnStatuses: s.fetchMemberSpawnStatuses,
-    }))
-  );
+  const { leadActivity, memberSpawnStatuses, memberSpawnSnapshot, fetchMemberSpawnStatuses } =
+    useStore(
+      useShallow((s) => ({
+        leadActivity: s.leadActivityByTeam[teamName],
+        memberSpawnStatuses: s.memberSpawnStatusesByTeam[teamName],
+        memberSpawnSnapshot: s.memberSpawnSnapshotsByTeam[teamName],
+        fetchMemberSpawnStatuses: s.fetchMemberSpawnStatuses,
+      }))
+    );
 
   useEffect(() => {
+    const hasUnresolvedSpawn = hasUnresolvedMemberSpawnStatus(
+      memberSpawnStatuses,
+      memberSpawnSnapshot
+    );
     const shouldFetchSpawnStatuses =
       isTeamProvisioning ||
+      hasUnresolvedSpawn ||
       (memberSpawnStatuses == null &&
         (isTeamAlive === true || leadActivity === 'active' || leadActivity === 'idle'));
     if (shouldFetchSpawnStatuses) {
       void fetchMemberSpawnStatuses(teamName);
     }
+
+    if (!isTeamProvisioning && !hasUnresolvedSpawn) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void fetchMemberSpawnStatuses(teamName);
+    }, MEMBER_SPAWN_STATUS_REFRESH_MS);
+    return () => {
+      window.clearInterval(interval);
+    };
   }, [
     fetchMemberSpawnStatuses,
     isTeamAlive,
     isTeamProvisioning,
     leadActivity,
+    memberSpawnSnapshot,
     memberSpawnStatuses,
     teamName,
   ]);

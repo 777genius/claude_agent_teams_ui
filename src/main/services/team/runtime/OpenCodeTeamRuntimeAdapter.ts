@@ -6,6 +6,8 @@ import type {
   OpenCodeLaunchTeamCommandData,
   OpenCodeBridgeRuntimeSnapshot,
   OpenCodeReconcileTeamCommandBody,
+  OpenCodeSendMessageCommandBody,
+  OpenCodeSendMessageCommandData,
   OpenCodeStopTeamCommandBody,
   OpenCodeStopTeamCommandData,
   OpenCodeTeamLaunchMode,
@@ -37,6 +39,9 @@ export interface OpenCodeTeamRuntimeBridgePort {
     input: OpenCodeReconcileTeamCommandBody
   ): Promise<OpenCodeLaunchTeamCommandData>;
   stopOpenCodeTeam?(input: OpenCodeStopTeamCommandBody): Promise<OpenCodeStopTeamCommandData>;
+  sendOpenCodeTeamMessage?(
+    input: OpenCodeSendMessageCommandBody
+  ): Promise<OpenCodeSendMessageCommandData>;
 }
 
 export interface OpenCodeTeamRuntimeAdapterOptions {
@@ -45,6 +50,25 @@ export interface OpenCodeTeamRuntimeAdapterOptions {
    * @deprecated Use launchMode. Kept for older tests/callers until the production gate is fully wired.
    */
   launchEnabled?: boolean;
+}
+
+export interface OpenCodeTeamRuntimeMessageInput {
+  runId?: string;
+  teamName: string;
+  laneId: string;
+  memberName: string;
+  cwd: string;
+  text: string;
+  messageId?: string;
+}
+
+export interface OpenCodeTeamRuntimeMessageResult {
+  ok: boolean;
+  providerId: 'opencode';
+  memberName: string;
+  sessionId?: string;
+  runtimePid?: number;
+  diagnostics: string[];
 }
 
 export { type OpenCodeTeamLaunchMode } from '../opencode/bridge/OpenCodeBridgeCommandContract';
@@ -139,6 +163,15 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
   }
 
   async launch(input: TeamRuntimeLaunchInput): Promise<TeamRuntimeLaunchResult> {
+    const memberValidationDiagnostics = validateOpenCodeRuntimeMembers(input.expectedMembers);
+    if (memberValidationDiagnostics.length > 0) {
+      return blockedLaunchResult(
+        input,
+        'opencode_invalid_expected_members',
+        memberValidationDiagnostics
+      );
+    }
+
     const configuredLaunchMode = resolveOpenCodeTeamLaunchMode(this.options);
     const prepared = await this.prepare(input);
     if (!prepared.ok) {
@@ -182,6 +215,26 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
   }
 
   async reconcile(input: TeamRuntimeReconcileInput): Promise<TeamRuntimeReconcileResult> {
+    const memberValidationDiagnostics = validateOpenCodeRuntimeMembers(input.expectedMembers);
+    if (memberValidationDiagnostics.length > 0) {
+      return {
+        ...blockedLaunchResult(
+          {
+            runId: input.runId,
+            teamName: input.teamName,
+            cwd: input.expectedMembers[0]?.cwd ?? '',
+            providerId: this.providerId,
+            skipPermissions: false,
+            expectedMembers: input.expectedMembers,
+            previousLaunchState: input.previousLaunchState,
+          },
+          'opencode_invalid_expected_members',
+          memberValidationDiagnostics
+        ),
+        snapshot: input.previousLaunchState,
+      };
+    }
+
     if (this.bridge.reconcileOpenCodeTeam) {
       const projectPath =
         input.expectedMembers[0]?.cwd ?? this.lastProjectPathByTeamName.get(input.teamName);
@@ -260,6 +313,40 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
       snapshot,
       warnings: [],
       diagnostics: [`OpenCode launch snapshot reconciled from ${input.reason}.`],
+    };
+  }
+
+  async sendMessageToMember(
+    input: OpenCodeTeamRuntimeMessageInput
+  ): Promise<OpenCodeTeamRuntimeMessageResult> {
+    if (!this.bridge.sendOpenCodeTeamMessage) {
+      return {
+        ok: false,
+        providerId: this.providerId,
+        memberName: input.memberName,
+        diagnostics: ['OpenCode message bridge is not registered.'],
+      };
+    }
+
+    const data = await this.bridge.sendOpenCodeTeamMessage({
+      runId: input.runId,
+      laneId: input.laneId,
+      teamId: input.teamName,
+      teamName: input.teamName,
+      projectPath: input.cwd,
+      memberName: input.memberName,
+      text: input.text,
+      messageId: input.messageId,
+      agent: 'teammate',
+    });
+
+    return {
+      ok: data.accepted,
+      providerId: this.providerId,
+      memberName: input.memberName,
+      sessionId: data.sessionId,
+      runtimePid: data.runtimePid,
+      diagnostics: data.diagnostics.map((diagnostic) => diagnostic.message),
     };
   }
 
@@ -355,16 +442,33 @@ function mapOpenCodeLaunchDataToRuntimeResult(
     checkpointNames.has(name)
   );
   const bridgeReady = data.teamLaunchState === 'ready';
-  const success = bridgeReady && readyCheckpointsPresent;
+  const missingExpectedMembers = input.expectedMembers
+    .map((member) => member.name)
+    .filter((memberName) => data.members[memberName] == null);
+  const unconfirmedExpectedMembers = input.expectedMembers
+    .map((member) => member.name)
+    .filter((memberName) => data.members[memberName]?.launchState !== 'confirmed_alive');
+  const anyExpectedMemberFailed = input.expectedMembers.some(
+    (member) => data.members[member.name]?.launchState === 'failed'
+  );
+  const allExpectedMembersConfirmed =
+    input.expectedMembers.length > 0 && unconfirmedExpectedMembers.length === 0;
+  const success = bridgeReady && readyCheckpointsPresent && allExpectedMembersConfirmed;
   const checkpointDiagnostic = success
     ? []
-    : bridgeReady
+    : bridgeReady && !readyCheckpointsPresent
       ? [
           `OpenCode bridge reported ready without all required durable checkpoints: missing ${[
             ...REQUIRED_READY_CHECKPOINTS,
           ]
             .filter((name) => !checkpointNames.has(name))
             .join(', ')}`,
+        ]
+      : [];
+  const incompleteReadyDiagnostic =
+    bridgeReady && readyCheckpointsPresent && !allExpectedMembersConfirmed
+      ? [
+          `OpenCode bridge reported ready before all expected members were confirmed: pending ${unconfirmedExpectedMembers.join(', ')}`,
         ]
       : [];
 
@@ -396,6 +500,7 @@ function mapOpenCodeLaunchDataToRuntimeResult(
               (evidence) => `${evidence.kind} at ${evidence.observedAt}`
             ),
             ...checkpointDiagnostic,
+            ...(missingExpectedMembers.includes(member.name) ? incompleteReadyDiagnostic : []),
           ]
         ),
       ];
@@ -407,17 +512,25 @@ function mapOpenCodeLaunchDataToRuntimeResult(
     teamName: input.teamName,
     launchPhase: success
       ? 'finished'
-      : data.teamLaunchState === 'launching'
+      : data.teamLaunchState === 'launching' || (bridgeReady && !anyExpectedMemberFailed)
         ? 'active'
         : 'finished',
     teamLaunchState: success
       ? 'clean_success'
-      : data.teamLaunchState === 'launching' || data.teamLaunchState === 'permission_blocked'
-        ? 'partial_pending'
-        : 'partial_failure',
+      : anyExpectedMemberFailed || data.teamLaunchState === 'failed'
+        ? 'partial_failure'
+        : data.teamLaunchState === 'launching' ||
+            data.teamLaunchState === 'permission_blocked' ||
+            bridgeReady
+          ? 'partial_pending'
+          : 'partial_failure',
     members,
     warnings: [...prepareWarnings, ...data.warnings.map((warning) => warning.message)],
-    diagnostics: [...data.diagnostics.map(formatOpenCodeBridgeDiagnostic), ...checkpointDiagnostic],
+    diagnostics: [
+      ...data.diagnostics.map(formatOpenCodeBridgeDiagnostic),
+      ...checkpointDiagnostic,
+      ...incompleteReadyDiagnostic,
+    ],
   };
 }
 
@@ -482,6 +595,24 @@ function buildMemberBootstrapPrompt(input: TeamRuntimeLaunchInput, memberName: s
   return `Join team "${input.teamName}" as "${memberName}" and wait for app MCP task delivery.`;
 }
 
+function validateOpenCodeRuntimeMembers(
+  members: TeamRuntimeLaunchInput['expectedMembers']
+): string[] {
+  if (members.length === 0) {
+    return ['OpenCode runtime adapter requires at least one expected OpenCode member.'];
+  }
+
+  return members.flatMap((member, index) => {
+    const name = member.name.trim() || `<index ${index}>`;
+    if (member.providerId === 'opencode') {
+      return [];
+    }
+    return [
+      `OpenCode runtime adapter received non-OpenCode member "${name}" with provider "${member.providerId}".`,
+    ];
+  });
+}
+
 function formatOpenCodeBridgeDiagnostic(diagnostic: {
   code: string;
   severity: 'info' | 'warning' | 'error';
@@ -496,6 +627,8 @@ function blockedLaunchResult(
   diagnostics: string[],
   warnings: string[] = []
 ): TeamRuntimeLaunchResult {
+  const hardFailureReason =
+    reason === 'unknown_error' && diagnostics[0]?.trim() ? diagnostics[0].trim() : reason;
   const members = Object.fromEntries(
     input.expectedMembers.map((member) => [
       member.name,
@@ -507,7 +640,7 @@ function blockedLaunchResult(
         runtimeAlive: false,
         bootstrapConfirmed: false,
         hardFailure: true,
-        hardFailureReason: reason,
+        hardFailureReason,
         diagnostics,
       },
     ])

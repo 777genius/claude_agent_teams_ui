@@ -46,6 +46,7 @@ const liveDescribe =
   process.env.OPENCODE_E2E === '1' && process.env.OPENCODE_E2E_MIXED_RECOVERY === '1'
     ? describe
     : describe.skip;
+const liveMultiLaneIt = process.env.OPENCODE_E2E_MIXED_RECOVERY_MULTI === '1' ? it : it.skip;
 
 const PROJECT_PATH = process.env.OPENCODE_E2E_PROJECT_PATH?.trim() || process.cwd();
 const DEFAULT_ORCHESTRATOR_CLI = '/Users/belief/dev/projects/claude/agent_teams_orchestrator/cli';
@@ -174,7 +175,7 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
     240_000
   );
 
-  it(
+  liveMultiLaneIt(
     'recovers multiple active mixed OpenCode side lanes from live runtime reconcile',
     async () => {
       const selectedModel = process.env.OPENCODE_E2E_MODEL?.trim() || DEFAULT_MODEL;

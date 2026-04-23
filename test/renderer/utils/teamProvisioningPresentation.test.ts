@@ -150,9 +150,12 @@ describe('buildTeamProvisioningPresentation', () => {
       },
     });
 
-    expect(presentation?.successMessage).toBe('Launch finished with errors - 1/1 teammates failed to start');
+    expect(presentation?.successMessage).toBe(
+      'Launch finished with errors - 1/1 teammates failed to start'
+    );
     expect(presentation?.panelMessage).toContain('requested model is not available');
     expect(presentation?.compactDetail).toBe('jack failed to start');
+    expect(presentation?.currentStepIndex).toBe(2);
   });
 
   it('keeps a generic failed teammate message when only persisted failure counts remain', () => {
@@ -201,9 +204,93 @@ describe('buildTeamProvisioningPresentation', () => {
       },
     });
 
-    expect(presentation?.successMessage).toBe('Launch finished with errors - 1/1 teammates failed to start');
+    expect(presentation?.successMessage).toBe(
+      'Launch finished with errors - 1/1 teammates failed to start'
+    );
     expect(presentation?.panelMessage).toBe('1 teammate failed to start');
     expect(presentation?.compactDetail).toBe('1 teammate failed to start');
+    expect(presentation?.currentStepIndex).toBe(2);
+  });
+
+  it('keeps Members joining incomplete while active launch already has failed teammates', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-3c',
+        teamName: 'mixed-team',
+        state: 'finalizing',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Finishing launch',
+        messageSeverity: undefined,
+        pid: 4321,
+        configReady: true,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'alice',
+          agentType: 'reviewer',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'bob',
+          agentType: 'developer',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          updatedAt: '2026-04-13T10:00:07.000Z',
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+        bob: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          updatedAt: '2026-04-13T10:00:07.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          hardFailureReason: 'OpenCode lane failed',
+          agentToolAccepted: false,
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['alice', 'bob'],
+        summary: {
+          confirmedCount: 1,
+          pendingCount: 0,
+          failedCount: 1,
+          runtimeAlivePendingCount: 0,
+        },
+      },
+    });
+
+    expect(presentation?.currentStepIndex).toBe(2);
+    expect(presentation?.panelMessage).toContain('bob failed to start');
+    expect(presentation?.compactTone).toBe('warning');
   });
 
   it('prefers live member spawn statuses over a stale persisted launch summary', () => {
@@ -267,6 +354,81 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.compactTitle).toBe('Finishing launch');
     expect(presentation?.compactDetail).toBe('1 teammate still joining');
     expect(presentation?.panelMessage).toBe('1 teammate still joining');
+  });
+
+  it('does not let stale live failures override a newer persisted pending snapshot', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-4-stale-live-failure',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:10.000Z',
+        message: 'Launch completed',
+        messageSeverity: undefined,
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'jack',
+          agentType: 'developer',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {
+        jack: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason: 'Teammate was never spawned during launch.',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: false,
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['jack'],
+        updatedAt: '2026-04-13T10:00:09.000Z',
+        statuses: {
+          jack: {
+            status: 'waiting',
+            launchState: 'starting',
+            updatedAt: '2026-04-13T10:00:09.000Z',
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            agentToolAccepted: false,
+          },
+        },
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 1,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+        },
+      },
+    });
+
+    expect(presentation?.successMessage).toBe('Finishing launch');
+    expect(presentation?.panelMessage).toBe('1 teammate still joining');
+    expect(presentation?.compactDetail).toBe('1 teammate still joining');
+    expect(presentation?.failedSpawnCount).toBe(0);
   });
 
   it('surfaces permission-blocked teammates as awaiting approval while launch is finishing', () => {

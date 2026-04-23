@@ -9,6 +9,7 @@ export type OpenCodeBridgeCommandName =
   | 'opencode.launchTeam'
   | 'opencode.reconcileTeam'
   | 'opencode.stopTeam'
+  | 'opencode.sendMessage'
   | 'opencode.answerPermission'
   | 'opencode.listRuntimePermissions'
   | 'opencode.getRuntimeTranscript'
@@ -116,6 +117,27 @@ export interface OpenCodeStopTeamCommandData {
   idempotencyKey?: string;
   manifestHighWatermark?: number | null;
   runtimeStoreManifestHighWatermark?: number | null;
+}
+
+export interface OpenCodeSendMessageCommandBody {
+  runId?: string;
+  laneId: string;
+  teamId: string;
+  teamName: string;
+  projectPath: string;
+  memberName: string;
+  text: string;
+  messageId?: string;
+  agent?: string;
+  noReply?: boolean;
+}
+
+export interface OpenCodeSendMessageCommandData {
+  accepted: boolean;
+  sessionId?: string;
+  memberName: string;
+  runtimePid?: number;
+  diagnostics: OpenCodeTeamBridgeDiagnostic[];
 }
 
 export type OpenCodeBridgePeerName = 'claude_team' | 'agent_teams_orchestrator';
@@ -258,6 +280,7 @@ const VALID_COMMANDS: ReadonlySet<OpenCodeBridgeCommandName> = new Set([
   'opencode.launchTeam',
   'opencode.reconcileTeam',
   'opencode.stopTeam',
+  'opencode.sendMessage',
   'opencode.answerPermission',
   'opencode.listRuntimePermissions',
   'opencode.getRuntimeTranscript',

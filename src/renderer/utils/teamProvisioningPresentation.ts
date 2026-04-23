@@ -32,9 +32,54 @@ interface FailedSpawnDetail {
   reason: string | null;
 }
 
+function parseStatusUpdatedAtMs(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isFailedSpawnEntry(entry: MemberSpawnStatusEntry | undefined): boolean {
+  return entry?.launchState === 'failed_to_start' || entry?.status === 'error';
+}
+
+function shouldPreferSnapshotEntryOverLive(params: {
+  liveEntry: MemberSpawnStatusEntry | undefined;
+  snapshotEntry: MemberSpawnStatusEntry | undefined;
+  snapshotUpdatedAt?: string;
+}): boolean {
+  const { liveEntry, snapshotEntry, snapshotUpdatedAt } = params;
+  if (!liveEntry || !snapshotEntry) {
+    return false;
+  }
+  if (!isFailedSpawnEntry(liveEntry) || isFailedSpawnEntry(snapshotEntry)) {
+    return false;
+  }
+
+  const liveUpdatedAtMs = parseStatusUpdatedAtMs(liveEntry.updatedAt);
+  const snapshotUpdatedAtMs =
+    parseStatusUpdatedAtMs(snapshotEntry.updatedAt) ?? parseStatusUpdatedAtMs(snapshotUpdatedAt);
+  return (
+    snapshotUpdatedAtMs != null &&
+    (liveUpdatedAtMs == null || snapshotUpdatedAtMs >= liveUpdatedAtMs)
+  );
+}
+
+function getPreferredSpawnEntry(params: {
+  liveEntry: MemberSpawnStatusEntry | undefined;
+  snapshotEntry: MemberSpawnStatusEntry | undefined;
+  snapshotUpdatedAt?: string;
+}): MemberSpawnStatusEntry | undefined {
+  return shouldPreferSnapshotEntryOverLive(params)
+    ? params.snapshotEntry
+    : (params.liveEntry ?? params.snapshotEntry);
+}
+
 function countPermissionBlockedMembers(params: {
   memberSpawnStatuses: MemberSpawnStatusCollection;
   memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
+  memberSpawnSnapshotUpdatedAt?: string;
 }): number {
   const names = new Set<string>();
   if (params.memberSpawnStatuses instanceof Map) {
@@ -57,7 +102,11 @@ function countPermissionBlockedMembers(params: {
         ? params.memberSpawnStatuses.get(name)
         : params.memberSpawnStatuses?.[name];
     const snapshotEntry = params.memberSpawnSnapshotStatuses?.[name];
-    const entry = liveEntry ?? snapshotEntry;
+    const entry = getPreferredSpawnEntry({
+      liveEntry,
+      snapshotEntry,
+      snapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+    });
     if (!entry) {
       continue;
     }
@@ -89,6 +138,7 @@ const ACTIVE_PROVISIONING_STATES = new Set([
 function getFailedSpawnDetails(params: {
   memberSpawnStatuses: MemberSpawnStatusCollection;
   memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
+  memberSpawnSnapshotUpdatedAt?: string;
 }): FailedSpawnDetail[] {
   const names = new Set<string>();
   if (params.memberSpawnStatuses instanceof Map) {
@@ -115,7 +165,14 @@ function getFailedSpawnDetails(params: {
           ? params.memberSpawnStatuses.get(name)
           : params.memberSpawnStatuses?.[name];
       const snapshotEntry = params.memberSpawnSnapshotStatuses?.[name];
-      return [name, liveEntry ?? snapshotEntry] as const;
+      return [
+        name,
+        getPreferredSpawnEntry({
+          liveEntry,
+          snapshotEntry,
+          snapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+        }),
+      ] as const;
     })
     .filter(
       ([, entry]) => entry && (entry.launchState === 'failed_to_start' || entry.status === 'error')
@@ -229,7 +286,10 @@ export function buildTeamProvisioningPresentation({
   progress: TeamProvisioningProgress | null | undefined;
   members: readonly ProvisioningMemberLike[];
   memberSpawnStatuses?: MemberSpawnStatusCollection;
-  memberSpawnSnapshot?: Pick<MemberSpawnStatusesSnapshot, 'expectedMembers' | 'summary'> & {
+  memberSpawnSnapshot?: Pick<
+    MemberSpawnStatusesSnapshot,
+    'expectedMembers' | 'summary' | 'updatedAt'
+  > & {
     statuses?: MemberSpawnStatusesSnapshot['statuses'];
   };
 }): TeamProvisioningPresentation | null {
@@ -265,6 +325,7 @@ export function buildTeamProvisioningPresentation({
   const failedSpawnDetails = getFailedSpawnDetails({
     memberSpawnStatuses,
     memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
+    memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
   });
   const failedSpawnPanelMessage = buildFailedSpawnPanelMessage(failedSpawnDetails);
   const failedSpawnCompactDetail = buildFailedSpawnCompactDetail(failedSpawnDetails);
@@ -275,6 +336,7 @@ export function buildTeamProvisioningPresentation({
   const permissionBlockedCount = countPermissionBlockedMembers({
     memberSpawnStatuses,
     memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
+    memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
   });
 
   const { allTeammatesConfirmedAlive, hasMembersStillJoining, remainingJoinCount } =
@@ -369,7 +431,6 @@ export function buildTeamProvisioningPresentation({
       isReady: true,
       isFailed: false,
       canCancel: false,
-      currentStepIndex: hasMembersStillJoining ? 2 : DISPLAY_COMPLETE_STEP_INDEX,
       expectedTeammateCount,
       heartbeatConfirmedCount,
       processOnlyAliveCount,
@@ -394,6 +455,8 @@ export function buildTeamProvisioningPresentation({
       compactDetail: readyCompactDetail,
       compactTone:
         failedSpawnCount > 0 ? 'warning' : hasMembersStillJoining ? 'default' : 'success',
+      currentStepIndex:
+        failedSpawnCount > 0 ? 2 : hasMembersStillJoining ? 2 : DISPLAY_COMPLETE_STEP_INDEX,
     };
   }
 

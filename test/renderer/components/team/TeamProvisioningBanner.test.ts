@@ -337,6 +337,73 @@ describe('TeamProvisioningBanner launch-step alignment', () => {
     });
   });
 
+  it('does not mark Members joining complete when launch finishes with failed teammates', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.memberSpawnStatusesByTeam['northstar-core'] = {
+      alice: {
+        status: 'online',
+        launchState: 'confirmed_alive',
+        updatedAt: '2026-04-09T10:00:00.000Z',
+        runtimeAlive: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        agentToolAccepted: true,
+      },
+      bob: {
+        status: 'error',
+        launchState: 'failed_to_start',
+        updatedAt: '2026-04-09T10:00:00.000Z',
+        runtimeAlive: false,
+        bootstrapConfirmed: false,
+        hardFailure: true,
+        hardFailureReason: 'OpenCode lane failed before bootstrap',
+        agentToolAccepted: false,
+      },
+      jack: {
+        status: 'online',
+        launchState: 'confirmed_alive',
+        updatedAt: '2026-04-09T10:00:00.000Z',
+        runtimeAlive: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        agentToolAccepted: true,
+      },
+    } as Record<string, unknown>;
+    storeState.memberSpawnSnapshotsByTeam['northstar-core'] = {
+      runId: 'run-1',
+      expectedMembers: ['alice', 'bob', 'jack'],
+      statuses: {},
+      summary: {
+        confirmedCount: 2,
+        pendingCount: 0,
+        failedCount: 1,
+        runtimeAlivePendingCount: 0,
+      },
+      source: 'merged',
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(React.createElement(TeamProvisioningBanner, { teamName: 'northstar-core' }));
+      await Promise.resolve();
+    });
+
+    const block = host.querySelector('[data-testid="progress-block"]');
+    expect(block?.getAttribute('data-current-step-index')).toBe('2');
+    expect(block?.getAttribute('data-loading')).toBe('false');
+    expect(block?.getAttribute('data-success-severity')).toBe('warning');
+    expect(block?.textContent).toContain('Launch finished with errors');
+    expect(block?.textContent).toContain('bob failed to start');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
   it('uses info severity while runtimes are online but teammate contact is still pending', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.memberSpawnSnapshotsByTeam['northstar-core'] = {
