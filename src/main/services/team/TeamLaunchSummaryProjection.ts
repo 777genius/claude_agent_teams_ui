@@ -30,6 +30,10 @@ export interface PersistedTeamLaunchSummaryProjection extends LaunchStateSummary
   mixedAware?: true;
 }
 
+function getPersistedLaunchMemberNames(snapshot: PersistedTeamLaunchSnapshot): string[] {
+  return Array.from(new Set([...snapshot.expectedMembers, ...Object.keys(snapshot.members)]));
+}
+
 function normalizeIsoDate(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
@@ -48,7 +52,8 @@ function toMillis(value: string | undefined | null): number {
 export function createLaunchStateSummary(
   snapshot: PersistedTeamLaunchSnapshot
 ): LaunchStateSummary {
-  const missingMembers = snapshot.expectedMembers.filter((name) => {
+  const persistedMemberNames = getPersistedLaunchMemberNames(snapshot);
+  const missingMembers = persistedMemberNames.filter((name) => {
     const member = snapshot.members[name];
     return member?.launchState === 'failed_to_start';
   });
@@ -57,8 +62,8 @@ export function createLaunchStateSummary(
     ...(snapshot.teamLaunchState === 'partial_failure'
       ? { partialLaunchFailure: true as const }
       : {}),
-    ...(snapshot.expectedMembers.length > 0
-      ? { expectedMemberCount: snapshot.expectedMembers.length }
+    ...(persistedMemberNames.length > 0
+      ? { expectedMemberCount: persistedMemberNames.length }
       : {}),
     ...(snapshot.summary.confirmedCount > 0
       ? { confirmedMemberCount: snapshot.summary.confirmedCount }

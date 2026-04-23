@@ -174,4 +174,52 @@ describe('TeamLaunchSummaryProjection', () => {
       })
     ).toBe(false);
   });
+
+  it('uses the union of expectedMembers and persisted members for summary projection', () => {
+    const summary = createPersistedLaunchSummaryProjection({
+      version: 2,
+      teamName: 'mixed-team',
+      updatedAt: '2026-04-22T12:00:00.000Z',
+      launchPhase: 'finished',
+      expectedMembers: ['alice'],
+      members: {
+        alice: {
+          name: 'alice',
+          providerId: 'codex',
+          launchState: 'confirmed_alive',
+          agentToolAccepted: true,
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          hardFailure: false,
+          lastEvaluatedAt: '2026-04-22T12:00:00.000Z',
+        },
+        bob: {
+          name: 'bob',
+          providerId: 'opencode',
+          launchState: 'failed_to_start',
+          agentToolAccepted: true,
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          hardFailureReason: 'Side lane failed',
+          lastEvaluatedAt: '2026-04-22T12:00:00.000Z',
+        },
+      },
+      summary: {
+        confirmedCount: 1,
+        pendingCount: 0,
+        failedCount: 1,
+        runtimeAlivePendingCount: 0,
+      },
+      teamLaunchState: 'partial_failure',
+    } as never);
+
+    expect(summary).toMatchObject({
+      expectedMemberCount: 2,
+      confirmedMemberCount: 1,
+      missingMembers: ['bob'],
+      failedCount: 1,
+      teamLaunchState: 'partial_failure',
+    });
+  });
 });
