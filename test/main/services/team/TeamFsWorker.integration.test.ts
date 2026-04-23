@@ -34,7 +34,9 @@ async function bundleWorkerForTests(): Promise<string> {
     outfile,
     [
       "const path = require('node:path');",
-      "const { register } = require('tsx/cjs/api');",
+      "const { createRequire } = require('node:module');",
+      "const requireFromRepo = createRequire(path.join(process.cwd(), 'package.json'));",
+      "const { register } = requireFromRepo('tsx/cjs/api');",
       "register({ tsconfigPath: path.join(process.cwd(), 'tsconfig.json') });",
       "require(path.join(process.cwd(), 'src', 'main', 'workers', 'team-fs-worker.ts'));",
       '',
