@@ -5554,6 +5554,43 @@ describe('TeamProvisioningService', () => {
     });
   });
 
+  it('maps suffixed live runtime metadata keys back onto canonical spawn statuses', async () => {
+    const svc = new TeamProvisioningService();
+    (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(
+      async () =>
+        new Map([
+          [
+            'bob-2',
+            {
+              alive: true,
+              model: 'gpt-5.2',
+            },
+          ],
+        ])
+    );
+
+    const result = await (svc as any).attachLiveRuntimeMetadataToStatuses('beacon-desk-4', {
+      bob: createMemberSpawnStatusEntry({
+        status: 'error',
+        launchState: 'failed_to_start',
+        error: 'Teammate did not join within the launch grace window.',
+        hardFailure: true,
+        hardFailureReason: 'Teammate did not join within the launch grace window.',
+      }),
+    });
+
+    expect(result.bob).toMatchObject({
+      status: 'online',
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: true,
+      hardFailure: false,
+      hardFailureReason: undefined,
+      error: undefined,
+      runtimeModel: 'gpt-5.2',
+      livenessSource: 'process',
+    });
+  });
+
   it('does not clear an explicit restart failure just because the old runtime is still alive', async () => {
     const svc = new TeamProvisioningService();
     (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(

@@ -11265,7 +11265,19 @@ export class TeamProvisioningService {
     const runtimeByMember = await this.getLiveTeamAgentRuntimeMetadata(teamName);
     const nextStatuses = { ...statuses };
     for (const [memberName, metadata] of runtimeByMember.entries()) {
-      const current = nextStatuses[memberName];
+      const resolvedStatusKey =
+        nextStatuses[memberName] != null
+          ? memberName
+          : (() => {
+              const matches = Object.keys(nextStatuses).filter((candidateName) =>
+                matchesTeamMemberIdentity(candidateName, memberName)
+              );
+              return matches.length === 1 ? matches[0] : null;
+            })();
+      if (!resolvedStatusKey) {
+        continue;
+      }
+      const current = nextStatuses[resolvedStatusKey];
       if (!current) {
         continue;
       }
@@ -11288,7 +11300,7 @@ export class TeamProvisioningService {
         nextEntry.livenessSource = current.bootstrapConfirmed ? current.livenessSource : 'process';
         nextEntry.launchState = deriveMemberLaunchState(nextEntry);
       }
-      nextStatuses[memberName] = nextEntry;
+      nextStatuses[resolvedStatusKey] = nextEntry;
     }
     return nextStatuses;
   }
