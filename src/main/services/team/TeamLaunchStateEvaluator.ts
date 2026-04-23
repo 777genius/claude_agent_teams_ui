@@ -601,7 +601,7 @@ export function normalizePersistedLaunchSnapshot(
         name,
         launchState: failed ? 'failed_to_start' : confirmed ? 'confirmed_alive' : 'starting',
         agentToolAccepted: true,
-        runtimeAlive: confirmed,
+        runtimeAlive: false,
         bootstrapConfirmed: confirmed,
         hardFailure: failed,
         hardFailureReason: failed
@@ -620,7 +620,7 @@ export function normalizePersistedLaunchSnapshot(
         typeof maybeLegacy.leadSessionId === 'string' && maybeLegacy.leadSessionId.trim().length > 0
           ? maybeLegacy.leadSessionId.trim()
           : undefined,
-      launchPhase: 'finished',
+      launchPhase: 'reconciled',
       members,
       updatedAt,
     });

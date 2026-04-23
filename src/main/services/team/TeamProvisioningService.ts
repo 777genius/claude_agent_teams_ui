@@ -1522,6 +1522,10 @@ function matchesTeamMemberIdentity(leftName: string, rightName: string): boolean
   );
 }
 
+function matchesObservedMemberNameForExpected(observedName: string, expectedName: string): boolean {
+  return matchesMemberNameOrBase(observedName, expectedName);
+}
+
 function matchesExactTeamMemberName(candidateName: string, memberName: string): boolean {
   const left = candidateName.trim().toLowerCase();
   const right = memberName.trim().toLowerCase();
@@ -1534,6 +1538,7 @@ interface MemberSpawnInboxCursor {
 }
 
 type LeadInboxMemberSpawnMessage = InboxMessage & { messageId: string };
+type LeadInboxLaunchReconcileMessage = Pick<InboxMessage, 'from' | 'text' | 'timestamp'>;
 
 function compareMemberSpawnInboxCursor(
   left: MemberSpawnInboxCursor,
@@ -4148,7 +4153,9 @@ export class TeamProvisioningService {
 
   private getMixedSecondaryLaunchPhase(run: ProvisioningRun): PersistedTeamLaunchPhase {
     return (run.mixedSecondaryLanes ?? []).some(
-      (lane) => lane.state !== 'finished' || lane.result?.teamLaunchState === 'partial_pending'
+      (lane) =>
+        (!lane.result && lane.state !== 'finished') ||
+        lane.result?.teamLaunchState === 'partial_pending'
     )
       ? 'active'
       : 'finished';
@@ -5047,7 +5054,7 @@ export class TeamProvisioningService {
     }
 
     const matches = expectedMembers.filter((memberName) =>
-      matchesTeamMemberIdentity(memberName, trimmedCandidate)
+      matchesObservedMemberNameForExpected(trimmedCandidate, memberName)
     );
     return matches.length === 1 ? (matches[0] ?? null) : null;
   }
@@ -6510,7 +6517,9 @@ export class TeamProvisioningService {
         launchPhase: run.provisioningComplete ? 'finished' : 'active',
         statuses: this.buildRuntimeSpawnStatusRecord(run),
       });
-    const snapshot = liveSnapshot ?? persisted;
+    const rawSnapshot = liveSnapshot ?? persisted;
+    const metaMembers = await this.membersMetaStore.getMembers(teamName).catch(() => []);
+    const snapshot = this.filterRemovedMembersFromLaunchSnapshot(rawSnapshot, metaMembers);
     const statuses = await this.attachLiveRuntimeMetadataToStatuses(
       teamName,
       snapshotToMemberSpawnStatuses(snapshot)
@@ -11643,7 +11652,7 @@ export class TeamProvisioningService {
           ? memberName
           : (() => {
               const matches = Object.keys(nextStatuses).filter((candidateName) =>
-                matchesTeamMemberIdentity(candidateName, memberName)
+                matchesObservedMemberNameForExpected(memberName, candidateName)
               );
               return matches.length === 1 ? matches[0] : null;
             })();
@@ -12664,6 +12673,70 @@ export class TeamProvisioningService {
     return hasMixedPersistedLaunchMetadata(snapshot);
   }
 
+  private hasMixedSecondaryLaunchMetadata(snapshot: PersistedTeamLaunchSnapshot | null): boolean {
+    if (!snapshot) {
+      return false;
+    }
+    return Object.values(snapshot.members).some(
+      (member) =>
+        member?.laneKind === 'secondary' ||
+        (typeof member?.laneId === 'string' && member.laneId.startsWith('secondary:'))
+    );
+  }
+
+  private hasPrimaryOnlyLaneAwareLaunchMetadata(
+    snapshot: PersistedTeamLaunchSnapshot | null
+  ): boolean {
+    if (!snapshot || this.hasMixedSecondaryLaunchMetadata(snapshot)) {
+      return false;
+    }
+
+    return Object.values(snapshot.members).some(
+      (member) =>
+        Boolean(member?.laneId) ||
+        Boolean(member?.laneKind) ||
+        Boolean(member?.laneOwnerProviderId) ||
+        Boolean(member?.launchIdentity)
+    );
+  }
+
+  private hasLeadInboxLaunchReconcileHeartbeat(
+    snapshot: PersistedTeamLaunchSnapshot,
+    messages: readonly LeadInboxLaunchReconcileMessage[]
+  ): boolean {
+    const expectedMembers = this.getPersistedLaunchMemberNames(snapshot);
+    if (expectedMembers.length === 0 || messages.length === 0) {
+      return false;
+    }
+
+    return messages.some((message) => {
+      if (
+        typeof message.from !== 'string' ||
+        typeof message.text !== 'string' ||
+        typeof message.timestamp !== 'string' ||
+        !isMeaningfulBootstrapCheckInMessage(message.text)
+      ) {
+        return false;
+      }
+
+      const expected = this.resolveExpectedLaunchMemberName(expectedMembers, message.from);
+      if (!expected) {
+        return false;
+      }
+
+      const current = snapshot.members[expected];
+      const firstAcceptedAt = current?.firstSpawnAcceptedAt
+        ? Date.parse(current.firstSpawnAcceptedAt)
+        : NaN;
+      const messageTs = Date.parse(message.timestamp);
+      return (
+        !Number.isFinite(firstAcceptedAt) ||
+        !Number.isFinite(messageTs) ||
+        messageTs >= firstAcceptedAt
+      );
+    });
+  }
+
   private shouldRecoverStalePersistedMixedLaunchSnapshot(
     snapshot: PersistedTeamLaunchSnapshot
   ): boolean {
@@ -12701,13 +12774,16 @@ export class TeamProvisioningService {
       return null;
     }
 
-    if (snapshot.teamLaunchState === 'clean_success' && launchPhase !== 'active') {
+    const metaMembers = await this.membersMetaStore.getMembers(run.teamName).catch(() => []);
+    const filteredSnapshot = this.filterRemovedMembersFromLaunchSnapshot(snapshot, metaMembers);
+
+    if (filteredSnapshot.teamLaunchState === 'clean_success' && launchPhase !== 'active') {
       await this.clearPersistedLaunchState(run.teamName);
       return null;
     }
 
-    await this.launchStateStore.write(run.teamName, snapshot);
-    return snapshot;
+    await this.launchStateStore.write(run.teamName, filteredSnapshot);
+    return filteredSnapshot;
   }
 
   private async launchSingleMixedSecondaryLane(
@@ -12742,6 +12818,7 @@ export class TeamProvisioningService {
       lane.warnings = [];
       lane.diagnostics = [message];
       await this.publishMixedSecondaryLaneStatusChange(run, lane);
+      lane.state = 'finished';
       return;
     }
 
@@ -12802,7 +12879,6 @@ export class TeamProvisioningService {
         this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
         return;
       }
-      lane.state = 'finished';
       lane.result = result;
       lane.warnings = [...result.warnings];
       lane.diagnostics = [...migration.diagnostics, ...result.diagnostics];
@@ -12829,7 +12905,6 @@ export class TeamProvisioningService {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      lane.state = 'finished';
       lane.result = {
         runId: lane.runId,
         teamName: run.teamName,
@@ -12864,6 +12939,7 @@ export class TeamProvisioningService {
     }
 
     await this.publishMixedSecondaryLaneStatusChange(run, lane);
+    lane.state = 'finished';
   }
 
   private async stopSingleMixedSecondaryRuntimeLane(
@@ -12931,7 +13007,6 @@ export class TeamProvisioningService {
         logger.warn(
           `[${run.teamName}] OpenCode secondary lane ${lane.laneId} crashed during launch orchestration: ${message}`
         );
-        lane.state = 'finished';
         lane.result = createUnexpectedMixedSecondaryLaneFailureResult({
           runId: lane.runId ?? randomUUID(),
           teamName: run.teamName,
@@ -12949,6 +13024,7 @@ export class TeamProvisioningService {
         }).catch(() => undefined);
         this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
         await this.publishMixedSecondaryLaneStatusChange(run, lane).catch(() => undefined);
+        lane.state = 'finished';
       }
     })();
   }
@@ -13010,7 +13086,7 @@ export class TeamProvisioningService {
   ): Promise<PersistedTeamLaunchSnapshot | null> {
     if (
       persistedSnapshot &&
-      this.hasMixedLaunchMetadata(persistedSnapshot) &&
+      this.hasMixedSecondaryLaunchMetadata(persistedSnapshot) &&
       !this.shouldRecoverStalePersistedMixedLaunchSnapshot(persistedSnapshot)
     ) {
       return persistedSnapshot;
@@ -13245,6 +13321,39 @@ export class TeamProvisioningService {
     }
   }
 
+  private async readLeadInboxMessagesForLaunchReconcile(
+    teamName: string,
+    leadName: string
+  ): Promise<LeadInboxLaunchReconcileMessage[]> {
+    const inboxPath = path.join(getTeamsBasePath(), teamName, 'inboxes', `${leadName}.json`);
+    try {
+      const raw = await tryReadRegularFileUtf8(inboxPath, {
+        timeoutMs: TEAM_JSON_READ_TIMEOUT_MS,
+        maxBytes: TEAM_INBOX_MAX_BYTES,
+      });
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.flatMap((item): LeadInboxLaunchReconcileMessage[] => {
+        if (!item || typeof item !== 'object') {
+          return [];
+        }
+        const row = item as Partial<InboxMessage>;
+        return typeof row.from === 'string' &&
+          typeof row.text === 'string' &&
+          typeof row.timestamp === 'string'
+          ? [{ from: row.from, text: row.text, timestamp: row.timestamp }]
+          : [];
+      });
+    } catch {
+      return [];
+    }
+  }
+
   private async reconcilePersistedLaunchState(teamName: string): Promise<{
     snapshot: ReturnType<typeof createPersistedLaunchSnapshot> | null;
     statuses: Record<string, MemberSpawnStatusEntry>;
@@ -13310,11 +13419,19 @@ export class TeamProvisioningService {
       // best-effort
     }
 
-    let leadInboxMessages: Awaited<ReturnType<TeamInboxReader['getMessagesFor']>> = [];
-    try {
-      leadInboxMessages = await this.inboxReader.getMessagesFor(teamName, leadName);
-    } catch {
-      // best-effort
+    const leadInboxMessages = await this.readLeadInboxMessagesForLaunchReconcile(
+      teamName,
+      leadName
+    );
+
+    if (
+      this.hasPrimaryOnlyLaneAwareLaunchMetadata(filteredPersisted) &&
+      !this.hasLeadInboxLaunchReconcileHeartbeat(filteredPersisted, leadInboxMessages)
+    ) {
+      return {
+        snapshot: filteredPersisted,
+        statuses: snapshotToMemberSpawnStatuses(filteredPersisted),
+      };
     }
 
     const liveAgentNames = await this.getLiveTeamAgentNames(teamName);
@@ -13347,11 +13464,12 @@ export class TeamProvisioningService {
         current.lastHeartbeatAt = current.lastHeartbeatAt ?? bootstrapMember.lastHeartbeatAt;
       }
       const matchedConfigNames = [...configMembers].filter((name) =>
-        matchesTeamMemberIdentity(name, expected)
+        matchesObservedMemberNameForExpected(name, expected)
       );
-      const runtimeAlive = [...liveAgentNames].some((name) =>
-        matchesTeamMemberIdentity(name, expected)
+      const observedRuntimeAlive = [...liveAgentNames].some((name) =>
+        matchesObservedMemberNameForExpected(name, expected)
       );
+      const runtimeAlive = current.runtimeAlive === true || observedRuntimeAlive;
       const heartbeatMessage = leadInboxMessages.find((message) => {
         if (
           typeof message.from !== 'string' ||
@@ -13384,7 +13502,7 @@ export class TeamProvisioningService {
       const acceptedAtMs =
         current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
       current.runtimeAlive = runtimeAlive;
-      current.lastRuntimeAliveAt = runtimeAlive ? now : current.lastRuntimeAliveAt;
+      current.lastRuntimeAliveAt = observedRuntimeAlive ? now : current.lastRuntimeAliveAt;
       current.sources = {
         ...(current.sources ?? {}),
         processAlive: runtimeAlive || undefined,
@@ -13463,7 +13581,7 @@ export class TeamProvisioningService {
       teamName,
       expectedMembers: persistedMemberNames,
       leadSessionId: filteredPersisted.leadSessionId,
-      launchPhase: filteredPersisted.launchPhase === 'active' ? 'active' : 'reconciled',
+      launchPhase: filteredPersisted.launchPhase,
       members: nextMembers,
       updatedAt: now,
     });

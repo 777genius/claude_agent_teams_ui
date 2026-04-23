@@ -2711,18 +2711,16 @@ describe('TeamProvisioningService', () => {
       await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
       await vi.waitFor(async () => {
         expect(adapterLaunch).toHaveBeenCalledTimes(1);
-        await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject(
-          {
-            lanes: {
-              'secondary:opencode:bob': {
-                state: 'degraded',
-                diagnostics: expect.arrayContaining([
-                  'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
-                ]),
-              },
+        await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
+          lanes: {
+            'secondary:opencode:bob': {
+              state: 'degraded',
+              diagnostics: expect.arrayContaining([
+                'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+              ]),
             },
-          }
-        );
+          },
+        });
       });
     });
 
@@ -4429,6 +4427,7 @@ describe('TeamProvisioningService', () => {
       };
       const membersMetaStore = {
         writeMembers: vi.fn(async () => {}),
+        getMembers: vi.fn(async () => []),
         getMeta: vi.fn(async () => null),
       };
       const teamMetaStore = {
@@ -4534,7 +4533,9 @@ describe('TeamProvisioningService', () => {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       const spawnArgs = spawnCall?.[1] as string[];
-      expect(spawnArgs).toEqual(expect.arrayContaining(['--model', 'gpt-5.4', '--effort', 'medium']));
+      expect(spawnArgs).toEqual(
+        expect.arrayContaining(['--model', 'gpt-5.4', '--effort', 'medium'])
+      );
 
       const bootstrapSpec = readBootstrapSpecFromSpawnArgs(spawnArgs);
       expect(bootstrapSpec).toMatchObject({
@@ -4682,11 +4683,18 @@ describe('TeamProvisioningService', () => {
       );
 
       const config = JSON.parse(
-        fs.readFileSync(path.join(tempTeamsBase, 'safe-opencode-only-launch', 'config.json'), 'utf8')
+        fs.readFileSync(
+          path.join(tempTeamsBase, 'safe-opencode-only-launch', 'config.json'),
+          'utf8'
+        )
       ) as { members: Array<{ name: string; providerId?: string; model?: string }> };
       expect(config.members).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ name: 'team-lead', providerId: 'opencode', model: 'big-pickle' }),
+          expect.objectContaining({
+            name: 'team-lead',
+            providerId: 'opencode',
+            model: 'big-pickle',
+          }),
           expect.objectContaining({
             name: 'bob',
             providerId: 'opencode',
@@ -4895,7 +4903,9 @@ describe('TeamProvisioningService', () => {
         status: 'online',
         launchState: 'confirmed_alive',
       });
-      expect(publicStatuses.expectedMembers).toEqual(expect.arrayContaining(['alice', 'bob', 'tom']));
+      expect(publicStatuses.expectedMembers).toEqual(
+        expect.arrayContaining(['alice', 'bob', 'tom'])
+      );
 
       await svc.cancelProvisioning(runId);
     });
@@ -7018,15 +7028,23 @@ describe('TeamProvisioningService', () => {
       write: vi.fn(async () => {}),
       clear: vi.fn(async () => {}),
     };
-    vi.spyOn((svc as any).inboxReader, 'getMessagesFor').mockResolvedValue([
-      {
-        from: 'alice-2',
-        text: 'heartbeat',
-        timestamp: '2026-04-16T10:00:00.000Z',
-        messageId: 'msg-suffixed-reconcile',
-        read: false,
-      },
-    ]);
+    fs.mkdirSync(path.join(tempTeamsBase, teamName, 'inboxes'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempTeamsBase, teamName, 'inboxes', 'team-lead.json'),
+      JSON.stringify(
+        [
+          {
+            from: 'alice-2',
+            text: 'heartbeat',
+            timestamp: '2026-04-16T10:00:00.000Z',
+            messageId: 'msg-suffixed-reconcile',
+            read: false,
+          },
+        ],
+        null,
+        2
+      )
+    );
     (svc as any).getLiveTeamAgentNames = vi.fn(async () => new Set<string>());
 
     const result = await (svc as any).reconcilePersistedLaunchState(teamName);

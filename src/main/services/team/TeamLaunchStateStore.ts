@@ -24,6 +24,18 @@ export function getTeamLaunchSummaryPath(teamName: string): string {
   return path.join(getTeamsBasePath(), teamName, TEAM_LAUNCH_SUMMARY_FILE);
 }
 
+async function isMissingTeamDirectoryWriteRace(teamName: string, error: unknown): Promise<boolean> {
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    return false;
+  }
+  try {
+    await fs.promises.access(path.dirname(getTeamLaunchStatePath(teamName)));
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export class TeamLaunchStateStore {
   async read(teamName: string): Promise<PersistedTeamLaunchSnapshot | null> {
     const targetPath = getTeamLaunchStatePath(teamName);
@@ -50,6 +62,9 @@ export class TeamLaunchStateStore {
         `${JSON.stringify(createPersistedLaunchSummaryProjection(snapshot), null, 2)}\n`
       );
     } catch (error) {
+      if (await isMissingTeamDirectoryWriteRace(teamName, error)) {
+        return;
+      }
       logger.warn(
         `[${teamName}] Failed to persist launch-state: ${
           error instanceof Error ? error.message : String(error)
