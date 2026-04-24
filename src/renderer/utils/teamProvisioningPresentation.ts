@@ -126,6 +126,27 @@ function buildAwaitingPermissionPhrase(count: number): string {
     : `${count} teammates awaiting permission approval`;
 }
 
+function buildPendingDiagnosticPhrase(
+  summary: MemberSpawnStatusesSnapshot['summary'] | undefined,
+  fallbackJoiningPhrase: string
+): string {
+  if (!summary) {
+    return fallbackJoiningPhrase;
+  }
+  const parts = [
+    summary.shellOnlyPendingCount ? `${summary.shellOnlyPendingCount} shell-only` : '',
+    summary.runtimeProcessPendingCount
+      ? `${summary.runtimeProcessPendingCount} waiting for bootstrap`
+      : '',
+    summary.runtimeCandidatePendingCount
+      ? `${summary.runtimeCandidatePendingCount} process candidates`
+      : '',
+    summary.permissionPendingCount ? `${summary.permissionPendingCount} awaiting permission` : '',
+    summary.noRuntimePendingCount ? `${summary.noRuntimePendingCount} no runtime found` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : fallbackJoiningPhrase;
+}
+
 const ACTIVE_PROVISIONING_STATES = new Set([
   'validating',
   'spawning',
@@ -394,7 +415,7 @@ export function buildTeamProvisioningPresentation({
       permissionBlockedCount === remainingJoinCount;
     const pendingDetailPhrase = pendingMembersAwaitApproval
       ? buildAwaitingPermissionPhrase(permissionBlockedCount)
-      : joiningPhrase;
+      : buildPendingDiagnosticPhrase(memberSpawnSnapshot?.summary, joiningPhrase);
     const readyCompactDetail =
       failedSpawnCount > 0
         ? (failedSpawnCompactDetail ??
@@ -471,7 +492,7 @@ export function buildTeamProvisioningPresentation({
       permissionBlockedCount > 0 &&
       permissionBlockedCount === remainingJoinCount
         ? buildAwaitingPermissionPhrase(permissionBlockedCount)
-        : activeJoiningPhrase;
+        : buildPendingDiagnosticPhrase(memberSpawnSnapshot?.summary, activeJoiningPhrase);
     return {
       progress,
       isActive: true,

@@ -167,6 +167,7 @@ export const MemberDetailDialog = ({
               spawnLaunchState={spawnEntry?.launchState}
               spawnLivenessSource={spawnEntry?.livenessSource}
               spawnRuntimeAlive={spawnEntry?.runtimeAlive}
+              runtimeEntry={runtimeEntry}
               isLaunchSettling={isLaunchSettling}
               onUpdateRole={
                 onUpdateRole ? (newRole) => onUpdateRole(member.name, newRole) : undefined
@@ -253,6 +254,7 @@ export const MemberDetailDialog = ({
           ) : runtimeEntry?.pid ? (
             <div className="mr-auto text-xs text-[var(--color-text-muted)]">
               PID {runtimeEntry.pid}
+              {runtimeEntry.pidSource ? ` · ${runtimeEntry.pidSource}` : ''}
             </div>
           ) : (
             <div className="mr-auto" />

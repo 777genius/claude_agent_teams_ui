@@ -60,26 +60,27 @@ describe('TeamLaunchStateEvaluator', () => {
   });
 
   it('counts persisted members in launch summary even when expectedMembers is stale', () => {
-    const summary = summarizePersistedLaunchMembers(
-      ['alice'],
-      {
-        alice: {
-          launchState: 'runtime_pending_bootstrap',
-          runtimeAlive: false,
-        },
-        bob: {
-          launchState: 'runtime_pending_permission',
-          runtimeAlive: true,
-        },
-      } as any
-    );
+    const summary = summarizePersistedLaunchMembers(['alice'], {
+      alice: {
+        launchState: 'runtime_pending_bootstrap',
+        runtimeAlive: false,
+      },
+      bob: {
+        launchState: 'runtime_pending_permission',
+        runtimeAlive: true,
+      },
+    } as any);
 
     expect(summary).toEqual({
       confirmedCount: 0,
       pendingCount: 2,
       failedCount: 0,
       runtimeAlivePendingCount: 1,
+      shellOnlyPendingCount: 0,
+      runtimeProcessPendingCount: 0,
+      runtimeCandidatePendingCount: 0,
+      noRuntimePendingCount: 0,
+      permissionPendingCount: 1,
     });
   });
-
 });

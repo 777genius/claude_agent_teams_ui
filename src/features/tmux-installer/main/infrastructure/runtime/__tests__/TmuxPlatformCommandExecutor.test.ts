@@ -78,7 +78,8 @@ describe('TmuxPlatformCommandExecutor', () => {
     );
     vi.spyOn(executor, 'execTmux').mockResolvedValue({
       exitCode: 0,
-      stdout: '%1\t111\n%2\t222\n%3\tnot-a-pid\n',
+      stdout:
+        '%1\t111\tzsh\t/tmp\tteam\tmain\n%2\t222\tnode\t/project\tteam\tworker\n%3\tnot-a-pid\tzsh\t/tmp\tteam\tmain\n',
       stderr: '',
     });
 
@@ -86,7 +87,12 @@ describe('TmuxPlatformCommandExecutor', () => {
       new Map([['%2', 222]])
     );
     expect(executor.execTmux).toHaveBeenCalledWith(
-      ['list-panes', '-a', '-F', '#{pane_id}\t#{pane_pid}'],
+      [
+        'list-panes',
+        '-a',
+        '-F',
+        '#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{session_name}\t#{window_name}',
+      ],
       3_000
     );
   });

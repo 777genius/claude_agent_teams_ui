@@ -27,7 +27,9 @@ vi.mock('@main/services/team/ClaudeBinaryResolver', () => ({
 
 vi.mock('@features/tmux-installer/main', () => ({
   killTmuxPaneForCurrentPlatformSync: vi.fn(),
+  listRuntimeProcessesForCurrentTmuxPlatform: vi.fn(async () => []),
   listTmuxPanePidsForCurrentPlatform: vi.fn(async () => new Map()),
+  listTmuxPaneRuntimeInfoForCurrentPlatform: vi.fn(async () => new Map()),
   isTmuxRuntimeReadyForCurrentPlatform: vi.fn(async () => true),
 }));
 
@@ -144,7 +146,9 @@ import {
 } from 'agent-teams-controller';
 import {
   killTmuxPaneForCurrentPlatformSync,
+  listRuntimeProcessesForCurrentTmuxPlatform,
   listTmuxPanePidsForCurrentPlatform,
+  listTmuxPaneRuntimeInfoForCurrentPlatform,
 } from '@features/tmux-installer/main';
 import pidusage from 'pidusage';
 
@@ -409,6 +413,13 @@ function createClaudeLogsRun(overrides: Record<string, unknown> = {}) {
 describe('TeamProvisioningService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(killTmuxPaneForCurrentPlatformSync).mockReset();
+    vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockReset();
+    vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockResolvedValue([]);
+    vi.mocked(listTmuxPanePidsForCurrentPlatform).mockReset();
+    vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValue(new Map());
+    vi.mocked(listTmuxPaneRuntimeInfoForCurrentPlatform).mockReset();
+    vi.mocked(listTmuxPaneRuntimeInfoForCurrentPlatform).mockResolvedValue(new Map());
     tempClaudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-team-provisioning-'));
     tempTeamsBase = path.join(tempClaudeRoot, 'teams');
     tempTasksBase = path.join(tempClaudeRoot, 'tasks');
@@ -557,7 +568,18 @@ describe('TeamProvisioningService', () => {
         cancelRequested: false,
         spawnContext: null,
       });
-      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValueOnce(new Map([['%1', 222]]));
+      vi.mocked(listTmuxPaneRuntimeInfoForCurrentPlatform).mockResolvedValueOnce(
+        new Map([
+          [
+            '%1',
+            {
+              paneId: '%1',
+              panePid: 222,
+              currentCommand: 'codex',
+            },
+          ],
+        ])
+      );
 
       vi.mocked(pidusage).mockResolvedValueOnce({
         '111': createPidusageStat(111, 123_000_000),
@@ -650,7 +672,18 @@ describe('TeamProvisioningService', () => {
         cancelRequested: false,
         spawnContext: null,
       });
-      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValueOnce(new Map([['%1', 222]]));
+      vi.mocked(listTmuxPaneRuntimeInfoForCurrentPlatform).mockResolvedValueOnce(
+        new Map([
+          [
+            '%1',
+            {
+              paneId: '%1',
+              panePid: 222,
+              currentCommand: 'codex',
+            },
+          ],
+        ])
+      );
 
       vi.mocked(pidusage)
         .mockRejectedValueOnce(new Error('ps: process exited'))
@@ -693,14 +726,14 @@ describe('TeamProvisioningService', () => {
         cancelRequested: false,
         spawnContext: null,
       });
-      (svc as any).readUnixProcessTableRows = vi.fn(() => [
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockResolvedValueOnce([
         {
           pid: 333,
+          ppid: 1,
           command:
             '/Users/belief/.bun/bin/bun cli.js --agent-id alice@nice-team --agent-name alice --team-name nice-team --model gpt-5.2',
         },
       ]);
-      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValueOnce(new Map());
       vi.mocked(pidusage).mockResolvedValueOnce({
         '111': createPidusageStat(111, 123_000_000),
         '333': createPidusageStat(333, 456_000_000),
@@ -746,19 +779,20 @@ describe('TeamProvisioningService', () => {
         cancelRequested: false,
         spawnContext: null,
       });
-      (svc as any).readUnixProcessTableRows = vi.fn(() => [
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockResolvedValueOnce([
         {
           pid: 222,
+          ppid: 1,
           command:
             '/Users/belief/.bun/bin/bun cli.js --agent-id alice@nice-team --agent-name alice --team-name nice-team --model gpt-5.2',
         },
         {
           pid: 333,
+          ppid: 1,
           command:
             '/Users/belief/.bun/bin/bun cli.js --team-name nice-team --agent-id alice@nice-team --agent-name alice --model gpt-5.2',
         },
       ]);
-      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValueOnce(new Map());
       vi.mocked(pidusage).mockResolvedValueOnce({
         '111': createPidusageStat(111, 123_000_000),
         '333': createPidusageStat(333, 456_000_000),
@@ -911,14 +945,20 @@ describe('TeamProvisioningService', () => {
         ]),
       };
       (svc as any).readPersistedRuntimeMembers = vi.fn(() => []);
-      (svc as any).findLiveProcessPidByAgentId = vi.fn(
-        () =>
-          new Map([
-            ['alice@signal-ops-6', 17527],
-            ['atlas@signal-ops-6', 17528],
-          ])
-      );
-      vi.mocked(listTmuxPanePidsForCurrentPlatform).mockResolvedValueOnce(new Map());
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockResolvedValueOnce([
+        {
+          pid: 17527,
+          ppid: 1,
+          command:
+            '/Users/belief/.bun/bin/bun cli.js --agent-id alice@signal-ops-6 --agent-name alice --team-name signal-ops-6 --model gpt-5.4-mini',
+        },
+        {
+          pid: 17528,
+          ppid: 1,
+          command:
+            '/Users/belief/.bun/bin/bun cli.js --agent-id atlas@signal-ops-6 --agent-name atlas --team-name signal-ops-6 --model gpt-5.3-codex',
+        },
+      ]);
 
       const metadata = await (svc as any).getLiveTeamAgentRuntimeMetadata('signal-ops-6');
 
@@ -4009,6 +4049,9 @@ describe('TeamProvisioningService', () => {
       const restartPromise = expect(svc.restartMember('process-team', 'forge')).rejects.toThrow(
         `Restart for teammate "forge" is still waiting for the previous process to exit (${process.pid}).`
       );
+      await vi.waitFor(() => {
+        expect(vi.mocked(killProcessByPid)).toHaveBeenCalledWith(process.pid);
+      });
       await vi.advanceTimersByTimeAsync(1_500);
       await restartPromise;
 
@@ -4056,9 +4099,14 @@ describe('TeamProvisioningService', () => {
           backendType: 'process',
         },
       ]);
-      (svc as any).findLiveProcessPidByAgentId = vi.fn(
-        () => new Map([['forge@process-team', process.pid]])
-      );
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockResolvedValueOnce([
+        {
+          pid: process.pid,
+          ppid: 1,
+          command:
+            '/Users/belief/.bun/bin/bun cli.js --team-name process-team --agent-id forge@process-team --agent-name forge --model gpt-5.4',
+        },
+      ]);
       (svc as any).liveTeamAgentRuntimeMetadataCache.set('process-team', {
         expiresAtMs: Date.now() + 60_000,
         metadata: new Map([
@@ -4078,6 +4126,9 @@ describe('TeamProvisioningService', () => {
       const restartPromise = expect(svc.restartMember('process-team', 'forge')).rejects.toThrow(
         `Restart for teammate "forge" is still waiting for the previous process to exit (${process.pid}).`
       );
+      await vi.waitFor(() => {
+        expect(vi.mocked(killProcessByPid)).toHaveBeenCalledWith(process.pid);
+      });
       await vi.advanceTimersByTimeAsync(1_500);
       await restartPromise;
 
@@ -4120,15 +4171,23 @@ describe('TeamProvisioningService', () => {
         ]),
       };
       (svc as any).readPersistedRuntimeMembers = vi.fn(() => []);
-      (svc as any).findLiveProcessPidByAgentId = vi.fn(
-        () => new Map([['forge@process-team', process.pid]])
-      );
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockResolvedValueOnce([
+        {
+          pid: process.pid,
+          ppid: 1,
+          command:
+            '/Users/belief/.bun/bin/bun cli.js --team-name process-team --agent-id forge@process-team --agent-name forge --model gpt-5.4',
+        },
+      ]);
       (svc as any).aliveRunByTeam.set('process-team', run.runId);
       (svc as any).runs.set(run.runId, run);
 
       const restartPromise = expect(svc.restartMember('process-team', 'forge')).rejects.toThrow(
         `Restart for teammate "forge" is still waiting for the previous process to exit (${process.pid}).`
       );
+      await vi.waitFor(() => {
+        expect(vi.mocked(killProcessByPid)).toHaveBeenCalledWith(process.pid);
+      });
       await vi.advanceTimersByTimeAsync(1_500);
       await restartPromise;
 

@@ -68,6 +68,7 @@ export const MemberHoverCard = ({
     memberSpawnSnapshot,
     memberSpawnStatuses,
     spawnEntry,
+    runtimeEntry,
     leadActivity,
   } = useStore(
     useShallow((s) => ({
@@ -88,6 +89,9 @@ export const MemberHoverCard = ({
         : undefined,
       spawnEntry: effectiveTeamName
         ? s.memberSpawnStatusesByTeam[effectiveTeamName]?.[name]
+        : undefined,
+      runtimeEntry: effectiveTeamName
+        ? s.teamAgentRuntimeByTeam[effectiveTeamName]?.members[name]
         : undefined,
       leadActivity: effectiveTeamName ? s.leadActivityByTeam[effectiveTeamName] : undefined,
     }))
@@ -114,6 +118,7 @@ export const MemberHoverCard = ({
     spawnLaunchState: spawnEntry?.launchState,
     spawnLivenessSource: spawnEntry?.livenessSource,
     spawnRuntimeAlive: spawnEntry?.runtimeAlive,
+    runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,
     isLaunchSettling,
     isTeamAlive,
@@ -130,7 +135,12 @@ export const MemberHoverCard = ({
   const badgeLabel =
     runtimeAdvisoryTone === 'error' && runtimeAdvisoryLabel
       ? runtimeAdvisoryLabel
-      : launchVisualState === 'runtime_pending' || launchVisualState === 'permission_pending'
+      : launchVisualState === 'runtime_pending' ||
+          launchVisualState === 'permission_pending' ||
+          launchVisualState === 'shell_only' ||
+          launchVisualState === 'runtime_candidate' ||
+          launchVisualState === 'registered_only' ||
+          launchVisualState === 'stale_runtime'
         ? (launchStatusLabel ?? presenceLabel)
         : presenceLabel;
   const currentTask: TeamTaskWithKanban | null = member.currentTaskId

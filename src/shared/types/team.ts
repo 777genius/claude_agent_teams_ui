@@ -82,6 +82,11 @@ export interface TeamSummary {
   pendingCount?: number;
   failedCount?: number;
   runtimeAlivePendingCount?: number;
+  shellOnlyPendingCount?: number;
+  runtimeProcessPendingCount?: number;
+  runtimeCandidatePendingCount?: number;
+  noRuntimePendingCount?: number;
+  permissionPendingCount?: number;
 }
 
 export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted';
@@ -941,6 +946,12 @@ export interface PersistedTeamLaunchMemberState {
   hardFailureReason?: string;
   pendingPermissionRequestIds?: string[];
   runtimePid?: number;
+  runtimeSessionId?: string;
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+  pidSource?: TeamAgentRuntimePidSource;
+  runtimeDiagnostic?: string;
+  runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  runtimeLastSeenAt?: string;
   firstSpawnAcceptedAt?: string;
   lastHeartbeatAt?: string;
   lastRuntimeAliveAt?: string;
@@ -954,6 +965,11 @@ export interface PersistedTeamLaunchSummary {
   pendingCount: number;
   failedCount: number;
   runtimeAlivePendingCount: number;
+  shellOnlyPendingCount?: number;
+  runtimeProcessPendingCount?: number;
+  runtimeCandidatePendingCount?: number;
+  noRuntimePendingCount?: number;
+  permissionPendingCount?: number;
 }
 
 export interface PersistedTeamLaunchSnapshot {
@@ -984,6 +1000,27 @@ export type MemberSpawnLivenessSource = 'heartbeat' | 'process';
 
 export type TeamAgentRuntimeBackendType = 'lead' | 'tmux' | 'iterm2' | 'in-process' | 'process';
 
+export type TeamAgentRuntimeLivenessKind =
+  | 'confirmed_bootstrap'
+  | 'runtime_process'
+  | 'runtime_process_candidate'
+  | 'permission_blocked'
+  | 'shell_only'
+  | 'registered_only'
+  | 'stale_metadata'
+  | 'not_found';
+
+export type TeamAgentRuntimePidSource =
+  | 'lead_process'
+  | 'tmux_pane'
+  | 'tmux_child'
+  | 'agent_process_table'
+  | 'opencode_bridge'
+  | 'runtime_bootstrap'
+  | 'persisted_metadata';
+
+export type TeamAgentRuntimeDiagnosticSeverity = 'info' | 'warning' | 'error';
+
 export interface TeamAgentRuntimeEntry {
   memberName: string;
   alive: boolean;
@@ -996,6 +1033,19 @@ export interface TeamAgentRuntimeEntry {
   pid?: number;
   runtimeModel?: string;
   rssBytes?: number;
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+  pidSource?: TeamAgentRuntimePidSource;
+  processCommand?: string;
+  paneId?: string;
+  panePid?: number;
+  paneCurrentCommand?: string;
+  runtimePid?: number;
+  runtimeSessionId?: string;
+  runtimeLeaseExpiresAt?: string;
+  runtimeLastSeenAt?: string;
+  runtimeDiagnostic?: string;
+  runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  diagnostics?: string[];
   updatedAt: string;
 }
 
@@ -1062,6 +1112,14 @@ export interface MemberSpawnStatusEntry {
   lastHeartbeatAt?: string;
   /** Live runtime model observed from the teammate process, when available. */
   runtimeModel?: string;
+  /** Compact runtime liveness classification for launch UI. */
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+  /** Short user-facing liveness diagnostic. */
+  runtimeDiagnostic?: string;
+  /** Visual severity for runtimeDiagnostic. */
+  runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  /** ISO timestamp of the last liveness evaluation. */
+  livenessLastCheckedAt?: string;
   /** ISO timestamp of the last status change. */
   updatedAt: string;
 }
@@ -1176,6 +1234,28 @@ export interface TeamProvisioningProgress {
   assistantOutput?: string;
   /** True once provisioning has written a readable config.json for this team. */
   configReady?: boolean;
+  /** Bounded structured launch diagnostics for the progress UI. */
+  launchDiagnostics?: TeamLaunchDiagnosticItem[];
+}
+
+export interface TeamLaunchDiagnosticItem {
+  id: string;
+  memberName?: string;
+  severity: TeamAgentRuntimeDiagnosticSeverity;
+  code:
+    | 'spawn_accepted'
+    | 'runtime_process_detected'
+    | 'runtime_process_candidate'
+    | 'tmux_shell_only'
+    | 'runtime_not_found'
+    | 'permission_pending'
+    | 'bootstrap_confirmed'
+    | 'bootstrap_stalled'
+    | 'stale_runtime_event_rejected'
+    | 'process_table_unavailable';
+  label: string;
+  detail?: string;
+  observedAt: string;
 }
 
 export interface TeamRuntimeState {

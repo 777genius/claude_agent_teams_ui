@@ -12,6 +12,9 @@ import type {
   PersistedTeamLaunchSnapshot,
   PersistedTeamLaunchSummary,
   ProviderModelLaunchIdentity,
+  TeamAgentRuntimeDiagnosticSeverity,
+  TeamAgentRuntimeLivenessKind,
+  TeamAgentRuntimePidSource,
   TeamLaunchAggregateState,
 } from '@shared/types';
 
@@ -37,8 +40,13 @@ type RuntimeMemberSpawnState = Pick<
   | 'bootstrapConfirmed'
   | 'hardFailure'
   | 'pendingPermissionRequestIds'
+  | 'livenessKind'
+  | 'runtimeDiagnostic'
+  | 'runtimeDiagnosticSeverity'
+  | 'livenessLastCheckedAt'
   | 'firstSpawnAcceptedAt'
   | 'lastHeartbeatAt'
+  | 'runtimeModel'
   | 'updatedAt'
 >;
 
@@ -57,6 +65,41 @@ function normalizeRuntimePid(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? Math.trunc(value)
     : undefined;
+}
+
+function normalizeLivenessKind(value: unknown): TeamAgentRuntimeLivenessKind | undefined {
+  return value === 'confirmed_bootstrap' ||
+    value === 'runtime_process' ||
+    value === 'runtime_process_candidate' ||
+    value === 'permission_blocked' ||
+    value === 'shell_only' ||
+    value === 'registered_only' ||
+    value === 'stale_metadata' ||
+    value === 'not_found'
+    ? value
+    : undefined;
+}
+
+function normalizePidSource(value: unknown): TeamAgentRuntimePidSource | undefined {
+  return value === 'lead_process' ||
+    value === 'tmux_pane' ||
+    value === 'tmux_child' ||
+    value === 'agent_process_table' ||
+    value === 'opencode_bridge' ||
+    value === 'runtime_bootstrap' ||
+    value === 'persisted_metadata'
+    ? value
+    : undefined;
+}
+
+function normalizeDiagnosticSeverity(
+  value: unknown
+): TeamAgentRuntimeDiagnosticSeverity | undefined {
+  return value === 'info' || value === 'warning' || value === 'error' ? value : undefined;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function normalizeMemberName(name: string): string {
@@ -110,6 +153,11 @@ export function summarizePersistedLaunchMembers(
   let pendingCount = 0;
   let failedCount = 0;
   let runtimeAlivePendingCount = 0;
+  let shellOnlyPendingCount = 0;
+  let runtimeProcessPendingCount = 0;
+  let runtimeCandidatePendingCount = 0;
+  let noRuntimePendingCount = 0;
+  let permissionPendingCount = 0;
   const normalizedExpected = expectedMembers.map(normalizeMemberName).filter(Boolean);
   const memberNames = Array.from(
     new Set([
@@ -136,9 +184,31 @@ export function summarizePersistedLaunchMembers(
     if (entry.runtimeAlive) {
       runtimeAlivePendingCount += 1;
     }
+    if (entry.launchState === 'runtime_pending_permission') {
+      permissionPendingCount += 1;
+    }
+    if (entry.livenessKind === 'shell_only') {
+      shellOnlyPendingCount += 1;
+    } else if (entry.livenessKind === 'runtime_process') {
+      runtimeProcessPendingCount += 1;
+    } else if (entry.livenessKind === 'runtime_process_candidate') {
+      runtimeCandidatePendingCount += 1;
+    } else if (entry.livenessKind === 'not_found' || entry.livenessKind === 'stale_metadata') {
+      noRuntimePendingCount += 1;
+    }
   }
 
-  return { confirmedCount, pendingCount, failedCount, runtimeAlivePendingCount };
+  return {
+    confirmedCount,
+    pendingCount,
+    failedCount,
+    runtimeAlivePendingCount,
+    shellOnlyPendingCount,
+    runtimeProcessPendingCount,
+    runtimeCandidatePendingCount,
+    noRuntimePendingCount,
+    permissionPendingCount,
+  };
 }
 
 export function hasMixedPersistedLaunchMetadata(
@@ -340,6 +410,12 @@ function normalizePersistedMemberState(
       parsed.pendingPermissionRequestIds
     ),
     runtimePid: normalizeRuntimePid(parsed.runtimePid),
+    runtimeSessionId: normalizeOptionalString(parsed.runtimeSessionId),
+    livenessKind: normalizeLivenessKind(parsed.livenessKind),
+    pidSource: normalizePidSource(parsed.pidSource),
+    runtimeDiagnostic: normalizeOptionalString(parsed.runtimeDiagnostic),
+    runtimeDiagnosticSeverity: normalizeDiagnosticSeverity(parsed.runtimeDiagnosticSeverity),
+    runtimeLastSeenAt: normalizeOptionalString(parsed.runtimeLastSeenAt),
     firstSpawnAcceptedAt:
       typeof parsed.firstSpawnAcceptedAt === 'string' ? parsed.firstSpawnAcceptedAt : undefined,
     lastHeartbeatAt:
@@ -492,6 +568,10 @@ export function snapshotFromRuntimeMemberStatuses(params: {
       pendingPermissionRequestIds: runtime?.pendingPermissionRequestIds?.length
         ? [...new Set(runtime.pendingPermissionRequestIds)]
         : undefined,
+      livenessKind: runtime?.livenessKind,
+      runtimeDiagnostic: runtime?.runtimeDiagnostic,
+      runtimeDiagnosticSeverity: runtime?.runtimeDiagnosticSeverity,
+      runtimeLastSeenAt: runtime?.livenessLastCheckedAt,
       firstSpawnAcceptedAt: runtime?.firstSpawnAcceptedAt,
       lastHeartbeatAt: runtime?.lastHeartbeatAt,
       lastRuntimeAliveAt: runtime?.runtimeAlive ? updatedAt : undefined,
@@ -555,6 +635,10 @@ export function snapshotToMemberSpawnStatuses(
       bootstrapConfirmed: entry.bootstrapConfirmed,
       hardFailure: entry.hardFailure,
       pendingPermissionRequestIds: entry.pendingPermissionRequestIds,
+      livenessKind: entry.livenessKind,
+      runtimeDiagnostic: entry.runtimeDiagnostic,
+      runtimeDiagnosticSeverity: entry.runtimeDiagnosticSeverity,
+      livenessLastCheckedAt: entry.runtimeLastSeenAt ?? entry.lastEvaluatedAt,
       firstSpawnAcceptedAt: entry.firstSpawnAcceptedAt,
       lastHeartbeatAt: entry.lastHeartbeatAt,
       updatedAt: entry.lastEvaluatedAt,

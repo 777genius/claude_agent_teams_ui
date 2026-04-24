@@ -131,7 +131,7 @@ function summarizeLiveLaunchJoinMilestones(params: {
       entry.launchState === 'runtime_pending_bootstrap' ||
       entry.launchState === 'runtime_pending_permission'
     ) {
-      if (entry.runtimeAlive === true) {
+      if (entry.runtimeAlive === true && entry.livenessKind !== 'shell_only') {
         processOnlyAliveCount += 1;
       } else {
         pendingSpawnCount += 1;
@@ -199,7 +199,8 @@ export function getLaunchJoinMilestonesFromMembers({
     const snapshotMilestones = {
       expectedTeammateCount,
       heartbeatConfirmedCount: snapshotSummary.confirmedCount,
-      processOnlyAliveCount: snapshotSummary.runtimeAlivePendingCount,
+      processOnlyAliveCount:
+        snapshotSummary.runtimeProcessPendingCount ?? snapshotSummary.runtimeAlivePendingCount,
       pendingSpawnCount: Math.max(
         0,
         snapshotSummary.pendingCount - snapshotSummary.runtimeAlivePendingCount

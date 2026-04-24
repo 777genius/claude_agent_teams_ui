@@ -22,6 +22,10 @@ export type GraphLaunchVisualState =
   | 'spawning'
   | 'permission_pending'
   | 'runtime_pending'
+  | 'shell_only'
+  | 'runtime_candidate'
+  | 'registered_only'
+  | 'stale_runtime'
   | 'settling'
   | 'error';
 

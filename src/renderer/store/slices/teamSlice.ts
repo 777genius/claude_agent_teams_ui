@@ -702,7 +702,12 @@ function areLaunchSummaryCountsEqual(
     left.confirmedCount === right.confirmedCount &&
     left.pendingCount === right.pendingCount &&
     left.failedCount === right.failedCount &&
-    left.runtimeAlivePendingCount === right.runtimeAlivePendingCount
+    left.runtimeAlivePendingCount === right.runtimeAlivePendingCount &&
+    left.shellOnlyPendingCount === right.shellOnlyPendingCount &&
+    left.runtimeProcessPendingCount === right.runtimeProcessPendingCount &&
+    left.runtimeCandidatePendingCount === right.runtimeCandidatePendingCount &&
+    left.noRuntimePendingCount === right.noRuntimePendingCount &&
+    left.permissionPendingCount === right.permissionPendingCount
   );
 }
 
@@ -739,6 +744,9 @@ function areMemberSpawnStatusEntriesEqual(
     left.livenessSource === right.livenessSource &&
     left.runtimeAlive === right.runtimeAlive &&
     left.runtimeModel === right.runtimeModel &&
+    left.livenessKind === right.livenessKind &&
+    left.runtimeDiagnostic === right.runtimeDiagnostic &&
+    left.runtimeDiagnosticSeverity === right.runtimeDiagnosticSeverity &&
     left.bootstrapConfirmed === right.bootstrapConfirmed &&
     left.hardFailure === right.hardFailure &&
     leftPendingPermissionIds.length === rightPendingPermissionIds.length &&
@@ -809,7 +817,13 @@ function areTeamAgentRuntimeEntriesEqual(
     left.backendType === right.backendType &&
     left.pid === right.pid &&
     left.runtimeModel === right.runtimeModel &&
-    left.rssBytes === right.rssBytes
+    left.rssBytes === right.rssBytes &&
+    left.livenessKind === right.livenessKind &&
+    left.pidSource === right.pidSource &&
+    left.paneCurrentCommand === right.paneCurrentCommand &&
+    left.runtimeDiagnostic === right.runtimeDiagnostic &&
+    left.runtimeDiagnosticSeverity === right.runtimeDiagnosticSeverity &&
+    left.runtimeLastSeenAt === right.runtimeLastSeenAt
   );
 }
 

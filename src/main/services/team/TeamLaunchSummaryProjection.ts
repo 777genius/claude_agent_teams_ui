@@ -19,6 +19,11 @@ export interface LaunchStateSummary {
   pendingCount?: number;
   failedCount?: number;
   runtimeAlivePendingCount?: number;
+  shellOnlyPendingCount?: number;
+  runtimeProcessPendingCount?: number;
+  runtimeCandidatePendingCount?: number;
+  noRuntimePendingCount?: number;
+  permissionPendingCount?: number;
 }
 
 export interface PersistedTeamLaunchSummaryProjection extends LaunchStateSummary {
@@ -73,6 +78,11 @@ export function createLaunchStateSummary(
     pendingCount: snapshot.summary.pendingCount,
     failedCount: snapshot.summary.failedCount,
     runtimeAlivePendingCount: snapshot.summary.runtimeAlivePendingCount,
+    shellOnlyPendingCount: snapshot.summary.shellOnlyPendingCount,
+    runtimeProcessPendingCount: snapshot.summary.runtimeProcessPendingCount,
+    runtimeCandidatePendingCount: snapshot.summary.runtimeCandidatePendingCount,
+    noRuntimePendingCount: snapshot.summary.noRuntimePendingCount,
+    permissionPendingCount: snapshot.summary.permissionPendingCount,
   };
 }
 
@@ -146,6 +156,27 @@ export function normalizePersistedLaunchSummaryProjection(
   }
   if (typeof record.runtimeAlivePendingCount === 'number' && record.runtimeAlivePendingCount >= 0) {
     normalized.runtimeAlivePendingCount = record.runtimeAlivePendingCount;
+  }
+  if (typeof record.shellOnlyPendingCount === 'number' && record.shellOnlyPendingCount >= 0) {
+    normalized.shellOnlyPendingCount = record.shellOnlyPendingCount;
+  }
+  if (
+    typeof record.runtimeProcessPendingCount === 'number' &&
+    record.runtimeProcessPendingCount >= 0
+  ) {
+    normalized.runtimeProcessPendingCount = record.runtimeProcessPendingCount;
+  }
+  if (
+    typeof record.runtimeCandidatePendingCount === 'number' &&
+    record.runtimeCandidatePendingCount >= 0
+  ) {
+    normalized.runtimeCandidatePendingCount = record.runtimeCandidatePendingCount;
+  }
+  if (typeof record.noRuntimePendingCount === 'number' && record.noRuntimePendingCount >= 0) {
+    normalized.noRuntimePendingCount = record.noRuntimePendingCount;
+  }
+  if (typeof record.permissionPendingCount === 'number' && record.permissionPendingCount >= 0) {
+    normalized.permissionPendingCount = record.permissionPendingCount;
   }
   normalized.launchUpdatedAt = updatedAt;
   return normalized;

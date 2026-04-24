@@ -15,6 +15,7 @@ import type {
   MemberSpawnStatus,
   MemberStatus,
   ResolvedTeamMember,
+  TeamAgentRuntimeEntry,
   TeamProviderId,
   TeamReviewState,
   TeamTaskStatus,
@@ -531,6 +532,10 @@ export type MemberLaunchVisualState =
   | 'spawning'
   | 'permission_pending'
   | 'runtime_pending'
+  | 'shell_only'
+  | 'runtime_candidate'
+  | 'registered_only'
+  | 'stale_runtime'
   | 'settling'
   | 'error'
   | null;
@@ -556,7 +561,15 @@ export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState)
     case 'permission_pending':
       return 'awaiting permission';
     case 'runtime_pending':
-      return 'connecting';
+      return 'waiting for bootstrap';
+    case 'shell_only':
+      return 'shell only';
+    case 'runtime_candidate':
+      return 'process candidate';
+    case 'registered_only':
+      return 'registered';
+    case 'stale_runtime':
+      return 'stale runtime';
     case 'settling':
       return 'joining team';
     case 'error':
@@ -573,6 +586,7 @@ export function buildMemberLaunchPresentation({
   spawnLivenessSource,
   spawnRuntimeAlive,
   runtimeAdvisory,
+  runtimeEntry,
   isLaunchSettling = false,
   isTeamAlive,
   isTeamProvisioning,
@@ -584,6 +598,7 @@ export function buildMemberLaunchPresentation({
   spawnLivenessSource: MemberSpawnLivenessSource | undefined;
   spawnRuntimeAlive: boolean | undefined;
   runtimeAdvisory: MemberRuntimeAdvisory | undefined;
+  runtimeEntry?: TeamAgentRuntimeEntry;
   isLaunchSettling?: boolean;
   isTeamAlive?: boolean;
   isTeamProvisioning?: boolean;
@@ -630,10 +645,21 @@ export function buildMemberLaunchPresentation({
       launchVisualState = 'error';
     } else if (spawnLaunchState === 'runtime_pending_permission') {
       launchVisualState = 'permission_pending';
+    } else if (runtimeEntry?.livenessKind === 'shell_only') {
+      launchVisualState = 'shell_only';
+    } else if (runtimeEntry?.livenessKind === 'runtime_process_candidate') {
+      launchVisualState = 'runtime_candidate';
+    } else if (runtimeEntry?.livenessKind === 'registered_only') {
+      launchVisualState = 'registered_only';
+    } else if (
+      runtimeEntry?.livenessKind === 'stale_metadata' ||
+      runtimeEntry?.livenessKind === 'not_found'
+    ) {
+      launchVisualState = 'stale_runtime';
     } else if (
       spawnLaunchState === 'runtime_pending_bootstrap' &&
-      spawnStatus === 'online' &&
-      spawnRuntimeAlive === true
+      (runtimeEntry?.livenessKind === 'runtime_process' ||
+        (spawnStatus === 'online' && spawnRuntimeAlive === true))
     ) {
       launchVisualState = 'runtime_pending';
     } else if (
@@ -655,6 +681,15 @@ export function buildMemberLaunchPresentation({
   }
 
   const launchStatusLabel = getMemberLaunchStatusLabel(launchVisualState);
+  const displayPresenceLabel =
+    launchVisualState === 'permission_pending' ||
+    launchVisualState === 'runtime_pending' ||
+    launchVisualState === 'shell_only' ||
+    launchVisualState === 'runtime_candidate' ||
+    launchVisualState === 'registered_only' ||
+    launchVisualState === 'stale_runtime'
+      ? (launchStatusLabel ?? presenceLabel)
+      : presenceLabel;
   const spawnBadgeLabel =
     spawnStatus && spawnStatus !== 'online'
       ? spawnStatus === 'waiting' || spawnStatus === 'spawning'
@@ -663,7 +698,7 @@ export function buildMemberLaunchPresentation({
       : null;
 
   return {
-    presenceLabel,
+    presenceLabel: displayPresenceLabel,
     dotClass: runtimeAdvisoryTone === 'error' ? STATUS_DOT_COLORS.terminated : dotClass,
     cardClass,
     runtimeAdvisoryLabel,

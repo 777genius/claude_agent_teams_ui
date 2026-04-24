@@ -12,8 +12,12 @@
  * diagnostics and completion-time reports.
  */
 
+import type { TeamLaunchDiagnosticItem } from '@shared/types';
+
 export const PROGRESS_LOG_TAIL_LINES = 200;
 export const PROGRESS_OUTPUT_TAIL_PARTS = 20;
+export const PROGRESS_LAUNCH_DIAGNOSTICS_LIMIT = 20;
+const PROGRESS_LAUNCH_DIAGNOSTIC_TEXT_LIMIT = 500;
 
 /**
  * Return the trailing `maxLines` of a line-buffered CLI log, joined with "\n"
@@ -49,4 +53,30 @@ export function buildProgressAssistantOutput(
   const tail = parts.length > effectiveMax ? parts.slice(-effectiveMax) : parts;
   const joined = tail.join('\n\n');
   return joined.trim().length === 0 ? undefined : joined;
+}
+
+function boundDiagnosticText(value: string | undefined): string | undefined {
+  const trimmed = value?.replace(/\s+/g, ' ').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed.length > PROGRESS_LAUNCH_DIAGNOSTIC_TEXT_LIMIT
+    ? `${trimmed.slice(0, PROGRESS_LAUNCH_DIAGNOSTIC_TEXT_LIMIT - 3).trimEnd()}...`
+    : trimmed;
+}
+
+export function boundLaunchDiagnostics(
+  items: readonly TeamLaunchDiagnosticItem[] | undefined,
+  maxItems: number = PROGRESS_LAUNCH_DIAGNOSTICS_LIMIT
+): TeamLaunchDiagnosticItem[] | undefined {
+  if (!items || items.length === 0) {
+    return undefined;
+  }
+
+  const bounded = items.slice(0, Math.max(1, maxItems)).map((item) => ({
+    ...item,
+    label: boundDiagnosticText(item.label) ?? item.code,
+    detail: boundDiagnosticText(item.detail),
+  }));
+  return bounded.length > 0 ? bounded : undefined;
 }

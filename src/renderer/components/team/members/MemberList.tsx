@@ -151,6 +151,9 @@ function areMemberSpawnStatusesEquivalent(
       leftEntry.hardFailure !== rightEntry.hardFailure ||
       leftEntry.hardFailureReason !== rightEntry.hardFailureReason ||
       leftEntry.livenessSource !== rightEntry.livenessSource ||
+      leftEntry.livenessKind !== rightEntry.livenessKind ||
+      leftEntry.runtimeDiagnostic !== rightEntry.runtimeDiagnostic ||
+      leftEntry.runtimeDiagnosticSeverity !== rightEntry.runtimeDiagnosticSeverity ||
       leftEntry.runtimeModel !== rightEntry.runtimeModel ||
       leftEntry.runtimeAlive !== rightEntry.runtimeAlive ||
       leftEntry.bootstrapConfirmed !== rightEntry.bootstrapConfirmed ||
@@ -196,7 +199,13 @@ function areMemberRuntimeEntriesEquivalent(
       leftEntry.backendType !== rightEntry?.backendType ||
       leftEntry.pid !== rightEntry?.pid ||
       leftEntry.runtimeModel !== rightEntry?.runtimeModel ||
-      leftEntry.rssBytes !== rightEntry?.rssBytes
+      leftEntry.rssBytes !== rightEntry?.rssBytes ||
+      leftEntry.livenessKind !== rightEntry?.livenessKind ||
+      leftEntry.pidSource !== rightEntry?.pidSource ||
+      leftEntry.paneCurrentCommand !== rightEntry?.paneCurrentCommand ||
+      leftEntry.runtimeDiagnostic !== rightEntry?.runtimeDiagnostic ||
+      leftEntry.runtimeDiagnosticSeverity !== rightEntry?.runtimeDiagnosticSeverity ||
+      leftEntry.runtimeLastSeenAt !== rightEntry?.runtimeLastSeenAt
     ) {
       return false;
     }
@@ -332,6 +341,7 @@ export const MemberList = memo(function MemberList({
           isRemoved ? undefined : spawnEntry,
           isRemoved ? undefined : runtimeEntry
         )}
+        runtimeEntry={isRemoved ? undefined : runtimeEntry}
         spawnStatus={isRemoved ? undefined : spawnEntry?.status}
         spawnError={isRemoved ? undefined : (spawnEntry?.error ?? spawnEntry?.hardFailureReason)}
         spawnLivenessSource={isRemoved ? undefined : spawnEntry?.livenessSource}

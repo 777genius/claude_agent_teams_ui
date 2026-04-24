@@ -546,7 +546,25 @@ function mapBridgeMemberToRuntimeEvidence(
   const confirmed = launchState === 'confirmed_alive';
   const createdOrBlocked = launchState === 'created' || launchState === 'permission_blocked';
   const failed = launchState === 'failed';
-  const pendingRuntimeObserved = createdOrBlocked && runtimeMaterialized;
+  const hasRuntimePid =
+    typeof runtimePid === 'number' && Number.isFinite(runtimePid) && runtimePid > 0;
+  const pendingRuntimeObserved = launchState === 'created' && hasRuntimePid;
+  const livenessKind = confirmed
+    ? 'confirmed_bootstrap'
+    : pendingRuntimeObserved
+      ? 'runtime_process'
+      : launchState === 'permission_blocked'
+        ? 'permission_blocked'
+        : runtimeMaterialized || sessionId
+          ? 'runtime_process_candidate'
+          : 'registered_only';
+  const runtimeDiagnostic = pendingRuntimeObserved
+    ? 'OpenCode runtime process reported by bridge'
+    : launchState === 'permission_blocked'
+      ? 'OpenCode runtime is waiting for permission approval'
+      : runtimeMaterialized || sessionId
+        ? 'OpenCode session exists without verified runtime pid'
+        : undefined;
   return {
     memberName,
     providerId: 'opencode',
@@ -557,7 +575,7 @@ function mapBridgeMemberToRuntimeEvidence(
         : launchState === 'permission_blocked'
           ? 'runtime_pending_permission'
           : 'runtime_pending_bootstrap',
-    agentToolAccepted: confirmed || pendingRuntimeObserved,
+    agentToolAccepted: confirmed || createdOrBlocked || runtimeMaterialized,
     runtimeAlive: confirmed || pendingRuntimeObserved,
     bootstrapConfirmed: confirmed,
     hardFailure: failed,
@@ -567,9 +585,10 @@ function mapBridgeMemberToRuntimeEvidence(
         ? [...new Set(pendingPermissionRequestIds)]
         : undefined,
     sessionId,
-    ...(typeof runtimePid === 'number' && Number.isFinite(runtimePid) && runtimePid > 0
-      ? { runtimePid }
-      : {}),
+    ...(hasRuntimePid ? { runtimePid } : {}),
+    livenessKind,
+    ...(hasRuntimePid ? { pidSource: 'opencode_bridge' as const } : {}),
+    ...(runtimeDiagnostic ? { runtimeDiagnostic } : {}),
     diagnostics,
   };
 }

@@ -25,6 +25,7 @@ import type {
   MemberSpawnLivenessSource,
   MemberSpawnStatus,
   ResolvedTeamMember,
+  TeamAgentRuntimeEntry,
   TeamTaskWithKanban,
 } from '@shared/types';
 
@@ -32,6 +33,7 @@ interface MemberCardProps {
   member: ResolvedTeamMember;
   memberColor: string;
   runtimeSummary?: string;
+  runtimeEntry?: TeamAgentRuntimeEntry;
   taskCounts?: TaskStatusCounts | null;
   isTeamAlive?: boolean;
   isTeamProvisioning?: boolean;
@@ -77,6 +79,7 @@ export const MemberCard = ({
   member,
   memberColor,
   runtimeSummary,
+  runtimeEntry,
   taskCounts,
   isTeamAlive,
   isTeamProvisioning,
@@ -113,6 +116,7 @@ export const MemberCard = ({
     spawnLaunchState,
     spawnLivenessSource,
     spawnRuntimeAlive,
+    runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,
     isLaunchSettling,
     isTeamAlive,
@@ -128,7 +132,12 @@ export const MemberCard = ({
   const launchVisualState = launchPresentation.launchVisualState;
   const launchStatusLabel = launchPresentation.launchStatusLabel;
   const displayPresenceLabel =
-    launchVisualState === 'runtime_pending' || launchVisualState === 'permission_pending'
+    launchVisualState === 'runtime_pending' ||
+    launchVisualState === 'permission_pending' ||
+    launchVisualState === 'shell_only' ||
+    launchVisualState === 'runtime_candidate' ||
+    launchVisualState === 'registered_only' ||
+    launchVisualState === 'stale_runtime'
       ? (launchStatusLabel ?? presenceLabel)
       : presenceLabel;
   const colors = getTeamColorSet(memberColor);
@@ -159,7 +168,11 @@ export const MemberCard = ({
     !runtimeAdvisoryLabel &&
     (presenceLabel === 'starting' ||
       presenceLabel === 'connecting' ||
-      launchVisualState === 'runtime_pending');
+      launchVisualState === 'runtime_pending' ||
+      launchVisualState === 'shell_only' ||
+      launchVisualState === 'runtime_candidate' ||
+      launchVisualState === 'registered_only' ||
+      launchVisualState === 'stale_runtime');
   const launchBadgeLabel = presenceLabel === 'starting' ? presenceLabel : displayPresenceLabel;
   const showRuntimeAdvisoryBadge =
     !isRemoved &&
@@ -283,12 +296,28 @@ export const MemberCard = ({
                 {(runtimeSummaryText || roleLabel) && memoryLabel ? (
                   <span className="shrink-0 opacity-60">•</span>
                 ) : null}
-                {memoryLabel ? <span className="shrink-0">{memoryLabel}</span> : null}
+                {memoryLabel ? (
+                  <span
+                    className="shrink-0"
+                    title={
+                      runtimeEntry?.pidSource === 'tmux_pane'
+                        ? 'RSS source: tmux pane shell'
+                        : runtimeEntry?.pidSource
+                          ? `PID source: ${runtimeEntry.pidSource}`
+                          : undefined
+                    }
+                  >
+                    {memoryLabel}
+                  </span>
+                ) : null}
               </div>
             ) : null}
           </div>
           {showLaunchBadge ? (
-            <span className="flex shrink-0 items-center gap-1">
+            <span
+              className="flex shrink-0 items-center gap-1"
+              title={runtimeEntry?.runtimeDiagnostic}
+            >
               <Loader2
                 className="size-3.5 shrink-0 animate-spin text-[var(--color-text-muted)]"
                 aria-label={launchBadgeLabel}
