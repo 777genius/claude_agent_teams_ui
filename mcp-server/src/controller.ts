@@ -15,8 +15,13 @@ export const agentBlocks = controllerModule.agentBlocks;
 
 export function getController(teamName: string, claudeDir?: string) {
   const forcedClaudeDir = process.env[FORCED_CLAUDE_DIR_ENV]?.trim();
+  let resolvedClaudeDir = claudeDir;
+  if (forcedClaudeDir) {
+    resolvedClaudeDir = forcedClaudeDir;
+  }
+
   return createController({
     teamName,
-    ...(forcedClaudeDir ? { claudeDir: forcedClaudeDir } : claudeDir ? { claudeDir } : {}),
+    ...(resolvedClaudeDir ? { claudeDir: resolvedClaudeDir } : {}),
   });
 }

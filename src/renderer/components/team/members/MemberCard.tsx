@@ -19,8 +19,8 @@ import {
   hasMemberLaunchDiagnosticsError,
 } from '@renderer/utils/memberLaunchDiagnostics';
 import { getRuntimeMemorySourceLabel } from '@renderer/utils/memberRuntimeSummary';
-import { deriveTaskDisplayId } from '@shared/utils/taskIdentity';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import { deriveTaskDisplayId } from '@shared/utils/taskIdentity';
 import {
   AlertTriangle,
   Ban,

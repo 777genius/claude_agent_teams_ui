@@ -290,6 +290,7 @@ import type {
   PersistedTeamLaunchSnapshot,
   PersistedTeamLaunchSummary,
   ProviderModelLaunchIdentity,
+  TaskRef,
   TeamAgentRuntimeBackendType,
   TeamAgentRuntimeDiagnosticSeverity,
   TeamAgentRuntimeEntry,
@@ -314,7 +315,6 @@ import type {
   TeamProvisioningState,
   TeamRuntimeState,
   TeamTask,
-  TaskRef,
   ToolActivityEventPayload,
   ToolApprovalAutoResolved,
   ToolApprovalEvent,
@@ -2033,6 +2033,12 @@ type TeamMemberInput = TeamCreateRequest['members'][number];
 
 function normalizeTeamMemberProviderId(providerId: unknown): TeamProviderId | undefined {
   return normalizeOptionalTeamProviderId(providerId);
+}
+
+function normalizeTeamProviderLike(providerId: unknown): TeamProviderId | undefined {
+  return normalizeOptionalTeamProviderId(
+    typeof providerId === 'string' ? providerId.trim().toLowerCase() : providerId
+  );
 }
 
 function buildEffectiveTeamMemberSpec(
@@ -4508,15 +4514,11 @@ export class TeamProvisioningService {
     );
     const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
     const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const normalizeProviderLike = (value: unknown) =>
-      normalizeOptionalTeamProviderId(
-        typeof value === 'string' ? value.trim().toLowerCase() : value
-      );
     const providerId =
-      normalizeProviderLike(metaMember?.providerId) ??
-      normalizeProviderLike(metaProvider) ??
-      normalizeProviderLike(configMember?.providerId) ??
-      normalizeProviderLike(configProvider) ??
+      normalizeTeamProviderLike(metaMember?.providerId) ??
+      normalizeTeamProviderLike(metaProvider) ??
+      normalizeTeamProviderLike(configMember?.providerId) ??
+      normalizeTeamProviderLike(configProvider) ??
       inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
     return providerId === 'opencode';
   }
@@ -4551,15 +4553,11 @@ export class TeamProvisioningService {
     );
     const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
     const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const normalizeProviderLike = (value: unknown) =>
-      normalizeOptionalTeamProviderId(
-        typeof value === 'string' ? value.trim().toLowerCase() : value
-      );
     const providerId =
-      normalizeProviderLike(metaMember?.providerId) ??
-      normalizeProviderLike(metaProvider) ??
-      normalizeProviderLike(configMember?.providerId) ??
-      normalizeProviderLike(configProvider) ??
+      normalizeTeamProviderLike(metaMember?.providerId) ??
+      normalizeTeamProviderLike(metaProvider) ??
+      normalizeTeamProviderLike(configMember?.providerId) ??
+      normalizeTeamProviderLike(configProvider) ??
       inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
     if (providerId !== 'opencode') {
       return { delivered: false, reason: 'recipient_is_not_opencode' };
@@ -4605,17 +4603,25 @@ export class TeamProvisioningService {
     const trackedRunId = this.resolveDeliverableTrackedRuntimeRunId(teamName);
     const trackedRun = trackedRunId ? this.runs.get(trackedRunId) : null;
     let liveSecondaryLaneRunId: string | null = null;
+    let trackedSecondaryLanePresent = false;
+    let trackedSecondaryLaneSnapshotKnown = false;
     if (
       trackedRun &&
       laneIdentity.laneKind === 'secondary' &&
       laneIdentity.laneOwnerProviderId === 'opencode'
     ) {
-      const liveLane = trackedRun.mixedSecondaryLanes.find(
+      const secondaryLanes = trackedRun.mixedSecondaryLanes;
+      trackedSecondaryLaneSnapshotKnown = secondaryLanes.length > 0;
+      const liveLane = secondaryLanes.find(
         (lane) =>
           lane.laneId === laneIdentity.laneId ||
           lane.member.name.trim().toLowerCase() === normalizedMemberName.toLowerCase()
       );
-      liveSecondaryLaneRunId = liveLane?.runId?.trim() || null;
+      trackedSecondaryLanePresent = liveLane != null;
+      liveSecondaryLaneRunId = liveLane ? trackedRunId : null;
+      if (!liveLane && trackedSecondaryLaneSnapshotKnown) {
+        return { delivered: false, reason: 'opencode_runtime_not_active' };
+      }
     }
     const runtimeRunId =
       laneIdentity.laneKind === 'secondary' && laneIdentity.laneOwnerProviderId === 'opencode'
@@ -4623,7 +4629,20 @@ export class TeamProvisioningService {
           (await this.resolveCurrentOpenCodeRuntimeRunId(teamName, laneIdentity.laneId)))
         : (trackedRunId ??
           (await this.resolveCurrentOpenCodeRuntimeRunId(teamName, laneIdentity.laneId)));
-    if (!runtimeRunId) {
+    let runtimeActive = Boolean(runtimeRunId);
+    if (!runtimeActive) {
+      if (
+        trackedRun &&
+        laneIdentity.laneKind === 'secondary' &&
+        laneIdentity.laneOwnerProviderId === 'opencode' &&
+        !trackedSecondaryLanePresent &&
+        trackedSecondaryLaneSnapshotKnown
+      ) {
+        return { delivered: false, reason: 'opencode_runtime_not_active' };
+      }
+      runtimeActive = await this.isOpenCodeRuntimeLaneIndexActive(teamName, laneIdentity.laneId);
+    }
+    if (!runtimeActive) {
       return { delivered: false, reason: 'opencode_runtime_not_active' };
     }
 
@@ -4838,6 +4857,16 @@ export class TeamProvisioningService {
       .catch(() => null);
     const durableRunId = evidence?.activeRunId?.trim();
     return durableRunId || null;
+  }
+
+  private async isOpenCodeRuntimeLaneIndexActive(
+    teamName: string,
+    laneId: string
+  ): Promise<boolean> {
+    const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName).catch(
+      () => null
+    );
+    return laneIndex?.lanes[laneId]?.state === 'active';
   }
 
   private async resolveOpenCodeRuntimeLaneId(params: {

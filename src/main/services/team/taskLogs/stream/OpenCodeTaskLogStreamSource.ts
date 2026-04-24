@@ -324,6 +324,55 @@ function collectTaskMarkerCalls(
   });
 }
 
+function markerInputReferencesTaskInDifferentExplicitTeam(
+  input: unknown,
+  teamName: string,
+  taskRefs: Set<string>
+): boolean {
+  if (taskRefs.size === 0) {
+    return false;
+  }
+
+  const normalizedTeamName = normalizeTaskRef(teamName);
+  const explicitTeamRefs = collectExplicitRefsForKeys(input, TEAM_REFERENCE_KEYS);
+  if (
+    !normalizedTeamName ||
+    explicitTeamRefs.size === 0 ||
+    explicitTeamRefs.has(normalizedTeamName)
+  ) {
+    return false;
+  }
+
+  const explicitTaskRefs = collectExplicitRefsForKeys(input, TASK_REFERENCE_KEYS);
+  return explicitTaskRefs.size > 0
+    ? refsIntersect(explicitTaskRefs, taskRefs)
+    : valueReferencesTask(input, taskRefs);
+}
+
+function hasForeignTeamTaskMarker(
+  projectedMessages: OpenCodeRuntimeTranscriptLogMessage[],
+  teamName: string,
+  task: TeamTask
+): boolean {
+  const taskRefs = buildTaskRefSet(task);
+  if (taskRefs.size === 0) {
+    return false;
+  }
+
+  return projectedMessages
+    .map(toParsedMessage)
+    .filter((message): message is ParsedMessage => message !== null)
+    .some((message) =>
+      message.toolCalls.some((toolCall) => {
+        const toolName = canonicalizeAgentTeamsToolName(toolCall.name ?? '').toLowerCase();
+        return (
+          TASK_LOG_MARKER_TOOL_NAMES.has(toolName) &&
+          markerInputReferencesTaskInDifferentExplicitTeam(toolCall.input, teamName, taskRefs)
+        );
+      })
+    );
+}
+
 function isTerminalTaskMarkerCall(markerCall: TaskMarkerCall): boolean {
   if (TERMINAL_TASK_MARKER_TOOL_NAMES.has(markerCall.toolName)) {
     return true;
@@ -923,6 +972,9 @@ export class OpenCodeTaskLogStreamSource {
     }
 
     const markerProjection = buildTaskMarkerProjection(projectedMessages, teamName, task);
+    if (!markerProjection && hasForeignTeamTaskMarker(projectedMessages, teamName, task)) {
+      return null;
+    }
     const timeWindows = markerProjection ? [] : buildTaskTimeWindows(task);
     const projectionReason: HeuristicFallbackReason = markerProjection
       ? 'task_tool_markers'

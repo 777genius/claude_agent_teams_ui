@@ -1,7 +1,5 @@
 import { randomUUID } from 'crypto';
 
-import type { AgentActionMode, TaskRef } from '@shared/types/team';
-
 import type {
   OpenCodeBridgeRuntimeSnapshot,
   OpenCodeLaunchTeamCommandBody,
@@ -26,6 +24,7 @@ import type {
   TeamRuntimeStopInput,
   TeamRuntimeStopResult,
 } from './TeamRuntimeAdapter';
+import type { AgentActionMode, TaskRef } from '@shared/types/team';
 
 export interface OpenCodeTeamRuntimeBridgePort {
   checkOpenCodeTeamLaunchReadiness(input: {

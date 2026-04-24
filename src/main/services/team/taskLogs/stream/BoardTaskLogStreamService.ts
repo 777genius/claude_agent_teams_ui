@@ -2,6 +2,7 @@ import { extractToolCalls, extractToolResults } from '@main/utils/toolExtraction
 import { isLeadMember as isLeadMemberCheck } from '@shared/utils/leadDetection';
 import { getTaskDisplayId } from '@shared/utils/taskIdentity';
 
+import { canonicalizeAgentTeamsToolName } from '../../agentTeamsToolNames';
 import { TeamTaskReader } from '../../TeamTaskReader';
 import { BoardTaskActivityRecordSource } from '../activity/BoardTaskActivityRecordSource';
 import { TeamTranscriptSourceLocator } from '../discovery/TeamTranscriptSourceLocator';
@@ -11,7 +12,6 @@ import { BoardTaskExactLogStrictParser } from '../exact/BoardTaskExactLogStrictP
 import { BoardTaskExactLogSummarySelector } from '../exact/BoardTaskExactLogSummarySelector';
 import { isBoardTaskExactLogsReadEnabled } from '../exact/featureGates';
 import { getBoardTaskExactLogFileVersions } from '../exact/fileVersions';
-import { canonicalizeAgentTeamsToolName } from '../../agentTeamsToolNames';
 
 import { OpenCodeTaskLogStreamSource } from './OpenCodeTaskLogStreamSource';
 
