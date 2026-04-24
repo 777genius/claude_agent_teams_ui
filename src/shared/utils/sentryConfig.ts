@@ -11,7 +11,7 @@ declare const __APP_VERSION__: string;
 
 /** Release identifier injected at build time via Vite `define`. */
 export const SENTRY_RELEASE =
-  typeof __APP_VERSION__ === 'string' ? `claude-agent-teams-ui@${__APP_VERSION__}` : undefined;
+  typeof __APP_VERSION__ === 'string' ? `agent-teams-ai@${__APP_VERSION__}` : undefined;
 
 /** Environment derived from Node/Vite mode. */
 export const SENTRY_ENVIRONMENT =

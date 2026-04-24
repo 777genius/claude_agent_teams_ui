@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "Herunterladen",
     "ctaPrimary": "Für {platform} herunterladen",
     "ctaSecondary": "Vergleichen",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "Fragen? Wir haben Antworten",
-    "subtitle": "Alles, was Sie über Claude Agent Teams wissen müssen"
+    "subtitle": "Alles, was Sie über Agent Teams wissen müssen"
   },
   "comparison": {
     "sectionTitle": "Wie wir im Vergleich abschneiden",
@@ -92,7 +92,7 @@
     "learnMore": "Mehr erfahren"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "KI-Agenten-Orchestrierung für Entwickler",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — KI-Agenten-Orchestrierung für Entwickler",
+    "homeTitle": "Agent Teams - KI-Agenten-Orchestrierung für Entwickler",
     "homeDescription": "Kostenlose Open-Source-Desktop-App für KI-Agenten-Teams. Kanban-Board, Code-Review, teamübergreifende Kommunikation. Läuft vollständig lokal."
   },
   "error": {

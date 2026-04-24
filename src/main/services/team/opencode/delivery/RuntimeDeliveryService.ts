@@ -7,9 +7,10 @@ import {
   type RuntimeDeliveryDestinationRef,
   type RuntimeDeliveryEnvelope,
   type RuntimeDeliveryJournalRecord,
-  RuntimeDeliveryJournalStore,
   type RuntimeDeliveryLocation,
 } from './RuntimeDeliveryJournal';
+
+import type { RuntimeDeliveryJournalStore } from './RuntimeDeliveryJournal';
 
 export interface RuntimeDeliveryVerifyResult {
   found: boolean;

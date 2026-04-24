@@ -86,6 +86,7 @@ export function createOpenCodeBridgeClientIdentity(input: {
         'opencode.handshake',
         'opencode.commandStatus',
         'opencode.readiness',
+        'opencode.cleanupHosts',
         'opencode.launchTeam',
         'opencode.reconcileTeam',
         'opencode.stopTeam',

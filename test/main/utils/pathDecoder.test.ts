@@ -1,7 +1,10 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  __setPathDecoderCopyDirectoryForTests,
   buildSessionPath,
   buildSubagentsPath,
   buildTodoPath,
@@ -9,19 +12,47 @@ import {
   encodePath,
   extractProjectName,
   extractSessionId,
+  getAppDataPath,
   getProjectsBasePath,
+  getSchedulesBasePath,
   getTodosBasePath,
   isValidEncodedPath,
+  setAppDataBasePath,
+  setClaudeBasePathOverride,
 } from '../../../src/main/utils/pathDecoder';
 
 describe('pathDecoder', () => {
+  const defaultHome = process.env.HOME ?? '/home/testuser';
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    __setPathDecoderCopyDirectoryForTests(null);
+    setAppDataBasePath(null);
+    setClaudeBasePathOverride(null);
+    vi.stubEnv('HOME', defaultHome);
+    while (tempDirs.length > 0) {
+      const tempDir = tempDirs.pop();
+      if (tempDir) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  function createTempHome(): string {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'path-decoder-home-'));
+    tempDirs.push(tempHome);
+    vi.stubEnv('HOME', tempHome);
+    return tempHome;
+  }
+
   describe('encodePath', () => {
     it('should encode a macOS-style absolute path', () => {
       expect(encodePath('/Users/username/projectname')).toBe('-Users-username-projectname');
     });
 
     it('should encode a Windows-style absolute path', () => {
-      expect(encodePath('C:\\Users\\username\\projectname')).toBe('-C:-Users-username-projectname');
+      expect(encodePath('C:\\Users\\username\\projectname')).toBe('C--Users-username-projectname');
     });
 
     it('should handle empty string', () => {
@@ -106,9 +137,9 @@ describe('pathDecoder', () => {
       // Without cwdHint, dashes are decoded as slashes (lossy)
       expect(extractProjectName('-Users-name-claude-devtools')).toBe('devtools');
       // With cwdHint, the actual project name is preserved
-      expect(
-        extractProjectName('-Users-name-claude-devtools', '/Users/name/claude-devtools')
-      ).toBe('claude-devtools');
+      expect(extractProjectName('-Users-name-claude-devtools', '/Users/name/claude-devtools')).toBe(
+        'claude-devtools'
+      );
     });
 
     it('should fall back to decoded name when cwdHint is undefined', () => {
@@ -146,6 +177,10 @@ describe('pathDecoder', () => {
     });
 
     it('should return true for valid Windows-style encoded path', () => {
+      expect(isValidEncodedPath('C--Users-username-projectname')).toBe(true);
+    });
+
+    it('should return true for old colon Windows-style encoded path', () => {
       expect(isValidEncodedPath('-C:-Users-username-projectname')).toBe(true);
     });
 
@@ -211,13 +246,147 @@ describe('pathDecoder', () => {
 
   describe('getProjectsBasePath', () => {
     it('should return projects base path', () => {
-      expect(getProjectsBasePath()).toBe(path.join('/home/testuser', '.claude', 'projects'));
+      expect(getProjectsBasePath()).toBe(path.join(defaultHome, '.claude', 'projects'));
     });
   });
 
   describe('getTodosBasePath', () => {
     it('should return todos base path', () => {
-      expect(getTodosBasePath()).toBe(path.join('/home/testuser', '.claude', 'todos'));
+      expect(getTodosBasePath()).toBe(path.join(defaultHome, '.claude', 'todos'));
+    });
+  });
+
+  describe('getSchedulesBasePath', () => {
+    it('should use the new schedules directory when no legacy data exists', () => {
+      const root = path.join(createTempHome(), '.claude');
+      setClaudeBasePathOverride(root);
+
+      expect(getSchedulesBasePath()).toBe(path.join(root, 'agent-teams-schedules'));
+    });
+
+    it('should migrate legacy schedules data when the new directory is absent', () => {
+      const root = path.join(createTempHome(), '.claude');
+      const legacyRoot = path.join(root, 'claude-devtools-schedules');
+      const files = [
+        ['schedules.json', '[{"id":"sched-1"}]'],
+        ['runs/sched-1.json', '[{"id":"run-1"}]'],
+        ['logs/sched-1/run-1.log', 'stdout'],
+      ] as const;
+      setClaudeBasePathOverride(root);
+
+      for (const [relativePath, content] of files) {
+        const legacyFile = path.join(legacyRoot, relativePath);
+        fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+        fs.writeFileSync(legacyFile, content);
+      }
+
+      expect(getSchedulesBasePath()).toBe(path.join(root, 'agent-teams-schedules'));
+      for (const [relativePath, content] of files) {
+        expect(
+          fs.readFileSync(path.join(root, 'agent-teams-schedules', relativePath), 'utf8')
+        ).toBe(content);
+      }
+      expect(fs.existsSync(legacyRoot)).toBe(true);
+    });
+
+    it('should prefer populated new schedules data over legacy schedules data', () => {
+      const root = path.join(createTempHome(), '.claude');
+      const currentFile = path.join(root, 'agent-teams-schedules', 'schedules.json');
+      const legacyFile = path.join(root, 'claude-devtools-schedules', 'schedules.json');
+      setClaudeBasePathOverride(root);
+
+      fs.mkdirSync(path.dirname(currentFile), { recursive: true });
+      fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+      fs.writeFileSync(currentFile, '[{"id":"current"}]');
+      fs.writeFileSync(legacyFile, '[{"id":"legacy"}]');
+
+      expect(getSchedulesBasePath()).toBe(path.join(root, 'agent-teams-schedules'));
+      expect(fs.readFileSync(currentFile, 'utf8')).toBe('[{"id":"current"}]');
+    });
+
+    it('should fall back to legacy schedules when copying fails and new directory is empty', () => {
+      const root = path.join(createTempHome(), '.claude');
+      const currentRoot = path.join(root, 'agent-teams-schedules');
+      const legacyRoot = path.join(root, 'claude-devtools-schedules');
+      setClaudeBasePathOverride(root);
+
+      fs.mkdirSync(currentRoot, { recursive: true });
+      fs.mkdirSync(legacyRoot, { recursive: true });
+      fs.writeFileSync(path.join(legacyRoot, 'schedules.json'), '[{"id":"legacy"}]');
+      __setPathDecoderCopyDirectoryForTests(() => {
+        throw new Error('copy failed');
+      });
+
+      expect(getSchedulesBasePath()).toBe(legacyRoot);
+    });
+  });
+
+  describe('getAppDataPath', () => {
+    it('should use explicit app data base override', () => {
+      setAppDataBasePath('/tmp/agent-teams-data');
+
+      expect(getAppDataPath()).toBe(path.join('/tmp/agent-teams-data', 'data'));
+    });
+
+    it('should use the new fallback app data path when no legacy data exists', () => {
+      const home = createTempHome();
+
+      expect(getAppDataPath()).toBe(path.join(home, '.agent-teams-ai', 'data'));
+    });
+
+    it('should migrate legacy fallback app data when the new path is absent', () => {
+      const home = createTempHome();
+      const legacyRoot = path.join(home, '.claude-agent-teams-ui');
+      const files = [
+        ['data/attachments/team-a/note.txt', 'legacy attachment'],
+        ['data/task-attachments/team-a/task-1/file.txt', 'legacy task attachment'],
+        ['backups/registry.json', '{}'],
+        ['mcp-configs/agent-teams-mcp-old.json', '{}'],
+        ['mcp-server/1.3.0/index.js', 'console.log("mcp")'],
+        ['future-store/state.json', '{"kept":true}'],
+      ] as const;
+
+      for (const [relativePath, content] of files) {
+        const legacyFile = path.join(legacyRoot, relativePath);
+        fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+        fs.writeFileSync(legacyFile, content);
+      }
+
+      expect(getAppDataPath()).toBe(path.join(home, '.agent-teams-ai', 'data'));
+      for (const [relativePath, content] of files) {
+        expect(fs.readFileSync(path.join(home, '.agent-teams-ai', relativePath), 'utf8')).toBe(
+          content
+        );
+      }
+      expect(fs.existsSync(path.join(home, '.claude-agent-teams-ui'))).toBe(true);
+    });
+
+    it('should prefer populated new fallback app data over legacy data', () => {
+      const home = createTempHome();
+      const currentFile = path.join(home, '.agent-teams-ai', 'data', 'current.txt');
+      const legacyFile = path.join(home, '.claude-agent-teams-ui', 'data', 'legacy.txt');
+      fs.mkdirSync(path.dirname(currentFile), { recursive: true });
+      fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+      fs.writeFileSync(currentFile, 'current data');
+      fs.writeFileSync(legacyFile, 'legacy data');
+
+      expect(getAppDataPath()).toBe(path.join(home, '.agent-teams-ai', 'data'));
+      expect(fs.existsSync(path.join(home, '.agent-teams-ai', 'data', 'legacy.txt'))).toBe(false);
+    });
+
+    it('should fall back to legacy fallback app data when copying fails and new path is empty', () => {
+      const home = createTempHome();
+      const currentRoot = path.join(home, '.agent-teams-ai');
+      const legacyRoot = path.join(home, '.claude-agent-teams-ui');
+
+      fs.mkdirSync(currentRoot, { recursive: true });
+      fs.mkdirSync(path.join(legacyRoot, 'data'), { recursive: true });
+      fs.writeFileSync(path.join(legacyRoot, 'data', 'legacy.txt'), 'legacy data');
+      __setPathDecoderCopyDirectoryForTests(() => {
+        throw new Error('copy failed');
+      });
+
+      expect(getAppDataPath()).toBe(path.join(legacyRoot, 'data'));
     });
   });
 });

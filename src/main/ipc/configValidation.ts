@@ -3,9 +3,8 @@
  * Prevents invalid/unknown data from mutating persisted config.
  */
 
-import * as path from 'path';
-
 import { migrateProviderBackendId } from '@shared/utils/providerBackend';
+import * as path from 'path';
 
 import type {
   AppConfig,

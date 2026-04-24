@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "Скачать",
     "ctaPrimary": "Скачать для {platform}",
     "ctaSecondary": "Сравнить",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "Есть вопросы? У нас есть ответы",
-    "subtitle": "Всё, что нужно знать о Claude Agent Teams"
+    "subtitle": "Всё, что нужно знать о Agent Teams"
   },
   "comparison": {
     "sectionTitle": "Сравнение с конкурентами",
@@ -92,7 +92,7 @@
     "learnMore": "Подробнее"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "Оркестрация ИИ-агентов для разработчиков",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — Оркестрация ИИ-агентов для разработчиков",
+    "homeTitle": "Agent Teams - Оркестрация ИИ-агентов для разработчиков",
     "homeDescription": "Бесплатное десктопное приложение с открытым кодом для управления командами ИИ-агентов. Канбан-доска, код-ревью, межкомандная коммуникация. Работает полностью локально."
   },
   "error": {

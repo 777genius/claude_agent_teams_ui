@@ -2,7 +2,7 @@
   "name": "claude-agent-teams-ui",
   "type": "module",
   "version": "1.3.0",
-  "description": "Desktop app that visualizes Claude Code session execution — explore conversations, track context usage, and analyze tool calls",
+  "description": "Desktop app for managing AI agent teams, reviews, runtime logs, and provider-aware workflows",
   "license": "AGPL-3.0",
   "author": {
     "name": "Илия (777genius)",
@@ -21,7 +21,6 @@
     "dev": "node ./scripts/dev-with-runtime.mjs",
     "dev:web": "node ./scripts/dev-web.mjs",
     "dev:kill": "node bin/kill-dev.js",
-    "opencode:prove-production": "node ./scripts/prove-opencode-production.mjs",
     "opencode:prove-mixed-recovery": "node ./scripts/prove-opencode-mixed-recovery.mjs",
     "opencode:prove-team-provisioning": "node ./scripts/prove-opencode-team-provisioning.mjs",
     "team:prove-launch-matrix": "pnpm exec vitest run --maxWorkers 1 --minWorkers 1 test/main/services/team/TeamAgentLaunchMatrix.safe-e2e.test.ts",
@@ -43,8 +42,11 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css}\"",
     "build:workspace": "pnpm build && pnpm --filter agent-teams-controller build && pnpm --filter agent-teams-mcp build",
     "test:workspace": "pnpm test && pnpm --filter agent-teams-controller test && pnpm --filter agent-teams-mcp test",
+    "test:workspace:ci": "pnpm test:ci && pnpm --filter agent-teams-controller test && pnpm --filter agent-teams-mcp test",
     "check:workspace": "pnpm typecheck:workspace && pnpm test:workspace && pnpm build:workspace && pnpm --filter agent-teams-mcp test:e2e",
+    "check:workspace:ci": "pnpm typecheck:workspace && pnpm test:workspace:ci && pnpm build:workspace && pnpm --filter agent-teams-mcp test:e2e",
     "check": "pnpm check:workspace && pnpm lint && pnpm lint:mcp",
+    "check:ci": "pnpm check:workspace:ci && pnpm lint && pnpm lint:mcp",
     "fix": "pnpm lint:fix && pnpm format",
     "quality": "pnpm check && pnpm format:check && npx knip",
     "test:chunks": "tsx test/test-chunk-building.ts",
@@ -52,6 +54,7 @@
     "test:noise": "tsx test/test-noise-filtering.ts",
     "test:task-filtering": "tsx test/test-task-filtering.ts",
     "test": "vitest run",
+    "test:ci": "vitest run --maxWorkers 1 --minWorkers 1",
     "test:task-change-ledger": "vitest run test/main/services/team/TaskChangeLedgerReader.test.ts test/main/services/team/taskChangeLedgerFixtures.integration.test.ts test/main/services/team/ReviewApplierService.test.ts test/main/services/team/FileContentResolver.test.ts test/main/services/team/ChangeExtractorService.test.ts test/renderer/store/changeReviewSlice.test.ts test/renderer/utils/reviewKey.test.ts test/main/services/team/TeamLogSourceTracker.test.ts test/main/services/team/stallMonitor/TeamTaskLogFreshnessReader.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -259,6 +262,7 @@
       "main": "dist-electron/main/index.cjs"
     },
     "mac": {
+      "artifactName": "Claude.Agent.Teams.UI-${version}-${arch}-mac.${ext}",
       "category": "public.app-category.developer-tools",
       "minimumSystemVersion": "12.0",
       "target": [
@@ -273,7 +277,8 @@
       "icon": "resources/icons/mac/icon.icns"
     },
     "dmg": {
-      "sign": false
+      "sign": false,
+      "artifactName": "Claude.Agent.Teams.UI-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [
@@ -291,10 +296,14 @@
       "icon": "resources/icons/png",
       "category": "Development"
     },
+    "appImage": {
+      "artifactName": "Claude.Agent.Teams.UI-${version}.${ext}"
+    },
     "deb": {
       "afterInstall": "resources/afterInstall.sh"
     },
     "nsis": {
+      "artifactName": "Claude.Agent.Teams.UI.Setup.${version}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
@@ -302,6 +311,8 @@
     "publish": [
       {
         "provider": "github",
+        "owner": "777genius",
+        "repo": "claude_agent_teams_ui",
         "releaseType": "release"
       }
     ]

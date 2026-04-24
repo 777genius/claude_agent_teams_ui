@@ -312,7 +312,8 @@
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
     "supports_native_structured_output": true,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "global.anthropic.claude-opus-4-6-v1": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -340,7 +341,8 @@
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
     "supports_native_structured_output": true,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "us.anthropic.claude-opus-4-6-v1": {
     "cache_creation_input_token_cost": 0.000006875,
@@ -368,7 +370,8 @@
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
     "supports_native_structured_output": true,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "eu.anthropic.claude-opus-4-6-v1": {
     "cache_creation_input_token_cost": 0.000006875,
@@ -396,7 +399,8 @@
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
     "supports_native_structured_output": true,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "au.anthropic.claude-opus-4-6-v1": {
     "cache_creation_input_token_cost": 0.000006875,
@@ -424,7 +428,8 @@
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
     "supports_native_structured_output": true,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "anthropic.claude-opus-4-7": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -452,7 +457,9 @@
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "anthropic.claude-mythos-preview": {
     "input_cost_per_token": 0,
@@ -494,7 +501,9 @@
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "us.anthropic.claude-opus-4-7": {
     "cache_creation_input_token_cost": 0.000006875,
@@ -522,7 +531,9 @@
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "eu.anthropic.claude-opus-4-7": {
     "cache_creation_input_token_cost": 0.000006875,
@@ -550,7 +561,9 @@
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "au.anthropic.claude-opus-4-7": {
     "cache_creation_input_token_cost": 0.000006875,
@@ -578,7 +591,9 @@
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "anthropic.claude-sonnet-4-6": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -605,7 +620,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_minimal_reasoning_effort": true
   },
   "global.anthropic.claude-sonnet-4-6": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -632,7 +648,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_minimal_reasoning_effort": true
   },
   "us.anthropic.claude-sonnet-4-6": {
     "cache_creation_input_token_cost": 0.000004125,
@@ -659,7 +676,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_minimal_reasoning_effort": true
   },
   "eu.anthropic.claude-sonnet-4-6": {
     "cache_creation_input_token_cost": 0.000004125,
@@ -686,7 +704,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_minimal_reasoning_effort": true
   },
   "au.anthropic.claude-sonnet-4-6": {
     "cache_creation_input_token_cost": 0.000004125,
@@ -713,7 +732,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_native_structured_output": true
+    "supports_native_structured_output": true,
+    "supports_minimal_reasoning_effort": true
   },
   "anthropic.claude-sonnet-4-20250514-v1:0": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -1014,7 +1034,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 159,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "azure_ai/claude-opus-4-7": {
     "input_cost_per_token": 0.000005,
@@ -1042,7 +1063,9 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
-    "tool_use_system_prompt_tokens": 159
+    "tool_use_system_prompt_tokens": 159,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "azure_ai/claude-opus-4-1": {
     "cache_creation_input_token_cost": 0.00001875,
@@ -1106,7 +1129,8 @@
     "supports_response_schema": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "tool_use_system_prompt_tokens": 346
+    "tool_use_system_prompt_tokens": 346,
+    "supports_minimal_reasoning_effort": true
   },
   "bedrock/ap-northeast-1/anthropic.claude-instant-v1": {
     "input_cost_per_token": 0.00000223,
@@ -1682,7 +1706,8 @@
     "supports_response_schema": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "tool_use_system_prompt_tokens": 346
+    "tool_use_system_prompt_tokens": 346,
+    "supports_minimal_reasoning_effort": true
   },
   "claude-sonnet-4-5-20250929-v1:0": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -1876,7 +1901,8 @@
       "us": 1.1,
       "fast": 6
     },
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "claude-opus-4-6-20260205": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -1908,7 +1934,8 @@
       "us": 1.1,
       "fast": 6
     },
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "claude-opus-4-7": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -1940,7 +1967,9 @@
     "provider_specific_entry": {
       "us": 1.1,
       "fast": 6
-    }
+    },
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "claude-opus-4-7-20260416": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -1972,7 +2001,9 @@
     "provider_specific_entry": {
       "us": 1.1,
       "fast": 6
-    }
+    },
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "claude-sonnet-4-20250514": {
     "deprecation_date": "2026-05-14",
@@ -3233,7 +3264,8 @@
     "supports_reasoning": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "tool_use_system_prompt_tokens": 159
+    "tool_use_system_prompt_tokens": 159,
+    "supports_minimal_reasoning_effort": true
   },
   "openrouter/anthropic/claude-opus-4.5": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -3271,7 +3303,8 @@
     "supports_reasoning": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "tool_use_system_prompt_tokens": 346
+    "tool_use_system_prompt_tokens": 346,
+    "supports_minimal_reasoning_effort": true
   },
   "openrouter/anthropic/claude-sonnet-4.5": {
     "input_cost_per_image": 0.0048,
@@ -4051,7 +4084,8 @@
     "supports_reasoning": true,
     "supports_response_schema": true,
     "supports_tool_choice": true,
-    "supports_vision": true
+    "supports_vision": true,
+    "supports_minimal_reasoning_effort": true
   },
   "vercel_ai_gateway/anthropic/claude-sonnet-4": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -4425,7 +4459,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "vertex_ai/claude-opus-4-6@default": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -4452,7 +4487,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "tool_use_system_prompt_tokens": 346,
-    "supports_max_reasoning_effort": true
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "vertex_ai/claude-opus-4-7": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -4479,7 +4515,9 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
-    "tool_use_system_prompt_tokens": 346
+    "tool_use_system_prompt_tokens": 346,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "vertex_ai/claude-opus-4-7@default": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -4506,7 +4544,9 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_xhigh_reasoning_effort": true,
-    "tool_use_system_prompt_tokens": 346
+    "tool_use_system_prompt_tokens": 346,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true
   },
   "vertex_ai/claude-sonnet-4-5": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -4558,7 +4598,8 @@
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01
-    }
+    },
+    "supports_minimal_reasoning_effort": true
   },
   "vertex_ai/claude-sonnet-4-5@20250929": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -4697,7 +4738,8 @@
       "search_context_size_high": 0.01,
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01
-    }
+    },
+    "supports_minimal_reasoning_effort": true
   },
   "bedrock/us-gov-east-1/anthropic.claude-haiku-4-5-20251001-v1:0": {
     "cache_creation_input_token_cost": 0.0000015,

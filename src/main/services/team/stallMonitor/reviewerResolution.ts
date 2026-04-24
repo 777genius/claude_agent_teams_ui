@@ -1,5 +1,4 @@
-import { TeamKanbanManager } from '../TeamKanbanManager';
-
+import type { TeamKanbanManager } from '../TeamKanbanManager';
 import type { ResolvedReviewer } from './TeamTaskStallTypes';
 import type { TeamTask } from '@shared/types';
 

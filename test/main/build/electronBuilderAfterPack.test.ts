@@ -157,7 +157,7 @@ describe('electron-builder afterPack', () => {
     tempDirs.push(tempDir);
 
     writeFile(
-      path.join(tempDir, 'Contents', 'MacOS', 'Claude Agent Teams UI'),
+      path.join(tempDir, 'Contents', 'MacOS', 'Agent Teams UI'),
       createMachOBuffer('arm64')
     );
     writeFile(

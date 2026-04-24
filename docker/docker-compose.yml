@@ -1,5 +1,5 @@
 # =============================================================================
-# Claude Agent Teams UI — Docker Compose
+# Agent Teams - Docker Compose
 #
 # Quick start:
 #   docker compose -f docker/docker-compose.yml up
@@ -13,7 +13,7 @@
 # =============================================================================
 
 services:
-  claude-agent-teams-ui:
+  agent-teams-ai:
     build:
       context: ..
       dockerfile: docker/Dockerfile

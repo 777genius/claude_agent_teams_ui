@@ -1,11 +1,19 @@
 const kanbanStore = require('./kanbanStore.js');
 const taskStore = require('./taskStore.js');
 const runtimeHelpers = require('./runtimeHelpers.js');
+const reviewStateHelpers = require('./reviewState.js');
 const { withTeamBoardLock } = require('./boardLock.js');
 
-const REVIEW_STATES = new Set(['none', 'review', 'needsFix', 'approved']);
-const REVIEW_COLUMNS = new Set(['review', 'approved']);
 const INVENTORY_KANBAN_COLUMNS = new Set(['review', 'approved']);
+const MAX_MEMBER_ACTIONABLE_ITEMS = 50;
+const MAX_MEMBER_AWARENESS_ITEMS = 30;
+const MAX_LEAD_SECTION_ITEMS = 50;
+const MAX_EXPANDED_CONTEXT_ITEMS = 8;
+const MAX_DESCRIPTION_CHARS = 1200;
+const MAX_COMMENT_CHARS = 500;
+const MAX_SUBJECT_CHARS = 240;
+const MAX_ANOMALY_ITEMS = 25;
+const MAX_ANOMALY_DETAIL_CHARS = 500;
 
 function normalizeName(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
@@ -15,28 +23,17 @@ function normalizeKey(value) {
   return normalizeName(value).toLowerCase();
 }
 
-function normalizeReviewState(value) {
-  const normalized = normalizeName(value);
-  return REVIEW_STATES.has(normalized) ? normalized : 'none';
-}
-
 function formatTaskLabel(task) {
   return `#${task.displayId || task.id}`;
 }
 
 function isLeadCandidate(member) {
-  if (!member || typeof member !== 'object') return false;
-  if (typeof member.agentType === 'string' && member.agentType.trim() === 'team-lead') {
-    return true;
-  }
-  if (typeof member.role === 'string' && member.role.toLowerCase().includes('lead')) {
-    return true;
-  }
-  return normalizeKey(member.name) === 'team-lead';
+  return runtimeHelpers.isCanonicalLeadMember(member);
 }
 
 function buildQueueRoster(paths) {
   const resolved = runtimeHelpers.resolveTeamMembers(paths);
+  const explicit = runtimeHelpers.collectExplicitTeamMembers(paths);
   const membersByKey = new Map();
 
   for (const member of resolved.members || []) {
@@ -61,12 +58,59 @@ function buildQueueRoster(paths) {
 
   return {
     membersByKey,
+    explicitMemberKeys: new Set(explicit.membersByKey.keys()),
     removedNames: resolved.removedNames || new Set(),
     leadAliases,
     leadCandidates: leadCandidates.map((member) => normalizeName(member.name)).filter(Boolean),
     canonicalLeadName,
     leadHeaderName: uniqueLeadName || '',
   };
+}
+
+function collectExplicitMemberKeys(paths) {
+  return new Set(runtimeHelpers.collectExplicitTeamMembers(paths).membersByKey.keys());
+}
+
+function isCurrentRuntimeMember(teamName, memberName) {
+  const requestedKey = normalizeKey(memberName);
+  if (!requestedKey) return false;
+
+  const runtimeIdentity = runtimeHelpers.getCurrentRuntimeMemberIdentity();
+  if (!runtimeIdentity) return false;
+
+  const runtimeAgentName = normalizeKey(runtimeIdentity.agentName);
+  const runtimeAgentId = normalizeKey(runtimeIdentity.agentId);
+  const runtimeTeamName = normalizeKey(runtimeIdentity.teamName);
+  const requestedAgentId = `${requestedKey}@${normalizeKey(teamName)}`;
+  return (
+    (runtimeAgentName === requestedKey || runtimeAgentId === requestedAgentId) &&
+    (!runtimeTeamName || runtimeTeamName === normalizeKey(teamName))
+  );
+}
+
+function validateBriefingMember(paths, teamName, memberName) {
+  const normalized = normalizeName(memberName);
+  const key = normalizeKey(normalized);
+  if (!key) {
+    throw new Error('Missing member name');
+  }
+
+  const roster = buildQueueRoster(paths);
+  if (roster.removedNames.has(key)) {
+    throw new Error(`Member is removed from the team: ${normalized}`);
+  }
+  const explicitMemberKeys = collectExplicitMemberKeys(paths);
+  if (explicitMemberKeys.has(key) || isCurrentRuntimeMember(teamName, normalized)) {
+    return { warnings: [] };
+  }
+  if (roster.membersByKey.has(key)) {
+    return {
+      warnings: [
+        `Member identity warning: ${normalized} is known only from inbox state, not team config/member metadata. Verify the member name before acting.`,
+      ],
+    };
+  }
+  throw new Error(`Member not found in team metadata or inboxes: ${normalized}`);
 }
 
 function resolveQueueActor(value, roster) {
@@ -84,6 +128,7 @@ function resolveQueueActor(value, roster) {
 
   const member = roster.membersByKey.get(key);
   if (!member) return null;
+  if (!roster.explicitMemberKeys || !roster.explicitMemberKeys.has(key)) return null;
 
   if (roster.canonicalLeadName && normalizeKey(member.name) === normalizeKey(roster.canonicalLeadName)) {
     return { kind: 'lead', memberName: roster.canonicalLeadName };
@@ -98,56 +143,8 @@ function areSameActors(left, right) {
   return normalizeKey(left.memberName) === normalizeKey(right.memberName);
 }
 
-function resolveReviewStateFromHistory(task) {
-  const events = Array.isArray(task.historyEvents) ? task.historyEvents : [];
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i];
-    if (
-      event.type === 'review_requested' ||
-      event.type === 'review_changes_requested' ||
-      event.type === 'review_approved' ||
-      event.type === 'review_started'
-    ) {
-      return {
-        state: normalizeReviewState(event.to),
-        source: `history_${event.type}`,
-      };
-    }
-    if (event.type === 'status_changed' && event.to === 'in_progress') {
-      return {
-        state: 'none',
-        source: 'history_status_reset',
-      };
-    }
-  }
-  return null;
-}
-
 function resolveEffectiveReviewState(task, kanbanEntry) {
-  const historyState = resolveReviewStateFromHistory(task);
-  if (historyState) {
-    return historyState;
-  }
-
-  const persisted = normalizeReviewState(task.reviewState);
-  if (persisted !== 'none') {
-    return {
-      state: persisted,
-      source: 'task_review_state',
-    };
-  }
-
-  if (kanbanEntry && REVIEW_COLUMNS.has(kanbanEntry.column)) {
-    return {
-      state: normalizeReviewState(kanbanEntry.column),
-      source: 'kanban_column',
-    };
-  }
-
-  return {
-    state: 'none',
-    source: 'none',
-  };
+  return reviewStateHelpers.getEffectiveReviewState(task, kanbanEntry);
 }
 
 function resolveLegacyKanbanReviewer(task, roster, options = {}) {
@@ -208,7 +205,10 @@ function resolveCurrentCycleReviewer(task, roster, options = {}) {
       break;
     }
 
-    if (event.type === 'status_changed' && event.to === 'in_progress') {
+    if (
+      event.type === 'status_changed' &&
+      (event.to === 'in_progress' || event.to === 'pending' || event.to === 'deleted')
+    ) {
       break;
     }
 
@@ -247,17 +247,51 @@ function buildBoardState(paths, teamName) {
   const kanbanState = kanbanStore.readKanbanState(paths, teamName);
   const roster = buildQueueRoster(paths);
   const tasksById = new Map(taskRows.tasks.map((task) => [task.id, task]));
+  const anomalies = [];
+
+  if (kanbanState.tasks && typeof kanbanState.tasks === 'object') {
+    for (const [taskId, entry] of Object.entries(kanbanState.tasks)) {
+      if (!tasksById.has(taskId)) {
+        anomalies.push({
+          code: 'stale_kanban_task',
+          taskId,
+          detail: `Kanban ${entry && entry.column ? entry.column : 'entry'} references a missing or deleted task row.`,
+        });
+      }
+    }
+  }
+
+  if (kanbanState.columnOrder && typeof kanbanState.columnOrder === 'object') {
+    for (const [columnId, orderedTaskIds] of Object.entries(kanbanState.columnOrder)) {
+      if (!Array.isArray(orderedTaskIds)) continue;
+      for (const taskId of orderedTaskIds) {
+        const id = String(taskId);
+        const entry = kanbanState.tasks ? kanbanState.tasks[id] : undefined;
+        if (!tasksById.has(id) || !entry || entry.column !== columnId) {
+          anomalies.push({
+            code: 'stale_kanban_order',
+            taskId: id,
+            detail: `Kanban columnOrder.${columnId} references a task that is not in that column overlay.`,
+          });
+        }
+      }
+    }
+  }
+
+  for (const anomaly of taskRows.anomalies) {
+    anomalies.push({
+      code: anomaly.code,
+      detail: anomaly.detail,
+      ...(anomaly.taskId ? { taskId: anomaly.taskId } : {}),
+    });
+  }
 
   return {
     tasks: [...taskRows.tasks].sort(compareTasksByFreshness),
     tasksById,
     kanbanState,
     roster,
-    anomalies: taskRows.anomalies.map((anomaly) => ({
-      code: anomaly.code,
-      detail: anomaly.detail,
-      ...(anomaly.taskId ? { taskId: anomaly.taskId } : {}),
-    })),
+    anomalies,
   };
 }
 
@@ -296,6 +330,14 @@ function getLastMeaningfulEventAt(task) {
   });
 
   return timestamps[0] || undefined;
+}
+
+function truncateText(value, maxChars) {
+  const text = normalizeName(value);
+  if (!text || text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, maxChars)}... [truncated]`;
 }
 
 function buildAgendaItem(task, boardState) {
@@ -427,6 +469,8 @@ function buildAgendaItem(task, boardState) {
 
   const watchers = buildWatchers(ownerActor, reviewActor, actionOwner);
 
+  const lastMeaningfulEventAt = getLastMeaningfulEventAt(task);
+
   return {
     taskId: task.id,
     displayId: task.displayId,
@@ -447,7 +491,7 @@ function buildAgendaItem(task, boardState) {
     ...(blockedByIds.length > 0 ? { blockedBy: blockedByIds } : {}),
     ...(watchers.length > 0 ? { watchers } : {}),
     ...(task.needsClarification ? { needsClarification: task.needsClarification } : {}),
-    ...(getLastMeaningfulEventAt(task) ? { lastMeaningfulEventAt: getLastMeaningfulEventAt(task) } : {}),
+    ...(lastMeaningfulEventAt ? { lastMeaningfulEventAt } : {}),
     derivedFrom,
     _fullTask: task,
   };
@@ -539,14 +583,17 @@ function buildAgendaSnapshot(paths, teamName, actor) {
   });
 }
 
-function buildInventoryRow(task, reviewState) {
+function buildInventoryRow(task, reviewState, kanbanEntry) {
   return {
     id: task.id,
     displayId: task.displayId,
-    subject: task.subject,
+    subject: truncateText(task.subject, MAX_SUBJECT_CHARS),
     status: task.status,
     ...(normalizeName(task.owner) ? { owner: task.owner } : {}),
     reviewState,
+    ...(kanbanEntry && INVENTORY_KANBAN_COLUMNS.has(kanbanEntry.column)
+      ? { kanbanColumn: kanbanEntry.column }
+      : {}),
     ...(task.needsClarification ? { needsClarification: task.needsClarification } : {}),
     ...(Array.isArray(task.blockedBy) && task.blockedBy.length > 0 ? { blockedBy: task.blockedBy } : {}),
     ...(Array.isArray(task.blocks) && task.blocks.length > 0 ? { blocks: task.blocks } : {}),
@@ -569,7 +616,7 @@ function matchesInventoryFilters(row, filters) {
   }
   if (normalizeName(filters.kanbanColumn)) {
     const kanbanColumn = filters.kanbanColumn;
-    if (!INVENTORY_KANBAN_COLUMNS.has(kanbanColumn) || row.reviewState !== kanbanColumn) {
+    if (!INVENTORY_KANBAN_COLUMNS.has(kanbanColumn) || row.kanbanColumn !== kanbanColumn) {
       return false;
     }
   }
@@ -590,7 +637,8 @@ function matchesInventoryFilters(row, filters) {
 
 function listTaskInventory(paths, teamName, filters = {}) {
   return withTeamBoardLock(paths, () => {
-    const boardState = buildBoardState(paths, teamName);
+    const taskRows = taskStore.listTaskRows(paths);
+    const kanbanState = kanbanStore.readKanbanState(paths, teamName);
     const resolvedRelatedTo = normalizeName(filters.relatedTo)
       ? taskStore.resolveTaskRef(paths, filters.relatedTo)
       : '';
@@ -602,21 +650,42 @@ function listTaskInventory(paths, teamName, filters = {}) {
         ? Math.max(1, Math.floor(filters.limit))
         : null;
 
-    const rows = boardState.tasks
-      .map((task) => {
-        const kanbanEntry = boardState.kanbanState.tasks ? boardState.kanbanState.tasks[task.id] : undefined;
-        const reviewState = resolveEffectiveReviewState(task, kanbanEntry).state;
-        return buildInventoryRow(task, reviewState);
-      })
-      .filter((row) =>
-        matchesInventoryFilters(row, {
-          ...filters,
-          ...(resolvedRelatedTo ? { relatedTo: resolvedRelatedTo } : {}),
-          ...(resolvedBlockedBy ? { blockedBy: resolvedBlockedBy } : {}),
-        })
-      );
+    const resolvedFilters = {
+      ...filters,
+      ...(resolvedRelatedTo ? { relatedTo: resolvedRelatedTo } : {}),
+      ...(resolvedBlockedBy ? { blockedBy: resolvedBlockedBy } : {}),
+    };
+    const candidates = [];
 
-    return limit == null ? rows : rows.slice(0, limit);
+    const addCandidate = (candidate) => {
+      if (limit == null || candidates.length < limit) {
+        candidates.push(candidate);
+        return;
+      }
+
+      let oldestIndex = 0;
+      for (let index = 1; index < candidates.length; index += 1) {
+        if (compareTasksByFreshness(candidates[index].task, candidates[oldestIndex].task) > 0) {
+          oldestIndex = index;
+        }
+      }
+
+      if (compareTasksByFreshness(candidate.task, candidates[oldestIndex].task) < 0) {
+        candidates[oldestIndex] = candidate;
+      }
+    };
+
+    for (const task of taskRows.tasks) {
+      const kanbanEntry = kanbanState.tasks ? kanbanState.tasks[task.id] : undefined;
+      const reviewState = resolveEffectiveReviewState(task, kanbanEntry).state;
+      const row = buildInventoryRow(task, reviewState, kanbanEntry);
+      if (!matchesInventoryFilters(row, resolvedFilters)) {
+        continue;
+      }
+      addCandidate({ task, row });
+    }
+
+    return candidates.sort((left, right) => compareTasksByFreshness(left.task, right.task)).map((entry) => entry.row);
   });
 }
 
@@ -641,7 +710,7 @@ function formatAgendaLine(item) {
   if (item.needsClarification) {
     meta.push(`clarification=${item.needsClarification}`);
   }
-  return `- ${formatTaskLabel(item)} [status=${item.status}${reviewSuffix}] ${item.subject} (${meta.join(', ')})`;
+  return `- ${formatTaskLabel(item)} [status=${item.status}${reviewSuffix}] ${truncateText(item.subject, MAX_SUBJECT_CHARS)} (${meta.join(', ')})`;
 }
 
 function appendExpandedTaskContext(lines, item) {
@@ -649,7 +718,7 @@ function appendExpandedTaskContext(lines, item) {
   if (!task || typeof task !== 'object') return;
 
   if (normalizeName(task.description)) {
-    lines.push(`  Description: ${task.description}`);
+    lines.push(`  Description: ${truncateText(task.description, MAX_DESCRIPTION_CHARS)}`);
   }
 
   const comments = Array.isArray(task.comments) ? task.comments : [];
@@ -658,17 +727,37 @@ function appendExpandedTaskContext(lines, item) {
   lines.push('  Comments:');
   for (const comment of comments.slice(-5)) {
     const author = normalizeName(comment && comment.author) || 'unknown';
-    const text = normalizeName(comment && comment.text) || '(empty comment)';
+    const text = truncateText(comment && comment.text, MAX_COMMENT_CHARS) || '(empty comment)';
     lines.push(`  - ${author}: ${text}`);
   }
 }
 
+function appendOmittedLine(lines, sectionLabel, shownCount, totalCount) {
+  if (totalCount <= shownCount) return;
+  lines.push(
+    `... ${totalCount - shownCount} more ${sectionLabel} item(s) omitted. Use task_list filters and task_get for drill-down.`
+  );
+}
+
 function formatAnomalyLine(anomaly) {
   const ref = normalizeName(anomaly.taskId) ? ` (${anomaly.taskId})` : '';
-  return `- ${anomaly.code}${ref}: ${anomaly.detail}`;
+  return `- ${anomaly.code}${ref}: ${truncateText(anomaly.detail, MAX_ANOMALY_DETAIL_CHARS)}`;
+}
+
+function appendAnomalies(lines, anomalies) {
+  const shown = anomalies.slice(0, MAX_ANOMALY_ITEMS);
+  for (const anomaly of shown) {
+    lines.push(formatAnomalyLine(anomaly));
+  }
+  if (anomalies.length > shown.length) {
+    lines.push(
+      `... ${anomalies.length - shown.length} more board anomaly item(s) omitted. Run maintenance/reconcile or inspect board files for full details.`
+    );
+  }
 }
 
 function formatTaskBriefing(paths, teamName, memberName) {
+  const memberValidation = validateBriefingMember(paths, teamName, memberName);
   const snapshot = buildAgendaSnapshot(paths, teamName, {
     kind: 'member',
     memberName: normalizeName(memberName),
@@ -679,11 +768,12 @@ function formatTaskBriefing(paths, teamName, memberName) {
     `Use task_list only to search/browse inventory rows, not as your working queue.`,
   ];
 
-  if (snapshot.anomalies.length > 0) {
+  if (memberValidation.warnings.length > 0 || snapshot.anomalies.length > 0) {
     lines.push('', 'Board warnings:');
-    for (const anomaly of snapshot.anomalies) {
-      lines.push(formatAnomalyLine(anomaly));
+    for (const warning of memberValidation.warnings) {
+      lines.push(`- ${warning}`);
     }
+    appendAnomalies(lines, snapshot.anomalies);
   }
 
   if (snapshot.actionable.length === 0 && snapshot.awareness.length === 0) {
@@ -693,19 +783,29 @@ function formatTaskBriefing(paths, teamName, memberName) {
 
   if (snapshot.actionable.length > 0) {
     lines.push('', 'Actionable:');
-    for (const item of snapshot.actionable) {
+    let expandedCount = 0;
+    const actionableItems = snapshot.actionable.slice(0, MAX_MEMBER_ACTIONABLE_ITEMS);
+    for (const item of actionableItems) {
       lines.push(formatAgendaLine(item));
       if (item.status === 'in_progress' || item.reasonCode === 'needs_fix') {
-        appendExpandedTaskContext(lines, item);
+        if (expandedCount < MAX_EXPANDED_CONTEXT_ITEMS) {
+          appendExpandedTaskContext(lines, item);
+          expandedCount += 1;
+        } else {
+          lines.push('  Context omitted: use task_get for full task details.');
+        }
       }
     }
+    appendOmittedLine(lines, 'Actionable', actionableItems.length, snapshot.actionable.length);
   }
 
   if (snapshot.awareness.length > 0) {
     lines.push('', 'Awareness:');
-    for (const item of snapshot.awareness) {
+    const awarenessItems = snapshot.awareness.slice(0, MAX_MEMBER_AWARENESS_ITEMS);
+    for (const item of awarenessItems) {
       lines.push(formatAgendaLine(item));
     }
+    appendOmittedLine(lines, 'Awareness', awarenessItems.length, snapshot.awareness.length);
   }
 
   lines.push(
@@ -761,9 +861,7 @@ function formatLeadBriefing(paths, teamName) {
 
   if (snapshot.anomalies.length > 0) {
     lines.push('', 'Board anomalies:');
-    for (const anomaly of snapshot.anomalies) {
-      lines.push(formatAnomalyLine(anomaly));
-    }
+    appendAnomalies(lines, snapshot.anomalies);
   }
 
   const sections = [
@@ -787,9 +885,11 @@ function formatLeadBriefing(paths, teamName) {
     if (!items || items.length === 0) continue;
     renderedAnySection = true;
     lines.push('', title);
-    for (const item of items) {
+    const sectionItems = items.slice(0, MAX_LEAD_SECTION_ITEMS);
+    for (const item of sectionItems) {
       lines.push(formatAgendaLine(item));
     }
+    appendOmittedLine(lines, title.replace(/:$/, ''), sectionItems.length, items.length);
   }
 
   if (!renderedAnySection && snapshot.anomalies.length === 0) {

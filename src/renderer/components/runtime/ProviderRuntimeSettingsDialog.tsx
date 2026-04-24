@@ -320,7 +320,7 @@ function formatCodexResetDateTime(timestampSeconds: number | null | undefined): 
   return normalized ? new Date(normalized).toLocaleString() : 'Unknown';
 }
 
-function CodexRateLimitWindowCard({
+const CodexRateLimitWindowCard = ({
   title,
   usedLabel,
   usedValue,
@@ -336,7 +336,7 @@ function CodexRateLimitWindowCard({
   resetLabel: string;
   resetValue: string;
   accent: 'primary' | 'secondary';
-}>): React.JSX.Element {
+}>): React.JSX.Element => {
   const accentStyles =
     accent === 'primary'
       ? {
@@ -405,7 +405,7 @@ function CodexRateLimitWindowCard({
       </div>
     </div>
   );
-}
+};
 
 function getConnectionMethodCardOptions(
   provider: CliProviderStatus

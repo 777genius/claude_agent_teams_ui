@@ -1,5 +1,5 @@
 {
-  "name": "claude-agent-teams-landing",
+  "name": "agent-teams-landing",
   "private": true,
   "type": "module",
   "scripts": {

@@ -66,9 +66,9 @@ async function handleDownload(_event: IpcMainInvokeEvent): Promise<void> {
   }
 }
 
-function handleInstall(_event: IpcMainInvokeEvent): void {
+async function handleInstall(_event: IpcMainInvokeEvent): Promise<void> {
   try {
-    updaterService.quitAndInstall();
+    await updaterService.quitAndInstall();
   } catch (error) {
     logger.error('Error in updater:install:', getErrorMessage(error));
   }

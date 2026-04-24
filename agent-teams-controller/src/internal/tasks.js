@@ -6,9 +6,29 @@ const kanbanStore = require('./kanbanStore.js');
 const agenda = require('./agenda.js');
 const { withTeamBoardLock } = require('./boardLock.js');
 const { wrapAgentBlock } = require('./agentBlocks.js');
+const {
+    createMemberMessagingProtocol,
+    isOpenCodeMember,
+} = require('./memberMessagingProtocol.js');
 
 function normalizeActorName(value) {
     return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function isClearOwnerValue(value) {
+    return value == null || value === 'clear' || value === 'none';
+}
+
+function assertKnownTaskActor(context, value, label) {
+    return runtimeHelpers.assertExplicitTeamMemberName(context.paths, value, label, {
+        allowLeadAliases: true,
+    });
+}
+
+function assertTaskNotDeleted(task, action) {
+    if (task && task.status === 'deleted') {
+        throw new Error(`Task #${task.displayId || task.id} is deleted; use task_restore before ${action}`);
+    }
 }
 
 function isSameMember(left, right) {
@@ -53,6 +73,7 @@ function warnNonCritical(message, error) {
 }
 
 function buildAssignmentMessage(context, task, options = {}) {
+    const messagingProtocol = options.messagingProtocol || createMemberMessagingProtocol('native');
     const description =
         typeof options.description === 'string' && options.description.trim() ?
         options.description.trim() :
@@ -76,6 +97,18 @@ function buildAssignmentMessage(context, task, options = {}) {
         lines.push(``, `Instructions:`, prompt);
     }
 
+    const notifyLeadExample = messagingProtocol.buildLeadMessageExample({
+        teamName: context.teamName,
+        leadName: '<lead-name>',
+        fromName: '<your-name>',
+        text: `#${task.displayId || task.id} done. <2-4 sentence summary>. Full details in task comment <short-commentId-from-step-4>. Moving to next task.`,
+        summary: `#${task.displayId || task.id} done`,
+    });
+    const openCodeVisibleMessageRule =
+        messagingProtocol.runtimeProvider === 'opencode'
+            ? '\n   For normal visible replies, use agent-teams_message_send. Do not use SendMessage or runtime_deliver_message for ordinary replies.'
+            : '';
+
     lines.push(
         ``,
         wrapAgentBlock(`Use the board MCP tools to work this task correctly:
@@ -89,8 +122,8 @@ function buildAssignmentMessage(context, task, options = {}) {
    task_add_comment { teamName: "${context.teamName}", taskId: "${task.id}", text: "<full results>", from: "<your-name>" }
    The response contains comment.id (UUID). Take its first 8 characters as the short commentId.
    task_complete { teamName: "${context.teamName}", taskId: "${task.id}" }
-5. After task_complete, notify your lead via SendMessage with a brief summary and a pointer to the full comment (use the short commentId from step 4).
-   Example: "#${task.displayId || task.id} done. <2-4 sentence summary>. For full details: task_get_comment { taskId: \\"${task.displayId || task.id}\\", commentId: \\"<short-commentId-from-step-4>\\" }. Moving to next task."`)
+5. After task_complete, notify your lead via ${messagingProtocol.sendLeadPhrase} with a brief summary and a pointer to the full comment (use the short commentId from step 4).
+   Example: ${notifyLeadExample}${openCodeVisibleMessageRule}`)
     );
 
     return lines.join('\n');
@@ -121,12 +154,23 @@ function maybeNotifyAssignedOwner(context, task, options = {}) {
         return;
     }
 
+    const resolved = runtimeHelpers.resolveTeamMembers(context.paths);
+    const ownerMember = (resolved.members || []).find(
+        (member) => isSameMember(member && member.name, owner)
+    );
+    const messagingProtocol = createMemberMessagingProtocol(
+        isOpenCodeMember(ownerMember) ? 'opencode' : 'native'
+    );
+
     const summary = options.summary || `New task #${task.displayId || task.id} assigned`;
     try {
         messages.sendMessage(context, {
             member: owner,
             from: sender,
-            text: buildAssignmentMessage(context, task, options),
+            text: buildAssignmentMessage(context, task, {
+                ...options,
+                messagingProtocol,
+            }),
             taskRefs: Array.isArray(options.taskRefs) && options.taskRefs.length > 0 ? options.taskRefs : undefined,
             summary,
             source: 'system_notification',
@@ -171,16 +215,23 @@ function maybeNotifyTaskOwnerOnComment(context, task, comment, options = {}) {
 }
 
 function createTask(context, input) {
-    const task = withTeamBoardLock(context.paths, () => taskStore.createTask(context.paths, input));
-    if (input && input.notifyOwner !== false) {
+    let taskInput = input;
+    if (input && typeof input.owner === 'string' && input.owner.trim()) {
+        taskInput = {
+            ...input,
+            owner: assertKnownTaskActor(context, input.owner, 'task owner'),
+        };
+    }
+    const task = withTeamBoardLock(context.paths, () => taskStore.createTask(context.paths, taskInput));
+    if (taskInput && taskInput.notifyOwner !== false) {
         maybeNotifyAssignedOwner(context, task, {
-            description: input.description,
-            prompt: input.prompt,
+            description: taskInput.description,
+            prompt: taskInput.prompt,
             taskRefs: [
-                ...(Array.isArray(input.descriptionTaskRefs) ? input.descriptionTaskRefs : []),
-                ...(Array.isArray(input.promptTaskRefs) ? input.promptTaskRefs : []),
+                ...(Array.isArray(taskInput.descriptionTaskRefs) ? taskInput.descriptionTaskRefs : []),
+                ...(Array.isArray(taskInput.promptTaskRefs) ? taskInput.promptTaskRefs : []),
             ],
-            from: input.from,
+            from: taskInput.from,
         });
     }
     return task;
@@ -233,18 +284,46 @@ function resolveTaskId(context, taskRef) {
 }
 
 function setTaskStatus(context, taskId, status, actor) {
-    return withTeamBoardLock(context.paths, () =>
-        taskStore.setTaskStatus(context.paths, taskId, status, actor)
+    return withTeamBoardLock(context.paths, () => {
+        const before = taskStore.readTask(context.paths, taskId, { includeDeleted: true });
+        const normalizedStatus = String(status || '').trim();
+        if (before.status === 'deleted' && normalizedStatus !== 'deleted') {
+            throw new Error(`Task #${before.displayId || before.id} is deleted; use task_restore before changing status`);
+        }
+        let task = taskStore.setTaskStatus(context.paths, taskId, status, actor);
+        if (normalizedStatus === 'deleted' || normalizedStatus === 'in_progress' || normalizedStatus === 'pending') {
+            const state = kanbanStore.readKanbanState(context.paths, context.teamName);
+            if (hasKanbanReference(state, task.id)) {
+                kanbanStore.clearKanban(context.paths, context.teamName, task.id, { nextReviewState: 'none' });
+                task = taskStore.readTask(context.paths, task.id, { includeDeleted: true });
+            }
+        }
+        return task;
+    });
+}
+
+function hasKanbanReference(state, taskId) {
+    if (state.tasks && state.tasks[taskId]) {
+        return true;
+    }
+    if (!state.columnOrder || typeof state.columnOrder !== 'object') {
+        return false;
+    }
+    return Object.values(state.columnOrder).some(
+        (orderedTaskIds) =>
+            Array.isArray(orderedTaskIds) && orderedTaskIds.some((entry) => String(entry) === String(taskId))
     );
 }
 
 function startTask(context, taskId, actor) {
     return withTeamBoardLock(context.paths, () => {
-        const task = taskStore.setTaskStatus(context.paths, taskId, 'in_progress', actor);
+        const before = taskStore.readTask(context.paths, taskId, { includeDeleted: true });
+        assertTaskNotDeleted(before, 'starting work');
+        let task = taskStore.setTaskStatus(context.paths, taskId, 'in_progress', actor);
         const state = kanbanStore.readKanbanState(context.paths, context.teamName);
-        if (state.tasks[task.id]) {
-            delete state.tasks[task.id];
-            kanbanStore.writeKanbanState(context.paths, context.teamName, state);
+        if (hasKanbanReference(state, task.id)) {
+            kanbanStore.clearKanban(context.paths, context.teamName, task.id, { nextReviewState: 'none' });
+            task = taskStore.readTask(context.paths, task.id, { includeDeleted: true });
         }
         return task;
     });
@@ -322,17 +401,46 @@ function completeTask(context, taskId, actor) {
 }
 
 function softDeleteTask(context, taskId, actor) {
-    return setTaskStatus(context, taskId, 'deleted', actor);
+    return withTeamBoardLock(context.paths, () => {
+        let task = taskStore.setTaskStatus(context.paths, taskId, 'deleted', actor);
+        const state = kanbanStore.readKanbanState(context.paths, context.teamName);
+        if (hasKanbanReference(state, task.id)) {
+            kanbanStore.clearKanban(context.paths, context.teamName, task.id, { nextReviewState: 'none' });
+            task = taskStore.readTask(context.paths, task.id, { includeDeleted: true });
+        }
+        return task;
+    });
 }
 
 function restoreTask(context, taskId, actor) {
-    return setTaskStatus(context, taskId, 'pending', actor || 'user');
+    return withTeamBoardLock(context.paths, () => {
+        const before = taskStore.readTask(context.paths, taskId, { includeDeleted: true });
+        if (before.status !== 'deleted') {
+            throw new Error(`Task #${before.displayId || before.id} is not deleted; task_restore only restores deleted tasks`);
+        }
+        let task = taskStore.setTaskStatus(context.paths, taskId, 'pending', actor || 'user');
+        const state = kanbanStore.readKanbanState(context.paths, context.teamName);
+        if (hasKanbanReference(state, task.id)) {
+            kanbanStore.clearKanban(context.paths, context.teamName, task.id, { nextReviewState: 'none' });
+            task = taskStore.readTask(context.paths, task.id, { includeDeleted: true });
+        }
+        if (task.reviewState !== 'none') {
+            task = taskStore.updateTask(context.paths, task.id, (current) => {
+                current.reviewState = 'none';
+                return current;
+            });
+        }
+        return task;
+    });
 }
 
 function setTaskOwner(context, taskId, owner) {
     const { previousTask, updatedTask } = withTeamBoardLock(context.paths, () => {
         const before = taskStore.readTask(context.paths, taskId, { includeDeleted: true });
-        const after = taskStore.setTaskOwner(context.paths, taskId, owner);
+        const nextOwner = isClearOwnerValue(owner)
+            ? owner
+            : assertKnownTaskActor(context, owner, 'task owner');
+        const after = taskStore.setTaskOwner(context.paths, taskId, nextOwner);
         return {
             previousTask: before,
             updatedTask: after,
@@ -520,7 +628,18 @@ function buildMemberActionModeProtocol() {
     return buildActionModeProtocolText(MEMBER_DELEGATE_DESCRIPTION);
 }
 
-function buildMemberTaskProtocol(teamName) {
+function buildMemberTaskProtocol(teamName, messagingProtocol = createMemberMessagingProtocol('native')) {
+    const notifyLeadExample = messagingProtocol.buildLeadMessageExample({
+        teamName,
+        leadName: '<lead-name>',
+        fromName: '<your-name>',
+        text: '#abcd1234 done. Found 3 competitors: two lack kanban, one went closed-source in Jan. Full details in task comment e5f6a7b8. Moving to #efgh5678 next.',
+        summary: '#abcd1234 done',
+    });
+    const openCodeVisibleMessageRule =
+        messagingProtocol.runtimeProvider === 'opencode'
+            ? '\n   - For normal visible replies, use agent-teams_message_send. Always include teamName, to, from, text, and summary. Always set from to your teammate name. Do not use SendMessage or runtime_deliver_message for ordinary replies.'
+            : '';
     return wrapAgentBlock(`MANDATORY TASK STATUS PROTOCOL — you MUST follow this for EVERY task:
 0. IMPORTANT ID RULE:
    - If a board/task snapshot shows a canonical taskId, prefer using that exact value in MCP tool calls.
@@ -537,13 +656,13 @@ function buildMemberTaskProtocol(teamName) {
    - Do NOT start multiple tasks at once unless the team lead explicitly directs parallel work.
 3. Use MCP tool task_complete BEFORE sending your final reply:
    { teamName: "${teamName}", taskId: "<taskId>" }
-   - CRITICAL: Before calling task_complete, you MUST post a task comment with your results via task_add_comment. Save the comment.id from the response — you will need it in the next step. The task comment is the primary delivery channel — the user reads results on the task board. A SendMessage to the lead is NOT a substitute: direct messages are ephemeral and not visible on the board. If you only SendMessage without a task comment, the user will never see your work.
+   - CRITICAL: Before calling task_complete, you MUST post a task comment with your results via task_add_comment. Save the comment.id from the response — you will need it in the next step. The task comment is the primary delivery channel — the user reads results on the task board. A direct message to the lead is NOT a substitute: direct messages are ephemeral and not visible on the board. If you only send a direct message without a task comment, the user will never see your work.
    - If a new task comment means you must do more real work on that same task, FIRST add a short task comment saying what you are going to do, THEN run task_start again before doing the follow-up work.
    - After that follow-up work finishes, add a short task comment with the result, what changed, or what you verified.
    - After that, run task_complete again before your reply.
    - Never do comment-driven implementation/fix work while the task is still shown as pending, review, completed, or approved.
-   - After task_complete, send a notification to your team lead via SendMessage. Use the comment.id you saved earlier (first 8 characters). Your message must include: (a) which task is done, (b) a brief summary of the outcome (2-4 sentences), (c) a pointer to the full comment so the lead can fetch it, (d) what you will do next. Do NOT duplicate the entire results.
-     Example: "#abcd1234 done. Found 3 competitors: two lack kanban, one went closed-source in Jan. For full details: task_get_comment { taskId: "abcd1234", commentId: "e5f6a7b8" }. Moving to #efgh5678 next."
+   - After task_complete, send a notification to your team lead via ${messagingProtocol.sendLeadPhrase}. Use the comment.id you saved earlier (first 8 characters). Your message must include: (a) which task is done, (b) a brief summary of the outcome (2-4 sentences), (c) a pointer to the full comment so the lead can fetch it, (d) what you will do next. Do NOT duplicate the entire results.
+     Example: ${notifyLeadExample}${openCodeVisibleMessageRule}
    - After task_complete, call review_request ONLY when review is explicitly expected for THIS task and a concrete reviewer is already known.
      Example:
      { teamName: "${teamName}", taskId: "<taskId>", from: "<your-name>", reviewer: "<reviewer-name>" }
@@ -553,10 +672,10 @@ function buildMemberTaskProtocol(teamName) {
    { teamName: "${teamName}", taskId: "<taskId>", from: "<your-name>" }
    This is MANDATORY before review_approve or review_request_changes. Without this step, the kanban board may not show the task in REVIEW during your review.
 4. If you are asked to review and the task is accepted, move it to APPROVED (not DONE) with MCP tool review_approve:
-   { teamName: "${teamName}", taskId: "<taskId>", note?: "<optional note>", notifyOwner: true }
+   { teamName: "${teamName}", taskId: "<taskId>", from: "<your-name>", note?: "<optional note>", notifyOwner: true }
    CRITICAL: Text comments like "approved" or "LGTM" do NOT change the kanban board. You MUST call review_approve to move a task from REVIEW to APPROVED. Without the tool call the task stays stuck in the REVIEW column.
 5. If review fails and changes are needed, use MCP tool review_request_changes:
-   { teamName: "${teamName}", taskId: "<taskId>", comment: "<what to fix>" }
+   { teamName: "${teamName}", taskId: "<taskId>", from: "<your-name>", comment: "<what to fix>" }
 6. NEVER skip status updates. A task is NOT done until completed status is written.
    - Never "bulk-complete" a batch of tasks at the end. Update status incrementally as you work.
 7. To reply to a comment on a task, use MCP tool task_add_comment:
@@ -564,7 +683,9 @@ function buildMemberTaskProtocol(teamName) {
 8. When discussing a task with a teammate and you have important findings, decisions, blockers, or progress updates — record them as a task comment:
    { teamName: "${teamName}", taskId: "<taskId>", text: "<summary of your finding or decision>", from: "<your-name>" }
    Do NOT comment on trivial coordination messages. Only comment when the information is valuable context for the task.
-9. When sending a message about a specific task, include its short display label like #<displayId> in your SendMessage summary field for traceability.
+9. When sending a message about a specific task, include its short display label like #<displayId> in your ${messagingProtocol.sendToolName} summary field for traceability.
+   - If the message is NOT about a real board task, do NOT include any # task label.
+   - Never invent placeholder task refs such as #00000000 or #<displayId>.
 10. In ALL human-facing or teammate-facing message text, when you mention a task reference, ALWAYS write it with a leading # (for example: #abcd1234, not abcd1234 or "task abcd1234").
 11. Review workflow clarity (IMPORTANT):
    - The work task (e.g. #1) is the thing that must end up APPROVED after review.
@@ -581,7 +702,7 @@ function buildMemberTaskProtocol(teamName) {
       { teamName: "${teamName}", taskId: "<taskId>", value: "lead" }
    b) STEP 2 — THEN, add a task comment describing exactly what you need:
       { teamName: "${teamName}", taskId: "<taskId>", text: "question / blocker / missing info", from: "<your-name>" }
-   c) STEP 3 — THEN, send a message to your team lead via SendMessage so they notice it promptly.
+   c) STEP 3 — THEN, send a message to your team lead via ${messagingProtocol.sendLeadPhrase} so they notice it promptly.
    IMPORTANT: Always update the task board BEFORE sending the message. The flag + task comment are what make the request durable and visible on the board.
    d) The clarification flag is durable until it is cleared explicitly.
       When the blocker is truly resolved, clear the flag yourself with:
@@ -646,7 +767,7 @@ function normalizeMemberName(value) {
     return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : '';
 }
 
-async function memberBriefing(context, memberName) {
+async function memberBriefing(context, memberName, options = {}) {
     const requestedMemberName = String(memberName).trim();
     const requestedMemberKey = normalizeMemberName(requestedMemberName);
     const resolved = runtimeHelpers.resolveTeamMembers(context.paths);
@@ -701,6 +822,9 @@ async function memberBriefing(context, memberName) {
     }
     const leadName = runtimeHelpers.inferLeadName(context.paths);
     const effectiveMember = member;
+    const messagingProtocol = createMemberMessagingProtocol(
+        options.runtimeProvider || (isOpenCodeMember(effectiveMember) ? 'opencode' : 'native')
+    );
 
     const role =
         typeof effectiveMember.role === 'string' && effectiveMember.role.trim() ?
@@ -729,12 +853,25 @@ async function memberBriefing(context, memberName) {
         );
 
     const taskQueue = await taskBriefing(context, requestedMemberName);
+    const completionNotifyExample = messagingProtocol.buildLeadMessageExample({
+        teamName: context.teamName,
+        leadName,
+        fromName: requestedMemberName,
+        text: '#abcd1234 done. Found 3 competitors, two lack kanban. Full details in task comment e5f6a7b8. Moving to #efgh5678.',
+        summary: '#abcd1234 done',
+    });
     const lines = [
         `Member briefing for ${requestedMemberName} on team "${context.teamName}" (${context.teamName}).`,
         `Role: ${role}.`,
         `CRITICAL: If a task gets a new comment and you are going to do additional implementation/fix/follow-up work on that same task, FIRST leave a short task comment saying what you are about to do, THEN move it to in_progress with task_start, THEN do the work, and when finished leave a short result comment and move it to done with task_complete. Never skip this comment -> reopen -> work -> comment -> done cycle.`,
-        `CRITICAL: When you finish a task, your results (findings, research report, analysis, code changes summary, or any deliverable) MUST be posted as a task comment via task_add_comment BEFORE calling task_complete. Save the comment.id from the response — you will need it in the next step. The task comment is the primary delivery channel — the user reads results on the task board. A SendMessage to the lead is NOT a substitute: direct messages are ephemeral and not visible on the board. If you only SendMessage without a task comment, the user will never see your work.`,
-        `After task_complete, notify your team lead via SendMessage. Use the comment.id you saved (first 8 characters). Include: task ref, brief summary (2-4 sentences), pointer to full comment, and next step. Example: "#abcd1234 done. Found 3 competitors, two lack kanban. For full details: task_get_comment { taskId: \\"abcd1234\\", commentId: \\"e5f6a7b8\\" }. Moving to #efgh5678."`,
+        `CRITICAL: When you finish a task, your results (findings, research report, analysis, code changes summary, or any deliverable) MUST be posted as a task comment via task_add_comment BEFORE calling task_complete. Save the comment.id from the response — you will need it in the next step. The task comment is the primary delivery channel — the user reads results on the task board. A direct message to the lead is NOT a substitute: direct messages are ephemeral and not visible on the board. If you only send a direct message without a task comment, the user will never see your work.`,
+        `After task_complete, notify your team lead via ${messagingProtocol.sendLeadPhrase}. Use the comment.id you saved (first 8 characters). Include: task ref, brief summary (2-4 sentences), pointer to full comment, and next step. Example: ${completionNotifyExample}`,
+        ...(messagingProtocol.runtimeProvider === 'opencode'
+            ? [
+                'OpenCode visible messaging rule: call agent-teams_message_send for normal replies to the human user, lead, or same-team teammates. Always include teamName, to, from, text, and summary. Do not use SendMessage or runtime_deliver_message for ordinary replies.',
+                'For cross-team replies or messages to another team, call agent-teams_cross_team_send with toTeam/fromMember. Do not put "cross_team_send" or a remote team name into message_send.to.',
+            ]
+            : []),
         `CRITICAL: A newly assigned task must NOT remain silently pending/TODO. If you are idle and the task is ready to start, start it now. If it must wait because you are already finishing another task, blocked, or still need more context, leave a short task comment on the waiting task immediately with the reason and your best ETA or what you are waiting on, keep it in pending/TODO, and only move it to in_progress with task_start when you truly begin.`,
         `Team lead: ${leadName}.`,
         buildMemberLanguageInstruction(config),
@@ -766,7 +903,7 @@ async function memberBriefing(context, memberName) {
         '',
         buildMemberFormattingProtocol(),
         '',
-        buildMemberTaskProtocol(context.teamName),
+        buildMemberTaskProtocol(context.teamName, messagingProtocol),
         '',
         buildMemberProcessProtocol(context.teamName)
     );

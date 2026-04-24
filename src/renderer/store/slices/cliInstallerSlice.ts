@@ -104,7 +104,7 @@ function isHydratedMultimodelProviderStatus(provider: CliProviderStatus | undefi
 export function getIncompleteMultimodelProviderIds(
   status: CliInstallationStatus | null
 ): CliProviderId[] {
-  if (!status || status.flavor !== 'agent_teams_orchestrator' || !status.installed) {
+  if (status?.flavor !== 'agent_teams_orchestrator' || !status.installed) {
     return [];
   }
 
@@ -116,7 +116,7 @@ export function getIncompleteMultimodelProviderIds(
 export function getModelOnlyFallbackProviderIds(
   status: CliInstallationStatus | null
 ): CliProviderId[] {
-  if (!status || status.flavor !== 'agent_teams_orchestrator' || !status.installed) {
+  if (status?.flavor !== 'agent_teams_orchestrator' || !status.installed) {
     return [];
   }
 
@@ -130,8 +130,7 @@ export function mergeCliStatusPreservingHydratedProviders(
   incoming: CliInstallationStatus
 ): CliInstallationStatus {
   if (
-    !current ||
-    current.flavor !== 'agent_teams_orchestrator' ||
+    current?.flavor !== 'agent_teams_orchestrator' ||
     incoming.flavor !== 'agent_teams_orchestrator'
   ) {
     return incoming;

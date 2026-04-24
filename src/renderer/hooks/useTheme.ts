@@ -7,7 +7,34 @@ import { useStore } from '../store';
 type Theme = 'dark' | 'light' | 'system';
 type ResolvedTheme = 'dark' | 'light';
 
-const THEME_CACHE_KEY = 'claude-devtools-theme-cache';
+const THEME_CACHE_KEY = 'agent-teams-theme-cache';
+const LEGACY_THEME_CACHE_KEY = 'claude-devtools-theme-cache';
+
+function parseCachedTheme(value: string | null): ResolvedTheme | null {
+  return value === 'light' || value === 'dark' ? value : null;
+}
+
+export function readCachedResolvedTheme(storage: Storage = localStorage): ResolvedTheme | null {
+  try {
+    return (
+      parseCachedTheme(storage.getItem(THEME_CACHE_KEY)) ??
+      parseCachedTheme(storage.getItem(LEGACY_THEME_CACHE_KEY))
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedResolvedTheme(
+  resolvedTheme: ResolvedTheme,
+  storage: Storage = localStorage
+): void {
+  try {
+    storage.setItem(THEME_CACHE_KEY, resolvedTheme);
+  } catch {
+    // localStorage may not be available
+  }
+}
 
 /**
  * Hook to manage theme state and application.
@@ -30,12 +57,9 @@ export function useTheme(): {
   );
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => {
     // Initialize from cache to prevent flash
-    try {
-      const cached = localStorage.getItem(THEME_CACHE_KEY);
-      if (cached === 'light' || cached === 'dark') return cached;
-    } catch {
-      // localStorage may not be available
-    }
+    const cached = readCachedResolvedTheme();
+    if (cached) return cached;
+
     // No cache — detect system preference for flash-free first launch
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
@@ -65,11 +89,7 @@ export function useTheme(): {
       setResolvedTheme(resolved);
 
       // Cache for flash prevention
-      try {
-        localStorage.setItem(THEME_CACHE_KEY, resolved);
-      } catch {
-        // localStorage may not be available
-      }
+      writeCachedResolvedTheme(resolved);
     };
 
     updateTheme();

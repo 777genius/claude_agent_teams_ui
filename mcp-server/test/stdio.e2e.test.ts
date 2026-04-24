@@ -487,6 +487,52 @@ describe('agent-teams-mcp stdio e2e', () => {
     }
   });
 
+  it('fails closed for primary queue and inventory tools when team config is missing over stdio', async () => {
+    const client = new McpStdIoClient(serverPath, workspaceRoot);
+    const expected =
+      'Unknown team "team-lead". Board tools require an existing configured team with config.json.';
+
+    try {
+      await client.initialize();
+
+      const leadBriefing = (await client.callTool(
+        'lead_briefing',
+        {
+          claudeDir,
+          teamName: 'team-lead',
+        },
+        40
+      )) as { result?: { isError?: boolean; content?: Array<{ text?: string }> } };
+      expect(leadBriefing.result?.isError).toBe(true);
+      expect(leadBriefing.result?.content?.[0]?.text).toContain(expected);
+
+      const taskBriefing = (await client.callTool(
+        'task_briefing',
+        {
+          claudeDir,
+          teamName: 'team-lead',
+          memberName: 'alice',
+        },
+        41
+      )) as { result?: { isError?: boolean; content?: Array<{ text?: string }> } };
+      expect(taskBriefing.result?.isError).toBe(true);
+      expect(taskBriefing.result?.content?.[0]?.text).toContain(expected);
+
+      const taskList = (await client.callTool(
+        'task_list',
+        {
+          claudeDir,
+          teamName: 'team-lead',
+        },
+        42
+      )) as { result?: { isError?: boolean; content?: Array<{ text?: string }> } };
+      expect(taskList.result?.isError).toBe(true);
+      expect(taskList.result?.content?.[0]?.text).toContain(expected);
+    } finally {
+      await client.close();
+    }
+  });
+
   it('caps high-volume task_list inventory over stdio and keeps rows compact', async () => {
     await writeTeamConfig(claudeDir, 'bulk-inventory-team');
     await writeBulkTaskRows(claudeDir, 'bulk-inventory-team', 225);
@@ -996,7 +1042,6 @@ describe('agent-teams-mcp stdio e2e', () => {
           claudeDir,
           teamName: 'review-roundtrip-team',
           taskId: roundtripTask.id,
-          from: 'bob',
         },
         39
       );
@@ -1563,7 +1608,6 @@ describe('agent-teams-mcp stdio e2e', () => {
           claudeDir,
           teamName: 'terminal-routing-team',
           taskId: approvedTask.id,
-          from: 'bob',
         },
         87
       );
@@ -1775,6 +1819,174 @@ describe('agent-teams-mcp stdio e2e', () => {
         blockedBy: [dependencyTask.id],
         status: 'pending',
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('guards review lifecycle bypasses and deleted resurrection over stdio', async () => {
+    await writeTeamConfig(claudeDir, 'stdio-hardening-team');
+    const client = new McpStdIoClient(serverPath, workspaceRoot);
+
+    try {
+      await client.initialize();
+
+      const createResult = await client.callTool(
+        'task_create',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          subject: 'Lifecycle guard task',
+          owner: 'alice',
+        },
+        101
+      );
+      const task = parseJsonToolResult((createResult as { result: unknown }).result);
+
+      await client.callTool(
+        'task_complete',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          actor: 'alice',
+        },
+        102
+      );
+      await client.callTool(
+        'review_request',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          from: 'team-lead',
+          reviewer: 'bob',
+        },
+        103
+      );
+      await client.callTool(
+        'review_approve',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          from: 'bob',
+        },
+        104
+      );
+
+      const clearResult = await client.callTool(
+        'kanban_clear',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+        },
+        105
+      );
+      const clearResponse = clearResult as {
+        error?: { message?: string };
+        result?: { content?: Array<{ text?: string }> };
+      };
+      const clearErrorText =
+        clearResponse.error?.message ?? (clearResponse.result?.content?.[0]?.text ?? '');
+      expect(clearErrorText).toContain('reviewState=approved');
+
+      const reopenedResult = await client.callTool(
+        'task_set_status',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          status: 'pending',
+          actor: 'team-lead',
+        },
+        106
+      );
+      const reopened = parseJsonToolResult((reopenedResult as { result: unknown }).result);
+      expect(reopened.status).toBe('pending');
+      expect(reopened.reviewState).toBe('none');
+
+      const inventoryResult = await client.callTool(
+        'task_list',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          owner: 'alice',
+        },
+        107
+      );
+      const inventoryRows = parseJsonToolResult((inventoryResult as { result: unknown }).result);
+      expect(inventoryRows[0]).toMatchObject({
+        id: task.id,
+        status: 'pending',
+        reviewState: 'none',
+      });
+
+      const deleteResult = await client.callTool(
+        'task_set_status',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          status: 'deleted',
+          actor: 'team-lead',
+        },
+        108
+      );
+      const deleted = parseJsonToolResult((deleteResult as { result: unknown }).result);
+      expect(deleted.status).toBe('deleted');
+      expect(deleted.reviewState).toBe('none');
+
+      const startDeletedResult = await client.callTool(
+        'task_start',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          actor: 'alice',
+        },
+        109
+      );
+      const startDeletedResponse = startDeletedResult as {
+        error?: { message?: string };
+        result?: { content?: Array<{ text?: string }> };
+      };
+      const startDeletedErrorText =
+        startDeletedResponse.error?.message ?? (startDeletedResponse.result?.content?.[0]?.text ?? '');
+      expect(startDeletedErrorText).toContain('use task_restore before starting work');
+
+      const restoreResult = await client.callTool(
+        'task_restore',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          actor: 'team-lead',
+        },
+        110
+      );
+      const restored = parseJsonToolResult((restoreResult as { result: unknown }).result);
+      expect(restored.status).toBe('pending');
+      expect(restored.reviewState).toBe('none');
+
+      const restoreAgainResult = await client.callTool(
+        'task_restore',
+        {
+          claudeDir,
+          teamName: 'stdio-hardening-team',
+          taskId: task.id,
+          actor: 'team-lead',
+        },
+        111
+      );
+      const restoreAgainResponse = restoreAgainResult as {
+        error?: { message?: string };
+        result?: { content?: Array<{ text?: string }> };
+      };
+      const restoreAgainErrorText =
+        restoreAgainResponse.error?.message ?? (restoreAgainResponse.result?.content?.[0]?.text ?? '');
+      expect(restoreAgainErrorText).toContain('task_restore only restores deleted tasks');
     } finally {
       await client.close();
     }

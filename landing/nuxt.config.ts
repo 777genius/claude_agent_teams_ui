@@ -4,7 +4,7 @@ import { generateI18nRoutes, supportedLocales } from "./data/i18n";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const process: any;
 
-const siteUrl = process.env.NUXT_PUBLIC_SITE_URL || "https://claude-agent-teams.dev";
+const siteUrl = process.env.NUXT_PUBLIC_SITE_URL || "https://777genius.github.io/claude_agent_teams_ui";
 const githubRepo = process.env.NUXT_PUBLIC_GITHUB_REPO || "777genius/claude_agent_teams_ui";
 const githubReleasesUrl = `https://github.com/${githubRepo}/releases`;
 const baseURL = process.env.NUXT_APP_BASE_URL || "/";
@@ -88,7 +88,7 @@ export default defineNuxtConfig({
   // @ts-expect-error - field provided by nuxt modules
   site: {
     url: siteUrl,
-    name: "Claude Agent Teams"
+    name: "Agent Teams"
   },
   runtimeConfig: {
     github: {

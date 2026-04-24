@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 import { stableJsonStringify } from '../bridge/OpenCodeBridgeCommandContract';
+
 import { VersionedJsonStore, VersionedJsonStoreError } from './VersionedJsonStore';
 
 export const OPENCODE_LAUNCH_TRANSACTION_SCHEMA_VERSION = 1;
@@ -44,7 +45,7 @@ export interface OpenCodeLaunchTransaction {
 }
 
 export interface OpenCodeRunReadyInput {
-  members: Array<{ name: string; launchState?: string }>;
+  members: { name: string; launchState?: string }[];
   transaction: OpenCodeLaunchTransaction;
   toolProof: { ok: boolean };
   deliveryReady: boolean;

@@ -24,6 +24,7 @@ import {
   clearMemberModelOverrides,
   createMemberDraftsFromInputs,
   filterEditableMemberInputs,
+  normalizeLeadProviderForMode,
   normalizeMemberDraftForProviderMode,
   normalizeProviderForMode,
   validateMemberNameInline,
@@ -79,6 +80,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Info,
   Loader2,
   RotateCcw,
   X,
@@ -129,6 +131,8 @@ import {
 import {
   computeEffectiveTeamModel,
   formatTeamModelSummary,
+  OPENCODE_TEAM_LEAD_DISABLED_BADGE_LABEL,
+  OPENCODE_TEAM_LEAD_DISABLED_REASON,
   TeamModelSelector,
 } from './TeamModelSelector';
 
@@ -375,10 +379,11 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [selectedProviderId, setSelectedProviderIdRaw] =
-    useState<TeamProviderId>(getStoredTeamProvider);
+  const [selectedProviderId, setSelectedProviderIdRaw] = useState<TeamProviderId>(() =>
+    normalizeLeadProviderForMode(getStoredTeamProvider(), multimodelEnabled)
+  );
   const [selectedModel, setSelectedModelRaw] = useState(() =>
-    getStoredTeamModel(getStoredTeamProvider())
+    getStoredTeamModel(normalizeLeadProviderForMode(getStoredTeamProvider(), multimodelEnabled))
   );
   const [membersDrafts, setMembersDrafts] = useState<MemberDraft[]>([]);
   const [teammateWorktreeDefault, setTeammateWorktreeDefault] = useState(false);
@@ -572,7 +577,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   };
 
   const setSelectedProviderId = (value: TeamProviderId): void => {
-    const normalizedValue = normalizeProviderForMode(value, multimodelEnabled);
+    const normalizedValue = normalizeLeadProviderForMode(value, multimodelEnabled);
     setSelectedProviderIdRaw(normalizedValue);
     localStorage.setItem('team:lastSelectedProvider', normalizedValue);
     if (normalizedValue !== 'anthropic') {
@@ -685,14 +690,15 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
       promptDraft.setValue(schedule.launchConfig.prompt);
       setCustomCwd(schedule.launchConfig.cwd);
       setCwdMode('custom');
-      const scheduleProviderId = normalizeProviderForMode(
+      const scheduleProviderId = normalizeLeadProviderForMode(
         schedule.launchConfig.providerId,
         multimodelEnabled
       );
       setSelectedProviderIdRaw(scheduleProviderId);
       setSelectedModelRaw(
         schedule.launchConfig.providerId !== 'gemini' &&
-          scheduleProviderId === normalizeProviderForMode(schedule.launchConfig.providerId, true)
+          scheduleProviderId ===
+            normalizeLeadProviderForMode(schedule.launchConfig.providerId, true)
           ? (schedule.launchConfig.model ?? '')
           : getStoredTeamModel('anthropic')
       );
@@ -713,7 +719,10 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
       setCwdMode('project');
       setSelectedProjectPath('');
       setCustomCwd('');
-      const storedProviderId = normalizeProviderForMode(getStoredTeamProvider(), multimodelEnabled);
+      const storedProviderId = normalizeLeadProviderForMode(
+        getStoredTeamProvider(),
+        multimodelEnabled
+      );
       setSelectedProviderIdRaw(storedProviderId);
       setSelectedModelRaw(getStoredTeamModel(storedProviderId));
       setSelectedEffortRaw('medium');
@@ -756,7 +765,10 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
         savedRequest.providerBackendId.trim().length > 0
           ? savedRequest.providerBackendId.trim()
           : null;
-      const storedProviderId = normalizeProviderForMode(getStoredTeamProvider(), multimodelEnabled);
+      const storedProviderId = normalizeLeadProviderForMode(
+        getStoredTeamProvider(),
+        multimodelEnabled
+      );
       const launchPrefill = resolveLaunchDialogPrefill({
         members,
         savedRequest,
@@ -782,8 +794,12 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
       setSyncModelsWithLead(
         !editableMembersSource.some((member) => member.providerId || member.model || member.effort)
       );
-      setSelectedProviderIdRaw(launchPrefill.providerId);
-      setSelectedModelRaw(launchPrefill.model);
+      const leadProviderId = normalizeLeadProviderForMode(
+        launchPrefill.providerId,
+        multimodelEnabled
+      );
+      setSelectedProviderIdRaw(leadProviderId);
+      setSelectedModelRaw(leadProviderId === launchPrefill.providerId ? launchPrefill.model : '');
       setSelectedEffortRaw(launchPrefill.effort);
       setSelectedFastModeRaw(launchPrefill.fastMode);
       setLimitContextRaw(launchPrefill.limitContext);
@@ -1618,10 +1634,12 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
     summary.push(`Provider: ${getProviderLabel(selectedProviderId)}`);
     if (selectedModel) summary.push(`Model: ${selectedModel}`);
     if (selectedEffort) summary.push(`Effort: ${selectedEffort}`);
-    if (selectedProviderId === 'anthropic') {
+    if (selectedProviderId === 'anthropic' || selectedProviderId === 'codex') {
       if (selectedFastMode === 'on') summary.push('Fast mode');
       else if (selectedFastMode === 'off') summary.push('Fast disabled');
-      else if (anthropicProviderFastModeDefault) summary.push('Fast default');
+      else if (selectedProviderId === 'anthropic' && anthropicProviderFastModeDefault) {
+        summary.push('Fast default');
+      }
     }
     if (selectedProviderId === 'anthropic' && limitContext) summary.push('Limited to 200K context');
     if (skipPermissions) summary.push('Auto-approve tools');
@@ -2263,6 +2281,52 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
               summary={launchOptionalSummary}
             >
               <div className="space-y-4">
+                {selectedProviderId === 'anthropic' ? (
+                  <div className="space-y-2">
+                    <AnthropicFastModeSelector
+                      value={selectedFastMode}
+                      onValueChange={setSelectedFastMode}
+                      providerFastModeDefault={anthropicProviderFastModeDefault}
+                      model={selectedModel}
+                      limitContext={effectiveAnthropicRuntimeLimitContext}
+                      id="launch-fast-mode"
+                    />
+                    {anthropicRuntimeNotice ? (
+                      <div className="bg-amber-500/8 flex items-start gap-2 rounded-md border border-amber-500/25 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+                        <Info className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
+                        <p>{anthropicRuntimeNotice}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {selectedProviderId === 'codex' ? (
+                  <div className="space-y-2">
+                    <CodexFastModeSelector
+                      value={selectedFastMode}
+                      onValueChange={setSelectedFastMode}
+                      model={selectedModel}
+                      providerBackendId={
+                        resolveUiOwnedProviderBackendId(
+                          'codex',
+                          runtimeProviderStatusById.get('codex')
+                        ) ??
+                        migrateProviderBackendId(
+                          'codex',
+                          previousLaunchParams?.providerBackendId ?? savedLaunchProviderBackendId
+                        ) ??
+                        undefined
+                      }
+                      id="launch-fast-mode"
+                    />
+                    {anthropicRuntimeNotice ? (
+                      <div className="bg-amber-500/8 flex items-start gap-2 rounded-md border border-amber-500/25 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+                        <Info className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
+                        <p>{anthropicRuntimeNotice}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <TeamRosterEditorSection
                   members={membersDrafts}
                   onMembersChange={setMembersDrafts}
@@ -2285,13 +2349,10 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   providerId={selectedProviderId}
                   model={selectedModel}
                   effort={(selectedEffort as EffortLevel) || undefined}
-                  fastMode={selectedFastMode}
-                  providerFastModeDefault={anthropicProviderFastModeDefault}
                   limitContext={limitContext}
                   onProviderChange={setSelectedProviderId}
                   onModelChange={setSelectedModel}
                   onEffortChange={setSelectedEffort}
-                  onFastModeChange={setSelectedFastMode}
                   onLimitContextChange={setLimitContext}
                   syncModelsWithTeammates={syncModelsWithLead}
                   onSyncModelsWithTeammatesChange={setSyncModelsWithLead}
@@ -2299,7 +2360,6 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   teammateWorktreeDefault={teammateWorktreeDefault}
                   onTeammateWorktreeDefaultChange={setTeammateWorktreeDefault}
                   leadWarningText={leadRuntimeWarningText}
-                  leadFastModeNotice={anthropicRuntimeNotice}
                   memberWarningById={memberRuntimeWarningById}
                   leadModelIssueText={leadModelIssueText}
                   memberModelIssueById={memberModelIssueById}
@@ -2445,6 +2505,12 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   onValueChange={setSelectedModel}
                   id="dialog-model"
                   disableGeminiOption={isGeminiUiFrozen()}
+                  providerDisabledReasonById={{
+                    opencode: OPENCODE_TEAM_LEAD_DISABLED_REASON,
+                  }}
+                  providerDisabledBadgeLabelById={{
+                    opencode: OPENCODE_TEAM_LEAD_DISABLED_BADGE_LABEL,
+                  }}
                 />
                 <EffortLevelSelector
                   value={selectedEffort}

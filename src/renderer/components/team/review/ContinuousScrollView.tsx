@@ -54,7 +54,8 @@ interface ContinuousScrollViewProps {
   onRestoreMissingFile?: (filePath: string, content: string) => void;
   pathChangeLabels?: Record<
     string,
-    { kind: 'deleted' } | { kind: 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string }
+    | { kind: 'deleted' }
+    | { kind: 'copied' | 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string }
   >;
   /** Controlled collapsed state (persisted by parent). If omitted, component manages it locally. */
   collapsedFiles?: Set<string>;

@@ -38,7 +38,7 @@ export function registerUpdaterRoutes(app: FastifyInstance, services: HttpServic
 
   app.post('/api/updater/install', async () => {
     try {
-      services.updaterService.quitAndInstall();
+      await services.updaterService.quitAndInstall();
       return { success: true };
     } catch (error) {
       logger.error('Error in POST /api/updater/install:', getErrorMessage(error));

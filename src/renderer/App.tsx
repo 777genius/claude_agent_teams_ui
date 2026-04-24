@@ -26,6 +26,8 @@ const SPLASH_FADE_MS = 480;
 const SPLASH_REDUCED_MIN_DURATION_MS = 320;
 const SPLASH_REDUCED_HOLD_MS = 120;
 const SPLASH_REDUCED_FADE_MS = 180;
+const SPLASH_AVATAR_READY_MAX_WAIT_MS = 900;
+const SPLASH_REDUCED_AVATAR_READY_MAX_WAIT_MS = 160;
 
 export const App = (): React.JSX.Element => {
   // Initialize theme on app load
@@ -44,10 +46,17 @@ export const App = (): React.JSX.Element => {
       const minDuration = reducedMotion ? SPLASH_REDUCED_MIN_DURATION_MS : SPLASH_MIN_DURATION_MS;
       const enhancedHold = reducedMotion ? SPLASH_REDUCED_HOLD_MS : SPLASH_ENHANCED_HOLD_MS;
       const fadeDuration = reducedMotion ? SPLASH_REDUCED_FADE_MS : SPLASH_FADE_MS;
+      const avatarReadyMaxWait = reducedMotion
+        ? SPLASH_REDUCED_AVATAR_READY_MAX_WAIT_MS
+        : SPLASH_AVATAR_READY_MAX_WAIT_MS;
       const exitDelay = Math.max(minDuration - elapsed, enhancedHold - enhancedElapsed, 0);
       let removeTimer: number | undefined;
+      let avatarReadyTimer: number | undefined;
+      let dismissed = false;
 
-      const exitTimer = window.setTimeout(() => {
+      const dismissSplash = (): void => {
+        if (dismissed) return;
+        dismissed = true;
         splash.classList.add('splash-exiting');
         removeTimer = window.setTimeout(() => {
           scene.stop();
@@ -55,10 +64,19 @@ export const App = (): React.JSX.Element => {
           window.__claudeTeamsSplashEnhancedStartedAt = undefined;
           splash.remove();
         }, fadeDuration);
+      };
+
+      const exitTimer = window.setTimeout(() => {
+        avatarReadyTimer = window.setTimeout(dismissSplash, avatarReadyMaxWait);
+        void (scene.ready ?? Promise.resolve()).then(dismissSplash, dismissSplash);
       }, exitDelay);
 
       return () => {
+        dismissed = true;
         window.clearTimeout(exitTimer);
+        if (avatarReadyTimer !== undefined) {
+          window.clearTimeout(avatarReadyTimer);
+        }
         if (removeTimer !== undefined) {
           window.clearTimeout(removeTimer);
         }

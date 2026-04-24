@@ -6,12 +6,12 @@ const { baseURL } = useRuntimeConfig().app;
   <NuxtLink to="/" class="app-logo">
     <img
       :src="`${baseURL}logo-192.png`"
-      alt="Claude Agent Teams"
+      alt="Agent Teams"
       class="app-logo__img"
       width="36"
       height="36"
     />
-    <span class="app-logo__text">Claude Agent Teams</span>
+    <span class="app-logo__text">Agent Teams</span>
   </NuxtLink>
 </template>
 

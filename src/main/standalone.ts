@@ -56,7 +56,7 @@ if (!process.env.CORS_ORIGIN) {
 const updaterServiceStub = {
   checkForUpdates: async () => {},
   downloadUpdate: async () => {},
-  quitAndInstall: () => {},
+  quitAndInstall: async () => {},
   setMainWindow: () => {},
 } as unknown as UpdaterService;
 

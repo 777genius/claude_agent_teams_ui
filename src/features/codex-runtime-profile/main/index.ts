@@ -1,3 +1,10 @@
+export type {
+  CodexFastCapabilitySource,
+  CodexFastModeResolution,
+  CodexRuntimeProfileSource,
+  CodexRuntimeReconciliation,
+  CodexRuntimeSelection,
+} from '../core/domain/resolveCodexRuntimeProfile';
 export {
   buildCodexFastModeArgs,
   CODEX_FAST_CREDIT_COST_MULTIPLIER,
@@ -6,12 +13,4 @@ export {
   reconcileCodexRuntimeSelections,
   resolveCodexFastMode,
   resolveCodexRuntimeSelection,
-} from '../core/domain/resolveCodexRuntimeProfile';
-
-export type {
-  CodexFastCapabilitySource,
-  CodexFastModeResolution,
-  CodexRuntimeProfileSource,
-  CodexRuntimeReconciliation,
-  CodexRuntimeSelection,
 } from '../core/domain/resolveCodexRuntimeProfile';

@@ -4,6 +4,97 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="./favicon.png" />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/01.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/02.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/03.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/04.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/05.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/06.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/07.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/08.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/09.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/10.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/11.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/12.png"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      type="image/png"
+      href="./assets/participant-avatars/13.png"
+      fetchpriority="high"
+    />
     <title>Agent Teams UI</title>
     <style>
       /* Splash: animated gradient background */
@@ -107,7 +198,7 @@
         text-shadow: 0 0 22px rgba(129, 140, 248, 0.26);
       }
 
-      /* Logo node breathing — cycles through 3 agent nodes */
+      /* Logo node breathing - cycles through 3 agent nodes */
       @keyframes splash-node {
         0%,
         100% {
@@ -177,7 +268,9 @@
       (function () {
         try {
           window.__claudeTeamsSplashStartedAt = performance.now();
-          var theme = localStorage.getItem('claude-devtools-theme-cache');
+          var theme =
+            localStorage.getItem('agent-teams-theme-cache') ||
+            localStorage.getItem('claude-devtools-theme-cache');
           if (theme === 'light') {
             document.documentElement.classList.add('light');
           }
@@ -187,7 +280,7 @@
   </head>
   <body>
     <div id="splash">
-      <!-- SVG noise texture — matte paper grain -->
+      <!-- SVG noise texture - matte paper grain -->
       <svg id="splash-noise" xmlns="http://www.w3.org/2000/svg">
         <filter id="noiseFilter">
           <feTurbulence
@@ -297,14 +390,722 @@
       <div id="splash-text">Agent Teams UI</div>
     </div>
     <div id="root"></div>
-    <script type="module">
-      import { startSplashScene } from './components/splash/splashScene.ts';
+    <script>
+      (function () {
+        if (window.location.protocol !== 'file:') return;
 
-      const splash = document.getElementById('splash');
-      if (splash && !window.__claudeTeamsSplashScene) {
-        window.__claudeTeamsSplashScene = startSplashScene(splash);
+        var TAU = Math.PI * 2;
+        var TEAM_MEMBER_COUNTS = [4, 3, 5];
+        var TEAM_MEMBER_OFFSETS = [0, 4, 7];
+        var MAX_DPR = 2;
+        var AVATAR_URLS = [
+          './assets/participant-avatars/01.png',
+          './assets/participant-avatars/02.png',
+          './assets/participant-avatars/03.png',
+          './assets/participant-avatars/04.png',
+          './assets/participant-avatars/05.png',
+          './assets/participant-avatars/06.png',
+          './assets/participant-avatars/07.png',
+          './assets/participant-avatars/08.png',
+          './assets/participant-avatars/09.png',
+          './assets/participant-avatars/10.png',
+          './assets/participant-avatars/11.png',
+          './assets/participant-avatars/12.png',
+          './assets/participant-avatars/13.png',
+        ];
+        var avatarCache = new Map();
+        var avatarLoading = new Map();
+
+        function startFileSplashScene(splash) {
+          if (window.__claudeTeamsSplashScene && splash.querySelector('#splash-enhanced-canvas')) {
+            return window.__claudeTeamsSplashScene;
+          }
+
+          var ready = preloadAvatarImages();
+          var previousCanvas = splash.querySelector('#splash-enhanced-canvas');
+          if (previousCanvas) previousCanvas.remove();
+
+          var canvas = document.createElement('canvas');
+          canvas.id = 'splash-enhanced-canvas';
+          canvas.setAttribute('aria-hidden', 'true');
+          splash.appendChild(canvas);
+
+          var ctx = canvas.getContext('2d', { alpha: true });
+          if (!ctx)
+            return {
+              stop: function () {
+                canvas.remove();
+              },
+              ready: ready,
+            };
+
+          var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          var state = {
+            width: 1,
+            height: 1,
+            dpr: 1,
+            particles: [],
+            running: true,
+            frameId: 0,
+            startedAt: performance.now(),
+          };
+
+          function resize() {
+            var rect = splash.getBoundingClientRect();
+            var width = Math.max(1, Math.round(rect.width));
+            var height = Math.max(1, Math.round(rect.height));
+            var dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
+
+            if (state.width === width && state.height === height && state.dpr === dpr) return;
+
+            state.width = width;
+            state.height = height;
+            state.dpr = dpr;
+            canvas.width = Math.ceil(width * dpr);
+            canvas.height = Math.ceil(height * dpr);
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            state.particles = createParticles(width, height);
+          }
+
+          function render(now) {
+            if (!state.running) return;
+            resize();
+            drawScene(
+              ctx,
+              state.width,
+              state.height,
+              reducedMotion ? 1.2 : (now - state.startedAt) / 1000,
+              state.particles
+            );
+            if (!reducedMotion) state.frameId = window.requestAnimationFrame(render);
+          }
+
+          function onResize() {
+            resize();
+          }
+
+          window.addEventListener('resize', onResize);
+          resize();
+          render(performance.now());
+
+          var handle = {
+            stop: function () {
+              state.running = false;
+              window.cancelAnimationFrame(state.frameId);
+              window.removeEventListener('resize', onResize);
+              canvas.remove();
+              if (window.__claudeTeamsSplashScene === handle) {
+                window.__claudeTeamsSplashScene = undefined;
+                window.__claudeTeamsSplashEnhancedStartedAt = undefined;
+              }
+            },
+            ready: ready,
+          };
+
+          window.__claudeTeamsSplashScene = handle;
+          window.__claudeTeamsSplashEnhancedStartedAt = performance.now();
+          return handle;
+        }
+
+        function palette() {
+          var isLight = document.documentElement.classList.contains('light');
+          return isLight
+            ? {
+                isLight: true,
+                centerGlow: '#4f46e5',
+                teamColors: ['#0369a1', '#047857', '#b45309'],
+                robotShade: '#dbe4ff',
+                robotEye: '#ffffff',
+                messageAccent: '#7c3aed',
+                particle: '#312e81',
+              }
+            : {
+                isLight: false,
+                centerGlow: '#7c83f7',
+                teamColors: ['#24a8d8', '#23b488', '#d58a19'],
+                robotShade: '#1a2438',
+                robotEye: '#d8f3ff',
+                messageAccent: '#8b5cf6',
+                particle: '#a6a4d6',
+              };
+        }
+
+        function drawScene(ctx, width, height, time, particles) {
+          var p = palette();
+          var mobile = width < 560 || height < 620;
+          var center = { x: width / 2, y: height * (mobile ? 0.47 : 0.49) };
+          var teams = buildTeams(width, height, time, mobile, p, center);
+
+          ctx.clearRect(0, 0, width, height);
+          drawParticles(ctx, width, height, time, particles, p, mobile);
+          drawAura(ctx, center, time, p, mobile);
+          drawGuides(ctx, teams, time, p);
+
+          for (var i = 0; i < teams.length; i++) drawHalo(ctx, teams[i], time, p);
+          drawMessages(ctx, teams, time, p, mobile);
+          for (var t = 0; t < teams.length; t++) drawLinks(ctx, teams[t], p);
+          for (var ti = 0; ti < teams.length; ti++) {
+            for (var ri = 0; ri < teams[ti].robots.length; ri++) {
+              drawRobot(ctx, teams[ti].robots[ri], time, p);
+            }
+          }
+        }
+
+        function buildTeams(width, height, time, mobile, p, center) {
+          var spreadX = mobile ? Math.min(width * 0.36, 148) : Math.min(width * 0.34, 380);
+          var spreadY = mobile ? Math.min(height * 0.22, 154) : Math.min(height * 0.22, 220);
+          var teamRadius = mobile
+            ? clamp(Math.min(width, height) * 0.092, 31, 42)
+            : clamp(Math.min(width, height) * 0.072, 42, 62);
+          var robotSize = mobile ? 9.8 : 11.8;
+          var centers = [
+            { x: center.x - spreadX, y: center.y - spreadY * (mobile ? 0.66 : 0.58) },
+            { x: center.x + spreadX, y: center.y - spreadY * (mobile ? 0.66 : 0.58) },
+            { x: center.x, y: center.y + spreadY * (mobile ? 1.34 : 1.18) },
+          ];
+
+          return centers.map(function (teamCenter, teamIndex) {
+            var drift = Math.sin(time * 0.75 + teamIndex * 1.7) * (mobile ? 2.2 : 4.2);
+            var centerWithDrift = {
+              x: teamCenter.x + Math.cos(teamIndex * 2.1 + time * 0.35) * (mobile ? 1.4 : 2.8),
+              y: teamCenter.y + drift,
+            };
+            var color = p.teamColors[teamIndex];
+            var memberCount = TEAM_MEMBER_COUNTS[teamIndex];
+            var robots = [];
+            for (var robotIndex = 0; robotIndex < memberCount; robotIndex++) {
+              var baseAngle =
+                -Math.PI / 2 + robotIndex * (TAU / memberCount) + (teamIndex === 2 ? TAU / 20 : 0);
+              var orbit = baseAngle + Math.sin(time * 0.55 + teamIndex + robotIndex) * 0.07;
+              var orbitRadius =
+                teamRadius *
+                (0.94 + (memberCount > 4 ? 0.07 : 0) + 0.03 * Math.sin(time + robotIndex));
+              robots.push({
+                teamIndex: teamIndex,
+                robotIndex: robotIndex,
+                color: color,
+                size: memberCount > 4 ? robotSize * 0.88 : robotSize,
+                bob: Math.sin(time * 2.2 + teamIndex * 0.8 + robotIndex * 1.1),
+                receivePulse: 0,
+                avatarUrl:
+                  AVATAR_URLS[(TEAM_MEMBER_OFFSETS[teamIndex] || 0) + robotIndex] || AVATAR_URLS[0],
+                x: centerWithDrift.x + Math.cos(orbit) * orbitRadius,
+                y: centerWithDrift.y + Math.sin(orbit) * orbitRadius,
+              });
+            }
+            return {
+              index: teamIndex,
+              center: centerWithDrift,
+              color: color,
+              radius: teamRadius,
+              robots: robots,
+            };
+          });
+        }
+
+        function drawParticles(ctx, width, height, time, particles, p, mobile) {
+          var count = mobile ? Math.floor(particles.length * 0.6) : particles.length;
+          for (var i = 0; i < count; i++) {
+            var particle = particles[i];
+            var y = (particle.y + time * particle.speed) % (height + 24);
+            var x = particle.x + Math.sin(time * 0.45 + particle.phase) * 8;
+            ctx.fillStyle = withAlpha(p.particle, particle.alpha);
+            ctx.beginPath();
+            ctx.arc(x, y - 12, particle.size, 0, TAU);
+            ctx.fill();
+          }
+        }
+
+        function drawAura(ctx, center, time, p, mobile) {
+          var radius = mobile ? 86 : 128;
+          var glow = ctx.createRadialGradient(center.x, center.y, 20, center.x, center.y, radius);
+          glow.addColorStop(0, withAlpha(p.centerGlow, p.isLight ? 0.1 : 0.14));
+          glow.addColorStop(0.48, withAlpha(p.messageAccent, p.isLight ? 0.04 : 0.07));
+          glow.addColorStop(1, withAlpha(p.centerGlow, 0));
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(center.x, center.y, radius, 0, TAU);
+          ctx.fill();
+
+          for (var i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.strokeStyle = withAlpha(p.centerGlow, 0.07 - i * 0.014);
+            ctx.lineWidth = 1;
+            ctx.setLineDash([8 + i * 2, 12 + i * 3]);
+            ctx.lineDashOffset = -time * (18 + i * 8);
+            ctx.arc(center.x, center.y, radius * (0.42 + i * 0.18), 0, TAU);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+        }
+
+        function drawGuides(ctx, teams, time, p) {
+          for (var i = 0; i < teams.length; i++) {
+            var from = teams[i];
+            var to = teams[(i + 1) % teams.length];
+            ctx.beginPath();
+            ctx.moveTo(from.center.x, from.center.y);
+            ctx.lineTo(to.center.x, to.center.y);
+            ctx.strokeStyle = withAlpha(p.messageAccent, p.isLight ? 0.14 : 0.18);
+            ctx.lineWidth = 1.05;
+            ctx.setLineDash([7, 12]);
+            ctx.lineDashOffset = -time * 34;
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+        }
+
+        function drawHalo(ctx, team, time, p) {
+          var pulse = 1 + Math.sin(time * 1.8 + team.index) * 0.035;
+          var glow = ctx.createRadialGradient(
+            team.center.x,
+            team.center.y,
+            team.radius * 0.35,
+            team.center.x,
+            team.center.y,
+            team.radius * 2
+          );
+          glow.addColorStop(0, withAlpha(team.color, p.isLight ? 0.045 : 0.065));
+          glow.addColorStop(1, withAlpha(team.color, 0));
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.ellipse(
+            team.center.x,
+            team.center.y,
+            team.radius * 1.82,
+            team.radius * 1.36,
+            0,
+            0,
+            TAU
+          );
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.ellipse(
+            team.center.x,
+            team.center.y,
+            team.radius * 1.56 * pulse,
+            team.radius * 1.14 * pulse,
+            time * 0.08,
+            0,
+            TAU
+          );
+          ctx.strokeStyle = withAlpha(team.color, p.isLight ? 0.2 : 0.24);
+          ctx.lineWidth = 1;
+          ctx.setLineDash([12, 10]);
+          ctx.lineDashOffset = -time * (22 + team.index * 4);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        function drawLinks(ctx, team, p) {
+          var pairs = connectionPairs(team.robots.length);
+          for (var i = 0; i < pairs.length; i++) {
+            var from = team.robots[pairs[i][0]];
+            var to = team.robots[pairs[i][1]];
+            if (!from || !to) continue;
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.strokeStyle = withAlpha(team.color, p.isLight ? 0.34 : 0.42);
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+
+        function drawMessages(ctx, teams, time, p, mobile) {
+          for (var i = 0; i < teams.length; i++) {
+            var pairs = localPairs(i, teams[i].robots.length);
+            for (var pi = 0; pi < pairs.length; pi++) {
+              var raw =
+                positiveModulo(time + i * 0.7 + pi * 0.36, 2.15 + i * 0.12) / (2.15 + i * 0.12);
+              var from = teams[i].robots[pairs[pi][0]];
+              var to = teams[i].robots[pairs[pi][1]];
+              if (to) applyReceivePulse(to, receivePulse(raw, 0.76));
+              if (raw > 0.76) continue;
+              if (from && to)
+                drawFlight(
+                  ctx,
+                  localCurve(from, to, teams[i].center, teams[i].radius * 0.42),
+                  ease(raw / 0.76),
+                  teams[i].color,
+                  time,
+                  mobile ? 4.6 : 5.8,
+                  p,
+                  false
+                );
+            }
+          }
+
+          var routes = [
+            [0, 3, 1, 1, 0, false],
+            [1, 2, 2, 0, 1.34, true],
+            [2, 4, 0, 1, 2.68, false],
+          ];
+          for (var r = 0; r < routes.length; r++) {
+            var route = routes[r];
+            var rawCross = positiveModulo(time + route[4], 4.25) / 4.25;
+            var fromTeam = teams[route[0]];
+            var toTeam = teams[route[2]];
+            var crossFrom = fromTeam.robots[route[1] % fromTeam.robots.length];
+            var crossTo = toTeam.robots[route[3] % toTeam.robots.length];
+            applyReceivePulse(crossTo, receivePulse(rawCross, 0.64) * 0.88);
+            if (rawCross > 0.64) continue;
+            drawFlight(
+              ctx,
+              straightCurve(fromTeam.center, toTeam.center),
+              ease(rawCross / 0.64),
+              route[5] ? p.messageAccent : fromTeam.color,
+              time,
+              mobile ? 5.2 : 6.8,
+              p,
+              true
+            );
+          }
+        }
+
+        function drawFlight(ctx, curve, progress, color, time, size, p, crossTeam) {
+          var p0 = curve[0],
+            p1 = curve[1],
+            p2 = curve[2],
+            p3 = curve[3];
+          ctx.save();
+          if (!crossTeam) {
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+            ctx.strokeStyle = withAlpha(color, 0.12);
+            ctx.lineWidth = 0.85;
+            ctx.setLineDash([4, 8]);
+            ctx.lineDashOffset = -time * 34;
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+
+          for (var i = 6; i >= 1; i--) {
+            var t = progress - i * 0.04;
+            if (t <= 0) continue;
+            var trailPoint = cubicPoint(p0, p1, p2, p3, t);
+            ctx.fillStyle = withAlpha(color, (1 - i / 7) * (p.isLight ? 0.14 : 0.2));
+            ctx.beginPath();
+            ctx.arc(trailPoint.x, trailPoint.y, size * 0.34, 0, TAU);
+            ctx.fill();
+          }
+
+          var position = cubicPoint(p0, p1, p2, p3, progress);
+          var tangent = cubicTangent(p0, p1, p2, p3, progress);
+          drawBubble(ctx, position, Math.atan2(tangent.y, tangent.x), size, color, p, crossTeam);
+          ctx.restore();
+        }
+
+        function applyReceivePulse(robot, pulse) {
+          robot.receivePulse = Math.max(robot.receivePulse, pulse);
+        }
+
+        function receivePulse(raw, activeWindow) {
+          var start = activeWindow * 0.78;
+          var end = Math.min(0.96, activeWindow + 0.11);
+          if (raw < start || raw > end) return 0;
+          var phase = (raw - start) / (end - start);
+          return Math.sin(phase * Math.PI) * (1 - phase * 0.28);
+        }
+
+        function drawBubble(ctx, position, angle, size, color, p, crossTeam) {
+          ctx.save();
+          ctx.translate(position.x, position.y);
+          ctx.rotate(angle * 0.08);
+          ctx.shadowColor = withAlpha(color, p.isLight ? 0.16 : 0.3);
+          ctx.shadowBlur = crossTeam ? 12 : 8;
+          var width = size * (crossTeam ? 2.28 : 2.06);
+          var height = size * 1.42;
+          roundRectPath(ctx, -width / 2, -height / 2, width, height, size * 0.28);
+          ctx.fillStyle = withAlpha(color, p.isLight ? 0.82 : 0.9);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(-width * 0.24, height * 0.42);
+          ctx.lineTo(-width * 0.32, height * 0.68);
+          ctx.lineTo(-width * 0.03, height * 0.42);
+          ctx.closePath();
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = p.robotEye;
+          for (var i = -1; i <= 1; i++) {
+            ctx.beginPath();
+            ctx.arc(i * size * 0.4, -size * 0.02, size * 0.095, 0, TAU);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+
+        function drawRobot(ctx, robot, time, p) {
+          var size = robot.size;
+          var y = robot.y + robot.bob * 0.9 - robot.receivePulse * size * 0.24;
+          var img = getAvatarImage(robot.avatarUrl);
+          var avatarSize = size * 2.65;
+          ctx.save();
+          ctx.translate(robot.x, y);
+          ctx.rotate(Math.sin(time * 1.5 + robot.teamIndex + robot.robotIndex * 0.8) * 0.045);
+          ctx.scale(1 + robot.receivePulse * 0.065, 1 + robot.receivePulse * 0.065);
+          ctx.shadowColor = withAlpha(robot.color, p.isLight ? 0.2 : 0.34);
+          ctx.shadowBlur = size * (1.25 + robot.receivePulse * 0.72);
+
+          if (img) {
+            ctx.globalAlpha = p.isLight ? 0.92 : 0.86;
+            ctx.drawImage(img, -avatarSize / 2, -avatarSize / 2, avatarSize, avatarSize);
+            ctx.globalAlpha = 1;
+          } else {
+            drawAvatarFallback(ctx, size, robot.color, p);
+          }
+          ctx.restore();
+        }
+
+        function getAvatarImage(url) {
+          var cached = avatarCache.get(url);
+          if (cached) {
+            avatarCache.delete(url);
+            avatarCache.set(url, cached);
+            return cached;
+          }
+
+          loadAvatarImage(url);
+          return null;
+        }
+
+        function preloadAvatarImages() {
+          return Promise.allSettled(
+            AVATAR_URLS.map(function (url) {
+              return loadAvatarImage(url);
+            })
+          ).then(function () {});
+        }
+
+        function loadAvatarImage(url) {
+          var cached = avatarCache.get(url);
+          if (cached) return Promise.resolve(cached);
+
+          var loading = avatarLoading.get(url);
+          if (loading) return loading;
+
+          var promise = new Promise(function (resolve) {
+            var img = new Image();
+            img.decoding = 'async';
+            img.onload = function () {
+              var finish = function () {
+                avatarCache.set(url, img);
+                avatarLoading.delete(url);
+                resolve(img);
+              };
+
+              if (typeof img.decode === 'function') {
+                img.decode().then(finish, finish);
+              } else {
+                finish();
+              }
+            };
+            img.onerror = function () {
+              avatarLoading.delete(url);
+              resolve(null);
+            };
+            img.src = url;
+          });
+
+          avatarLoading.set(url, promise);
+          return promise;
+        }
+
+        function drawAvatarFallback(ctx, size, color, p) {
+          ctx.strokeStyle = withAlpha(color, p.isLight ? 0.44 : 0.56);
+          ctx.lineWidth = Math.max(1, size * 0.08);
+          ctx.beginPath();
+          ctx.moveTo(0, -size * 0.72);
+          ctx.lineTo(0, -size * 1.0);
+          ctx.stroke();
+          ctx.fillStyle = withAlpha(color, p.isLight ? 0.64 : 0.78);
+          ctx.beginPath();
+          ctx.arc(0, -size * 1.08, size * 0.13, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = p.robotEye;
+          ctx.beginPath();
+          ctx.arc(-size * 0.24, -size * 0.13, size * 0.095, 0, TAU);
+          ctx.arc(size * 0.24, -size * 0.13, size * 0.095, 0, TAU);
+          ctx.fill();
+        }
+
+        function connectionPairs(count) {
+          if (count <= 3)
+            return [
+              [0, 1],
+              [1, 2],
+              [2, 0],
+            ];
+          var pairs = [];
+          for (var i = 0; i < count; i++) pairs.push([i, (i + 1) % count]);
+          if (count >= 4) pairs.push([0, 2]);
+          if (count >= 5) pairs.push([1, 4]);
+          return pairs;
+        }
+
+        function localPairs(teamIndex, count) {
+          var map = [
+            [
+              [0, 2],
+              [3, 1],
+              [1, 0],
+            ],
+            [
+              [2, 0],
+              [0, 1],
+              [1, 2],
+            ],
+            [
+              [4, 1],
+              [0, 3],
+              [2, 4],
+              [3, 0],
+            ],
+          ];
+          return map[teamIndex].filter(function (pair) {
+            return pair[0] < count && pair[1] < count;
+          });
+        }
+
+        function localCurve(from, to, center, lift) {
+          var mid = mix(from, to, 0.5);
+          var away = normalize({ x: mid.x - center.x, y: mid.y - center.y });
+          var control = { x: mid.x + away.x * lift, y: mid.y + away.y * lift };
+          return [from, mix(from, control, 0.72), mix(to, control, 0.72), to];
+        }
+
+        function straightCurve(from, to) {
+          return [from, mix(from, to, 0.33), mix(from, to, 0.66), to];
+        }
+
+        function createParticles(width, height) {
+          var count = width < 560 ? 46 : 78;
+          var particles = [];
+          for (var i = 0; i < count; i++) {
+            var seed = i * 97.13;
+            particles.push({
+              x: pseudo(seed) * width,
+              y: pseudo(seed + 12.4) * (height + 24),
+              size: 0.45 + pseudo(seed + 22.8) * 1.15,
+              speed: 8 + pseudo(seed + 31.2) * 18,
+              phase: pseudo(seed + 48.7) * TAU,
+              alpha: 0.06 + pseudo(seed + 72.1) * 0.16,
+            });
+          }
+          return particles;
+        }
+
+        function cubicPoint(p0, p1, p2, p3, t) {
+          var clamped = clamp(t, 0, 1);
+          var mt = 1 - clamped;
+          return {
+            x:
+              mt * mt * mt * p0.x +
+              3 * mt * mt * clamped * p1.x +
+              3 * mt * clamped * clamped * p2.x +
+              clamped * clamped * clamped * p3.x,
+            y:
+              mt * mt * mt * p0.y +
+              3 * mt * mt * clamped * p1.y +
+              3 * mt * clamped * clamped * p2.y +
+              clamped * clamped * clamped * p3.y,
+          };
+        }
+
+        function cubicTangent(p0, p1, p2, p3, t) {
+          var clamped = clamp(t, 0, 1);
+          var mt = 1 - clamped;
+          return {
+            x:
+              3 * mt * mt * (p1.x - p0.x) +
+              6 * mt * clamped * (p2.x - p1.x) +
+              3 * clamped * clamped * (p3.x - p2.x),
+            y:
+              3 * mt * mt * (p1.y - p0.y) +
+              6 * mt * clamped * (p2.y - p1.y) +
+              3 * clamped * clamped * (p3.y - p2.y),
+          };
+        }
+
+        function roundRectPath(ctx, x, y, width, height, radius) {
+          var r = Math.min(radius, width / 2, height / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.lineTo(x + width - r, y);
+          ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+          ctx.lineTo(x + width, y + height - r);
+          ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+          ctx.lineTo(x + r, y + height);
+          ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.closePath();
+        }
+
+        function mix(from, to, amount) {
+          return { x: from.x + (to.x - from.x) * amount, y: from.y + (to.y - from.y) * amount };
+        }
+
+        function normalize(point) {
+          var length = Math.hypot(point.x, point.y) || 1;
+          return { x: point.x / length, y: point.y / length };
+        }
+
+        function ease(value) {
+          var t = clamp(value, 0, 1);
+          return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function positiveModulo(value, divisor) {
+          return ((value % divisor) + divisor) % divisor;
+        }
+
+        function pseudo(seed) {
+          var value = Math.sin(seed * 12.9898) * 43758.5453;
+          return value - Math.floor(value);
+        }
+
+        function clamp(value, min, max) {
+          return Math.min(max, Math.max(min, value));
+        }
+
+        function withAlpha(hex, alpha) {
+          var value = hex.replace('#', '');
+          var r = parseInt(value.slice(0, 2), 16);
+          var g = parseInt(value.slice(2, 4), 16);
+          var b = parseInt(value.slice(4, 6), 16);
+          return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + clamp(alpha, 0, 1) + ')';
+        }
+
+        function start() {
+          var splash = document.getElementById('splash');
+          if (splash && !window.__claudeTeamsSplashScene) startFileSplashScene(splash);
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', start, { once: true });
+        } else {
+          start();
+        }
+      })();
+    </script>
+    <script type="module">
+      if (window.location.protocol !== 'file:') {
+        const { startSplashScene } = await import('./components/splash/splashScene.ts');
+        const splash = document.getElementById('splash');
+        if (splash && !window.__claudeTeamsSplashScene) {
+          window.__claudeTeamsSplashScene = startSplashScene(splash);
+        }
       }
     </script>
-    <script type="module" src="./main.tsx"></script>
+    <script type="module">
+      if (window.location.protocol !== 'file:') {
+        import('./main.tsx');
+      }
+    </script>
   </body>
 </html>

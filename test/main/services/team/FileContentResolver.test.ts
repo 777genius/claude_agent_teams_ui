@@ -129,7 +129,7 @@ describe('FileContentResolver', () => {
   it('does not synthesize empty text for metadata-only ledger lifecycle states', async () => {
     const fsPromises = await import('fs/promises');
     const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
-    readFile.mockRejectedValue(new Error('ENOENT'));
+    readFile.mockResolvedValue('current disk content that must not become ledger text');
 
     const { FileContentResolver } = await import('@main/services/team/FileContentResolver');
     const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn().mockResolvedValue([]) } as any);
@@ -163,6 +163,7 @@ describe('FileContentResolver', () => {
     expect(content.originalFullContent).toBeNull();
     expect(content.modifiedFullContent).toBeNull();
     expect(content.contentSource).toBe('unavailable');
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   it('reuses cached content only when disk bytes and snippets are unchanged', async () => {
@@ -346,6 +347,25 @@ describe('FileContentResolver', () => {
     await resolver.resolveFileContent('team', 'member', '/tmp/ttl-expiry.txt', []);
     vi.advanceTimersByTime(5_001);
     await resolver.resolveFileContent('team', 'member', '/tmp/ttl-expiry.txt', []);
+
+    expect(logsFinder.findMemberLogPaths).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates cached Windows content across slash and case path variants', async () => {
+    const fsPromises = await import('fs/promises');
+    const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
+    readFile.mockResolvedValue('same content');
+
+    const { FileContentResolver } = await import('@main/services/team/FileContentResolver');
+
+    const logsFinder = {
+      findMemberLogPaths: vi.fn().mockResolvedValue([]),
+    };
+    const resolver = new FileContentResolver(logsFinder as any);
+
+    await resolver.resolveFileContent('team', 'member', 'C:\\Repo\\SRC\\file.ts', []);
+    resolver.invalidateFile('c:/repo/src/file.ts');
+    await resolver.resolveFileContent('team', 'member', 'C:\\Repo\\SRC\\file.ts', []);
 
     expect(logsFinder.findMemberLogPaths).toHaveBeenCalledTimes(2);
   });

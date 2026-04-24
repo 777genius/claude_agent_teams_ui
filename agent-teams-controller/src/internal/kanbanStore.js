@@ -70,16 +70,56 @@ function writeKanbanState(paths, teamName, state) {
   writeJson(paths.kanbanPath, sanitizeState(teamName, state));
 }
 
+function removeTaskFromColumnOrder(state, taskId) {
+  if (!state.columnOrder || typeof state.columnOrder !== 'object') {
+    return 0;
+  }
+
+  const cleaned = {};
+  let removed = 0;
+  for (const [columnId, orderedTaskIds] of Object.entries(state.columnOrder)) {
+    if (!Array.isArray(orderedTaskIds)) continue;
+    const nextIds = orderedTaskIds.filter((entry) => String(entry) !== String(taskId));
+    removed += orderedTaskIds.length - nextIds.length;
+    if (nextIds.length > 0) {
+      cleaned[columnId] = nextIds.map((entry) => String(entry));
+    }
+  }
+
+  state.columnOrder = Object.keys(cleaned).length > 0 ? cleaned : undefined;
+  return removed;
+}
+
+function appendTaskToColumnOrder(state, column, taskId) {
+  if (!state.columnOrder || typeof state.columnOrder !== 'object') {
+    return;
+  }
+
+  const nextColumnOrder = { ...state.columnOrder };
+  const existing = Array.isArray(nextColumnOrder[column]) ? nextColumnOrder[column] : [];
+  nextColumnOrder[column] = existing
+    .map((entry) => String(entry))
+    .filter((entry) => entry !== String(taskId))
+    .concat([String(taskId)]);
+  state.columnOrder = nextColumnOrder;
+}
+
 function setKanbanColumn(paths, teamName, taskId, column) {
   if (column !== 'review' && column !== 'approved') {
     throw new Error(`Invalid kanban column: ${String(column)}`);
   }
 
   const state = readKanbanState(paths, teamName);
+  const hadColumnOrder = Boolean(state.columnOrder && Object.keys(state.columnOrder).length > 0);
+  removeTaskFromColumnOrder(state, taskId);
+  if (hadColumnOrder && !state.columnOrder) {
+    state.columnOrder = {};
+  }
   state.tasks[String(taskId)] =
     column === 'review'
       ? { column: 'review', reviewer: null, movedAt: nowIso() }
       : { column: 'approved', movedAt: nowIso() };
+  appendTaskToColumnOrder(state, column, taskId);
   writeKanbanState(paths, teamName, state);
   taskStore.updateTask(paths, String(taskId), (task) => ({
     ...task,
@@ -91,6 +131,7 @@ function setKanbanColumn(paths, teamName, taskId, column) {
 function clearKanban(paths, teamName, taskId, options = {}) {
   const state = readKanbanState(paths, teamName);
   delete state.tasks[String(taskId)];
+  removeTaskFromColumnOrder(state, taskId);
   writeKanbanState(paths, teamName, state);
   const nextReviewState =
     typeof options.nextReviewState === 'string' ? options.nextReviewState : 'none';
@@ -133,7 +174,10 @@ function garbageCollect(paths, teamName, validTaskIds) {
         continue;
       }
 
-      const validIds = orderedTaskIds.filter((taskId) => validTaskIds.has(String(taskId)));
+      const validIds = orderedTaskIds.filter((taskId) => {
+        const id = String(taskId);
+        return validTaskIds.has(id) && state.tasks[id] && state.tasks[id].column === columnId;
+      });
       staleColumnOrderRefsRemoved += orderedTaskIds.length - validIds.length;
       if (validIds.length > 0) {
         cleaned[columnId] = validIds;

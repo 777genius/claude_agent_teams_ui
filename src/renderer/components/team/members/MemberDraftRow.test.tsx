@@ -106,8 +106,8 @@ vi.mock('@renderer/hooks/useTheme', () => ({
   useTheme: () => ({ isLight: false }),
 }));
 
-import { createMemberDraft } from './membersEditorUtils';
 import { MemberDraftRow } from './MemberDraftRow';
+import { createMemberDraft } from './membersEditorUtils';
 
 function renderMemberDraftRow(props: Partial<React.ComponentProps<typeof MemberDraftRow>> = {}): {
   host: HTMLDivElement;

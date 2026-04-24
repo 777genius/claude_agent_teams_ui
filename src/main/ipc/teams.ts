@@ -64,6 +64,7 @@ import {
   TEAM_SET_TASK_LOG_STREAM_TRACKING,
   TEAM_SET_TOOL_ACTIVITY_TRACKING,
   TEAM_SHOW_MESSAGE_NOTIFICATION,
+  TEAM_SKIP_MEMBER_FOR_LAUNCH,
   TEAM_SOFT_DELETE_TASK,
   TEAM_START_TASK,
   TEAM_START_TASK_BY_USER,
@@ -90,19 +91,19 @@ import {
   extractUserFlags,
   PROTECTED_CLI_FLAGS,
 } from '@shared/utils/cliArgsParser';
-import { createLogger } from '@shared/utils/logger';
 import {
   formatEffortLevelListForProvider,
   isTeamEffortLevelForProvider,
 } from '@shared/utils/effortLevels';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import { createLogger } from '@shared/utils/logger';
 import { isTeamProviderBackendId, migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isRateLimitMessage } from '@shared/utils/rateLimitDetector';
-import { isTeamProviderId, normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import {
   buildStandaloneSlashCommandMeta,
   parseStandaloneSlashCommand,
 } from '@shared/utils/slashCommands';
+import { isTeamProviderId, normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import crypto from 'crypto';
 import { app, BrowserWindow, type IpcMain, type IpcMainInvokeEvent, Notification } from 'electron';
 import * as fs from 'fs';
@@ -153,6 +154,7 @@ import type {
   TeamProvisioningService,
 } from '../services';
 import type { TeamBackupService } from '../services/team/TeamBackupService';
+import type { TeamMembersMetaFile } from '../services/team/TeamMembersMetaStore';
 import type {
   AddTaskCommentRequest,
   AgentActionMode,
@@ -189,11 +191,11 @@ import type {
   TeamCreateConfigRequest,
   TeamCreateRequest,
   TeamCreateResponse,
+  TeamFastMode,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
   TeamMessageNotificationData,
-  TeamFastMode,
   TeamProviderBackendId,
   TeamProviderId,
   TeamProvisioningModelVerificationMode,
@@ -209,9 +211,9 @@ import type {
   UpdateKanbanPatch,
 } from '@shared/types';
 import type { CliArgsValidationResult } from '@shared/utils/cliArgsParser';
-import type { TeamMembersMetaFile } from '../services/team/TeamMembersMetaStore';
 
 const logger = createLogger('IPC:teams');
+const OPENCODE_RUNTIME_DELIVERY_UI_TIMEOUT_MS = 12_000;
 
 /**
  * In-memory set of rate-limit message keys already processed.
@@ -220,6 +222,27 @@ const logger = createLogger('IPC:teams');
  */
 const seenRateLimitKeys = new Set<string>();
 const SEEN_RATE_LIMIT_KEYS_MAX = 500;
+
+async function withTimeoutValue<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutValue: T
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(timeoutValue), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 function noteHeavyTeamDataWorkerFallback(operation: string): void {
   if (!app.isPackaged) {
@@ -599,6 +622,7 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_MEMBER_SPAWN_STATUSES, handleMemberSpawnStatuses);
   ipcMain.handle(TEAM_GET_AGENT_RUNTIME, handleGetAgentRuntime);
   ipcMain.handle(TEAM_RESTART_MEMBER, handleRestartMember);
+  ipcMain.handle(TEAM_SKIP_MEMBER_FOR_LAUNCH, handleSkipMemberForLaunch);
   ipcMain.handle(TEAM_SOFT_DELETE_TASK, handleSoftDeleteTask);
   ipcMain.handle(TEAM_RESTORE_TASK, handleRestoreTask);
   ipcMain.handle(TEAM_GET_DELETED_TASKS, handleGetDeletedTasks);
@@ -676,6 +700,7 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_MEMBER_SPAWN_STATUSES);
   ipcMain.removeHandler(TEAM_GET_AGENT_RUNTIME);
   ipcMain.removeHandler(TEAM_RESTART_MEMBER);
+  ipcMain.removeHandler(TEAM_SKIP_MEMBER_FOR_LAUNCH);
   ipcMain.removeHandler(TEAM_SOFT_DELETE_TASK);
   ipcMain.removeHandler(TEAM_RESTORE_TASK);
   ipcMain.removeHandler(TEAM_GET_DELETED_TASKS);
@@ -1018,7 +1043,7 @@ async function handleDeleteTeam(
   }
   return wrapTeamHandler('deleteTeam', async () => {
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
-    getTeamProvisioningService().stopTeam(validated.value!);
+    await getTeamProvisioningService().stopTeam(validated.value!);
     await getTeamDataService().deleteTeam(validated.value!);
   });
 }
@@ -1217,7 +1242,7 @@ function parseOptionalTeamFastMode(
   };
 }
 
-type RuntimeRosterMutationMember = {
+interface RuntimeRosterMutationMember {
   name: string;
   role?: string;
   workflow?: string;
@@ -1228,7 +1253,7 @@ type RuntimeRosterMutationMember = {
   effort?: EffortLevel;
   fastMode?: TeamFastMode;
   removedAt?: number | string | null;
-};
+}
 
 const OPENCODE_LEAD_LIVE_ROSTER_MUTATION_BLOCK_MESSAGE =
   'Live roster mutation for a running OpenCode-led team is not supported in this phase. Stop the team, edit the roster, then relaunch.';
@@ -2538,16 +2563,24 @@ async function handleSendMessage(
 
     // Inbox path: offline lead or regular members (no attachment support)
     const baseText = payload.text!.trim();
+    const replyRecipient =
+      typeof payload.from === 'string' && payload.from.trim().length > 0
+        ? payload.from.trim()
+        : 'user';
+    const isOpenCodeRecipient =
+      !isLeadRecipient && (await provisioning.isOpenCodeRuntimeRecipient(tn, memberName));
     const memberDeliveryText = buildMessageDeliveryText(baseText, {
       actionMode,
       isLeadRecipient,
-      replyRecipient: typeof payload.from === 'string' ? payload.from : 'user',
+      replyRecipient,
     });
+    const inboxText = isOpenCodeRecipient ? baseText : memberDeliveryText;
     const result = await getTeamDataService().sendMessage(tn, {
       member: memberName,
-      text: memberDeliveryText,
+      text: inboxText,
       summary: payload.summary,
       from: payload.from,
+      actionMode,
       source: 'user_sent',
       taskRefs: validatedTaskRefs.value,
     });
@@ -2570,28 +2603,63 @@ async function handleSendMessage(
     //     logger.warn(`Relay after sendMessage failed for teammate "${memberName}": ${String(e)}`);
     //   }
     // }
-    if (!isLeadRecipient && isAlive) {
-      void provisioning
-        .deliverOpenCodeMemberMessage(tn, {
-          memberName,
-          text: memberDeliveryText,
-          messageId: result.messageId,
-        })
-        .then((delivery) => {
-          if (delivery.delivered || delivery.reason === 'recipient_is_not_opencode') {
-            return;
+    if (isOpenCodeRecipient) {
+      try {
+        const relay = await withTimeoutValue(
+          provisioning.relayOpenCodeMemberInboxMessages(tn, memberName, {
+            onlyMessageId: result.messageId,
+            source: 'ui-send',
+            deliveryMetadata: {
+              replyRecipient,
+              actionMode,
+              taskRefs: validatedTaskRefs.value,
+            },
+          }),
+          OPENCODE_RUNTIME_DELIVERY_UI_TIMEOUT_MS,
+          {
+            relayed: 0,
+            attempted: 1,
+            delivered: 0,
+            failed: 1,
+            lastDelivery: {
+              delivered: false,
+              reason: 'opencode_runtime_delivery_timeout',
+              diagnostics: ['opencode_runtime_delivery_timeout'],
+            },
           }
+        );
+        const delivery = relay.lastDelivery ?? {
+          delivered: relay.relayed > 0,
+          reason: relay.relayed > 0 ? undefined : 'opencode_message_delivery_not_attempted',
+          diagnostics: undefined,
+        };
+        result.runtimeDelivery = {
+          providerId: 'opencode',
+          attempted: true,
+          delivered: delivery.delivered,
+          reason: delivery.reason,
+          diagnostics: delivery.diagnostics,
+        };
+        if (!delivery.delivered && delivery.reason !== 'recipient_is_not_opencode') {
           logger.warn(
             `OpenCode runtime delivery after sendMessage failed for teammate "${memberName}": ${
               delivery.reason ?? 'unknown error'
             }`
           );
-        })
-        .catch((e: unknown) =>
-          logger.warn(
-            `OpenCode runtime delivery after sendMessage crashed for teammate "${memberName}": ${String(e)}`
-          )
+        }
+      } catch (e: unknown) {
+        const reason = e instanceof Error ? e.message : String(e);
+        result.runtimeDelivery = {
+          providerId: 'opencode',
+          attempted: true,
+          delivered: false,
+          reason,
+          diagnostics: [reason],
+        };
+        logger.warn(
+          `OpenCode runtime delivery after sendMessage crashed for teammate "${memberName}": ${reason}`
         );
+      }
     }
 
     // Best-effort relay for lead via inbox
@@ -3391,6 +3459,27 @@ async function handleRestartMember(
   );
 }
 
+async function handleSkipMemberForLaunch(
+  _event: IpcMainInvokeEvent,
+  teamName: unknown,
+  memberName: unknown
+): Promise<IpcResult<void>> {
+  const validatedTeamName = validateTeamName(teamName);
+  if (!validatedTeamName.valid) {
+    return { success: false, error: validatedTeamName.error ?? 'Invalid teamName' };
+  }
+  const validatedMemberName = validateMemberName(memberName);
+  if (!validatedMemberName.valid) {
+    return { success: false, error: validatedMemberName.error ?? 'Invalid memberName' };
+  }
+  return wrapTeamHandler('skipMemberForLaunch', async () =>
+    getTeamProvisioningService().skipMemberForLaunch(
+      validatedTeamName.value!,
+      validatedMemberName.value!
+    )
+  );
+}
+
 async function handleStopTeam(
   _event: IpcMainInvokeEvent,
   teamName: unknown
@@ -3402,7 +3491,7 @@ async function handleStopTeam(
   return wrapTeamHandler('stop', async () => {
     addMainBreadcrumb('team', 'stop', { teamName: validated.value! });
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
-    getTeamProvisioningService().stopTeam(validated.value!);
+    await getTeamProvisioningService().stopTeam(validated.value!);
   });
 }
 
@@ -3706,7 +3795,7 @@ async function handleReplaceMembers(
     const previousByName = new Map(
       previousMembers
         .filter((member) => !member.removedAt)
-        .map((member) => [member.name.trim().toLowerCase(), member as RuntimeRosterMutationMember])
+        .map((member) => [member.name.trim().toLowerCase(), member])
     );
     const nextByName = new Map(
       members.map((member) => [
@@ -4556,7 +4645,7 @@ async function handleGetSavedRequest(
       ),
       model: meta.model,
       effort: meta.effort as TeamCreateRequest['effort'],
-      fastMode: meta.fastMode as TeamCreateRequest['fastMode'],
+      fastMode: meta.fastMode,
       skipPermissions: meta.skipPermissions,
       worktree: meta.worktree,
       extraCliArgs: meta.extraCliArgs,

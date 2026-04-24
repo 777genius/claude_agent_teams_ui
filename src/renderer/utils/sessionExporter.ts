@@ -1,5 +1,5 @@
 /**
- * Session export utilities for claude-devtools.
+ * Session export utilities for Agent Teams UI.
  *
  * Provides formatters to export session data as plain text, Markdown, or JSON,
  * and a download trigger for browser-based file saving.

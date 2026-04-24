@@ -27,7 +27,7 @@ export class TeamTaskStallJournal {
     now: string;
   }): Promise<TaskStallEvaluation[]> {
     const filePath = this.getFilePath(args.teamName);
-    let readyEvaluations: TaskStallEvaluation[] = [];
+    const readyEvaluations: TaskStallEvaluation[] = [];
 
     await withFileLock(filePath, async () => {
       const entries = await this.readUnlocked(filePath);

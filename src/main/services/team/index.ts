@@ -14,18 +14,14 @@ export { FileContentResolver } from './FileContentResolver';
 export { GitDiffFallback } from './GitDiffFallback';
 export { HunkSnippetMatcher } from './HunkSnippetMatcher';
 export { MemberStatsComputer } from './MemberStatsComputer';
-export { ReviewApplierService } from './ReviewApplierService';
-export { TaskBoundaryParser } from './TaskBoundaryParser';
-export {
-  isTeamRuntimeProviderId,
-  OpenCodeTeamRuntimeAdapter,
-  TeamRuntimeAdapterRegistry,
-  TEAM_RUNTIME_PROVIDER_IDS,
-} from './runtime';
-export { OpenCodeReadinessBridge } from './opencode/bridge/OpenCodeReadinessBridge';
 export type {
-  OpenCodeTeamLaunchMode,
-  OpenCodeTeamRuntimeAdapterOptions,
+  OpenCodeReadinessBridgeCommandBody,
+  OpenCodeReadinessBridgeCommandExecutor,
+  OpenCodeReadinessBridgeOptions,
+} from './opencode/bridge/OpenCodeReadinessBridge';
+export { OpenCodeReadinessBridge } from './opencode/bridge/OpenCodeReadinessBridge';
+export { ReviewApplierService } from './ReviewApplierService';
+export type {
   OpenCodeTeamRuntimeBridgePort,
   TeamLaunchRuntimeAdapter,
   TeamRuntimeLaunchInput,
@@ -44,18 +40,28 @@ export type {
   TeamRuntimeStopReason,
   TeamRuntimeStopResult,
 } from './runtime';
-export type {
-  OpenCodeReadinessBridgeCommandBody,
-  OpenCodeReadinessBridgeCommandExecutor,
-  OpenCodeReadinessBridgeOptions,
-} from './opencode/bridge/OpenCodeReadinessBridge';
+export {
+  isTeamRuntimeProviderId,
+  OpenCodeTeamRuntimeAdapter,
+  TEAM_RUNTIME_PROVIDER_IDS,
+  TeamRuntimeAdapterRegistry,
+} from './runtime';
+export { ActiveTeamRegistry } from './stallMonitor/ActiveTeamRegistry';
+export { BoardTaskActivityBatchIndexer } from './stallMonitor/BoardTaskActivityBatchIndexer';
+export { TeamTaskLogFreshnessReader } from './stallMonitor/TeamTaskLogFreshnessReader';
+export { TeamTaskStallExactRowReader } from './stallMonitor/TeamTaskStallExactRowReader';
+export { TeamTaskStallJournal } from './stallMonitor/TeamTaskStallJournal';
+export { TeamTaskStallMonitor } from './stallMonitor/TeamTaskStallMonitor';
+export { TeamTaskStallNotifier } from './stallMonitor/TeamTaskStallNotifier';
+export { TeamTaskStallPolicy } from './stallMonitor/TeamTaskStallPolicy';
+export { TeamTaskStallSnapshotSource } from './stallMonitor/TeamTaskStallSnapshotSource';
+export { TaskBoundaryParser } from './TaskBoundaryParser';
 export { BoardTaskActivityDetailService } from './taskLogs/activity/BoardTaskActivityDetailService';
 export { BoardTaskActivityRecordSource } from './taskLogs/activity/BoardTaskActivityRecordSource';
 export { BoardTaskActivityService } from './taskLogs/activity/BoardTaskActivityService';
 export { BoardTaskExactLogDetailService } from './taskLogs/exact/BoardTaskExactLogDetailService';
 export { BoardTaskExactLogsService } from './taskLogs/exact/BoardTaskExactLogsService';
 export { BoardTaskLogStreamService } from './taskLogs/stream/BoardTaskLogStreamService';
-export { OpenCodeTaskLogAttributionService } from './taskLogs/stream/OpenCodeTaskLogAttributionService';
 export type {
   OpenCodeTaskLogAttributionBulkWriteOutcome,
   OpenCodeTaskLogAttributionMemberWindowInput,
@@ -66,16 +72,17 @@ export type {
   OpenCodeTaskLogAttributionTaskSessionInput,
   OpenCodeTaskLogAttributionWriter,
 } from './taskLogs/stream/OpenCodeTaskLogAttributionService';
-export {
-  OpenCodeTaskLogAttributionStore,
-  getOpenCodeTaskLogAttributionPath,
-} from './taskLogs/stream/OpenCodeTaskLogAttributionStore';
+export { OpenCodeTaskLogAttributionService } from './taskLogs/stream/OpenCodeTaskLogAttributionService';
 export type {
   OpenCodeTaskLogAttributionReader,
   OpenCodeTaskLogAttributionRecord,
   OpenCodeTaskLogAttributionScope,
   OpenCodeTaskLogAttributionSource,
   OpenCodeTaskLogAttributionWriteResult,
+} from './taskLogs/stream/OpenCodeTaskLogAttributionStore';
+export {
+  getOpenCodeTaskLogAttributionPath,
+  OpenCodeTaskLogAttributionStore,
 } from './taskLogs/stream/OpenCodeTaskLogAttributionStore';
 export { TeamAttachmentStore } from './TeamAttachmentStore';
 export { TeamBackupService } from './TeamBackupService';
@@ -94,12 +101,3 @@ export { TeamSentMessagesStore } from './TeamSentMessagesStore';
 export { TeamTaskReader } from './TeamTaskReader';
 export { TeamTaskWriter } from './TeamTaskWriter';
 export { countLineChanges } from './UnifiedLineCounter';
-export { ActiveTeamRegistry } from './stallMonitor/ActiveTeamRegistry';
-export { BoardTaskActivityBatchIndexer } from './stallMonitor/BoardTaskActivityBatchIndexer';
-export { TeamTaskLogFreshnessReader } from './stallMonitor/TeamTaskLogFreshnessReader';
-export { TeamTaskStallExactRowReader } from './stallMonitor/TeamTaskStallExactRowReader';
-export { TeamTaskStallJournal } from './stallMonitor/TeamTaskStallJournal';
-export { TeamTaskStallMonitor } from './stallMonitor/TeamTaskStallMonitor';
-export { TeamTaskStallNotifier } from './stallMonitor/TeamTaskStallNotifier';
-export { TeamTaskStallPolicy } from './stallMonitor/TeamTaskStallPolicy';
-export { TeamTaskStallSnapshotSource } from './stallMonitor/TeamTaskStallSnapshotSource';

@@ -1,9 +1,9 @@
 import { validateTeamName } from '@main/ipc/guards';
-import { getErrorMessage } from '@shared/utils/errorHandling';
 import {
   formatEffortLevelListForProvider,
   isTeamEffortLevelForProvider,
 } from '@shared/utils/effortLevels';
+import { getErrorMessage } from '@shared/utils/errorHandling';
 import { createLogger } from '@shared/utils/logger';
 import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isTeamProviderId } from '@shared/utils/teamProvider';
@@ -224,7 +224,7 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
         }
 
         const teamProvisioningService = getTeamProvisioningService(services);
-        teamProvisioningService.stopTeam(validatedTeamName.value!);
+        await teamProvisioningService.stopTeam(validatedTeamName.value!);
         return reply.send(await teamProvisioningService.getRuntimeState(validatedTeamName.value!));
       } catch (error) {
         if (shouldLogError(error)) {

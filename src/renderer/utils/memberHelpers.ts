@@ -1,5 +1,5 @@
-import { buildTeamMemberColorMap } from '@shared/utils/teamMemberColors';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import { buildTeamMemberColorMap } from '@shared/utils/teamMemberColors';
 
 import {
   getParticipantAvatarUrlByIndex,
@@ -15,6 +15,7 @@ import type {
   MemberSpawnStatus,
   MemberStatus,
   ResolvedTeamMember,
+  TeamAgentRuntimeEntry,
   TeamProviderId,
   TeamReviewState,
   TeamTaskStatus,
@@ -118,6 +119,7 @@ export const SPAWN_DOT_COLORS: Record<MemberSpawnStatus, string> = {
   spawning: 'bg-amber-400',
   online: 'bg-emerald-400 animate-[dot-online-jelly_0.45s_ease-out]',
   error: 'bg-red-400',
+  skipped: 'bg-zinc-500',
 };
 
 export const SPAWN_PRESENCE_LABELS: Record<MemberSpawnStatus, string> = {
@@ -126,6 +128,7 @@ export const SPAWN_PRESENCE_LABELS: Record<MemberSpawnStatus, string> = {
   spawning: 'starting',
   online: 'ready',
   error: 'spawn failed',
+  skipped: 'skipped',
 };
 
 function isLaunchStillStarting(
@@ -135,6 +138,9 @@ function isLaunchStillStarting(
   keepRuntimePendingInStarting = false
 ): boolean {
   if (spawnLaunchState === 'failed_to_start') {
+    return false;
+  }
+  if (spawnLaunchState === 'skipped_for_launch') {
     return false;
   }
   if (spawnLaunchState === 'runtime_pending_permission') {
@@ -169,6 +175,9 @@ export function getSpawnAwareDotClass(
   }
   if (spawnLaunchState === 'failed_to_start' || spawnStatus === 'error') {
     return SPAWN_DOT_COLORS.error;
+  }
+  if (spawnLaunchState === 'skipped_for_launch' || spawnStatus === 'skipped') {
+    return SPAWN_DOT_COLORS.skipped;
   }
   if (spawnLaunchState === 'runtime_pending_permission') {
     return 'bg-amber-400 animate-pulse';
@@ -217,6 +226,9 @@ export function getSpawnAwarePresenceLabel(
   if (spawnLaunchState === 'failed_to_start' || spawnStatus === 'error') {
     return SPAWN_PRESENCE_LABELS.error;
   }
+  if (spawnLaunchState === 'skipped_for_launch' || spawnStatus === 'skipped') {
+    return SPAWN_PRESENCE_LABELS.skipped;
+  }
   if (spawnLaunchState === 'runtime_pending_permission') {
     return 'connecting';
   }
@@ -257,6 +269,9 @@ export function getSpawnCardClass(
     isLaunchStillStarting(spawnStatus, spawnLaunchState, runtimeAlive, keepLaunchSettlingVisuals)
   ) {
     return 'member-waiting-shimmer';
+  }
+  if (spawnLaunchState === 'skipped_for_launch' || spawnStatus === 'skipped') {
+    return 'opacity-70';
   }
   if (spawnLaunchState === 'runtime_pending_permission') {
     return 'member-waiting-shimmer';
@@ -320,6 +335,8 @@ function formatRuntimeAdvisoryBaseLabel(
         return providerLabel ? `${providerLabel} rate limit` : 'Rate limit';
       case 'auth_error':
         return providerLabel ? `${providerLabel} auth error` : 'Auth error';
+      case 'codex_native_timeout':
+        return 'Codex native timeout';
       case 'network_error':
         return 'Network error';
       case 'provider_overloaded':
@@ -339,6 +356,8 @@ function formatRuntimeAdvisoryBaseLabel(
       return providerLabel ? `${providerLabel} rate limit` : 'Rate limit retry';
     case 'auth_error':
       return providerLabel ? `${providerLabel} auth retry` : 'Auth retry';
+    case 'codex_native_timeout':
+      return 'Codex native retry';
     case 'network_error':
       return 'Network retry';
     case 'provider_overloaded':
@@ -373,6 +392,11 @@ function formatRuntimeAdvisoryTitle(
           `${providerLabel ?? 'Provider'} authentication error.`,
           advisory.message
         );
+      case 'codex_native_timeout':
+        return appendRuntimeAdvisoryRawMessage(
+          'Codex native mailbox turn timed out. The runtime stopped this turn after its watchdog limit; it was not an automatic SDK retry.',
+          advisory.message
+        );
       case 'network_error':
         return appendRuntimeAdvisoryRawMessage('Network or connectivity error.', advisory.message);
       case 'provider_overloaded':
@@ -405,6 +429,11 @@ function formatRuntimeAdvisoryTitle(
     case 'auth_error':
       return appendRuntimeAdvisoryRawMessage(
         `${providerLabel ?? 'Provider'} authentication issue. SDK is retrying automatically.`,
+        advisory.message
+      );
+    case 'codex_native_timeout':
+      return appendRuntimeAdvisoryRawMessage(
+        'Codex native mailbox turn timed out. A retry window was reported by the runtime.',
         advisory.message
       );
     case 'network_error':
@@ -503,6 +532,7 @@ export function getLaunchAwarePresenceLabel(
     basePresenceLabel === 'starting' ||
     basePresenceLabel === 'connecting' ||
     basePresenceLabel === 'spawn failed' ||
+    basePresenceLabel === 'skipped' ||
     basePresenceLabel === 'offline' ||
     basePresenceLabel === 'terminated'
   ) {
@@ -517,8 +547,13 @@ export type MemberLaunchVisualState =
   | 'spawning'
   | 'permission_pending'
   | 'runtime_pending'
+  | 'shell_only'
+  | 'runtime_candidate'
+  | 'registered_only'
+  | 'stale_runtime'
   | 'settling'
   | 'error'
+  | 'skipped'
   | null;
 
 export interface MemberLaunchPresentation {
@@ -542,11 +577,21 @@ export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState)
     case 'permission_pending':
       return 'awaiting permission';
     case 'runtime_pending':
-      return 'connecting';
+      return 'waiting for bootstrap';
+    case 'shell_only':
+      return 'shell only';
+    case 'runtime_candidate':
+      return 'process candidate';
+    case 'registered_only':
+      return 'registered';
+    case 'stale_runtime':
+      return 'stale runtime';
     case 'settling':
       return 'joining team';
     case 'error':
       return 'failed';
+    case 'skipped':
+      return 'skipped';
     default:
       return null;
   }
@@ -559,6 +604,7 @@ export function buildMemberLaunchPresentation({
   spawnLivenessSource,
   spawnRuntimeAlive,
   runtimeAdvisory,
+  runtimeEntry,
   isLaunchSettling = false,
   isTeamAlive,
   isTeamProvisioning,
@@ -570,6 +616,7 @@ export function buildMemberLaunchPresentation({
   spawnLivenessSource: MemberSpawnLivenessSource | undefined;
   spawnRuntimeAlive: boolean | undefined;
   runtimeAdvisory: MemberRuntimeAdvisory | undefined;
+  runtimeEntry?: TeamAgentRuntimeEntry;
   isLaunchSettling?: boolean;
   isTeamAlive?: boolean;
   isTeamProvisioning?: boolean;
@@ -614,14 +661,21 @@ export function buildMemberLaunchPresentation({
   if (isTeamAlive !== false || isTeamProvisioning) {
     if (spawnLaunchState === 'failed_to_start' || spawnStatus === 'error') {
       launchVisualState = 'error';
+    } else if (spawnLaunchState === 'skipped_for_launch' || spawnStatus === 'skipped') {
+      launchVisualState = 'skipped';
     } else if (spawnLaunchState === 'runtime_pending_permission') {
       launchVisualState = 'permission_pending';
+    } else if (runtimeEntry?.livenessKind === 'shell_only') {
+      launchVisualState = 'shell_only';
+    } else if (runtimeEntry?.livenessKind === 'runtime_process_candidate') {
+      launchVisualState = 'runtime_candidate';
+    } else if (runtimeEntry?.livenessKind === 'registered_only') {
+      launchVisualState = 'registered_only';
     } else if (
-      spawnLaunchState === 'runtime_pending_bootstrap' &&
-      spawnStatus === 'online' &&
-      spawnRuntimeAlive === true
+      runtimeEntry?.livenessKind === 'stale_metadata' ||
+      runtimeEntry?.livenessKind === 'not_found'
     ) {
-      launchVisualState = 'runtime_pending';
+      launchVisualState = 'stale_runtime';
     } else if (
       isLaunchStillStarting(
         spawnStatus,
@@ -632,6 +686,12 @@ export function buildMemberLaunchPresentation({
     ) {
       launchVisualState = spawnStatus === 'spawning' ? 'spawning' : 'waiting';
     } else if (
+      spawnLaunchState === 'runtime_pending_bootstrap' &&
+      (runtimeEntry?.livenessKind === 'runtime_process' ||
+        (spawnStatus === 'online' && spawnRuntimeAlive === true))
+    ) {
+      launchVisualState = 'runtime_pending';
+    } else if (
       isLaunchSettling &&
       spawnStatus === 'online' &&
       spawnLaunchState === 'confirmed_alive'
@@ -641,6 +701,19 @@ export function buildMemberLaunchPresentation({
   }
 
   const launchStatusLabel = getMemberLaunchStatusLabel(launchVisualState);
+  const shouldShowLaunchStatusAsPresence =
+    launchVisualState === 'permission_pending' ||
+    launchVisualState === 'runtime_pending' ||
+    launchVisualState === 'shell_only' ||
+    launchVisualState === 'runtime_candidate' ||
+    launchVisualState === 'registered_only' ||
+    launchVisualState === 'stale_runtime';
+  const displayPresenceLabel =
+    runtimeAdvisoryTone === 'error' && runtimeAdvisoryLabel
+      ? runtimeAdvisoryLabel
+      : shouldShowLaunchStatusAsPresence
+        ? (launchStatusLabel ?? presenceLabel)
+        : presenceLabel;
   const spawnBadgeLabel =
     spawnStatus && spawnStatus !== 'online'
       ? spawnStatus === 'waiting' || spawnStatus === 'spawning'
@@ -649,7 +722,7 @@ export function buildMemberLaunchPresentation({
       : null;
 
   return {
-    presenceLabel,
+    presenceLabel: displayPresenceLabel,
     dotClass: runtimeAdvisoryTone === 'error' ? STATUS_DOT_COLORS.terminated : dotClass,
     cardClass,
     runtimeAdvisoryLabel,

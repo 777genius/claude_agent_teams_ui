@@ -1,13 +1,12 @@
-import type { TeamProviderId } from '@shared/types';
-
 import type { ProviderPrepareDiagnosticsModelResult } from './providerPrepareDiagnostics';
+import type { TeamProviderId } from '@shared/types';
 
 const OPENCODE_DEEP_VERIFY_SUCCESS_CACHE_TTL_MS = 45_000;
 
-type ShortLivedProviderPrepareCacheEntry = {
+interface ShortLivedProviderPrepareCacheEntry {
   expiresAt: number;
   modelResultsById: Record<string, ProviderPrepareDiagnosticsModelResult>;
-};
+}
 
 const shortLivedProviderPrepareCache = new Map<string, ShortLivedProviderPrepareCacheEntry>();
 

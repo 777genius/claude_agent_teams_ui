@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "Download Now",
     "ctaPrimary": "Download for {platform}",
     "ctaSecondary": "Compare",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "Got questions? We've got answers",
-    "subtitle": "Everything you need to know about Claude Agent Teams"
+    "subtitle": "Everything you need to know about Agent Teams"
   },
   "comparison": {
     "sectionTitle": "How we compare",
@@ -92,7 +92,7 @@
     "learnMore": "Learn more"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "AI agent orchestration for developers",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — AI Agent Orchestration for Developers",
+    "homeTitle": "Agent Teams - AI Agent Orchestration for Developers",
     "homeDescription": "Free, open-source desktop app for assembling AI agent teams. Kanban board, code review, cross-team communication. Runs entirely locally."
   },
   "error": {

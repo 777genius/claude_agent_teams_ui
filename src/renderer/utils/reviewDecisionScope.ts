@@ -1,4 +1,4 @@
-import { normalizePathForComparison } from '@shared/utils/platformPath';
+import { isWindowsishPath, normalizePathForComparison } from '@shared/utils/platformPath';
 
 import type { AgentChangeSet, SnippetDiff, TaskChangeSet, TaskChangeSetV2 } from '@shared/types';
 
@@ -8,9 +8,16 @@ function encodeFingerprintField(value: string): string {
   return `${value.length}:${value}`;
 }
 
+function normalizeReviewFingerprintPath(filePath: string): string {
+  const normalized = normalizePathForComparison(filePath);
+  return isWindowsishPath(filePath) || filePath.includes('\\')
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
 function fingerprintSnippet(snippet: SnippetDiff): string {
   return [
-    encodeFingerprintField(normalizePathForComparison(snippet.filePath)),
+    encodeFingerprintField(normalizeReviewFingerprintPath(snippet.filePath)),
     encodeFingerprintField(snippet.toolUseId),
     encodeFingerprintField(snippet.timestamp),
     encodeFingerprintField(snippet.type),
@@ -25,11 +32,13 @@ function fingerprintSnippet(snippet: SnippetDiff): string {
 export function fingerprintReviewChangeSet(changeSet: ReviewChangeSetLike): string {
   return [...changeSet.files]
     .sort((a, b) =>
-      normalizePathForComparison(a.filePath).localeCompare(normalizePathForComparison(b.filePath))
+      normalizeReviewFingerprintPath(a.filePath).localeCompare(
+        normalizeReviewFingerprintPath(b.filePath)
+      )
     )
     .map((file) =>
       [
-        encodeFingerprintField(normalizePathForComparison(file.filePath)),
+        encodeFingerprintField(normalizeReviewFingerprintPath(file.filePath)),
         ...(file.changeKey ? [encodeFingerprintField(file.changeKey)] : []),
         ...file.snippets.map(fingerprintSnippet),
       ].join('|')

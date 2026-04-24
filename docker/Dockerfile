@@ -1,11 +1,11 @@
 # =============================================================================
-# Claude Agent Teams UI standalone Docker image
+# Agent Teams standalone Docker image
 #
 # Runs the HTTP server without Electron, serving the full UI over HTTP.
 # Mount your ~/.claude directory to make session data available.
 #
-# Build:  docker build -t claude-agent-teams-ui .
-# Run:    docker run -p 3456:3456 -v ~/.claude:/data/.claude:ro claude-agent-teams-ui
+# Build:  docker build -t agent-teams-ai .
+# Run:    docker run -p 3456:3456 -v ~/.claude:/data/.claude:ro agent-teams-ai
 # =============================================================================
 
 FROM node:20-slim AS builder

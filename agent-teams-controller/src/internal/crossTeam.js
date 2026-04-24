@@ -48,25 +48,19 @@ function normalizeMetaMembers(rawMembers) {
 }
 
 function resolveTargetLead(paths, config) {
-  // 1. config.members — agentType check
+  // 1. config.members - canonical lead detection shared with queue routing
   if (config && config.members && config.members.length) {
-    const lead = config.members.find((m) => m && m.agentType === 'team-lead');
+    const lead = config.members.find((m) => runtimeHelpers.isCanonicalLeadMember(m));
     if (lead && lead.name) return String(lead.name).trim();
-
-    // 2. config.members — name check
-    const namedLead = config.members.find((m) => m && m.name === 'team-lead');
-    if (namedLead && namedLead.name) return String(namedLead.name).trim();
   }
 
-  // 3. members.meta.json — WITH normalization (trim + dedup)
+  // 2. members.meta.json - WITH normalization (trim + dedup)
   const metaPath = path.join(paths.teamDir, 'members.meta.json');
   try {
     const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
     const members = normalizeMetaMembers(raw && raw.members);
     if (members.length > 0) {
-      const metaLead = members.find(
-        (m) => m.agentType === 'team-lead' || m.name === 'team-lead'
-      );
+      const metaLead = members.find((m) => runtimeHelpers.isCanonicalLeadMember(m));
       if (metaLead && metaLead.name) return metaLead.name;
       return members[0].name;
     }
@@ -74,13 +68,8 @@ function resolveTargetLead(paths, config) {
     /* ENOENT or parse error */
   }
 
-  // 4. role-based (legacy compat)
+  // 3. First configured member
   if (config && config.members && config.members.length) {
-    const roleLead = config.members.find(
-      (m) => m && m.role && String(m.role).toLowerCase().includes('lead')
-    );
-    if (roleLead && roleLead.name) return String(roleLead.name).trim();
-    // 5. First member
     if (config.members[0] && config.members[0].name) return String(config.members[0].name).trim();
   }
 
@@ -101,16 +90,6 @@ function normalizeForDedupe(value) {
     .toLowerCase();
 }
 
-function buildCrossTeamDedupeKey(fromTeam, fromMember, toTeam, text, summary) {
-  return [
-    normalizeForDedupe(fromTeam),
-    normalizeForDedupe(fromMember),
-    normalizeForDedupe(toTeam),
-    normalizeForDedupe(summary),
-    normalizeForDedupe(text),
-  ].join('||');
-}
-
 function getCrossTeamMessageDedupeKey(message) {
   if (!message || typeof message !== 'object') return '';
   return buildCrossTeamDedupeKey(
@@ -118,8 +97,42 @@ function getCrossTeamMessageDedupeKey(message) {
     message.fromMember,
     message.toTeam,
     message.text,
-    message.summary
+    message.summary,
+    message.taskRefs
   );
+}
+
+function normalizeTaskRefs(taskRefs) {
+  if (!Array.isArray(taskRefs) || taskRefs.length === 0) {
+    return undefined;
+  }
+
+  const normalized = taskRefs
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({
+      taskId: String(item.taskId || '').trim(),
+      displayId: String(item.displayId || '').trim(),
+      teamName: String(item.teamName || '').trim(),
+    }))
+    .filter((item) => item.taskId && item.displayId && item.teamName);
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeTaskRefsForDedupe(taskRefs) {
+  const normalized = normalizeTaskRefs(taskRefs);
+  return normalized ? JSON.stringify(normalized) : '';
+}
+
+function buildCrossTeamDedupeKey(fromTeam, fromMember, toTeam, text, summary, taskRefs) {
+  return [
+    normalizeForDedupe(fromTeam),
+    normalizeForDedupe(fromMember),
+    normalizeForDedupe(toTeam),
+    normalizeForDedupe(summary),
+    normalizeForDedupe(text),
+    normalizeTaskRefsForDedupe(taskRefs),
+  ].join('||');
 }
 
 function findRecentDuplicate(outboxList, dedupeKey) {
@@ -141,7 +154,7 @@ function findRecentDuplicate(outboxList, dedupeKey) {
 function sendCrossTeamMessage(context, flags) {
   const fromTeam = context.teamName;
   const toTeam = typeof flags.toTeam === 'string' ? flags.toTeam.trim() : '';
-  const fromMember = typeof flags.fromMember === 'string' ? flags.fromMember.trim() : 'team-lead';
+  const rawFromMember = typeof flags.fromMember === 'string' ? flags.fromMember.trim() : '';
   const replyToConversationId =
     typeof flags.replyToConversationId === 'string' ? flags.replyToConversationId.trim() : '';
   const conversationId =
@@ -151,10 +164,15 @@ function sendCrossTeamMessage(context, flags) {
   const text = typeof flags.text === 'string' ? flags.text : '';
   const summary = typeof flags.summary === 'string' ? flags.summary.trim() : undefined;
   const chainDepth = typeof flags.chainDepth === 'number' ? flags.chainDepth : 0;
+  const taskRefs = normalizeTaskRefs(flags.taskRefs);
 
   // Validate
   if (!TEAM_NAME_PATTERN.test(fromTeam)) {
     throw new Error(`Invalid fromTeam: ${fromTeam}`);
+  }
+  const sourceConfig = runtimeHelpers.readTeamConfig(context.paths);
+  if (!sourceConfig || sourceConfig.deletedAt) {
+    throw new Error(`Source team not found: ${fromTeam}`);
   }
   if (!TEAM_NAME_PATTERN.test(toTeam)) {
     throw new Error(`Invalid toTeam: ${toTeam}`);
@@ -165,6 +183,11 @@ function sendCrossTeamMessage(context, flags) {
   if (!text || text.trim().length === 0) {
     throw new Error('Message text is required');
   }
+  const fromMember = rawFromMember
+    ? runtimeHelpers.assertExplicitTeamMemberName(context.paths, rawFromMember, 'cross-team sender', {
+        allowLeadAliases: true,
+      })
+    : runtimeHelpers.inferLeadName(context.paths);
 
   // Target context + config
   const targetContext = createTargetContext(context, toTeam);
@@ -186,7 +209,7 @@ function sendCrossTeamMessage(context, flags) {
   });
   const messageId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   const timestamp = new Date().toISOString();
-  const dedupeKey = buildCrossTeamDedupeKey(fromTeam, fromMember, toTeam, text, summary);
+  const dedupeKey = buildCrossTeamDedupeKey(fromTeam, fromMember, toTeam, text, summary, taskRefs);
 
   const inboxPath = path.join(targetContext.paths.teamDir, 'inboxes', `${leadName}.json`);
   const outboxPath = path.join(context.paths.teamDir, 'sent-cross-team.json');
@@ -219,6 +242,7 @@ function sendCrossTeamMessage(context, flags) {
         source: CROSS_TEAM_SOURCE,
         conversationId: resolvedConversationId,
         replyToConversationId: replyToConversationId || undefined,
+        ...(taskRefs ? { taskRefs } : {}),
       });
       writeJson(inboxPath, list);
     });
@@ -240,6 +264,7 @@ function sendCrossTeamMessage(context, flags) {
       source: CROSS_TEAM_SENT_SOURCE,
       conversationId: resolvedConversationId,
       replyToConversationId: replyToConversationId || undefined,
+      ...(taskRefs ? { taskRefs } : {}),
     });
 
     outList.push({
@@ -250,6 +275,7 @@ function sendCrossTeamMessage(context, flags) {
       conversationId: resolvedConversationId,
       replyToConversationId: replyToConversationId || undefined,
       text,
+      ...(taskRefs ? { taskRefs } : {}),
       summary,
       chainDepth,
       timestamp,

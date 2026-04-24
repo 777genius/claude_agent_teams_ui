@@ -1,11 +1,14 @@
 import { execCli } from '@main/utils/childProcess';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import { createLogger } from '@shared/utils/logger';
-import { filterVisibleProviderRuntimeModels } from '@shared/utils/providerModelVisibility';
 import {
   createDefaultCliExtensionCapabilities,
   createLegacyRuntimeFallbackCliExtensionCapabilities,
 } from '@shared/utils/providerExtensionCapabilities';
+import { filterVisibleProviderRuntimeModels } from '@shared/utils/providerModelVisibility';
+import { mkdtemp, readFile, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import path from 'path';
 
 import { resolveGeminiRuntimeAuth } from './geminiRuntimeAuth';
 import { buildProviderAwareCliEnv } from './providerAwareCliEnv';
@@ -843,17 +846,26 @@ export class ClaudeMultimodelBridgeService {
       params.teamId,
       '--member',
       params.memberName,
+      '--projection-only',
     ];
     if (typeof params.limit === 'number') {
       args.push('--limit', String(params.limit));
     }
 
-    const { stdout } = await execCli(binaryPath, args, {
-      timeout: PROVIDER_STATUS_TIMEOUT_MS,
-      env,
-    });
-    const parsed = extractJsonObject<OpenCodeRuntimeTranscriptResponse>(stdout);
-    return parsed.providerId === 'opencode' ? (parsed.transcript ?? null) : null;
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'opencode-transcript-'));
+    const outputPath = path.join(outputDir, 'transcript.json');
+    try {
+      await execCli(binaryPath, [...args, '--output', outputPath], {
+        timeout: PROVIDER_STATUS_TIMEOUT_MS,
+        env,
+      });
+      const parsed = extractJsonObject<OpenCodeRuntimeTranscriptResponse>(
+        await readFile(outputPath, 'utf8')
+      );
+      return parsed.providerId === 'opencode' ? (parsed.transcript ?? null) : null;
+    } finally {
+      await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   private async verifyOpenCodeModel(

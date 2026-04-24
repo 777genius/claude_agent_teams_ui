@@ -17,7 +17,7 @@ describe('HTTP team runtime routes', () => {
     >();
     const getRuntimeState = vi.fn<(teamName: string) => Promise<TeamRuntimeState>>();
     const getProvisioningStatus = vi.fn<(runId: string) => Promise<TeamProvisioningProgress>>();
-    const stopTeam = vi.fn<(teamName: string) => void>();
+    const stopTeam = vi.fn<(teamName: string) => Promise<void>>(() => Promise.resolve());
     const getAliveTeams = vi.fn<() => string[]>();
     const teamProvisioningService = {
       launchTeam,

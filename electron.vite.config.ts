@@ -51,7 +51,7 @@ const sentryPlugins = process.env.SENTRY_AUTH_TOKEN
         org: process.env.SENTRY_ORG ?? 'quant-jump-pro',
         project: process.env.SENTRY_PROJECT ?? 'electron',
         authToken: process.env.SENTRY_AUTH_TOKEN,
-        release: { name: `claude-agent-teams-ui@${pkg.version}` },
+        release: { name: `agent-teams-ai@${pkg.version}` },
         sourcemaps: {
           filesToDeleteAfterUpload: ['./out/renderer/**/*.map', './dist-electron/**/*.map'],
         },

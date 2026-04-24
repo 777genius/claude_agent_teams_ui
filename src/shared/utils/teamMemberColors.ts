@@ -1,8 +1,8 @@
 import {
   getMemberColorByName,
   MEMBER_COLOR_PALETTE,
-  TEAM_LEAD_MEMBER_COLOR_ID,
   normalizeMemberColorName,
+  TEAM_LEAD_MEMBER_COLOR_ID,
 } from '@shared/constants/memberColors';
 import { isLeadMember } from '@shared/utils/leadDetection';
 

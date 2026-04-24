@@ -156,7 +156,7 @@
       "version": "1.0.0",
     },
     "landing": {
-      "name": "claude-agent-teams-landing",
+      "name": "agent-teams-landing",
       "dependencies": {
         "@mdi/js": "^7.4.47",
         "@nuxtjs/i18n": "^9.5.6",
@@ -1780,7 +1780,7 @@
 
     "class-variance-authority": ["class-variance-authority@0.7.1", "", { "dependencies": { "clsx": "2.1.1" } }, "sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg=="],
 
-    "claude-agent-teams-landing": ["claude-agent-teams-landing@workspace:landing"],
+    "agent-teams-landing": ["agent-teams-landing@workspace:landing"],
 
     "clean-regexp": ["clean-regexp@1.0.0", "", { "dependencies": { "escape-string-regexp": "1.0.5" } }, "sha512-GfisEZEJvzKrmGWkvfhgzcz/BllN1USeqD2V6tg14OAOgaCD2Z/PUEuxnAZ/nPvmaHRG7a8y77p1T/IRQ4D1Hw=="],
 

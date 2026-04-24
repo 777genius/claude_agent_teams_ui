@@ -1,6 +1,6 @@
-import type { TeamProviderId } from '@shared/types';
-
 import { parseOpenCodeQualifiedModelRef } from './opencodeModelRef';
+
+import type { TeamProviderId } from '@shared/types';
 
 export function isTeamProviderId(value: unknown): value is TeamProviderId {
   return value === 'anthropic' || value === 'codex' || value === 'gemini' || value === 'opencode';

@@ -17,15 +17,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { createMemberDraft } from '@renderer/components/team/members/membersEditorUtils';
 import {
-  setStoredCreateTeamMemberRuntimePreferences,
-  getStoredCreateTeamSyncModelsWithLead,
-  setStoredCreateTeamSyncModelsWithLead,
-} from '@renderer/services/createTeamPreferences';
-import {
   type CreateTeamDraftSnapshot,
   createTeamDraftStorage,
   type SerializedMemberDraft,
 } from '@renderer/services/createTeamDraftStorage';
+import {
+  getStoredCreateTeamSyncModelsWithLead,
+  setStoredCreateTeamMemberRuntimePreferences,
+  setStoredCreateTeamSyncModelsWithLead,
+} from '@renderer/services/createTeamPreferences';
 
 import type { MemberDraft } from '@renderer/components/team/members/membersEditorTypes';
 

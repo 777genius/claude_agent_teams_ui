@@ -254,7 +254,7 @@ jobs:
         run: ${{ matrix.dist_command }} --publish never
 
       - name: Validate packaged bundle (macOS ${{ matrix.arch }})
-        run: node ./scripts/electron-builder/verifyBundle.cjs "release/mac-${{ matrix.arch }}/Claude Agent Teams UI.app" darwin ${{ matrix.arch }}
+        run: node ./scripts/electron-builder/verifyBundle.cjs "release/mac-${{ matrix.arch }}/Agent Teams UI.app" darwin ${{ matrix.arch }}
 
       - name: Upload assets to release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -498,7 +498,7 @@ jobs:
 
           declare -A FILES=(
             ["Claude-Agent-Teams-UI-arm64.dmg"]="Claude.Agent.Teams.UI-${VERSION}-arm64.dmg"
-            ["Claude-Agent-Teams-UI-x64.dmg"]="Claude.Agent.Teams.UI-${VERSION}.dmg"
+            ["Claude-Agent-Teams-UI-x64.dmg"]="Claude.Agent.Teams.UI-${VERSION}-x64.dmg"
             ["Claude-Agent-Teams-UI-Setup.exe"]="Claude.Agent.Teams.UI.Setup.${VERSION}.exe"
             ["Claude-Agent-Teams-UI.AppImage"]="Claude.Agent.Teams.UI-${VERSION}.AppImage"
             ["Claude-Agent-Teams-UI-amd64.deb"]="claude-agent-teams-ui_${VERSION}_amd64.deb"

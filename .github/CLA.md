@@ -1,6 +1,6 @@
 # Contributor License Agreement (CLA)
 
-**Project:** Claude Agent Teams UI (claude-agent-teams-ui)  
+**Project:** Agent Teams (agent-teams-ai)
 **License:** GNU Affero General Public License v3.0 (AGPL-3.0)
 
 ---
@@ -15,10 +15,10 @@ You represent that you have the right to grant the above license and that your c
 
 ## Signed contributors
 
-| Name | Email | Date |
-|------|-------|------|
+| Name             | Email                  | Date       |
+| ---------------- | ---------------------- | ---------- |
 | Илия (777genius) | quantjumppro@gmail.com | 2026-02-22 |
 
 ---
 
-*To add yourself: submit a pull request that adds your name, email, and the current date to the table above. By merging the PR you confirm your agreement with this CLA.*
+_To add yourself: submit a pull request that adds your name, email, and the current date to the table above. By merging the PR you confirm your agreement with this CLA._

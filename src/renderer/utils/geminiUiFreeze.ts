@@ -1,6 +1,7 @@
+import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
+
 import type { TeamProviderId } from '@shared/types';
 import type { CliProviderId } from '@shared/types/cliInstaller';
-import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 
 export const GEMINI_UI_FROZEN = true;
 export const GEMINI_UI_DISABLED_REASON = 'Gemini in development';

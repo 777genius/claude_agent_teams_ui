@@ -10,13 +10,13 @@ Minor release: React 19 + Electron 40 migration, start-task-by-user, auth troubl
 
 ## Published: v1.0.0 (2026-03-19)
 
-Initial release: Claude Agent Teams UI with reliable CLI detection in packaged builds (shell PATH/HOME, `CLAUDE_CONFIG_DIR`, auth output parsing), IPC status cache handling, concurrent binary resolution, capped NDJSON diagnostics. Full list: [CHANGELOG.md](./CHANGELOG.md).
+Initial release: Agent Teams with reliable CLI detection in packaged builds (shell PATH/HOME, `CLAUDE_CONFIG_DIR`, auth output parsing), IPC status cache handling, concurrent binary resolution, capped NDJSON diagnostics. Full list: [CHANGELOG.md](./CHANGELOG.md).
 
 After CI uploads artifacts, optional notes update:
 
 ```bash
 gh release edit v1.0.0 --repo 777genius/claude_agent_teams_ui --notes "$(cat <<'EOF'
-## Claude Agent Teams UI v1.0.0
+## Agent Teams v1.0.0
 
 First stable build: CLI/auth reliability in packaged apps, IPC hardening, and platform packaging.
 
@@ -121,7 +121,7 @@ EOF
 ## Release Notes Template
 
 ```markdown
-## Claude Agent Teams UI v<VERSION>
+## Agent Teams v<VERSION>
 
 <1-2 sentence summary of the release>
 
@@ -144,7 +144,7 @@ EOF
     <img src="https://img.shields.io/badge/macOS_Apple_Silicon-.dmg-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Apple Silicon" />
   </a>
   <br />
-  <a href="https://github.com/777genius/claude_agent_teams_ui/releases/download/v<VERSION>/Claude.Agent.Teams.UI-<VERSION>.dmg">
+  <a href="https://github.com/777genius/claude_agent_teams_ui/releases/download/v<VERSION>/Claude.Agent.Teams.UI-<VERSION>-x64.dmg">
     <img src="https://img.shields.io/badge/macOS_Intel-.dmg-434343?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Intel" />
   </a>
 </td>
@@ -197,9 +197,9 @@ electron-builder generates these artifacts per platform:
 | Platform         | Versioned Name                                   | Stable Name (for /latest/download)         |
 |------------------|--------------------------------------------------|--------------------------------------------|
 | macOS arm64 DMG  | `Claude.Agent.Teams.UI-<VER>-arm64.dmg`          | `Claude-Agent-Teams-UI-arm64.dmg`          |
-| macOS x64 DMG    | `Claude.Agent.Teams.UI-<VER>.dmg`                | `Claude-Agent-Teams-UI-x64.dmg`            |
-| macOS arm64 ZIP  | `Claude.Agent.Teams.UI-<VER>-arm64-mac.zip`      | —                                          |
-| macOS x64 ZIP    | `Claude.Agent.Teams.UI-<VER>-mac.zip`            | —                                          |
+| macOS x64 DMG    | `Claude.Agent.Teams.UI-<VER>-x64.dmg`            | `Claude-Agent-Teams-UI-x64.dmg`            |
+| macOS arm64 ZIP  | `Claude.Agent.Teams.UI-<VER>-arm64-mac.zip`      | -                                          |
+| macOS x64 ZIP    | `Claude.Agent.Teams.UI-<VER>-x64-mac.zip`        | -                                          |
 | Windows          | `Claude.Agent.Teams.UI.Setup.<VER>.exe`          | `Claude-Agent-Teams-UI-Setup.exe`          |
 | Linux AppImage   | `Claude.Agent.Teams.UI-<VER>.AppImage`           | `Claude-Agent-Teams-UI.AppImage`           |
 | Linux deb        | `claude-agent-teams-ui_<VER>_amd64.deb`          | `Claude-Agent-Teams-UI-amd64.deb`          |

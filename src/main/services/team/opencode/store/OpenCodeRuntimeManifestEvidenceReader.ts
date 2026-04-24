@@ -1,13 +1,18 @@
-import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
-import * as path from 'path';
+import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises';
 
 import { atomicWriteAsync } from '@main/utils/atomicWrite';
 import { createLogger } from '@shared/utils/logger';
+import * as path from 'path';
+
+import { withFileLock } from '../../fileLock';
+
+import {
+  createDefaultRuntimeStoreManifest,
+  validateRuntimeStoreManifest,
+} from './RuntimeStoreManifest';
 
 import type { RuntimeStoreManifestEvidence } from '../bridge/OpenCodeBridgeCommandContract';
 import type { RuntimeStoreManifestReader } from '../bridge/OpenCodeStateChangingBridgeCommandService';
-import { withFileLock } from '../../fileLock';
-import { createRuntimeStoreManifestStore } from './RuntimeStoreManifest';
 
 const logger = createLogger('OpenCodeRuntimeManifestEvidenceReader');
 
@@ -66,12 +71,12 @@ function normalizeOpenCodeRuntimeLaneIndex(
         if (
           !value ||
           typeof value !== 'object' ||
-          typeof (value as OpenCodeRuntimeLaneIndexEntry).laneId !== 'string' ||
-          typeof (value as OpenCodeRuntimeLaneIndexEntry).updatedAt !== 'string'
+          typeof value.laneId !== 'string' ||
+          typeof value.updatedAt !== 'string'
         ) {
           return [];
         }
-        const entry = value as OpenCodeRuntimeLaneIndexEntry;
+        const entry = value;
         return [
           [
             key,
@@ -166,11 +171,7 @@ export class OpenCodeRuntimeManifestEvidenceReader implements RuntimeStoreManife
     const manifestPath = normalizedLaneId
       ? await resolveOpenCodeRuntimeManifestReadPath(this.teamsBasePath, teamName, normalizedLaneId)
       : getOpenCodeRuntimeManifestPath(this.teamsBasePath, teamName);
-    const manifest = await createRuntimeStoreManifestStore({
-      filePath: manifestPath,
-      teamName,
-      clock: this.clock,
-    }).read();
+    const manifest = await readRuntimeStoreManifestEvidenceData(manifestPath, teamName, this.clock);
 
     return {
       highWatermark: manifest.highWatermark,
@@ -178,6 +179,33 @@ export class OpenCodeRuntimeManifestEvidenceReader implements RuntimeStoreManife
       capabilitySnapshotId: manifest.activeCapabilitySnapshotId,
     };
   }
+}
+
+async function readRuntimeStoreManifestEvidenceData(
+  manifestPath: string,
+  teamName: string,
+  clock: () => Date
+) {
+  let raw: string;
+  try {
+    raw = await readFile(manifestPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return createDefaultRuntimeStoreManifest(teamName, clock().toISOString());
+    }
+    throw error;
+  }
+
+  const parsed = JSON.parse(raw) as unknown;
+  const maybeRecord =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  const manifestData =
+    maybeRecord && Object.prototype.hasOwnProperty.call(maybeRecord, 'data')
+      ? maybeRecord.data
+      : parsed;
+  return validateRuntimeStoreManifest(manifestData);
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -398,7 +426,7 @@ export async function recoverStaleOpenCodeRuntimeLaneIndexEntry(params: {
 }> {
   const index = await readOpenCodeRuntimeLaneIndex(params.teamsBasePath, params.teamName);
   const entry = index.lanes[params.laneId];
-  if (!entry || entry.state !== 'active') {
+  if (entry?.state !== 'active') {
     return {
       stale: false,
       degraded: false,

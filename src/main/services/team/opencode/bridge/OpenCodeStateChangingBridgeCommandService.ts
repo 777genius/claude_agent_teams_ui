@@ -4,8 +4,6 @@ import {
   assertBridgeEvidenceCanCommitToRuntimeStores,
   createOpenCodeBridgeIdempotencyKey,
   extractRunId,
-  stableHash,
-  validateOpenCodeBridgeHandshake,
   type OpenCodeBridgeCommandName,
   type OpenCodeBridgeCommandPreconditions,
   type OpenCodeBridgeDiagnosticEvent,
@@ -13,10 +11,13 @@ import {
   type OpenCodeBridgePeerIdentity,
   type OpenCodeBridgeResult,
   type RuntimeStoreManifestEvidence,
+  stableHash,
+  validateOpenCodeBridgeHandshake,
 } from './OpenCodeBridgeCommandContract';
-import {
-  OpenCodeBridgeCommandLedger,
+
+import type {
   OpenCodeBridgeCommandLeaseStore,
+  OpenCodeBridgeCommandLedger,
 } from './OpenCodeBridgeCommandLedgerStore';
 
 export interface OpenCodeBridgeCommandExecutor {

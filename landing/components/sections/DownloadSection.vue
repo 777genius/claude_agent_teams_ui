@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { mdiApple, mdiMicrosoftWindows, mdiPenguin, mdiDownload, mdiCheckCircle } from '@mdi/js';
-import { downloadAssets } from "~/data/downloads";
-import type { DownloadOs, DownloadArch } from "~/data/downloads";
+import { downloadAssets } from '~/data/downloads';
+import type { DownloadOs, DownloadArch } from '~/data/downloads';
 
 const { content } = useLandingContent();
 const { t, locale } = useI18n();
 const downloadStore = useDownloadStore();
 const { data: releaseData, resolve } = useReleaseDownloads();
 const { trackDownloadClick } = useAnalytics();
+const { releaseDownloadUrl } = useGithubRepo();
 
 onMounted(() => downloadStore.init());
 
@@ -18,18 +19,18 @@ const platformIcons: Record<string, string> = {
 };
 
 const platformColors: Record<string, string> = {
-  macos: "#00f0ff",
-  windows: "#39ff14",
-  linux: "#ffd700",
+  macos: '#00f0ff',
+  windows: '#39ff14',
+  linux: '#ffd700',
 };
 
 const visibleAssets = computed(() => {
   const enriched = downloadAssets.map((asset) => {
-    if (asset.os !== "macos") return { ...asset };
+    if (asset.os !== 'macos') return { ...asset };
     if (!downloadStore.isMacOs) return { ...asset };
     return {
       ...asset,
-      archLabel: downloadStore.macArch === "arm64" ? "Apple Silicon" : "Intel",
+      archLabel: downloadStore.macArch === 'arm64' ? 'Apple Silicon' : 'Intel',
     };
   });
 
@@ -43,13 +44,13 @@ const visibleAssets = computed(() => {
   return [first, detected, ...rest];
 });
 
-const getDownloadUrl = (asset: { os: string; arch: string; url: string }) => {
-  const arch = (asset.os === "macos" ? downloadStore.macArch : asset.arch) as DownloadArch;
-  return resolve(asset.os as DownloadOs, arch)?.url || asset.url;
+const getDownloadUrl = (asset: { os: string; arch: string; fileName: string }) => {
+  const arch = (asset.os === 'macos' ? downloadStore.macArch : asset.arch) as DownloadArch;
+  return resolve(asset.os as DownloadOs, arch)?.url || releaseDownloadUrl(asset.fileName);
 };
 
 const getDownloadArch = (asset: { os: string; arch: string }) => {
-  return asset.os === "macos" ? downloadStore.macArch : asset.arch;
+  return asset.os === 'macos' ? downloadStore.macArch : asset.arch;
 };
 
 const releaseVersion = computed(() => releaseData.value?.version || null);
@@ -90,7 +91,11 @@ const releaseDate = computed(() => {
 
           <!-- Platform icon -->
           <div class="download-section__card-icon-wrap">
-            <v-icon size="28" class="download-section__card-icon" :icon="platformIcons[asset.os] || mdiDownload" />
+            <v-icon
+              size="28"
+              class="download-section__card-icon"
+              :icon="platformIcons[asset.os] || mdiDownload"
+            />
           </div>
 
           <!-- Platform info -->
@@ -103,10 +108,18 @@ const releaseDate = computed(() => {
           <a
             class="download-section__btn"
             :href="getDownloadUrl(asset)"
-            @click.stop="trackDownloadClick({ os: asset.os, arch: getDownloadArch(asset), version: releaseVersion, source: 'download_section' }); downloadStore.setSelected(asset.id)"
+            @click.stop="
+              trackDownloadClick({
+                os: asset.os,
+                arch: getDownloadArch(asset),
+                version: releaseVersion,
+                source: 'download_section',
+              });
+              downloadStore.setSelected(asset.id);
+            "
           >
             <v-icon size="18" class="download-section__btn-icon" :icon="mdiDownload" />
-            <span>{{ t("download.title") }}</span>
+            <span>{{ t('download.title') }}</span>
           </a>
 
           <!-- Active indicator -->
@@ -115,7 +128,7 @@ const releaseDate = computed(() => {
             class="download-section__card-indicator"
           >
             <v-icon size="16" :icon="mdiCheckCircle" />
-            <span>{{ t("download.detected") }}</span>
+            <span>{{ t('download.detected') }}</span>
           </div>
         </div>
       </div>
@@ -245,11 +258,7 @@ const releaseDate = computed(() => {
 
 .download-section__card--active .download-section__card-glow {
   opacity: 0.7;
-  background: radial-gradient(
-    ellipse 80% 60% at 50% 0%,
-    rgba(57, 255, 20, 0.1),
-    transparent 70%
-  );
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(57, 255, 20, 0.1), transparent 70%);
 }
 
 /* Icon wrap */
@@ -267,7 +276,9 @@ const releaseDate = computed(() => {
   );
   border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
   margin-bottom: 14px;
-  transition: transform 0.35s ease, box-shadow 0.35s ease;
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
 }
 
 .download-section__card:hover .download-section__card-icon-wrap {
@@ -290,7 +301,7 @@ const releaseDate = computed(() => {
   margin-bottom: 3px;
   letter-spacing: -0.01em;
   color: #e0e6ff;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .download-section__card-arch {
@@ -319,7 +330,7 @@ const releaseDate = computed(() => {
     box-shadow 0.25s ease,
     filter 0.25s ease;
   box-shadow: 0 4px 16px rgba(0, 240, 255, 0.3);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .download-section__btn:hover {
@@ -346,7 +357,7 @@ const releaseDate = computed(() => {
   font-weight: 600;
   color: #39ff14;
   opacity: 0.9;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* Release info */
@@ -360,7 +371,7 @@ const releaseDate = computed(() => {
   letter-spacing: 0.01em;
   position: relative;
   z-index: 1;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 @keyframes downloadFadeUp {

@@ -1,6 +1,6 @@
 # Team Management Feature
 
-Интерфейс для управления командами тиммейтов Claude Code внутри Claude Agent Teams UI (Electron).
+Интерфейс для управления командами тиммейтов Claude Code внутри Agent Teams (Electron).
 
 ## Что делает
 

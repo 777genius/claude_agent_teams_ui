@@ -44,11 +44,11 @@ export type TeamRuntimeLanePlan =
       mode: 'mixed_opencode_side_lanes';
       primaryMembers: PlannedRuntimeMember[];
       allMembers: PlannedRuntimeMember[];
-      sideLanes: Array<{
+      sideLanes: {
         laneId: string;
         providerId: 'opencode';
         member: PlannedRuntimeMember;
-      }>;
+      }[];
     };
 
 export type TeamRuntimeLanePlanErrorReason = 'unsupported_opencode_led_mixed_team';

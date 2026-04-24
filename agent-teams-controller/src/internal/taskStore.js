@@ -1,9 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const reviewStateHelpers = require('./reviewState.js');
 
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed', 'deleted']);
-const REVIEW_STATES = new Set(['none', 'review', 'needsFix', 'approved']);
 const UUID_TASK_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -65,11 +65,16 @@ function normalizeTask(rawTask, filePath) {
     reviewState: normalizeTaskReviewState(rawTask.reviewState),
   };
 
+  if (!TASK_STATUSES.has(String(task.status || '').trim())) {
+    throw new Error(`Invalid task status "${String(task.status || '')}"${filePath ? `: ${filePath}` : ''}`);
+  }
+  task.status = String(task.status).trim();
+
   return task;
 }
 
 function normalizeTaskReviewState(value) {
-  return REVIEW_STATES.has(String(value || '').trim()) ? String(value).trim() : 'none';
+  return reviewStateHelpers.normalizeReviewState(value);
 }
 
 function listTaskRows(paths, options = {}) {
@@ -82,7 +87,18 @@ function listTaskRows(paths, options = {}) {
   for (const fileName of entries) {
     if (!fileName.endsWith('.json') || fileName.startsWith('.')) continue;
     const filePath = path.join(paths.tasksDir, fileName);
-    const rawTask = readJson(filePath, null);
+    let rawTask;
+    try {
+      rawTask = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (error) {
+      anomalies.push({
+        code: 'unreadable_task',
+        taskId: path.basename(fileName, '.json'),
+        filePath,
+        detail: error instanceof Error ? error.message : 'Unreadable task row',
+      });
+      continue;
+    }
     if (!rawTask) continue;
     if (rawTask.metadata && rawTask.metadata._internal === true) continue;
     try {
@@ -410,7 +426,14 @@ function setTaskStatus(paths, taskRef, nextStatus, actor) {
   }
 
   return updateTask(paths, taskRef, (task) => {
-    if (task.status === status) return task;
+    if (task.status === status) {
+      if (status === 'deleted' || status === 'in_progress') {
+        task.reviewState = 'none';
+      } else if (status === 'pending' && normalizeTaskReviewState(task.reviewState) !== 'needsFix') {
+        task.reviewState = 'none';
+      }
+      return task;
+    }
     const timestamp = nowIso();
     const workIntervals = Array.isArray(task.workIntervals) ? [...task.workIntervals] : [];
     const lastInterval = workIntervals.length > 0 ? workIntervals[workIntervals.length - 1] : null;
@@ -437,8 +460,15 @@ function setTaskStatus(paths, taskRef, nextStatus, actor) {
 
     if (status === 'deleted') {
       task.deletedAt = timestamp;
+      task.reviewState = 'none';
     } else if (task.deletedAt) {
       delete task.deletedAt;
+    }
+
+    if (status === 'in_progress') {
+      task.reviewState = 'none';
+    } else if (status === 'pending' && normalizeTaskReviewState(task.reviewState) !== 'needsFix') {
+      task.reviewState = 'none';
     }
 
     return task;
@@ -672,22 +702,7 @@ function compareTasksByFreshness(a, b) {
 }
 
 function getEffectiveReviewState(kanbanEntry, task) {
-  // Derive from historyEvents if available
-  const events = Array.isArray(task.historyEvents) ? task.historyEvents : [];
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i];
-    if (e.type === 'review_requested' || e.type === 'review_changes_requested' || e.type === 'review_approved' || e.type === 'review_started') {
-      return e.to;
-    }
-    if (e.type === 'status_changed' && e.to === 'in_progress') {
-      return 'none';
-    }
-  }
-  // Fallback to persisted reviewState or kanban
-  if (normalizeTaskReviewState(task.reviewState) !== 'none') {
-    return normalizeTaskReviewState(task.reviewState);
-  }
-  return kanbanEntry && kanbanEntry.column ? String(kanbanEntry.column) : 'none';
+  return reviewStateHelpers.getEffectiveReviewState(task, kanbanEntry).state;
 }
 
 function formatBriefTaskLine(task, reviewState) {

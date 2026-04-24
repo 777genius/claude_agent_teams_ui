@@ -932,6 +932,35 @@ describe('changeReviewSlice task changes', () => {
     expect(store.getState().fileContents['/repo/file.ts']?.modifiedFullContent).toBe('after-v2');
   });
 
+  it('uses canonical relative Windows file paths when fetching content by slash/case variant', async () => {
+    const store = createSliceStore();
+    const filePath = 'SRC\\File.ts';
+    const data = makeAgentChangeSet(filePath);
+    hoisted.getFileContent.mockResolvedValueOnce({
+      ...makeFile(filePath),
+      originalFullContent: 'before',
+      modifiedFullContent: 'after',
+      contentSource: 'snippet-reconstruction',
+    });
+
+    store.setState({
+      activeChangeSet: data,
+      changeSetEpoch: 0,
+      fileContentVersionByPath: {},
+    });
+
+    await store.getState().fetchFileContent('team-a', 'alice', 'src/file.ts');
+
+    expect(hoisted.getFileContent).toHaveBeenCalledWith(
+      'team-a',
+      'alice',
+      filePath,
+      data.files[0]?.snippets ?? []
+    );
+    expect(store.getState().fileContents[filePath]?.modifiedFullContent).toBe('after');
+    expect(store.getState().fileContents['src/file.ts']).toBeUndefined();
+  });
+
   it('ignores stale fetchFileContent responses after change-set replacement', async () => {
     const store = createSliceStore();
     const pending = deferred<any>();
@@ -1225,6 +1254,53 @@ describe('changeReviewSlice task changes', () => {
     expect(store.getState().fileContentVersionByPath['/repo/file.ts']).toBe(1);
   });
 
+  it('removes relative Windows review files by slash/case variant without leaving stale state', async () => {
+    const store = createSliceStore();
+    const filePath = 'SRC\\File.ts';
+
+    store.setState({
+      activeChangeSet: makeAgentChangeSet(filePath),
+      selectedReviewFilePath: filePath,
+      hunkDecisions: { [`${filePath}:0`]: 'rejected' },
+      fileDecisions: { [filePath]: 'rejected' },
+      fileContents: {
+        [filePath]: {
+          ...makeFile(filePath),
+          originalFullContent: 'before',
+          modifiedFullContent: 'after',
+          contentSource: 'snippet-reconstruction',
+        },
+      },
+      fileContentsLoading: { [filePath]: true },
+      fileContentVersionByPath: {},
+    });
+
+    store.getState().removeReviewFile('src/file.ts');
+
+    expect(store.getState().activeChangeSet?.files).toEqual([]);
+    expect(store.getState().selectedReviewFilePath).toBeNull();
+    expect(store.getState().fileContents).toEqual({});
+    expect(store.getState().fileContentsLoading).toEqual({});
+    expect(store.getState().fileContentVersionByPath[filePath]).toBe(1);
+  });
+
+  it('clears path-equivalent loading aliases when removing the canonical review file', async () => {
+    const store = createSliceStore();
+    const filePath = 'SRC\\File.ts';
+
+    store.setState({
+      activeChangeSet: makeAgentChangeSet(filePath),
+      fileContentsLoading: { [filePath]: true, 'src/file.ts': true },
+      fileContentVersionByPath: { 'src/file.ts': 0 },
+    });
+
+    store.getState().removeReviewFile(filePath);
+
+    expect(store.getState().fileContentsLoading).toEqual({});
+    expect(store.getState().fileContentVersionByPath[filePath]).toBe(1);
+    expect(store.getState().fileContentVersionByPath['src/file.ts']).toBe(1);
+  });
+
   it('keeps restored file content when a stale fetch resolves after remove and re-add', async () => {
     const store = createSliceStore();
     const pending = deferred<any>();
@@ -1350,6 +1426,79 @@ describe('changeReviewSlice task changes', () => {
     expect(store.getState().hunkContextHashesByFile).toEqual({});
     expect(store.getState().fileChunkCounts).toEqual({});
     expect(store.getState().fileContents['/repo/new.ts']?.modifiedFullContent).toBe('saved-content');
+  });
+
+  it('saves edited content through canonical Windows ledger paths and clears aliases', async () => {
+    const store = createSliceStore();
+    const canonicalPath = 'SRC\\File.ts';
+    const aliasPath = 'src/file.ts';
+    const ledgerFile = makeFile(canonicalPath);
+    hoisted.saveEditedFile.mockResolvedValueOnce(undefined);
+
+    store.setState({
+      activeChangeSet: {
+        ...makeAgentChangeSet(canonicalPath),
+        files: [ledgerFile],
+        totalFiles: 1,
+      },
+      fileContents: {
+        [aliasPath]: {
+          ...ledgerFile,
+          filePath: aliasPath,
+          originalFullContent: 'before',
+          modifiedFullContent: 'draft-before-save',
+          contentSource: 'ledger-exact',
+        },
+      },
+      fileChunkCounts: { [aliasPath]: 2, [canonicalPath]: 2 },
+      hunkContextHashesByFile: {
+        [aliasPath]: { 0: 'ctx-alias' },
+        [canonicalPath]: { 0: 'ctx-canonical' },
+      },
+      reviewExternalChangesByFile: { [aliasPath]: { type: 'change' } },
+      editedContents: { [aliasPath]: 'saved-content' },
+      fileContentVersionByPath: {},
+    });
+
+    await store.getState().saveEditedFile(aliasPath, '/repo');
+
+    expect(hoisted.saveEditedFile).toHaveBeenCalledWith(canonicalPath, 'saved-content', '/repo');
+    expect(store.getState().editedContents).toEqual({});
+    expect(store.getState().fileChunkCounts).toEqual({});
+    expect(store.getState().hunkContextHashesByFile).toEqual({});
+    expect(store.getState().reviewExternalChangesByFile).toEqual({});
+    expect(store.getState().fileContents[aliasPath]).toBeUndefined();
+    expect(store.getState().fileContents[canonicalPath]?.filePath).toBe(canonicalPath);
+    expect(store.getState().fileContents[canonicalPath]?.modifiedFullContent).toBe('saved-content');
+    expect(store.getState().fileContentVersionByPath[aliasPath]).toBe(1);
+    expect(store.getState().fileContentVersionByPath[canonicalPath]).toBe(1);
+  });
+
+  it('does not canonicalize POSIX paths that differ only by case when saving edits', async () => {
+    const store = createSliceStore();
+    const canonicalPath = 'SRC/File.ts';
+    const requestedPath = 'src/file.ts';
+    hoisted.saveEditedFile.mockResolvedValueOnce(undefined);
+
+    store.setState({
+      activeChangeSet: makeAgentChangeSet(canonicalPath),
+      fileContents: {
+        [requestedPath]: {
+          ...makeFile(requestedPath),
+          originalFullContent: 'before',
+          modifiedFullContent: 'draft-before-save',
+          contentSource: 'snippet-reconstruction',
+        },
+      },
+      editedContents: { [requestedPath]: 'saved-content' },
+      fileContentVersionByPath: {},
+    });
+
+    await store.getState().saveEditedFile(requestedPath, '/repo');
+
+    expect(hoisted.saveEditedFile).toHaveBeenCalledWith(requestedPath, 'saved-content', '/repo');
+    expect(store.getState().fileContents[requestedPath]?.modifiedFullContent).toBe('saved-content');
+    expect(store.getState().fileContents[canonicalPath]).toBeUndefined();
   });
 
   it('forces re-review when snippets change even if file paths stay the same', async () => {

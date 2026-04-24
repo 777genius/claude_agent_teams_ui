@@ -131,7 +131,7 @@ export const FileSectionDiff = ({
   // Show CodeMirror only when we have a trustworthy original baseline:
   // - new files: original is legitimately empty
   // - otherwise: original must be known (non-null). If original is unknown, do not
-  //   pretend it's empty — fall back to snippet-level diff.
+  //   pretend it's empty; fall back to snippet-level diff.
   const canRenderCodeMirror =
     resolvedModified !== null && (file.isNewFile || resolvedOriginal !== null);
   const originalForDiff = file.isNewFile ? '' : (resolvedOriginal ?? '');

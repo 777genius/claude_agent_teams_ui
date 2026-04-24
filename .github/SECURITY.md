@@ -2,7 +2,7 @@
 
 ## Network Activity
 
-Claude Agent Teams UI makes **zero** outbound network calls to third-party servers. There is no telemetry, analytics, tracking, or data exfiltration of any kind.
+Agent Teams makes **zero** outbound network calls to third-party servers. There is no telemetry, analytics, tracking, or data exfiltration of any kind.
 
 | Network activity | When | Mode | User-initiated |
 |---|---|---|---|
@@ -18,7 +18,7 @@ In standalone mode (Docker or `node dist-standalone/index.cjs`), the auto-update
 
 - All session data is read **locally** from `~/.claude/` — it never leaves your machine.
 - The app does not write to session files. Volume mounts in Docker use `:ro` (read-only) by default.
-- Configuration is stored at `~/.claude/claude-devtools-config.json` on the local filesystem.
+- Configuration is stored at `~/.claude/agent-teams-config.json` on the local filesystem.
 - No data is sent to Anthropic, GitHub (other than the auto-updater in Electron mode), or any other third party.
 
 ## Docker Network Isolation
@@ -26,8 +26,8 @@ In standalone mode (Docker or `node dist-standalone/index.cjs`), the auto-update
 For maximum trust, run the Docker container with `--network none`:
 
 ```bash
-docker build -t claude-agent-teams-ui -f docker/Dockerfile .
-docker run --network none -p 3456:3456 -v ~/.claude:/data/.claude:ro claude-agent-teams-ui
+docker build -t agent-teams-ai -f docker/Dockerfile .
+docker run --network none -p 3456:3456 -v ~/.claude:/data/.claude:ro agent-teams-ai
 ```
 
 Or with Docker Compose, uncomment `network_mode: "none"` in `docker/docker-compose.yml`.

@@ -42,8 +42,9 @@ export class FileContentResolver {
 
   /** Invalidate cached content for a file (e.g. after user saves edits) */
   invalidateFile(filePath: string): void {
+    const normalizedFilePath = this.normalizeResolverPath(filePath);
     for (const key of this.cache.keys()) {
-      if (key.endsWith(`:${filePath}`)) {
+      if (key.endsWith(`:${normalizedFilePath}`)) {
         this.cache.delete(key);
       }
     }
@@ -76,7 +77,7 @@ export class FileContentResolver {
       logger.debug(`Файл недоступен на диске: ${filePath}`);
     }
 
-    const cacheKey = `${teamName}:${memberName}:${filePath}`;
+    const cacheKey = this.buildCacheKey(teamName, memberName, filePath);
     const validationFingerprint = this.buildValidationFingerprint(
       filePath,
       currentContent,
@@ -294,6 +295,15 @@ export class FileContentResolver {
     const original = first.originalFullContent ?? (canUseSyntheticOriginal ? '' : null);
     const modified = last.modifiedFullContent ?? (canUseSyntheticModified ? '' : null);
     if (original === null && modified === null) {
+      const hasUnavailableLedgerState = ledgerSnippets.some(
+        (snippet) =>
+          snippet.ledger?.beforeState?.unavailableReason ||
+          snippet.ledger?.afterState?.unavailableReason ||
+          snippet.ledger?.textAvailability === 'unavailable'
+      );
+      if (hasUnavailableLedgerState) {
+        return { original: null, modified: null, source: 'unavailable' };
+      }
       return null;
     }
 
@@ -611,6 +621,10 @@ export class FileContentResolver {
 
   private normalizeResolverPath(filePath: string): string {
     return normalizePathForComparison(filePath);
+  }
+
+  private buildCacheKey(teamName: string, memberName: string, filePath: string): string {
+    return `${teamName}:${memberName}:${this.normalizeResolverPath(filePath)}`;
   }
 
   private hashString(input: string): string {

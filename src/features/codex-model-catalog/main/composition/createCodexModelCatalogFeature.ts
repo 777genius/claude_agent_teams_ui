@@ -1,7 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-import type { CodexAccountSnapshotDto } from '@features/codex-account/contracts';
-import type { CodexAccountFeatureFacade } from '@features/codex-account/main';
 import { CodexAccountEnvBuilder } from '@features/codex-account/main/infrastructure/CodexAccountEnvBuilder';
 import { createStaticCodexModelCatalogModels } from '@features/codex-model-catalog/core/domain/codexModelCatalogFallback';
 import { normalizeCodexAppServerModels } from '@features/codex-model-catalog/core/domain/normalizeCodexAppServerModel';
@@ -15,6 +13,8 @@ import {
 import { CodexModelCatalogAppServerClient } from '../infrastructure/CodexModelCatalogAppServerClient';
 import { InMemoryCodexModelCatalogCache } from '../infrastructure/InMemoryCodexModelCatalogCache';
 
+import type { CodexAccountSnapshotDto } from '@features/codex-account/contracts';
+import type { CodexAccountFeatureFacade } from '@features/codex-account/main';
 import type { CodexModelCatalogDto } from '@features/codex-model-catalog/contracts';
 import type { Logger } from '@shared/utils/logger';
 

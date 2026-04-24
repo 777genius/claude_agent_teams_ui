@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { getController } from '../controller';
 import { jsonTextContent } from '../utils/format';
+import { assertConfiguredTeam } from '../utils/teamConfig';
 
 const toolContextSchema = {
   teamName: z.string().min(1),
@@ -57,8 +58,9 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
       worktree,
       extraCliArgs,
       waitForReady,
-    }) =>
-      jsonTextContent(
+    }) => {
+      assertConfiguredTeam(teamName, claudeDir);
+      return jsonTextContent(
         await getController(teamName, claudeDir).runtime.launchTeam({
           cwd,
           ...(prompt ? { prompt } : {}),
@@ -72,7 +74,8 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
           ...(waitTimeoutMs ? { waitTimeoutMs } : {}),
           ...(waitForReady !== undefined ? { waitForReady } : {}),
         })
-      ),
+      );
+    },
   });
 
   server.addTool({
@@ -82,14 +85,16 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
       ...toolContextSchema,
       waitForStop: z.boolean().optional(),
     }),
-    execute: async ({ teamName, claudeDir, controlUrl, waitTimeoutMs, waitForStop }) =>
-      jsonTextContent(
+    execute: async ({ teamName, claudeDir, controlUrl, waitTimeoutMs, waitForStop }) => {
+      assertConfiguredTeam(teamName, claudeDir);
+      return jsonTextContent(
         await getController(teamName, claudeDir).runtime.stopTeam({
           ...(controlUrl ? { controlUrl } : {}),
           ...(waitTimeoutMs ? { waitTimeoutMs } : {}),
           ...(waitForStop !== undefined ? { waitForStop } : {}),
         })
-      ),
+      );
+    },
   });
 
   server.addTool({
@@ -112,8 +117,9 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
       observedAt,
       diagnostics,
       metadata,
-    }) =>
-      jsonTextContent(
+    }) => {
+      assertConfiguredTeam(teamName, claudeDir);
+      return jsonTextContent(
         await getController(teamName, claudeDir).runtime.runtimeBootstrapCheckin({
           runId,
           memberName,
@@ -124,12 +130,14 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
           ...(controlUrl ? { controlUrl } : {}),
           ...(waitTimeoutMs ? { waitTimeoutMs } : {}),
         })
-      ),
+      );
+    },
   });
 
   server.addTool({
     name: 'runtime_deliver_message',
-    description: 'Deliver an OpenCode runtime message to the app-owned team journal and destination',
+    description:
+      'Low-level OpenCode runtime delivery journal tool. Use only when the runtime/app prompt explicitly provides runId, runtimeSessionId, idempotencyKey, and asks for runtime delivery. For normal visible replies, use message_send.',
     parameters: z.object({
       ...toolContextSchema,
       idempotencyKey: z.string().min(1),
@@ -156,8 +164,9 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
       createdAt,
       summary,
       taskRefs,
-    }) =>
-      jsonTextContent(
+    }) => {
+      assertConfiguredTeam(teamName, claudeDir);
+      return jsonTextContent(
         await getController(teamName, claudeDir).runtime.runtimeDeliverMessage({
           idempotencyKey,
           runId,
@@ -171,7 +180,8 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
           ...(controlUrl ? { controlUrl } : {}),
           ...(waitTimeoutMs ? { waitTimeoutMs } : {}),
         })
-      ),
+      );
+    },
   });
 
   server.addTool({
@@ -203,8 +213,9 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
       createdAt,
       summary,
       metadata,
-    }) =>
-      jsonTextContent(
+    }) => {
+      assertConfiguredTeam(teamName, claudeDir);
+      return jsonTextContent(
         await getController(teamName, claudeDir).runtime.runtimeTaskEvent({
           idempotencyKey,
           runId,
@@ -218,7 +229,8 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
           ...(controlUrl ? { controlUrl } : {}),
           ...(waitTimeoutMs ? { waitTimeoutMs } : {}),
         })
-      ),
+      );
+    },
   });
 
   server.addTool({
@@ -241,8 +253,9 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
       observedAt,
       status,
       metadata,
-    }) =>
-      jsonTextContent(
+    }) => {
+      assertConfiguredTeam(teamName, claudeDir);
+      return jsonTextContent(
         await getController(teamName, claudeDir).runtime.runtimeHeartbeat({
           runId,
           memberName,
@@ -253,6 +266,7 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
           ...(controlUrl ? { controlUrl } : {}),
           ...(waitTimeoutMs ? { waitTimeoutMs } : {}),
         })
-      ),
+      );
+    },
   });
 }

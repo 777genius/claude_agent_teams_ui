@@ -1,5 +1,6 @@
-import {
-  OpenCodeTaskLogAttributionStore,
+import { OpenCodeTaskLogAttributionStore } from './OpenCodeTaskLogAttributionStore';
+
+import type {
   OpenCodeTaskLogAttributionRecord,
   OpenCodeTaskLogAttributionScope,
   OpenCodeTaskLogAttributionSource,

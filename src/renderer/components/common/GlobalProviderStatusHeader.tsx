@@ -228,8 +228,7 @@ export const GlobalProviderStatusHeader = (): React.JSX.Element | null => {
     !isElectron ||
     isDashboardFocused ||
     !multimodelEnabled ||
-    !effectiveCliStatus ||
-    effectiveCliStatus.flavor !== 'agent_teams_orchestrator' ||
+    effectiveCliStatus?.flavor !== 'agent_teams_orchestrator' ||
     !effectiveCliStatus.installed ||
     displayProviderIds.length === 0
   ) {

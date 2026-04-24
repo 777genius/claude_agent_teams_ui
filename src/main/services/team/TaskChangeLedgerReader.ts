@@ -1,10 +1,9 @@
+import { createLogger } from '@shared/utils/logger';
+import { isWindowsishPath, normalizePathForComparison } from '@shared/utils/platformPath';
 import { createHash } from 'crypto';
 import { diffLines } from 'diff';
 import { open, readFile } from 'fs/promises';
 import * as path from 'path';
-
-import { normalizePathForComparison } from '@shared/utils/platformPath';
-import { createLogger } from '@shared/utils/logger';
 
 import type {
   FileChangeSummary,
@@ -64,6 +63,16 @@ function taskArtifactPathCandidates(
   return taskIdArtifactSegments(taskId).map((segment) =>
     path.join(projectDir, dirName, `${segment}${fileSuffix}`)
   );
+}
+
+function decodeLedgerTextBlob(buffer: Buffer): string | null {
+  for (const byte of buffer) {
+    if (byte === 0 || byte < 9 || (byte > 13 && byte < 32)) {
+      return null;
+    }
+  }
+  const text = buffer.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(buffer) ? text : null;
 }
 
 type LedgerConfidence = 'exact' | 'high' | 'medium' | 'low' | 'ambiguous';
@@ -191,7 +200,7 @@ interface LedgerSummaryScopeV2 {
   toolUseIds: string[];
   toolUseCount: number;
   toolUseIdsTruncated?: boolean;
-  phaseSet: Array<'work' | 'review'>;
+  phaseSet: ('work' | 'review')[];
   executionSeqRange?: { start: number; end: number };
   confidenceBreakdown?: TaskChangeScope['confidenceBreakdown'];
   visibleFileCount: number;
@@ -270,23 +279,23 @@ interface LedgerFreshnessV2 {
   bundleKind: 'summary';
 }
 
-type JournalReadResult<T> = {
+interface JournalReadResult<T> {
   entries: T[];
   recovered: boolean;
-};
+}
 
-type JournalData = {
+interface JournalData {
   events: LedgerEvent[];
   notices: LedgerNotice[];
   recovered: boolean;
-};
+}
 
-type SummaryBundleRead = {
+interface SummaryBundleRead {
   bundle: LedgerSummaryBundleV2;
   provenance: TaskChangeProvenance;
   mode: 'validated' | 'degraded';
   degradedWarning?: string;
-};
+}
 
 export class TaskChangeLedgerReader {
   async readTaskChanges(params: {
@@ -1060,10 +1069,10 @@ export class TaskChangeLedgerReader {
       return null;
     }
     try {
-      return await readFile(
-        path.join(projectDir, TASK_CHANGE_LEDGER_DIRNAME, 'blobs', ref.blobRef),
-        'utf8'
+      const buffer = await readFile(
+        path.join(projectDir, TASK_CHANGE_LEDGER_DIRNAME, 'blobs', ref.blobRef)
       );
+      return decodeLedgerTextBlob(buffer);
     } catch {
       return null;
     }
@@ -1198,6 +1207,14 @@ export class TaskChangeLedgerReader {
       }
       const displayPath = this.resolveGroupedDisplayPath(entry.filePath, relation, entry.snippets);
       const worktreeLedger = entry.snippets.find((snippet) => snippet.ledger?.worktreePath)?.ledger;
+      const firstLedger = entry.snippets.find((snippet) => snippet.ledger)?.ledger;
+      const lastLedger = [...entry.snippets].reverse().find((snippet) => snippet.ledger)?.ledger;
+      const baselineExists = firstLedger?.beforeState?.exists;
+      const finalExists = lastLedger?.afterState?.exists;
+      const isCreatedLifecycle = baselineExists === false && finalExists === true;
+      const fallbackIsCreated = entry.snippets.some(
+        (snippet) => snippet.type === 'write-new' || snippet.ledger?.operation === 'create'
+      );
       files.push({
         filePath: displayPath,
         relativePath: this.relativePath(displayPath, projectPath),
@@ -1206,9 +1223,9 @@ export class TaskChangeLedgerReader {
         linesRemoved,
         isNewFile:
           relation?.kind !== 'rename' &&
-          entry.snippets.some(
-            (snippet) => snippet.type === 'write-new' || snippet.ledger?.operation === 'create'
-          ),
+          (baselineExists === undefined || finalExists === undefined
+            ? fallbackIsCreated
+            : isCreatedLifecycle),
         changeKey: relation
           ? this.relationChangeKey(relation, worktreeLedger?.worktreePath)
           : `path:${normalizePathForComparison(displayPath)}`,
@@ -1428,8 +1445,13 @@ export class TaskChangeLedgerReader {
   }
 
   private pathMatchesRelationPath(filePath: string, relationPath: string): boolean {
-    const normalizedFilePath = filePath.replace(/\\/g, '/');
-    const normalizedRelationPath = relationPath.replace(/\\/g, '/');
+    const caseInsensitive =
+      this.isWindowsReviewPath(filePath) || this.isWindowsReviewPath(relationPath);
+    const normalizedFilePath = this.normalizeRelationComparisonPath(filePath, caseInsensitive);
+    const normalizedRelationPath = this.normalizeRelationComparisonPath(
+      relationPath,
+      caseInsensitive
+    );
     return (
       normalizedFilePath === normalizedRelationPath ||
       normalizedFilePath.endsWith(`/${normalizedRelationPath}`)
@@ -1441,14 +1463,37 @@ export class TaskChangeLedgerReader {
     anchorRelationPath: string,
     targetRelationPath: string
   ): string | null {
-    const normalizedAnchor = anchorPath.replace(/\\/g, '/');
-    const normalizedAnchorRelation = anchorRelationPath.replace(/\\/g, '/');
-    if (!normalizedAnchor.endsWith(normalizedAnchorRelation)) {
+    const slashAnchor = anchorPath.replace(/\\/g, '/');
+    const slashAnchorRelation = anchorRelationPath.replace(/\\/g, '/');
+    const caseInsensitive =
+      this.isWindowsReviewPath(anchorPath) || this.isWindowsReviewPath(anchorRelationPath);
+    const normalizedAnchor = this.normalizeRelationComparisonPath(anchorPath, caseInsensitive);
+    const normalizedAnchorRelation = this.normalizeRelationComparisonPath(
+      anchorRelationPath,
+      caseInsensitive
+    );
+    if (!this.matchesRelationSuffix(normalizedAnchor, normalizedAnchorRelation)) {
       return null;
     }
 
     return this.normalizeLedgerFilePath(
-      `${normalizedAnchor.slice(0, normalizedAnchor.length - normalizedAnchorRelation.length)}${targetRelationPath.replace(/\\/g, '/')}`
+      `${slashAnchor.slice(0, slashAnchor.length - slashAnchorRelation.length)}${targetRelationPath.replace(/\\/g, '/')}`
+    );
+  }
+
+  private normalizeRelationComparisonPath(filePath: string, caseInsensitive: boolean): string {
+    const normalized = normalizePathForComparison(filePath);
+    return caseInsensitive ? normalized.toLowerCase() : normalized;
+  }
+
+  private isWindowsReviewPath(filePath: string): boolean {
+    return isWindowsishPath(filePath) || filePath.includes('\\');
+  }
+
+  private matchesRelationSuffix(normalizedPath: string, normalizedRelationPath: string): boolean {
+    return (
+      normalizedPath === normalizedRelationPath ||
+      normalizedPath.endsWith(`/${normalizedRelationPath}`)
     );
   }
 

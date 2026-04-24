@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to Claude Agent Teams UI!
+Thanks for contributing to Agent Teams!
 
 ## Before You Start
 

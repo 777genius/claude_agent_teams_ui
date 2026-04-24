@@ -1,6 +1,6 @@
 {
   "hero": {
-    "title": "Claude Agent Teams",
+    "title": "Agent Teams",
     "subtitle": "Você é o CTO, os agentes são sua equipe. Eles cuidam das tarefas sozinhos, se comunicam entre si, revisam o código uns dos outros. Você só olha o quadro kanban e toma café."
   },
   "features": [
@@ -38,7 +38,7 @@
   "faq": [
     {
       "id": "whatIsIt",
-      "question": "O que é Claude Agent Teams?",
+      "question": "O que é Agent Teams?",
       "answer": "Um app desktop para orquestrar equipes de agentes IA com nossa própria camada local de coordenação. Os agentes têm papéis, trabalham de forma autônoma, colaboram em um quadro kanban e podem rodar com Anthropic ou Codex."
     },
     {

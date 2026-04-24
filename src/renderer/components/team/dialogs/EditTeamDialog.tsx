@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
+import { MemberDraftRow } from '@renderer/components/team/members/MemberDraftRow';
 import {
   buildMembersFromDrafts,
+  createMemberDraft,
   createMemberDraftsFromInputs,
   filterEditableMemberInputs,
-  createMemberDraft,
   MembersEditorSection,
   validateMemberNameInline,
 } from '@renderer/components/team/members/MembersEditorSection';
-import { MemberDraftRow } from '@renderer/components/team/members/MemberDraftRow';
 import { Button } from '@renderer/components/ui/button';
 import {
   Dialog,
@@ -33,8 +33,8 @@ import { Loader2 } from 'lucide-react';
 
 import {
   buildEditTeamSourceSnapshot,
-  getMemberRuntimeContractKey,
   getLiveRosterIdentityChanges,
+  getMemberRuntimeContractKey,
   getMembersRequiringRuntimeRestart,
 } from './editTeamRuntimeChanges';
 

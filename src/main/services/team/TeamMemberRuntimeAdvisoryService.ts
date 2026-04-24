@@ -34,6 +34,7 @@ const AUTH_ERROR_TOKENS = [
   'does not have access',
   'please run /login',
 ];
+const CODEX_NATIVE_TIMEOUT_TOKENS = ['codex native exec timed out'];
 const NETWORK_ERROR_TOKENS = [
   'timeout',
   'timed out',
@@ -80,6 +81,9 @@ function classifyRetryReason(message: string | undefined): MemberRuntimeAdvisory
   }
   if (includesAnyToken(normalized, AUTH_ERROR_TOKENS)) {
     return 'auth_error';
+  }
+  if (includesAnyToken(normalized, CODEX_NATIVE_TIMEOUT_TOKENS)) {
+    return 'codex_native_timeout';
   }
   if (includesAnyToken(normalized, NETWORK_ERROR_TOKENS)) {
     return 'network_error';
@@ -400,7 +404,7 @@ export class TeamMemberRuntimeAdvisoryService {
         error?: string;
         isApiErrorMessage?: boolean;
         message?: {
-          content?: Array<{ type?: string; text?: string }>;
+          content?: { type?: string; text?: string }[];
         };
       };
 
@@ -435,9 +439,7 @@ export class TeamMemberRuntimeAdvisoryService {
     }
   }
 
-  private extractAssistantText(
-    content: Array<{ type?: string; text?: string }> | undefined
-  ): string {
+  private extractAssistantText(content: { type?: string; text?: string }[] | undefined): string {
     if (!Array.isArray(content)) {
       return '';
     }

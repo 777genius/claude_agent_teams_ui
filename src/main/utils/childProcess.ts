@@ -20,13 +20,23 @@ function execFileAsync(
   options: ExecFileOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, options, (err, stdout, stderr) => {
+    let child: ChildProcess | null = null;
+    let settled = false;
+    const cleanup = (): void => {
+      untrackCliProcess(child);
+    };
+    child = execFile(cmd, args, options, (err, stdout, stderr) => {
+      settled = true;
+      cleanup();
       if (err)
         reject(
           err instanceof Error ? err : new Error(typeof err === 'string' ? err : 'Unknown error')
         );
       else resolve({ stdout: String(stdout), stderr: String(stderr) });
     });
+    if (!settled) {
+      trackCliProcess(child);
+    }
   });
 }
 
@@ -40,14 +50,24 @@ function execShellAsync(
   options: ExecOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
+    let child: ChildProcess | null = null;
+    let settled = false;
+    const cleanup = (): void => {
+      untrackCliProcess(child);
+    };
     // eslint-disable-next-line sonarjs/os-command, security/detect-child-process -- cmd from known binaryPath+args, not user input (Windows EINVAL fallback)
-    exec(cmd, options, (err, stdout, stderr) => {
+    child = exec(cmd, options, (err, stdout, stderr) => {
+      settled = true;
+      cleanup();
       if (err)
         reject(
           err instanceof Error ? err : new Error(typeof err === 'string' ? err : 'Unknown error')
         );
       else resolve({ stdout: String(stdout), stderr: String(stderr) });
     });
+    if (!settled) {
+      trackCliProcess(child);
+    }
   });
 }
 
@@ -93,6 +113,35 @@ function quoteArg(arg: string): string {
 const CLI_ENV_DEFAULTS: Record<string, string> = {
   CLAUDE_HOOK_JUDGE_MODE: 'true',
 };
+
+const activeCliProcesses = new Set<ChildProcess>();
+
+function untrackCliProcess(child: ChildProcess | null): void {
+  if (child) {
+    activeCliProcesses.delete(child);
+  }
+}
+
+function trackCliProcess<T extends ChildProcess>(child: T): T {
+  activeCliProcesses.add(child);
+  const cleanup = (): void => {
+    activeCliProcesses.delete(child);
+  };
+  child.once?.('exit', cleanup);
+  child.once?.('close', cleanup);
+  child.once?.('error', cleanup);
+  return child;
+}
+
+export function killTrackedCliProcesses(signal: NodeJS.Signals = 'SIGKILL'): void {
+  for (const child of Array.from(activeCliProcesses)) {
+    try {
+      killProcessTree(child, signal);
+    } catch {
+      // Best effort during shutdown.
+    }
+  }
+}
 
 /** Merge CLI_ENV_DEFAULTS into spawn/exec options.env (or process.env if absent). */
 function withCliEnv<T extends { env?: NodeJS.ProcessEnv | Record<string, string | undefined> }>(
@@ -164,18 +213,18 @@ export function spawnCli(
   if (process.platform === 'win32' && needsShell(binaryPath)) {
     const cmd = [binaryPath, ...args].map(quoteArg).join(' ');
     // eslint-disable-next-line sonarjs/os-command -- cmd from known binaryPath+args, not user input (Windows EINVAL fallback)
-    return spawn(cmd, { ...opts, shell: true });
+    return trackCliProcess(spawn(cmd, { ...opts, shell: true }));
   }
 
   try {
-    return spawn(binaryPath, args, opts);
+    return trackCliProcess(spawn(binaryPath, args, opts));
   } catch (err: unknown) {
     const code =
       err && typeof err === 'object' && 'code' in err ? (err as { code?: string }).code : undefined;
     if (process.platform === 'win32' && code === 'EINVAL') {
       const cmd = [binaryPath, ...args].map(quoteArg).join(' ');
       // eslint-disable-next-line sonarjs/os-command -- cmd from known binaryPath+args, not user input (Windows EINVAL fallback)
-      return spawn(cmd, { ...opts, shell: true });
+      return trackCliProcess(spawn(cmd, { ...opts, shell: true }));
     }
     throw err;
   }

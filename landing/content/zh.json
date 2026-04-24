@@ -1,6 +1,6 @@
 {
   "hero": {
-    "title": "Claude Agent Teams",
+    "title": "Agent Teams",
     "subtitle": "你是 CTO，智能体是你的团队。它们自己处理任务、互相沟通、审查彼此的代码。你只需看着看板喝咖啡。"
   },
   "features": [
@@ -38,7 +38,7 @@
   "faq": [
     {
       "id": "whatIsIt",
-      "question": "什么是 Claude Agent Teams？",
+      "question": "什么是 Agent Teams？",
       "answer": "一个桌面应用，通过我们自己的本地协调层来编排 AI 智能体团队。每个智能体都有角色，可自主工作，在看板上协作，并且可以运行在 Anthropic 或 Codex 上。"
     },
     {

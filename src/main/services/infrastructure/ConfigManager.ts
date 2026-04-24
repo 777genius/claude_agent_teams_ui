@@ -1,5 +1,5 @@
 /**
- * ConfigManager service - Manages app configuration stored at ~/.claude/claude-devtools-config.json.
+ * ConfigManager service - Manages app configuration stored at ~/.claude/agent-teams-config.json.
  *
  * Responsibilities:
  * - Load configuration from disk on initialization
@@ -25,10 +25,51 @@ import type { SshConnectionProfile } from '@shared/types/api';
 
 const logger = createLogger('Service:ConfigManager');
 
-const CONFIG_FILENAME = 'claude-devtools-config.json';
+const CONFIG_FILENAME = 'agent-teams-config.json';
+const LEGACY_CONFIG_FILENAMES = [
+  'claude-devtools-config.json',
+  'claude-code-context-config.json',
+] as const;
 
 function getDefaultConfigPath(): string {
-  return path.join(getClaudeBasePath(), CONFIG_FILENAME);
+  const basePath = getClaudeBasePath();
+  return migrateLegacyConfigPath(
+    path.join(basePath, CONFIG_FILENAME),
+    LEGACY_CONFIG_FILENAMES.map((filename) => path.join(basePath, filename))
+  );
+}
+
+function migrateLegacyConfigPath(currentPath: string, legacyPaths: string[]): string {
+  if (fs.existsSync(currentPath)) {
+    return currentPath;
+  }
+
+  const legacyPath = selectLegacyConfigPath(legacyPaths);
+  if (!legacyPath) {
+    return currentPath;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(currentPath), { recursive: true });
+    fs.copyFileSync(legacyPath, currentPath, fs.constants.COPYFILE_EXCL);
+    return currentPath;
+  } catch {
+    return fs.existsSync(currentPath) ? currentPath : legacyPath;
+  }
+}
+
+function selectLegacyConfigPath(legacyPaths: string[]): string | null {
+  const existingPaths = legacyPaths.filter((candidatePath) => fs.existsSync(candidatePath));
+  return existingPaths.find(isReadableJsonObjectFile) ?? existingPaths[0] ?? null;
+}
+
+function isReadableJsonObjectFile(filePath: string): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
 }
 
 // ===========================================================================
@@ -529,6 +570,7 @@ export class ConfigManager {
       ...DEFAULT_CONFIG.general,
       ...(loaded.general ?? {}),
     };
+    mergedGeneral.multimodelEnabled = true;
     mergedGeneral.claudeRootPath = normalizeConfiguredClaudeRootPath(mergedGeneral.claudeRootPath);
 
     // Merge triggers: preserve existing triggers, add missing builtin ones

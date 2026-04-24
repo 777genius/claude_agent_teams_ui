@@ -15,7 +15,9 @@ vi.mock('child_process', async (importOriginal) => {
 
 // Import after the mock call so that the mocked module is returned.
 import * as child from 'child_process';
-import { spawnCli, execCli } from '@main/utils/childProcess';
+import { execCli, killTrackedCliProcesses, spawnCli } from '@main/utils/childProcess';
+
+type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
 // Helper to temporarily override process.platform
 function setPlatform(value: string) {
@@ -47,7 +49,10 @@ describe('cli child process helpers', () => {
       expect(child.spawn).toHaveBeenCalledWith(
         'C:\\bin\\claude.exe',
         ['--version'],
-        expect.objectContaining({ cwd: 'x', env: expect.objectContaining({ CLAUDE_HOOK_JUDGE_MODE: 'true' }) })
+        expect.objectContaining({
+          cwd: 'x',
+          env: expect.objectContaining({ CLAUDE_HOOK_JUDGE_MODE: 'true' }),
+        })
       );
       expect(result).toEqual({} as any);
     });
@@ -98,9 +103,48 @@ describe('cli child process helpers', () => {
       expect(child.spawn).toHaveBeenCalledWith(
         '/usr/bin/claude',
         ['--help'],
-        expect.objectContaining({ env: expect.objectContaining({ CLAUDE_HOOK_JUDGE_MODE: 'true' }) })
+        expect.objectContaining({
+          env: expect.objectContaining({ CLAUDE_HOOK_JUDGE_MODE: 'true' }),
+        })
       );
       expect(result).toEqual({} as any);
+    });
+
+    it('kills tracked CLI processes on shutdown', () => {
+      setPlatform('linux');
+      const fakeChild = {
+        pid: 123,
+        kill: vi.fn(),
+        once: vi.fn(function once() {
+          return fakeChild;
+        }),
+      };
+      (child.spawn as unknown as Mock).mockReturnValue(fakeChild);
+
+      spawnCli('/usr/bin/claude', ['--version']);
+      killTrackedCliProcesses('SIGTERM');
+
+      expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
+    });
+
+    it('untracks CLI processes after close', () => {
+      setPlatform('linux');
+      const registeredHandlers = new Map<string, () => void>();
+      const fakeChild = {
+        pid: 456,
+        kill: vi.fn(),
+        once: vi.fn(function once(event: string, handler: () => void) {
+          registeredHandlers.set(event, handler);
+          return fakeChild;
+        }),
+      };
+      (child.spawn as unknown as Mock).mockReturnValue(fakeChild);
+
+      spawnCli('/usr/bin/claude', ['--version']);
+      registeredHandlers.get('close')?.();
+      killTrackedCliProcesses('SIGTERM');
+
+      expect(fakeChild.kill).not.toHaveBeenCalled();
     });
   });
 
@@ -109,7 +153,7 @@ describe('cli child process helpers', () => {
       setPlatform('win32');
       const execFileMock = child.execFile as unknown as Mock;
       execFileMock.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+        (_cmd: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
           cb(null, 'ok', '');
           return {} as any;
         }
@@ -118,7 +162,9 @@ describe('cli child process helpers', () => {
       expect(execFileMock).toHaveBeenCalledWith(
         'C:\\bin\\claude.exe',
         ['--version'],
-        expect.objectContaining({ env: expect.objectContaining({ CLAUDE_HOOK_JUDGE_MODE: 'true' }) }),
+        expect.objectContaining({
+          env: expect.objectContaining({ CLAUDE_HOOK_JUDGE_MODE: 'true' }),
+        }),
         expect.any(Function)
       );
       expect(result.stdout).toBe('ok');
@@ -128,7 +174,7 @@ describe('cli child process helpers', () => {
       setPlatform('win32');
       const execFileMock = child.execFile as unknown as Mock;
       const execMock = child.exec as unknown as Mock;
-      execMock.mockImplementation((_cmd: string, _opts: unknown, cb: Function) => {
+      execMock.mockImplementation((_cmd: string, _opts: unknown, cb: ExecCallback) => {
         cb(null, '1.2.3', '');
         return {} as any;
       });
@@ -145,7 +191,7 @@ describe('cli child process helpers', () => {
     it('escapes percent signs and quotes for cmd.exe in shell fallback', async () => {
       setPlatform('win32');
       const execMock = child.exec as unknown as Mock;
-      execMock.mockImplementation((_cmd: string, _opts: unknown, cb: Function) => {
+      execMock.mockImplementation((_cmd: string, _opts: unknown, cb: ExecCallback) => {
         cb(null, 'ok', '');
         return {} as any;
       });
@@ -174,15 +220,15 @@ describe('cli child process helpers', () => {
       setPlatform('win32');
       const execFileMock = child.execFile as unknown as Mock;
       execFileMock.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-          const err: any = new Error('spawn EINVAL');
+        (_cmd: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
+          const err = new Error('spawn EINVAL') as Error & { code?: string };
           err.code = 'EINVAL';
           cb(err, '', '');
           return {} as any;
         }
       );
       const execMock = child.exec as unknown as Mock;
-      execMock.mockImplementation((_cmd: string, _opts: unknown, cb: Function) => {
+      execMock.mockImplementation((_cmd: string, _opts: unknown, cb: ExecCallback) => {
         cb(null, '2.3.4', '');
         return {} as any;
       });

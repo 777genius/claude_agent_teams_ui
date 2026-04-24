@@ -6,6 +6,7 @@ export type OpenCodeBridgeCommandName =
   | 'opencode.handshake'
   | 'opencode.commandStatus'
   | 'opencode.readiness'
+  | 'opencode.cleanupHosts'
   | 'opencode.launchTeam'
   | 'opencode.reconcileTeam'
   | 'opencode.stopTeam'
@@ -14,8 +15,6 @@ export type OpenCodeBridgeCommandName =
   | 'opencode.listRuntimePermissions'
   | 'opencode.getRuntimeTranscript'
   | 'opencode.recoverDeliveryJournal';
-
-export type OpenCodeTeamLaunchMode = 'disabled' | 'dogfood' | 'production';
 
 export type OpenCodeTeamLaunchBridgeState =
   | 'blocked'
@@ -48,7 +47,6 @@ export interface OpenCodeTeamLaunchMemberCommandSpec {
 }
 
 export interface OpenCodeLaunchTeamCommandBody {
-  mode: OpenCodeTeamLaunchMode;
   runId: string;
   laneId: string;
   teamId: string;
@@ -68,7 +66,7 @@ export interface OpenCodeTeamMemberLaunchCommandData {
   diagnostics?: string[];
   model: string;
   runtimePid?: number;
-  evidence: Array<{ kind: string; observedAt: string }>;
+  evidence: { kind: string; observedAt: string }[];
 }
 
 export interface OpenCodeLaunchTeamCommandData {
@@ -80,7 +78,7 @@ export interface OpenCodeLaunchTeamCommandData {
   idempotencyKey?: string;
   manifestHighWatermark?: number | null;
   runtimeStoreManifestHighWatermark?: number | null;
-  durableCheckpoints?: Array<{ name: string; memberName?: string | null; observedAt: string }>;
+  durableCheckpoints?: { name: string; memberName?: string | null; observedAt: string }[];
 }
 
 export interface OpenCodeReconcileTeamCommandBody {
@@ -92,7 +90,7 @@ export interface OpenCodeReconcileTeamCommandBody {
   expectedCapabilitySnapshotId?: string | null;
   manifestHighWatermark?: number | null;
   reconcileAttemptId?: string;
-  expectedMembers: Array<{ name: string; model: string | null }>;
+  expectedMembers: { name: string; model: string | null }[];
   reason: string;
 }
 
@@ -117,6 +115,36 @@ export interface OpenCodeStopTeamCommandData {
   idempotencyKey?: string;
   manifestHighWatermark?: number | null;
   runtimeStoreManifestHighWatermark?: number | null;
+}
+
+export interface OpenCodeCleanupHostsCommandBody {
+  reason: 'startup' | 'shutdown' | 'manual' | string;
+  mode?: 'stale' | 'force';
+  projectPath?: string;
+  staleAgeMs?: number | null;
+  leaseStaleAgeMs?: number | null;
+}
+
+export interface OpenCodeCleanupHostsCommandData {
+  cleaned: number;
+  remaining: number;
+  hosts: Array<{
+    hostKey: string;
+    projectPath: string;
+    pid: number;
+    port: number;
+    action:
+      | 'disposed'
+      | 'removed_dead'
+      | 'kept_active'
+      | 'kept_leased'
+      | 'kept_recent'
+      | 'kept_filtered'
+      | 'failed';
+    reason: string;
+    leaseCount: number;
+  }>;
+  diagnostics: string[];
 }
 
 export interface OpenCodeSendMessageCommandBody {
@@ -277,6 +305,7 @@ const VALID_COMMANDS: ReadonlySet<OpenCodeBridgeCommandName> = new Set([
   'opencode.handshake',
   'opencode.commandStatus',
   'opencode.readiness',
+  'opencode.cleanupHosts',
   'opencode.launchTeam',
   'opencode.reconcileTeam',
   'opencode.stopTeam',

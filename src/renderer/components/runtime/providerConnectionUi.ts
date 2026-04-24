@@ -221,8 +221,7 @@ export function formatProviderStatusText(provider: CliProviderStatus): string {
 
   if (
     isCodexNativeLane(provider) &&
-    selectedBackendOption &&
-    selectedBackendOption.state &&
+    selectedBackendOption?.state &&
     selectedBackendOption.state !== 'ready'
   ) {
     return (

@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "अभी डाउनलोड करें",
     "ctaPrimary": "{platform} के लिए डाउनलोड करें",
     "ctaSecondary": "तुलना करें",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "सवाल हैं? हमारे पास जवाब हैं",
-    "subtitle": "Claude Agent Teams के बारे में सब कुछ"
+    "subtitle": "Agent Teams के बारे में सब कुछ"
   },
   "comparison": {
     "sectionTitle": "तुलना करें",
@@ -92,7 +92,7 @@
     "learnMore": "और जानें"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "डेवलपर्स के लिए AI एजेंट ऑर्केस्ट्रेशन",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — डेवलपर्स के लिए AI एजेंट ऑर्केस्ट्रेशन",
+    "homeTitle": "Agent Teams - डेवलपर्स के लिए AI एजेंट ऑर्केस्ट्रेशन",
     "homeDescription": "AI एजेंट टीमें बनाने के लिए मुफ़्त, ओपन-सोर्स डेस्कटॉप ऐप। कानबन बोर्ड, कोड रिव्यू, क्रॉस-टीम संचार। पूरी तरह लोकल चलता है।"
   },
   "error": {

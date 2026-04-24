@@ -9,7 +9,7 @@ import type {
 
 describe('CodexModelCatalogAppServerClient', () => {
   it('reads config and paginated model/list in one app-server session', async () => {
-    const requests: Array<{ method: string; params: unknown }> = [];
+    const requests: { method: string; params: unknown }[] = [];
     let sessionCount = 0;
     const session: CodexAppServerSession = {
       initializeResponse: {

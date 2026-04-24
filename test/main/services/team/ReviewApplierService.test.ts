@@ -582,6 +582,322 @@ describe('ReviewApplierService', () => {
     expect(unlink).not.toHaveBeenCalled();
   });
 
+  it('ledger rename reject resolves Windows relation paths case-insensitively', async () => {
+    const fsPromises = await import('fs/promises');
+    const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
+    const writeFile = fsPromises.writeFile as unknown as ReturnType<typeof vi.fn>;
+    const unlink = fsPromises.unlink as unknown as ReturnType<typeof vi.fn>;
+    const mkdir = fsPromises.mkdir as unknown as ReturnType<typeof vi.fn>;
+
+    const newPath = 'C:\\Repo\\SRC\\New.ts';
+    const expectedOldPath = 'C:/Repo/src/OLD.ts';
+    const oldContent = 'old\n';
+    const newContent = 'new\n';
+    readFile.mockImplementation(async (filePath: string) => {
+      if (filePath === newPath) return newContent;
+      if (filePath === expectedOldPath) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      throw new Error(`unexpected read ${filePath}`);
+    });
+    mkdir.mockResolvedValue(undefined);
+    writeFile.mockResolvedValue(undefined);
+    unlink.mockResolvedValue(undefined);
+
+    const { ReviewApplierService } = await import('@main/services/team/ReviewApplierService');
+    const svc = new ReviewApplierService();
+    const relation = { kind: 'rename' as const, oldPath: 'src/OLD.ts', newPath: 'src/NEW.ts' };
+
+    const res = await svc.applyReviewDecisions(
+      {
+        teamName: 'team',
+        decisions: [
+          { filePath: newPath, fileDecision: 'rejected', hunkDecisions: { 0: 'rejected' } },
+        ],
+      },
+      new Map([
+        [
+          newPath,
+          {
+            filePath: newPath,
+            relativePath: 'SRC\\New.ts',
+            snippets: [
+              {
+                toolUseId: 'ledger-1',
+                filePath: newPath,
+                toolName: 'Bash',
+                type: 'shell-snapshot',
+                oldString: '',
+                newString: newContent,
+                replaceAll: false,
+                timestamp: '2026-03-01T10:00:01.000Z',
+                isError: false,
+                ledger: {
+                  eventId: 'event-new',
+                  source: 'ledger-snapshot',
+                  confidence: 'high',
+                  originalFullContent: null,
+                  modifiedFullContent: newContent,
+                  beforeHash: null,
+                  afterHash: sha(newContent),
+                  operation: 'create',
+                  beforeState: { exists: false },
+                  afterState: { exists: true, sha256: sha(newContent) },
+                  relation,
+                },
+              },
+            ],
+            linesAdded: 1,
+            linesRemoved: 1,
+            isNewFile: false,
+            originalFullContent: oldContent,
+            modifiedFullContent: newContent,
+            contentSource: 'ledger-snapshot',
+          },
+        ],
+      ])
+    );
+
+    expect(res).toMatchObject({ applied: 1, conflicts: 0 });
+    expect(mkdir).toHaveBeenCalledWith('C:/Repo/src', { recursive: true });
+    expect(writeFile).toHaveBeenCalledWith(expectedOldPath, oldContent, 'utf8');
+    expect(unlink).toHaveBeenCalledWith(newPath);
+  });
+
+  it('ledger rename reject does not infer related paths from unsafe suffix matches', async () => {
+    const fsPromises = await import('fs/promises');
+    const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
+    const writeFile = fsPromises.writeFile as unknown as ReturnType<typeof vi.fn>;
+    const unlink = fsPromises.unlink as unknown as ReturnType<typeof vi.fn>;
+
+    const newPath = 'C:\\Repo\\src\\renew.ts';
+    const newContent = 'new\n';
+    const relation = { kind: 'rename' as const, oldPath: 'old.ts', newPath: 'new.ts' };
+
+    const { ReviewApplierService } = await import('@main/services/team/ReviewApplierService');
+    const svc = new ReviewApplierService();
+
+    const res = await svc.applyReviewDecisions(
+      {
+        teamName: 'team',
+        decisions: [
+          { filePath: newPath, fileDecision: 'rejected', hunkDecisions: { 0: 'rejected' } },
+        ],
+      },
+      new Map([
+        [
+          newPath,
+          {
+            filePath: newPath,
+            relativePath: 'src\\renew.ts',
+            snippets: [
+              {
+                toolUseId: 'ledger-1',
+                filePath: newPath,
+                toolName: 'Bash',
+                type: 'shell-snapshot',
+                oldString: '',
+                newString: newContent,
+                replaceAll: false,
+                timestamp: '2026-03-01T10:00:01.000Z',
+                isError: false,
+                ledger: {
+                  eventId: 'event-new',
+                  source: 'ledger-snapshot',
+                  confidence: 'high',
+                  originalFullContent: null,
+                  modifiedFullContent: newContent,
+                  beforeHash: null,
+                  afterHash: sha(newContent),
+                  operation: 'create',
+                  beforeState: { exists: false },
+                  afterState: { exists: true, sha256: sha(newContent) },
+                  relation,
+                },
+              },
+            ],
+            linesAdded: 1,
+            linesRemoved: 1,
+            isNewFile: false,
+            originalFullContent: 'old\n',
+            modifiedFullContent: newContent,
+            contentSource: 'ledger-snapshot',
+          },
+        ],
+      ])
+    );
+
+    expect(res.errors[0]?.code).toBe('manual-review-required');
+    expect(readFile).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(unlink).not.toHaveBeenCalled();
+  });
+
+  it('treats delete-then-create on an existing ledger file as modify, not new-file delete', async () => {
+    const fsPromises = await import('fs/promises');
+    const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
+    const writeFile = fsPromises.writeFile as unknown as ReturnType<typeof vi.fn>;
+    const unlink = fsPromises.unlink as unknown as ReturnType<typeof vi.fn>;
+
+    const filePath = '/tmp/replaced.ts';
+    const original = 'export const value = 1;\n';
+    const modified = 'export const value = 2;\n';
+    readFile.mockResolvedValue(modified);
+    writeFile.mockResolvedValue(undefined);
+
+    const { ReviewApplierService } = await import('@main/services/team/ReviewApplierService');
+    const svc = new ReviewApplierService();
+
+    const res = await svc.applyReviewDecisions(
+      {
+        teamName: 'team',
+        decisions: [
+          {
+            filePath,
+            fileDecision: 'rejected',
+            hunkDecisions: { 0: 'rejected', 1: 'rejected' },
+          },
+        ],
+      },
+      new Map([
+        [
+          filePath,
+          {
+            filePath,
+            relativePath: 'replaced.ts',
+            snippets: [
+              {
+                toolUseId: 'ledger-delete',
+                filePath,
+                toolName: 'Bash',
+                type: 'shell-snapshot',
+                oldString: original,
+                newString: '',
+                replaceAll: false,
+                timestamp: '2026-03-01T10:00:00.000Z',
+                isError: false,
+                ledger: {
+                  eventId: 'event-delete',
+                  source: 'ledger-snapshot',
+                  confidence: 'high',
+                  originalFullContent: original,
+                  modifiedFullContent: null,
+                  beforeHash: sha(original),
+                  afterHash: null,
+                  operation: 'delete',
+                  beforeState: { exists: true, sha256: sha(original) },
+                  afterState: { exists: false },
+                },
+              },
+              {
+                toolUseId: 'ledger-create',
+                filePath,
+                toolName: 'Bash',
+                type: 'shell-snapshot',
+                oldString: '',
+                newString: modified,
+                replaceAll: false,
+                timestamp: '2026-03-01T10:00:01.000Z',
+                isError: false,
+                ledger: {
+                  eventId: 'event-create',
+                  source: 'ledger-snapshot',
+                  confidence: 'high',
+                  originalFullContent: null,
+                  modifiedFullContent: modified,
+                  beforeHash: null,
+                  afterHash: sha(modified),
+                  operation: 'create',
+                  beforeState: { exists: false },
+                  afterState: { exists: true, sha256: sha(modified) },
+                },
+              },
+            ],
+            linesAdded: 1,
+            linesRemoved: 1,
+            isNewFile: false,
+            originalFullContent: original,
+            modifiedFullContent: modified,
+            contentSource: 'ledger-snapshot',
+          },
+        ],
+      ])
+    );
+
+    expect(res).toMatchObject({ applied: 1, conflicts: 0 });
+    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8');
+    expect(unlink).not.toHaveBeenCalled();
+  });
+
+  it('ledger full modify reject accepts legacy afterHash when afterState hash is absent', async () => {
+    const fsPromises = await import('fs/promises');
+    const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
+    const writeFile = fsPromises.writeFile as unknown as ReturnType<typeof vi.fn>;
+
+    const filePath = '/tmp/legacy-ledger.ts';
+    const original = 'export const value = 1;\n';
+    const modified = 'export const value = 2;\n';
+    readFile.mockResolvedValue(modified);
+    writeFile.mockResolvedValue(undefined);
+
+    const { ReviewApplierService } = await import('@main/services/team/ReviewApplierService');
+    const svc = new ReviewApplierService();
+
+    const res = await svc.applyReviewDecisions(
+      {
+        teamName: 'team',
+        decisions: [
+          {
+            filePath,
+            fileDecision: 'rejected',
+            hunkDecisions: { 0: 'rejected' },
+          },
+        ],
+      },
+      new Map([
+        [
+          filePath,
+          {
+            filePath,
+            relativePath: 'legacy-ledger.ts',
+            snippets: [
+              {
+                toolUseId: 'ledger-1',
+                filePath,
+                toolName: 'Edit',
+                type: 'edit',
+                oldString: original,
+                newString: modified,
+                replaceAll: false,
+                timestamp: '2026-03-01T10:00:00.000Z',
+                isError: false,
+                ledger: {
+                  eventId: 'event-1',
+                  source: 'ledger-exact',
+                  confidence: 'exact',
+                  originalFullContent: original,
+                  modifiedFullContent: modified,
+                  beforeHash: sha(original),
+                  afterHash: sha(modified),
+                  operation: 'modify',
+                  beforeState: { exists: true, sha256: sha(original) },
+                  afterState: { exists: true },
+                },
+              },
+            ],
+            linesAdded: 1,
+            linesRemoved: 1,
+            isNewFile: false,
+            originalFullContent: original,
+            modifiedFullContent: modified,
+            contentSource: 'ledger-exact',
+          },
+        ],
+      ])
+    );
+
+    expect(res).toMatchObject({ applied: 1, conflicts: 0 });
+    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8');
+  });
+
   it('ledger exact partial reject stays in the strict ledger lane and applies inverse hunk patch', async () => {
     const fsPromises = await import('fs/promises');
     const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;

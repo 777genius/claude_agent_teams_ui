@@ -24,12 +24,24 @@ export function getTeamLaunchSummaryPath(teamName: string): string {
   return path.join(getTeamsBasePath(), teamName, TEAM_LAUNCH_SUMMARY_FILE);
 }
 
-async function isMissingTeamDirectoryWriteRace(teamName: string, error: unknown): Promise<boolean> {
-  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+async function isMissingTeamDirectoryWriteRace(
+  targetPath: string,
+  error: unknown
+): Promise<boolean> {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code !== 'ENOENT' && code !== 'EINVAL') {
     return false;
   }
+  const targetDir = path.dirname(targetPath);
+  const errorPaths = [
+    (error as NodeJS.ErrnoException).path,
+    (error as NodeJS.ErrnoException & { dest?: string }).dest,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+  if (code === 'ENOENT' && errorPaths.some((errorPath) => path.dirname(errorPath) === targetDir)) {
+    return true;
+  }
   try {
-    await fs.promises.access(path.dirname(getTeamLaunchStatePath(teamName)));
+    await fs.promises.access(targetDir);
     return false;
   } catch {
     return true;
@@ -52,17 +64,16 @@ export class TeamLaunchStateStore {
   }
 
   async write(teamName: string, snapshot: PersistedTeamLaunchSnapshot): Promise<void> {
+    const launchStatePath = getTeamLaunchStatePath(teamName);
+    const launchSummaryPath = getTeamLaunchSummaryPath(teamName);
     try {
+      await atomicWriteAsync(launchStatePath, `${JSON.stringify(snapshot, null, 2)}\n`);
       await atomicWriteAsync(
-        getTeamLaunchStatePath(teamName),
-        `${JSON.stringify(snapshot, null, 2)}\n`
-      );
-      await atomicWriteAsync(
-        getTeamLaunchSummaryPath(teamName),
+        launchSummaryPath,
         `${JSON.stringify(createPersistedLaunchSummaryProjection(snapshot), null, 2)}\n`
       );
     } catch (error) {
-      if (await isMissingTeamDirectoryWriteRace(teamName, error)) {
+      if (await isMissingTeamDirectoryWriteRace(launchStatePath, error)) {
         return;
       }
       logger.warn(

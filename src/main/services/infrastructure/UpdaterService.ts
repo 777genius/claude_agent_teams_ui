@@ -21,8 +21,8 @@ const { autoUpdater } = electronUpdater;
 import { app, net } from 'electron';
 
 import {
-  getExpectedReleaseAssetUrl,
-  getLatestMacMetadataUrl,
+  getExpectedReleaseAssetUrls,
+  getLatestMacMetadataUrls,
   isLatestMacMetadataCompatible,
 } from './updaterReleaseMetadata';
 
@@ -44,6 +44,15 @@ async function assetExists(url: string): Promise<boolean> {
   }
 }
 
+async function assetExistsInAnyRepo(urls: readonly string[]): Promise<boolean> {
+  for (const url of urls) {
+    if (await assetExists(url)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function fetchText(url: string): Promise<string | null> {
   try {
     const response = await net.fetch(url, { method: 'GET' });
@@ -60,6 +69,7 @@ export class UpdaterService {
   private mainWindow: BrowserWindow | null = null;
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
   private downloadedVersion: string | null = null;
+  private beforeQuitAndInstall: (() => Promise<void>) | null = null;
 
   constructor() {
     autoUpdater.autoDownload = false;
@@ -73,6 +83,10 @@ export class UpdaterService {
    */
   setMainWindow(window: BrowserWindow | null): void {
     this.mainWindow = window;
+  }
+
+  setBeforeQuitAndInstall(handler: (() => Promise<void>) | null): void {
+    this.beforeQuitAndInstall = handler;
   }
 
   /**
@@ -104,7 +118,7 @@ export class UpdaterService {
    * On Windows (NSIS): isSilent=true runs the installer with /S (no wizard);
    * isForceRunAfter=true launches the app after install. Other platforms ignore these.
    */
-  quitAndInstall(): void {
+  async quitAndInstall(): Promise<void> {
     if (!this.downloadedVersion || !this.isNewerThanCurrent(this.downloadedVersion)) {
       logger.warn(
         `Refusing to install non-newer update. current=${app.getVersion()} downloaded=${this.downloadedVersion ?? 'unknown'}`
@@ -116,6 +130,7 @@ export class UpdaterService {
       return;
     }
 
+    await this.beforeQuitAndInstall?.();
     autoUpdater.quitAndInstall(true, true);
   }
 
@@ -156,14 +171,16 @@ export class UpdaterService {
       return false;
     }
 
-    const metadataUrl = getLatestMacMetadataUrl(version);
-    const metadataText = await fetchText(metadataUrl);
-    if (!metadataText) {
-      logger.warn(`latest-mac.yml is not available for ${version} (${metadataUrl})`);
-      return false;
+    const metadataUrls = getLatestMacMetadataUrls(version);
+    for (const metadataUrl of metadataUrls) {
+      const metadataText = await fetchText(metadataUrl);
+      if (metadataText && isLatestMacMetadataCompatible(metadataText, version, process.arch)) {
+        return true;
+      }
     }
 
-    return isLatestMacMetadataCompatible(metadataText, version, process.arch);
+    logger.warn(`latest-mac.yml is not compatible or available for ${version}`);
+    return false;
   }
 
   /**
@@ -182,12 +199,12 @@ export class UpdaterService {
       return;
     }
 
-    const url = getExpectedReleaseAssetUrl(info.version, process.platform, process.arch);
-    if (url) {
-      const exists = await assetExists(url);
+    const urls = getExpectedReleaseAssetUrls(info.version, process.platform, process.arch);
+    if (urls.length > 0) {
+      const exists = await assetExistsInAnyRepo(urls);
       if (!exists) {
         logger.warn(
-          `Asset not yet available for ${process.platform}/${process.arch}, suppressing update notification (${url})`
+          `Asset not yet available for ${process.platform}/${process.arch}, suppressing update notification`
         );
         return;
       }

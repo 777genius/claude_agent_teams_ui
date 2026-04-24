@@ -624,7 +624,7 @@ export class TaskChangeComputer {
         const { added, removed } = countLineChanges(snippet.oldString, snippet.newString);
         return {
           toolUseId: snippet.toolUseId,
-          toolName: snippet.toolName as FileEditEvent['toolName'],
+          toolName: snippet.toolName,
           timestamp: snippet.timestamp,
           summary: this.generateEditSummary(snippet),
           linesAdded: added,

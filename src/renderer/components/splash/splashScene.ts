@@ -1,5 +1,8 @@
+import { PARTICIPANT_AVATAR_URLS } from '@renderer/utils/memberAvatarCatalog';
+
 export interface SplashSceneHandle {
   stop: () => void;
+  ready?: Promise<void>;
 }
 
 export interface SplashSceneOptions {
@@ -24,6 +27,8 @@ interface RobotNode extends Point {
   color: string;
   size: number;
   bob: number;
+  receivePulse: number;
+  avatarUrl: string;
 }
 
 interface TeamNode {
@@ -57,7 +62,10 @@ interface Palette {
 
 const TAU = Math.PI * 2;
 const TEAM_MEMBER_COUNTS = [4, 3, 5] as const;
+const TEAM_MEMBER_OFFSETS = [0, 4, 7] as const;
 const MAX_DPR = 2;
+const avatarCache = new Map<string, HTMLImageElement>();
+const avatarLoading = new Map<string, Promise<HTMLImageElement | null>>();
 
 export function startSplashScene(
   splash: HTMLElement,
@@ -68,6 +76,7 @@ export function startSplashScene(
     return existingScene;
   }
 
+  const ready = preloadAvatarImages();
   const previousCanvas = splash.querySelector<HTMLCanvasElement>('#splash-enhanced-canvas');
   previousCanvas?.remove();
 
@@ -82,6 +91,7 @@ export function startSplashScene(
       stop: () => {
         canvas.remove();
       },
+      ready,
     };
     return emptyHandle;
   }
@@ -147,6 +157,7 @@ export function startSplashScene(
         window.__claudeTeamsSplashEnhancedStartedAt = undefined;
       }
     },
+    ready,
   };
   window.__claudeTeamsSplashScene = handle;
   window.__claudeTeamsSplashEnhancedStartedAt = performance.now();
@@ -171,13 +182,13 @@ function drawScene(
 
   drawAmbientField(ctx, width, height, sceneTime, particles, palette, mobile);
   drawCenterAura(ctx, center, sceneTime, palette, mobile);
-  drawCrossTeamGuides(ctx, teams, center, sceneTime, palette, mobile);
+  drawCrossTeamGuides(ctx, teams, sceneTime, palette);
 
   for (const team of teams) {
     drawTeamHalo(ctx, team, sceneTime, palette);
   }
 
-  drawMessages(ctx, teams, center, sceneTime, palette, mobile);
+  drawMessages(ctx, teams, sceneTime, palette, mobile);
 
   for (const team of teams) {
     drawTeamLinks(ctx, team, palette);
@@ -188,8 +199,6 @@ function drawScene(
       drawRobot(ctx, robot, sceneTime, palette);
     }
   }
-
-  clearCentralContentReserve(ctx, center, mobile);
 }
 
 function resolvePalette(): Palette {
@@ -198,24 +207,24 @@ function resolvePalette(): Palette {
     ? {
         isLight,
         centerGlow: '#4f46e5',
-        teamColors: ['#0284c7', '#059669', '#d97706'],
-        teamLineAlpha: 0.34,
+        teamColors: ['#0369a1', '#047857', '#b45309'],
+        teamLineAlpha: 0.26,
         robotBody: '#eef2ff',
-        robotShade: '#c7d2fe',
+        robotShade: '#dbe4ff',
         robotEye: '#ffffff',
-        messageAccent: '#db2777',
+        messageAccent: '#7c3aed',
         particle: '#312e81',
       }
     : {
         isLight,
-        centerGlow: '#818cf8',
-        teamColors: ['#38bdf8', '#34d399', '#f59e0b'],
-        teamLineAlpha: 0.42,
-        robotBody: '#111827',
-        robotShade: '#27324a',
-        robotEye: '#e0f2fe',
-        messageAccent: '#f472b6',
-        particle: '#c4b5fd',
+        centerGlow: '#7c83f7',
+        teamColors: ['#24a8d8', '#23b488', '#d58a19'],
+        teamLineAlpha: 0.28,
+        robotBody: '#0f1724',
+        robotShade: '#1a2438',
+        robotEye: '#d8f3ff',
+        messageAccent: '#8b5cf6',
+        particle: '#a6a4d6',
       };
 }
 
@@ -234,31 +243,31 @@ function buildTeams(
   palette: Palette
 ): TeamNode[] {
   const center = getCenter(width, height, mobile);
-  const spreadX = mobile ? Math.min(width * 0.3, 126) : Math.min(width * 0.26, 320);
-  const spreadY = mobile ? Math.min(height * 0.17, 132) : Math.min(height * 0.19, 190);
+  const spreadX = mobile ? Math.min(width * 0.36, 148) : Math.min(width * 0.34, 380);
+  const spreadY = mobile ? Math.min(height * 0.22, 154) : Math.min(height * 0.22, 220);
   const teamRadius = mobile
-    ? clamp(Math.min(width, height) * 0.09, 30, 40)
-    : clamp(Math.min(width, height) * 0.075, 44, 62);
-  const robotSize = mobile ? 11 : 14;
+    ? clamp(Math.min(width, height) * 0.092, 31, 42)
+    : clamp(Math.min(width, height) * 0.072, 42, 62);
+  const robotSize = mobile ? 9.8 : 11.8;
   const centers: Point[] = [
     {
       x: center.x - spreadX,
-      y: center.y - spreadY * (mobile ? 0.6 : 0.45),
+      y: center.y - spreadY * (mobile ? 0.66 : 0.58),
     },
     {
       x: center.x + spreadX,
-      y: center.y - spreadY * (mobile ? 0.6 : 0.45),
+      y: center.y - spreadY * (mobile ? 0.66 : 0.58),
     },
     {
       x: center.x,
-      y: center.y + spreadY * (mobile ? 1.22 : 0.95),
+      y: center.y + spreadY * (mobile ? 1.34 : 1.18),
     },
   ];
 
   return centers.map((teamCenter, teamIndex) => {
-    const drift = Math.sin(time * 0.75 + teamIndex * 1.7) * (mobile ? 3 : 6);
+    const drift = Math.sin(time * 0.75 + teamIndex * 1.7) * (mobile ? 2.2 : 4.2);
     const centerWithDrift = {
-      x: teamCenter.x + Math.cos(teamIndex * 2.1 + time * 0.35) * (mobile ? 2 : 4),
+      x: teamCenter.x + Math.cos(teamIndex * 2.1 + time * 0.35) * (mobile ? 1.4 : 2.8),
       y: teamCenter.y + drift,
     };
     const color = palette.teamColors[teamIndex % palette.teamColors.length] ?? palette.centerGlow;
@@ -266,15 +275,19 @@ function buildTeams(
     const robots = Array.from({ length: memberCount }, (_, robotIndex) => {
       const baseAngle =
         -Math.PI / 2 + robotIndex * (TAU / memberCount) + (teamIndex === 2 ? TAU / 20 : 0);
-      const orbit = baseAngle + Math.sin(time * 0.55 + teamIndex + robotIndex) * 0.1;
+      const orbit = baseAngle + Math.sin(time * 0.55 + teamIndex + robotIndex) * 0.07;
       const orbitRadius =
-        teamRadius * (0.88 + (memberCount > 4 ? 0.08 : 0) + 0.05 * Math.sin(time + robotIndex));
+        teamRadius * (0.94 + (memberCount > 4 ? 0.07 : 0) + 0.03 * Math.sin(time + robotIndex));
       return {
         teamIndex,
         robotIndex,
         color,
         size: memberCount > 4 ? robotSize * 0.88 : robotSize,
         bob: Math.sin(time * 2.2 + teamIndex * 0.8 + robotIndex * 1.1),
+        receivePulse: 0,
+        avatarUrl:
+          PARTICIPANT_AVATAR_URLS[(TEAM_MEMBER_OFFSETS[teamIndex] ?? 0) + robotIndex] ??
+          PARTICIPANT_AVATAR_URLS[0],
         x: centerWithDrift.x + Math.cos(orbit) * orbitRadius,
         y: centerWithDrift.y + Math.sin(orbit) * orbitRadius,
       };
@@ -322,8 +335,8 @@ function drawCenterAura(
 ): void {
   const radius = mobile ? 86 : 128;
   const glow = ctx.createRadialGradient(center.x, center.y, 20, center.x, center.y, radius);
-  glow.addColorStop(0, withAlpha(palette.centerGlow, palette.isLight ? 0.13 : 0.2));
-  glow.addColorStop(0.48, withAlpha(palette.messageAccent, palette.isLight ? 0.07 : 0.11));
+  glow.addColorStop(0, withAlpha(palette.centerGlow, palette.isLight ? 0.1 : 0.14));
+  glow.addColorStop(0.48, withAlpha(palette.messageAccent, palette.isLight ? 0.04 : 0.07));
   glow.addColorStop(1, withAlpha(palette.centerGlow, 0));
   ctx.fillStyle = glow;
   ctx.beginPath();
@@ -333,7 +346,7 @@ function drawCenterAura(
   for (let i = 0; i < 3; i++) {
     const ringRadius = radius * (0.42 + i * 0.18) + Math.sin(time * 1.1 + i) * 3;
     ctx.beginPath();
-    ctx.strokeStyle = withAlpha(palette.centerGlow, 0.1 - i * 0.018);
+    ctx.strokeStyle = withAlpha(palette.centerGlow, 0.07 - i * 0.014);
     ctx.lineWidth = 1;
     ctx.setLineDash([8 + i * 2, 12 + i * 3]);
     ctx.lineDashOffset = -time * (18 + i * 8);
@@ -346,25 +359,20 @@ function drawCenterAura(
 function drawCrossTeamGuides(
   ctx: CanvasRenderingContext2D,
   teams: TeamNode[],
-  center: Point,
   time: number,
-  palette: Palette,
-  mobile: boolean
+  palette: Palette
 ): void {
   for (let i = 0; i < teams.length; i++) {
     const from = teams[i];
     const to = teams[(i + 1) % teams.length];
     if (!from || !to) continue;
-    const anchor = getCrossTeamAnchor(center, i, mobile);
-    const cp1 = mix(from.center, anchor, 0.62);
-    const cp2 = mix(to.center, anchor, 0.62);
     ctx.beginPath();
     ctx.moveTo(from.center.x, from.center.y);
-    ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, to.center.x, to.center.y);
-    ctx.strokeStyle = withAlpha(palette.messageAccent, palette.isLight ? 0.16 : 0.2);
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([2, 13]);
-    ctx.lineDashOffset = -time * 28;
+    ctx.lineTo(to.center.x, to.center.y);
+    ctx.strokeStyle = withAlpha(palette.messageAccent, palette.isLight ? 0.14 : 0.18);
+    ctx.lineWidth = 1.05;
+    ctx.setLineDash([7, 12]);
+    ctx.lineDashOffset = -time * 34;
     ctx.stroke();
   }
   ctx.setLineDash([]);
@@ -387,18 +395,18 @@ function drawTeamHalo(
     team.center.y,
     team.radius * 2
   );
-  glow.addColorStop(0, withAlpha(team.color, palette.isLight ? 0.08 : 0.12));
+  glow.addColorStop(0, withAlpha(team.color, palette.isLight ? 0.045 : 0.065));
   glow.addColorStop(1, withAlpha(team.color, 0));
   ctx.fillStyle = glow;
   ctx.beginPath();
-  ctx.ellipse(team.center.x, team.center.y, team.radius * 2, team.radius * 1.56, 0, 0, TAU);
+  ctx.ellipse(team.center.x, team.center.y, team.radius * 1.82, team.radius * 1.36, 0, 0, TAU);
   ctx.fill();
 
   ctx.beginPath();
   ctx.ellipse(team.center.x, team.center.y, radiusX, radiusY, time * 0.08, 0, TAU);
-  ctx.strokeStyle = withAlpha(team.color, palette.isLight ? 0.28 : 0.34);
-  ctx.lineWidth = 1.25;
-  ctx.setLineDash([10, 8]);
+  ctx.strokeStyle = withAlpha(team.color, palette.isLight ? 0.2 : 0.24);
+  ctx.lineWidth = 1;
+  ctx.setLineDash([12, 10]);
   ctx.lineDashOffset = -time * (22 + team.index * 4);
   ctx.stroke();
   ctx.setLineDash([]);
@@ -423,7 +431,6 @@ function drawTeamLinks(ctx: CanvasRenderingContext2D, team: TeamNode, palette: P
 function drawMessages(
   ctx: CanvasRenderingContext2D,
   teams: TeamNode[],
-  center: Point,
   time: number,
   palette: Palette,
   mobile: boolean
@@ -431,7 +438,7 @@ function drawMessages(
   for (const team of teams) {
     drawLocalMessages(ctx, team, time, palette, mobile);
   }
-  drawCrossTeamMessages(ctx, teams, center, time, palette, mobile);
+  drawCrossTeamMessages(ctx, teams, time, palette, mobile);
 }
 
 function drawLocalMessages(
@@ -451,17 +458,17 @@ function drawLocalMessages(
     const to = team.robots[toIndex];
     if (!from || !to) continue;
     const raw = positiveModulo(time + team.index * 0.7 + pairIndex * 0.36, period) / period;
+    applyReceivePulse(to, getReceivePulse(raw, activeWindow));
     if (raw > activeWindow) continue;
     const progress = easeInOutCubic(raw / activeWindow);
     const curve = makeLocalCurve(from, to, team.center, team.radius * 0.42);
-    drawMessageFlight(ctx, curve, progress, team.color, time, mobile ? 5.5 : 7, palette);
+    drawMessageFlight(ctx, curve, progress, team.color, time, mobile ? 4.6 : 5.8, palette);
   }
 }
 
 function drawCrossTeamMessages(
   ctx: CanvasRenderingContext2D,
   teams: TeamNode[],
-  center: Point,
   time: number,
   palette: Palette,
   mobile: boolean
@@ -469,10 +476,9 @@ function drawCrossTeamMessages(
   const activeWindow = 0.64;
   const period = 4.25;
   const routes = [
-    { fromTeam: 0, fromRobot: 3, toTeam: 1, toRobot: 1, delay: 0, anchor: 0 },
-    { fromTeam: 2, fromRobot: 4, toTeam: 0, toRobot: 1, delay: 0.82, anchor: 2 },
-    { fromTeam: 1, fromRobot: 2, toTeam: 2, toRobot: 0, delay: 1.68, anchor: 1, accent: true },
-    { fromTeam: 0, fromRobot: 0, toTeam: 2, toRobot: 3, delay: 2.54, anchor: 2 },
+    { fromTeam: 0, fromRobot: 3, toTeam: 1, toRobot: 1, delay: 0 },
+    { fromTeam: 1, fromRobot: 2, toTeam: 2, toRobot: 0, delay: 1.34, accent: true },
+    { fromTeam: 2, fromRobot: 4, toTeam: 0, toRobot: 1, delay: 2.68 },
   ];
 
   for (const route of routes) {
@@ -480,20 +486,21 @@ function drawCrossTeamMessages(
     const toTeam = teams[route.toTeam];
     if (!fromTeam || !toTeam) continue;
     const raw = positiveModulo(time + route.delay, period) / period;
-    if (raw > activeWindow) continue;
 
     const from = fromTeam.robots[route.fromRobot % fromTeam.robots.length];
     const to = toTeam.robots[route.toRobot % toTeam.robots.length];
     if (!from || !to) continue;
+    applyReceivePulse(to, getReceivePulse(raw, activeWindow) * 0.88);
+    if (raw > activeWindow) continue;
     const progress = easeInOutCubic(raw / activeWindow);
-    const curve = makeCrossCurve(from, to, center, route.anchor, mobile);
+    const curve = makeStraightCurve(fromTeam.center, toTeam.center);
     drawMessageFlight(
       ctx,
       curve,
       progress,
       route.accent ? palette.messageAccent : fromTeam.color,
       time,
-      mobile ? 6 : 8.5,
+      mobile ? 5.2 : 6.8,
       palette,
       true
     );
@@ -512,21 +519,23 @@ function drawMessageFlight(
 ): void {
   const [p0, p1, p2, p3] = curve;
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(p0.x, p0.y);
-  ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-  ctx.strokeStyle = withAlpha(color, crossTeam ? 0.24 : 0.18);
-  ctx.lineWidth = crossTeam ? 1.25 : 1;
-  ctx.setLineDash(crossTeam ? [8, 10] : [4, 8]);
-  ctx.lineDashOffset = -time * (crossTeam ? 52 : 34);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  if (!crossTeam) {
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+    ctx.strokeStyle = withAlpha(color, 0.12);
+    ctx.lineWidth = 0.85;
+    ctx.setLineDash([4, 8]);
+    ctx.lineDashOffset = -time * 34;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   for (let i = 7; i >= 1; i--) {
     const t = progress - i * 0.036;
     if (t <= 0) continue;
     const point = cubicPoint(p0, p1, p2, p3, t);
-    const alpha = (1 - i / 8) * (palette.isLight ? 0.22 : 0.32);
+    const alpha = (1 - i / 8) * (palette.isLight ? 0.14 : 0.2);
     ctx.fillStyle = withAlpha(color, alpha);
     ctx.beginPath();
     ctx.arc(point.x, point.y, size * (0.18 + i * 0.025), 0, TAU);
@@ -540,6 +549,19 @@ function drawMessageFlight(
   ctx.restore();
 }
 
+function applyReceivePulse(robot: RobotNode, pulse: number): void {
+  robot.receivePulse = Math.max(robot.receivePulse, pulse);
+}
+
+function getReceivePulse(raw: number, activeWindow: number): number {
+  const start = activeWindow * 0.78;
+  const end = Math.min(0.96, activeWindow + 0.11);
+  if (raw < start || raw > end) return 0;
+
+  const phase = (raw - start) / (end - start);
+  return Math.sin(phase * Math.PI) * (1 - phase * 0.28);
+}
+
 function drawMessageBubble(
   ctx: CanvasRenderingContext2D,
   position: Point,
@@ -551,20 +573,20 @@ function drawMessageBubble(
 ): void {
   ctx.save();
   ctx.translate(position.x, position.y);
-  ctx.rotate(angle * 0.14);
-  ctx.shadowColor = withAlpha(color, palette.isLight ? 0.22 : 0.5);
-  ctx.shadowBlur = crossTeam ? 18 : 12;
+  ctx.rotate(angle * 0.08);
+  ctx.shadowColor = withAlpha(color, palette.isLight ? 0.16 : 0.3);
+  ctx.shadowBlur = crossTeam ? 12 : 8;
 
-  const width = size * (crossTeam ? 2.5 : 2.25);
-  const height = size * 1.62;
-  roundRectPath(ctx, -width / 2, -height / 2, width, height, size * 0.45);
-  ctx.fillStyle = color;
+  const width = size * (crossTeam ? 2.28 : 2.06);
+  const height = size * 1.42;
+  roundRectPath(ctx, -width / 2, -height / 2, width, height, size * 0.28);
+  ctx.fillStyle = withAlpha(color, palette.isLight ? 0.82 : 0.9);
   ctx.fill();
 
   ctx.beginPath();
   ctx.moveTo(-width * 0.24, height * 0.42);
-  ctx.lineTo(-width * 0.36, height * 0.78);
-  ctx.lineTo(-width * 0.05, height * 0.44);
+  ctx.lineTo(-width * 0.32, height * 0.68);
+  ctx.lineTo(-width * 0.03, height * 0.42);
   ctx.closePath();
   ctx.fill();
 
@@ -572,7 +594,7 @@ function drawMessageBubble(
   ctx.fillStyle = palette.robotEye;
   for (let i = -1; i <= 1; i++) {
     ctx.beginPath();
-    ctx.arc(i * size * 0.43, -size * 0.02, size * 0.12, 0, TAU);
+    ctx.arc(i * size * 0.4, -size * 0.02, size * 0.095, 0, TAU);
     ctx.fill();
   }
   ctx.restore();
@@ -586,61 +608,101 @@ function drawRobot(
 ): void {
   const size = robot.size;
   const x = robot.x;
-  const y = robot.y + robot.bob * 1.6;
-  const tilt = Math.sin(time * 1.5 + robot.teamIndex + robot.robotIndex * 0.8) * 0.08;
+  const y = robot.y + robot.bob * 0.9 - robot.receivePulse * size * 0.24;
+  const tilt = Math.sin(time * 1.5 + robot.teamIndex + robot.robotIndex * 0.8) * 0.045;
+  const img = getAvatarImage(robot.avatarUrl);
+  const avatarSize = size * 2.65;
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(tilt);
-  ctx.shadowColor = withAlpha(robot.color, palette.isLight ? 0.2 : 0.42);
-  ctx.shadowBlur = size * 1.6;
+  ctx.scale(1 + robot.receivePulse * 0.065, 1 + robot.receivePulse * 0.065);
+  ctx.shadowColor = withAlpha(robot.color, palette.isLight ? 0.2 : 0.34);
+  ctx.shadowBlur = size * (1.25 + robot.receivePulse * 0.72);
 
-  ctx.strokeStyle = withAlpha(robot.color, palette.isLight ? 0.64 : 0.82);
-  ctx.lineWidth = Math.max(1, size * 0.11);
+  if (img) {
+    ctx.globalAlpha = palette.isLight ? 0.92 : 0.86;
+    ctx.drawImage(img, -avatarSize / 2, -avatarSize / 2, avatarSize, avatarSize);
+    ctx.globalAlpha = 1;
+  } else {
+    drawAvatarFallback(ctx, size, robot.color, palette);
+  }
+  ctx.restore();
+}
+
+function getAvatarImage(url: string): HTMLImageElement | null {
+  const cached = avatarCache.get(url);
+  if (cached) {
+    avatarCache.delete(url);
+    avatarCache.set(url, cached);
+    return cached;
+  }
+
+  void loadAvatarImage(url);
+  return null;
+}
+
+function preloadAvatarImages(): Promise<void> {
+  return Promise.allSettled(PARTICIPANT_AVATAR_URLS.map((url) => loadAvatarImage(url))).then(
+    () => undefined
+  );
+}
+
+function loadAvatarImage(url: string): Promise<HTMLImageElement | null> {
+  const cached = avatarCache.get(url);
+  if (cached) return Promise.resolve(cached);
+
+  const loading = avatarLoading.get(url);
+  if (loading) return loading;
+
+  const promise = new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      const finish = (): void => {
+        avatarCache.set(url, img);
+        avatarLoading.delete(url);
+        resolve(img);
+      };
+
+      if (typeof img.decode === 'function') {
+        void img.decode().then(finish, finish);
+      } else {
+        finish();
+      }
+    };
+    img.onerror = () => {
+      avatarLoading.delete(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+
+  avatarLoading.set(url, promise);
+  return promise;
+}
+
+function drawAvatarFallback(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  color: string,
+  palette: Palette
+): void {
+  ctx.strokeStyle = withAlpha(color, palette.isLight ? 0.44 : 0.56);
+  ctx.lineWidth = Math.max(1, size * 0.08);
   ctx.beginPath();
-  ctx.moveTo(-size * 0.78, size * 0.22);
-  ctx.lineTo(-size * 1.12, size * 0.55);
-  ctx.moveTo(size * 0.78, size * 0.22);
-  ctx.lineTo(size * 1.12, size * 0.55);
+  ctx.moveTo(0, -size * 0.72);
+  ctx.lineTo(0, -size * 1.0);
   ctx.stroke();
-
-  const bodyGradient = ctx.createLinearGradient(0, -size, 0, size);
-  bodyGradient.addColorStop(0, mixColor(robot.color, palette.robotBody, 0.28));
-  bodyGradient.addColorStop(1, mixColor(robot.color, palette.robotShade, 0.62));
-  roundRectPath(ctx, -size * 0.78, -size * 0.74, size * 1.56, size * 1.48, size * 0.42);
-  ctx.fillStyle = bodyGradient;
+  ctx.fillStyle = withAlpha(color, palette.isLight ? 0.64 : 0.78);
+  ctx.beginPath();
+  ctx.arc(0, -size * 1.08, size * 0.13, 0, TAU);
   ctx.fill();
-  ctx.strokeStyle = withAlpha(robot.color, palette.isLight ? 0.74 : 0.9);
-  ctx.stroke();
-
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = withAlpha(robot.color, 0.75);
-  ctx.beginPath();
-  ctx.moveTo(0, -size * 0.76);
-  ctx.lineTo(0, -size * 1.18);
-  ctx.stroke();
-  ctx.fillStyle = robot.color;
-  ctx.beginPath();
-  ctx.arc(0, -size * 1.25, size * 0.16, 0, TAU);
-  ctx.fill();
-
   ctx.fillStyle = palette.robotEye;
   ctx.beginPath();
-  ctx.arc(-size * 0.3, -size * 0.2, size * 0.16, 0, TAU);
-  ctx.arc(size * 0.3, -size * 0.2, size * 0.16, 0, TAU);
+  ctx.arc(-size * 0.24, -size * 0.13, size * 0.095, 0, TAU);
+  ctx.arc(size * 0.24, -size * 0.13, size * 0.095, 0, TAU);
   ctx.fill();
-
-  ctx.strokeStyle = withAlpha(palette.robotEye, 0.72);
-  ctx.lineWidth = Math.max(1, size * 0.09);
-  ctx.beginPath();
-  ctx.moveTo(-size * 0.36, size * 0.24);
-  ctx.quadraticCurveTo(0, size * 0.5, size * 0.36, size * 0.24);
-  ctx.stroke();
-
-  ctx.fillStyle = withAlpha(robot.color, palette.isLight ? 0.58 : 0.82);
-  ctx.fillRect(-size * 0.42, size * 0.82, size * 0.28, size * 0.22);
-  ctx.fillRect(size * 0.14, size * 0.82, size * 0.28, size * 0.22);
-  ctx.restore();
 }
 
 function getTeamConnectionPairs(memberCount: number): [number, number][] {
@@ -700,71 +762,8 @@ function makeLocalCurve(
   return [from, mix(from, control, 0.72), mix(to, control, 0.72), to];
 }
 
-function makeCrossCurve(
-  from: Point,
-  to: Point,
-  center: Point,
-  index: number,
-  mobile: boolean
-): [Point, Point, Point, Point] {
-  const anchor = getCrossTeamAnchor(center, index, mobile);
-  const curveLift = 0.32 + index * 0.06;
-  const cp1 = mix(from, anchor, curveLift);
-  const cp2 = mix(to, anchor, curveLift);
-  const normal = normalize({ x: to.y - from.y, y: from.x - to.x });
-  const offset = mobile ? 22 + index * 6 : 42 + index * 12;
-  return [
-    from,
-    { x: cp1.x + normal.x * offset, y: cp1.y + normal.y * offset },
-    { x: cp2.x + normal.x * offset, y: cp2.y + normal.y * offset },
-    to,
-  ];
-}
-
-function getCrossTeamAnchor(center: Point, index: number, mobile: boolean): Point {
-  const horizontalOffset = mobile ? 108 : 178;
-  const topOffset = mobile ? 94 : 138;
-  const lowerOffset = mobile ? 106 : 112;
-  if (index === 0) {
-    return {
-      x: center.x,
-      y: center.y - topOffset,
-    };
-  }
-  if (index === 1) {
-    return {
-      x: center.x + horizontalOffset,
-      y: center.y + lowerOffset,
-    };
-  }
-  return {
-    x: center.x - horizontalOffset,
-    y: center.y + lowerOffset,
-  };
-}
-
-function clearCentralContentReserve(
-  ctx: CanvasRenderingContext2D,
-  center: Point,
-  mobile: boolean
-): void {
-  const width = mobile ? 260 : 330;
-  const height = mobile ? 166 : 184;
-  const y = center.y + (mobile ? 12 : 10);
-  ctx.save();
-  ctx.globalCompositeOperation = 'destination-out';
-  roundRectPath(ctx, center.x - width / 2, y - height / 2, width, height, mobile ? 32 : 40);
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.98)';
-  ctx.fill();
-
-  const glow = ctx.createRadialGradient(center.x, y, 8, center.x, y, width * 0.62);
-  glow.addColorStop(0, 'rgba(0, 0, 0, 0.96)');
-  glow.addColorStop(0.68, 'rgba(0, 0, 0, 0.9)');
-  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = glow;
-  roundRectPath(ctx, center.x - width / 2, y - height / 2, width, height, mobile ? 32 : 40);
-  ctx.fill();
-  ctx.restore();
+function makeStraightCurve(from: Point, to: Point): [Point, Point, Point, Point] {
+  return [from, mix(from, to, 0.33), mix(from, to, 0.66), to];
 }
 
 function createDepthParticles(width: number, height: number): DepthParticle[] {
@@ -871,27 +870,10 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${clamp(alpha, 0, 1)})`;
 }
 
-function mixColor(hexA: string, hexB: string, amount: number): string {
-  const a = hexToRgb(normalizeHex(hexA));
-  const b = hexToRgb(normalizeHex(hexB));
-  const t = clamp(amount, 0, 1);
-  return `rgb(${Math.round(a.r + (b.r - a.r) * t)}, ${Math.round(
-    a.g + (b.g - a.g) * t
-  )}, ${Math.round(a.b + (b.b - a.b) * t)})`;
-}
-
 function normalizeHex(hex: string): string {
   if (/^#[0-9a-fA-F]{6}$/.test(hex)) return hex;
   if (/^#[0-9a-fA-F]{3}$/.test(hex)) {
     return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
   }
   return '#ffffff';
-}
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  return {
-    r: Number.parseInt(hex.slice(1, 3), 16),
-    g: Number.parseInt(hex.slice(3, 5), 16),
-    b: Number.parseInt(hex.slice(5, 7), 16),
-  };
 }

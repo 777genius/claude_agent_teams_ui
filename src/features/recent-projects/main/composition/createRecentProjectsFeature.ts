@@ -2,6 +2,10 @@ import {
   type DashboardRecentProjectsPayload,
   normalizeDashboardRecentProjectsPayload,
 } from '@features/recent-projects/contracts';
+import {
+  CodexBinaryResolver,
+  JsonRpcStdioClient,
+} from '@main/services/infrastructure/codexAppServer';
 
 import { ListDashboardRecentProjectsUseCase } from '../../core/application/use-cases/ListDashboardRecentProjectsUseCase';
 import { DashboardRecentProjectsPresenter } from '../adapters/output/presenters/DashboardRecentProjectsPresenter';
@@ -13,10 +17,6 @@ import { RecentProjectIdentityResolver } from '../infrastructure/identity/Recent
 
 import type { ClockPort } from '../../core/application/ports/ClockPort';
 import type { LoggerPort } from '../../core/application/ports/LoggerPort';
-import {
-  CodexBinaryResolver,
-  JsonRpcStdioClient,
-} from '@main/services/infrastructure/codexAppServer';
 import type { ServiceContext } from '@main/services';
 
 export interface RecentProjectsFeatureFacade {

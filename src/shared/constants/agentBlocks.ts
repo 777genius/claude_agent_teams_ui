@@ -11,6 +11,7 @@
  * Backward compatibility:
  * - legacy fenced blocks: ```info_for_agent ... ```
  * - legacy xml-like blocks: <agent-block> ... </agent-block>
+ * - OpenCode runtime-only delivery blocks
  */
 export const AGENT_BLOCK_TAG = 'info_for_agent';
 export const AGENT_BLOCK_OPEN = `<${AGENT_BLOCK_TAG}>`;
@@ -22,7 +23,11 @@ export const AGENT_BLOCK_CLOSE = `</${AGENT_BLOCK_TAG}>`;
 const CURRENT_AGENT_BLOCK_PATTERN = '\\n?<info_for_agent>\\n?[\\s\\S]*?\\n?<\\/info_for_agent>\\n?';
 const LEGACY_FENCED_AGENT_BLOCK_PATTERN = '\\n?```' + AGENT_BLOCK_TAG + '\\n[\\s\\S]*?\\n```\\n?';
 const LEGACY_XML_AGENT_BLOCK_PATTERN = '\\n?<agent-block>\\n?[\\s\\S]*?\\n?<\\/agent-block>\\n?';
-const AGENT_BLOCK_PATTERN = `(?:${CURRENT_AGENT_BLOCK_PATTERN}|${LEGACY_FENCED_AGENT_BLOCK_PATTERN}|${LEGACY_XML_AGENT_BLOCK_PATTERN})`;
+const OPENCODE_RUNTIME_IDENTITY_BLOCK_PATTERN =
+  '\\n?<opencode_runtime_identity>\\n?[\\s\\S]*?\\n?<\\/opencode_runtime_identity>\\n?';
+const OPENCODE_APP_MESSAGE_DELIVERY_BLOCK_PATTERN =
+  '\\n?<opencode_app_message_delivery>\\n?[\\s\\S]*?\\n?<\\/opencode_app_message_delivery>\\n?';
+const AGENT_BLOCK_PATTERN = `(?:${CURRENT_AGENT_BLOCK_PATTERN}|${LEGACY_FENCED_AGENT_BLOCK_PATTERN}|${LEGACY_XML_AGENT_BLOCK_PATTERN}|${OPENCODE_RUNTIME_IDENTITY_BLOCK_PATTERN}|${OPENCODE_APP_MESSAGE_DELIVERY_BLOCK_PATTERN})`;
 
 /**
  * Creates a new RegExp for matching agent blocks.
@@ -61,6 +66,18 @@ export function unwrapAgentBlock(block: string): string {
   const legacyXmlClose = '</agent-block>';
   if (trimmed.startsWith(legacyXmlOpen) && trimmed.endsWith(legacyXmlClose)) {
     return trimmed.slice(legacyXmlOpen.length, -legacyXmlClose.length).trim();
+  }
+
+  const opencodeRuntimeOpen = '<opencode_runtime_identity>';
+  const opencodeRuntimeClose = '</opencode_runtime_identity>';
+  if (trimmed.startsWith(opencodeRuntimeOpen) && trimmed.endsWith(opencodeRuntimeClose)) {
+    return trimmed.slice(opencodeRuntimeOpen.length, -opencodeRuntimeClose.length).trim();
+  }
+
+  const opencodeDeliveryOpen = '<opencode_app_message_delivery>';
+  const opencodeDeliveryClose = '</opencode_app_message_delivery>';
+  if (trimmed.startsWith(opencodeDeliveryOpen) && trimmed.endsWith(opencodeDeliveryClose)) {
+    return trimmed.slice(opencodeDeliveryOpen.length, -opencodeDeliveryClose.length).trim();
   }
 
   return trimmed;

@@ -2,6 +2,7 @@
 import { mdiMenu, mdiClose, mdiGithub } from '@mdi/js';
 
 const { t } = useI18n();
+const { repoUrl } = useGithubRepo();
 const menuOpen = ref(false);
 
 const navItems = computed(() => [
@@ -28,7 +29,7 @@ const navItems = computed(() => [
         <v-btn
           variant="outlined"
           size="small"
-          href="https://github.com/777genius/claude_agent_teams_ui"
+          :href="repoUrl"
           target="_blank"
           class="app-header__github-btn"
           :prepend-icon="mdiGithub"
@@ -60,7 +61,7 @@ const navItems = computed(() => [
                     {{ item.label }}
                   </a>
                   <a
-                    href="https://github.com/777genius/claude_agent_teams_ui"
+                    :href="repoUrl"
                     target="_blank"
                     class="mobile-menu__link"
                     @click="menuOpen = false"

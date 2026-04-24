@@ -160,6 +160,7 @@ describe('TeamMemberRuntimeAdvisoryService', () => {
       'All credentials for model claude-opus-4-6 are cooling down via provider claude.',
     ],
     ['auth_error', 'Authentication failed due to invalid API key.'],
+    ['codex_native_timeout', 'Codex native exec timed out after 120000ms.'],
     ['network_error', 'Fetch failed because the network connection timed out.'],
     ['provider_overloaded', 'Service unavailable: provider temporarily unavailable (503).'],
     ['backend_error', 'Unexpected backend blew up during request processing.'],

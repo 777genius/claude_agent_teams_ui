@@ -155,7 +155,7 @@ function githubGet(url: string): Promise<{ statusCode: number; body: string }> {
       {
         headers: {
           Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'claude-devtools',
+          'User-Agent': 'agent-teams-ui',
         },
       },
       (res) => {

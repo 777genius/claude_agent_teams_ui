@@ -1,5 +1,6 @@
 import { computeDiffContextHash } from '@shared/utils/diffContextHash';
 import { createLogger } from '@shared/utils/logger';
+import { isWindowsishPath, normalizePathForComparison } from '@shared/utils/platformPath';
 import { createHash } from 'crypto';
 import { applyPatch, structuredPatch } from 'diff';
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
@@ -611,7 +612,10 @@ export class ReviewApplierService {
           'Ledger before content is unavailable; rejecting this change requires manual review.',
       };
     }
-    const guard = await this.checkLedgerCurrentHash(filePath, lastLedger.afterState?.sha256);
+    const guard = await this.checkLedgerCurrentHash(
+      filePath,
+      lastLedger.afterState?.sha256 ?? lastLedger.afterHash ?? undefined
+    );
     if (!guard.ok) {
       return guard.outcome;
     }
@@ -629,8 +633,19 @@ export class ReviewApplierService {
   }
 
   private resolveLedgerOperation(snippets: SnippetDiff[]): 'create' | 'modify' | 'delete' {
-    if (snippets.some((snippet) => snippet.ledger?.operation === 'create')) return 'create';
-    if (snippets[snippets.length - 1]?.ledger?.operation === 'delete') return 'delete';
+    const ledgerSnippets = snippets.filter((snippet) => snippet.ledger);
+    const firstLedger = ledgerSnippets[0]?.ledger;
+    const lastLedger = ledgerSnippets[ledgerSnippets.length - 1]?.ledger;
+    const baselineExists = firstLedger?.beforeState?.exists;
+    const finalExists = lastLedger?.afterState?.exists;
+
+    if (baselineExists === false && finalExists === true) return 'create';
+    if (baselineExists === true && finalExists === false) return 'delete';
+    if (baselineExists === true && finalExists === true) return 'modify';
+    if (baselineExists === false && finalExists === false) return 'create';
+
+    if (lastLedger?.operation === 'delete') return 'delete';
+    if (firstLedger?.operation === 'create') return 'create';
     return 'modify';
   }
 
@@ -743,8 +758,13 @@ export class ReviewApplierService {
   }
 
   private pathMatchesRelationPath(filePath: string, relationPath: string): boolean {
-    const normalizedFilePath = filePath.replace(/\\/g, '/');
-    const normalizedRelationPath = relationPath.replace(/\\/g, '/');
+    const caseInsensitive =
+      this.isWindowsReviewPath(filePath) || this.isWindowsReviewPath(relationPath);
+    const normalizedFilePath = this.normalizeRelationComparisonPath(filePath, caseInsensitive);
+    const normalizedRelationPath = this.normalizeRelationComparisonPath(
+      relationPath,
+      caseInsensitive
+    );
     return (
       normalizedFilePath === normalizedRelationPath ||
       normalizedFilePath.endsWith(`/${normalizedRelationPath}`)
@@ -759,12 +779,35 @@ export class ReviewApplierService {
     if (!anchorPath) {
       return null;
     }
-    const normalizedAnchor = anchorPath.replace(/\\/g, '/');
-    const normalizedRelation = anchorRelationPath.replace(/\\/g, '/');
-    if (!normalizedAnchor.endsWith(normalizedRelation)) {
+    const slashAnchor = anchorPath.replace(/\\/g, '/');
+    const slashRelation = anchorRelationPath.replace(/\\/g, '/');
+    const caseInsensitive =
+      this.isWindowsReviewPath(anchorPath) || this.isWindowsReviewPath(anchorRelationPath);
+    const normalizedAnchor = this.normalizeRelationComparisonPath(anchorPath, caseInsensitive);
+    const normalizedRelation = this.normalizeRelationComparisonPath(
+      anchorRelationPath,
+      caseInsensitive
+    );
+    if (!this.matchesRelationSuffix(normalizedAnchor, normalizedRelation)) {
       return null;
     }
-    return `${normalizedAnchor.slice(0, normalizedAnchor.length - normalizedRelation.length)}${targetRelationPath.replace(/\\/g, '/')}`;
+    return `${slashAnchor.slice(0, slashAnchor.length - slashRelation.length)}${targetRelationPath.replace(/\\/g, '/')}`;
+  }
+
+  private normalizeRelationComparisonPath(filePath: string, caseInsensitive: boolean): string {
+    const normalized = normalizePathForComparison(filePath);
+    return caseInsensitive ? normalized.toLowerCase() : normalized;
+  }
+
+  private isWindowsReviewPath(filePath: string): boolean {
+    return isWindowsishPath(filePath) || filePath.includes('\\');
+  }
+
+  private matchesRelationSuffix(normalizedPath: string, normalizedRelationPath: string): boolean {
+    return (
+      normalizedPath === normalizedRelationPath ||
+      normalizedPath.endsWith(`/${normalizedRelationPath}`)
+    );
   }
 
   private async checkLedgerCurrentHash(

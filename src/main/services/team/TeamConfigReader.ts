@@ -13,8 +13,8 @@ import { readBootstrapLaunchSnapshot } from './TeamBootstrapStateReader';
 import { getTeamFsWorkerClient } from './TeamFsWorkerClient';
 import { normalizePersistedLaunchSnapshot } from './TeamLaunchStateEvaluator';
 import {
-  type LaunchStateSummary,
   choosePreferredLaunchStateSummary,
+  type LaunchStateSummary,
   normalizePersistedLaunchSummaryProjection,
   shouldSuppressLegacyLaunchArtifactHeuristic,
   TEAM_LAUNCH_SUMMARY_FILE,

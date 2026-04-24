@@ -16,12 +16,9 @@ describe('ConfigManager CLAUDE_ROOT support', () => {
     const pathDecoder = await import('../../../../src/main/utils/pathDecoder');
     pathDecoder.setClaudeBasePathOverride(overrideRoot);
 
-    const { configManager } = await import(
-      '../../../../src/main/services/infrastructure/ConfigManager'
-    );
+    const { configManager } =
+      await import('../../../../src/main/services/infrastructure/ConfigManager');
 
-    expect(configManager.getConfigPath()).toBe(
-      path.join(overrideRoot, 'claude-devtools-config.json')
-    );
+    expect(configManager.getConfigPath()).toBe(path.join(overrideRoot, 'agent-teams-config.json'));
   });
 });

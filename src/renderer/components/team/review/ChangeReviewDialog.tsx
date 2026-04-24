@@ -14,8 +14,8 @@ import { buildSelectionAction } from '@renderer/utils/buildSelectionAction';
 import { buildSelectionInfo, SELECTION_DEBOUNCE_MS } from '@renderer/utils/codemirrorSelectionInfo';
 import { sortItemsAsTree } from '@renderer/utils/fileTreeBuilder';
 import { displayMemberName } from '@renderer/utils/memberHelpers';
-import { buildHunkDecisionKey, getFileReviewKey } from '@renderer/utils/reviewKey';
 import { buildReviewDecisionScopeToken } from '@renderer/utils/reviewDecisionScope';
+import { buildHunkDecisionKey, getFileReviewKey } from '@renderer/utils/reviewKey';
 import {
   buildTaskChangeSignature,
   type TaskChangeRequestOptions,
@@ -27,7 +27,10 @@ import { ChangesLoadingAnimation } from './ChangesLoadingAnimation';
 import { acceptAllChunks, computeChunkIndexAtPos, rejectAllChunks } from './CodeMirrorDiffUtils';
 import { ContinuousScrollView } from './ContinuousScrollView';
 import { FileEditTimeline } from './FileEditTimeline';
+import { buildInitialReviewFileScrollKey } from './initialReviewFileScroll';
 import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp';
+import { buildPathChangeLabels } from './pathChangeLabels';
+import { resolveReviewFilePath } from './reviewFilePathResolution';
 import { ReviewFileTree } from './ReviewFileTree';
 import { ReviewToolbar } from './ReviewToolbar';
 import { ScopeWarningBanner } from './ScopeWarningBanner';
@@ -259,7 +262,7 @@ export const ChangeReviewDialog = ({
   }, [activeFilePath]);
 
   // One-shot scroll-to-file ref (for initialFilePath)
-  const initialScrollDoneRef = useRef(false);
+  const initialScrollDoneKeyRef = useRef<string | null>(null);
 
   // Continuous scroll navigation
   const { scrollToFile, isProgrammaticScroll } = useContinuousScrollNav({
@@ -300,83 +303,7 @@ export const ChangeReviewDialog = ({
   const allFilePaths = useMemo(() => sortedFiles.map((f) => f.filePath), [sortedFiles]);
 
   const pathChangeLabels = useMemo(() => {
-    if (!activeChangeSet)
-      return {} as Record<
-        string,
-        | { kind: 'deleted' }
-        | { kind: 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string }
-      >;
-
-    const normalize = (s: string): string =>
-      s.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd();
-    const hashFull = (s: string): string => {
-      // DJB2 (full string) — good enough for heuristic rename/move pairing
-      let h = 5381;
-      for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-      return (h >>> 0).toString(36);
-    };
-    const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
-
-    type Label =
-      | { kind: 'deleted' }
-      | { kind: 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string };
-
-    const out: Record<string, Label> = {};
-
-    const deletedCandidates: { file: FileChangeSummary; hash: string }[] = [];
-    const newCandidates: { file: FileChangeSummary; hash: string }[] = [];
-
-    for (const f of activeChangeSet.files) {
-      const content = fileContents[f.filePath];
-      if (!content) continue;
-
-      const modified = content.modifiedFullContent;
-      const original = content.originalFullContent;
-
-      if (!f.isNewFile && modified == null) {
-        if (original != null) {
-          deletedCandidates.push({ file: f, hash: hashFull(normalize(original)) });
-        } else {
-          out[f.filePath] = { kind: 'deleted' };
-        }
-      }
-
-      if (f.isNewFile && modified != null) {
-        newCandidates.push({ file: f, hash: hashFull(normalize(modified)) });
-      }
-    }
-
-    const deletedByHash = new Map<string, { file: FileChangeSummary; count: number }>();
-    for (const d of deletedCandidates) {
-      const prev = deletedByHash.get(d.hash);
-      deletedByHash.set(d.hash, { file: d.file, count: (prev?.count ?? 0) + 1 });
-    }
-
-    const usedDeleted = new Set<string>();
-    for (const n of newCandidates) {
-      const entry = deletedByHash.get(n.hash);
-      if (!entry) continue;
-      if (entry.count !== 1) continue; // ambiguous
-      const oldFile = entry.file;
-      if (usedDeleted.has(oldFile.filePath)) continue;
-      usedDeleted.add(oldFile.filePath);
-
-      const oldName = baseName(oldFile.relativePath);
-      const newName = baseName(n.file.relativePath);
-      const kind: 'moved' | 'renamed' =
-        oldName === newName && oldFile.relativePath !== n.file.relativePath ? 'moved' : 'renamed';
-
-      out[n.file.filePath] = { kind, direction: 'from', otherPath: oldFile.relativePath };
-      out[oldFile.filePath] = { kind, direction: 'to', otherPath: n.file.relativePath };
-    }
-
-    for (const d of deletedCandidates) {
-      if (!usedDeleted.has(d.file.filePath) && !(d.file.filePath in out)) {
-        out[d.file.filePath] = { kind: 'deleted' };
-      }
-    }
-
-    return out;
+    return buildPathChangeLabels(activeChangeSet?.files ?? [], fileContents);
   }, [activeChangeSet, fileContents]);
 
   const {
@@ -934,19 +861,16 @@ export const ChangeReviewDialog = ({
     clearDecisionsFromDisk,
   ]);
 
-  // Reset initial scroll flag when initialFilePath changes
-  useEffect(() => {
-    initialScrollDoneRef.current = false;
-  }, [initialFilePath]);
-
   // Scroll to initialFilePath once data is loaded
   useEffect(() => {
-    if (!activeChangeSet || !initialFilePath || initialScrollDoneRef.current) return;
-    const hasFile = activeChangeSet.files.some((f) => f.filePath === initialFilePath);
-    if (!hasFile) return;
-    initialScrollDoneRef.current = true;
+    const scrollKey = buildInitialReviewFileScrollKey(activeChangeSet, initialFilePath);
+    if (!activeChangeSet || !initialFilePath || !scrollKey) return;
+    if (initialScrollDoneKeyRef.current === scrollKey) return;
+    const targetFilePath = resolveReviewFilePath(activeChangeSet.files, initialFilePath);
+    if (!targetFilePath) return;
+    initialScrollDoneKeyRef.current = scrollKey;
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => scrollToFile(initialFilePath));
+      requestAnimationFrame(() => scrollToFile(targetFilePath));
     });
   }, [activeChangeSet, initialFilePath, scrollToFile]);
 

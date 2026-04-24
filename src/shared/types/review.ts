@@ -248,14 +248,14 @@ export interface TaskChangeScope {
   memberNames?: string[];
   toolUseCount?: number;
   toolUseIdsTruncated?: boolean;
-  phaseSet?: Array<'work' | 'review'>;
+  phaseSet?: ('work' | 'review')[];
   executionSeqRange?: { start: number; end: number };
   confidenceBreakdown?: {
     capture: 'exact' | 'high' | 'medium' | 'low';
     attribution: 'high' | 'medium' | 'low' | 'ambiguous';
     reviewability: 'full-text' | 'mixed' | 'metadata-only';
   };
-  contributors?: Array<{
+  contributors?: {
     actorKey: string;
     agentId?: string;
     memberName?: string;
@@ -268,7 +268,7 @@ export interface TaskChangeScope {
     cumulativeLinesRemoved: number;
     firstTimestamp: string;
     lastTimestamp: string;
-  }>;
+  }[];
   worktreePaths?: string[];
   worktreeBranches?: string[];
   baseWorkspaceRoots?: string[];

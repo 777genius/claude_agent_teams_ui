@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "ダウンロード",
     "ctaPrimary": "{platform}版をダウンロード",
     "ctaSecondary": "比較する",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "よくある質問",
-    "subtitle": "Claude Agent Teamsについて知っておくべきこと"
+    "subtitle": "Agent Teamsについて知っておくべきこと"
   },
   "comparison": {
     "sectionTitle": "他ツールとの比較",
@@ -92,7 +92,7 @@
     "learnMore": "詳細"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "開発者向けAIエージェントオーケストレーション",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — 開発者向けAIエージェントオーケストレーション",
+    "homeTitle": "Agent Teams - 開発者向けAIエージェントオーケストレーション",
     "homeDescription": "AIエージェントチームを管理する無料のオープンソースデスクトップアプリ。カンバンボード、コードレビュー、チーム間通信。完全にローカルで動作。"
   },
   "error": {

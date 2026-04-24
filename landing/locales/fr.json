@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "Télécharger",
     "ctaPrimary": "Télécharger pour {platform}",
     "ctaSecondary": "Comparer",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "Des questions ? Nous avons les réponses",
-    "subtitle": "Tout ce qu'il faut savoir sur Claude Agent Teams"
+    "subtitle": "Tout ce qu'il faut savoir sur Agent Teams"
   },
   "comparison": {
     "sectionTitle": "Comment nous nous comparons",
@@ -92,7 +92,7 @@
     "learnMore": "En savoir plus"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "Orchestration d'agents IA pour développeurs",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — Orchestration d'agents IA pour développeurs",
+    "homeTitle": "Agent Teams - Orchestration d'agents IA pour développeurs",
     "homeDescription": "Application desktop gratuite et open source pour gérer des équipes d'agents IA. Tableau kanban, revue de code, communication inter-équipes. Fonctionne entièrement en local."
   },
   "error": {

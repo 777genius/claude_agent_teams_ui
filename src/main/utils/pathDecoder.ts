@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -30,6 +31,10 @@ export function encodePath(absolutePath: string): string {
   }
 
   const encoded = absolutePath.replace(/[/\\]/g, '-');
+  const windowsDriveMatch = /^([a-zA-Z]):-(.*)$/.exec(encoded);
+  if (windowsDriveMatch) {
+    return `${windowsDriveMatch[1].toUpperCase()}--${windowsDriveMatch[2]}`;
+  }
 
   // Ensure leading dash for absolute paths
   return encoded.startsWith('-') ? encoded : `-${encoded}`;
@@ -49,7 +54,7 @@ export function decodePath(encodedName: string): string {
 
   // Legacy Windows format observed in some Claude installs: "C--Users-name-project"
   // (no leading dash, drive separator encoded as "--").
-  const legacyWindowsRegex = /^([a-zA-Z])--(.+)$/;
+  const legacyWindowsRegex = /^([a-zA-Z])--(.*)$/;
   const legacyWindowsMatch = legacyWindowsRegex.exec(encodedName);
   if (legacyWindowsMatch) {
     const drive = legacyWindowsMatch[1].toUpperCase();
@@ -382,11 +387,84 @@ export function getToolsBasePath(): string {
   return path.join(getClaudeBasePath(), 'tools');
 }
 
+type CopyDirectoryForMigration = (sourcePath: string, targetPath: string) => void;
+
+function copyDirectoryForMigrationSync(sourcePath: string, targetPath: string): void {
+  fs.cpSync(sourcePath, targetPath, {
+    recursive: true,
+    errorOnExist: false,
+    force: false,
+  });
+}
+
+let copyDirectoryForMigration: CopyDirectoryForMigration = copyDirectoryForMigrationSync;
+
+export function __setPathDecoderCopyDirectoryForTests(
+  copyDirectory: CopyDirectoryForMigration | null
+): void {
+  copyDirectoryForMigration = copyDirectory ?? copyDirectoryForMigrationSync;
+}
+
 /**
- * Get the schedules directory path (~/.claude/claude-devtools-schedules).
+ * Get the schedules directory path (~/.claude/agent-teams-schedules).
  */
 export function getSchedulesBasePath(): string {
-  return path.join(getClaudeBasePath(), 'claude-devtools-schedules');
+  const basePath = getClaudeBasePath();
+  return migrateLegacyDirectoryPath(
+    path.join(basePath, 'agent-teams-schedules'),
+    path.join(basePath, 'claude-devtools-schedules')
+  );
+}
+
+function migrateLegacyDirectoryPath(currentPath: string, legacyPath: string): string {
+  if (!directoryExists(legacyPath)) {
+    return currentPath;
+  }
+
+  if (directoryExists(currentPath)) {
+    if (directoryHasEntries(currentPath)) {
+      return currentPath;
+    }
+    return copyLegacyDirectoryPath(currentPath, legacyPath);
+  }
+
+  if (pathExists(currentPath)) {
+    return currentPath;
+  }
+
+  return copyLegacyDirectoryPath(currentPath, legacyPath);
+}
+
+function copyLegacyDirectoryPath(currentPath: string, legacyPath: string): string {
+  const tempPath = `${currentPath}.migrating-${process.pid}`;
+
+  try {
+    fs.mkdirSync(path.dirname(currentPath), { recursive: true });
+    if (pathExists(tempPath)) {
+      fs.rmSync(tempPath, { recursive: true, force: true });
+    }
+
+    copyDirectoryForMigration(legacyPath, tempPath);
+
+    if (directoryExists(currentPath) && !directoryHasEntries(currentPath)) {
+      fs.rmdirSync(currentPath);
+    }
+
+    fs.renameSync(tempPath, currentPath);
+    return currentPath;
+  } catch {
+    try {
+      if (pathExists(tempPath)) {
+        fs.rmSync(tempPath, { recursive: true, force: true });
+      }
+    } catch {
+      // Best effort cleanup only.
+    }
+
+    return directoryExists(currentPath) && directoryHasEntries(currentPath)
+      ? currentPath
+      : legacyPath;
+  }
 }
 
 export function getTaskChangeSummariesBasePath(): string {
@@ -414,6 +492,9 @@ export function getAppDataPath(): string {
 
 // ── App data root (Electron userData) ──
 
+const APP_DATA_FALLBACK_DIR_NAME = '.agent-teams-ai';
+const LEGACY_APP_DATA_FALLBACK_DIR_NAME = '.claude-agent-teams-ui';
+
 let appDataBasePathOverride: string | null = null;
 
 export function setAppDataBasePath(p: string | null | undefined): void {
@@ -428,8 +509,87 @@ function getAppDataBasePath(): string {
     const { app } = require('electron') as typeof import('electron');
     return app.getPath('userData');
   } catch {
-    // Outside Electron (tests, CLI) — fall back to home dir
-    return path.join(getHomeDir(), '.claude-agent-teams-ui');
+    // Outside Electron (tests, CLI): use the new fallback path and migrate legacy data once.
+    return getFallbackAppDataBasePath();
+  }
+}
+
+function getFallbackAppDataBasePath(): string {
+  const home = getHomeDir();
+  const currentPath = path.join(home, APP_DATA_FALLBACK_DIR_NAME);
+  const legacyPath = path.join(home, LEGACY_APP_DATA_FALLBACK_DIR_NAME);
+
+  if (!directoryExists(legacyPath)) {
+    return currentPath;
+  }
+
+  if (directoryExists(currentPath)) {
+    if (directoryHasEntries(currentPath)) {
+      return currentPath;
+    }
+    return migrateFallbackAppDataBasePath(currentPath, legacyPath);
+  }
+
+  if (pathExists(currentPath)) {
+    return currentPath;
+  }
+
+  return migrateFallbackAppDataBasePath(currentPath, legacyPath);
+}
+
+function migrateFallbackAppDataBasePath(currentPath: string, legacyPath: string): string {
+  const tempPath = `${currentPath}.migrating-${process.pid}`;
+
+  try {
+    if (pathExists(tempPath)) {
+      fs.rmSync(tempPath, { recursive: true, force: true });
+    }
+
+    copyDirectoryForMigration(legacyPath, tempPath);
+
+    if (directoryExists(currentPath) && !directoryHasEntries(currentPath)) {
+      fs.rmdirSync(currentPath);
+    }
+
+    fs.renameSync(tempPath, currentPath);
+    return currentPath;
+  } catch {
+    try {
+      if (pathExists(tempPath)) {
+        fs.rmSync(tempPath, { recursive: true, force: true });
+      }
+    } catch {
+      // Best effort cleanup only.
+    }
+
+    return directoryExists(currentPath) && directoryHasEntries(currentPath)
+      ? currentPath
+      : legacyPath;
+  }
+}
+
+function pathExists(targetPath: string): boolean {
+  try {
+    fs.accessSync(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function directoryExists(targetPath: string): boolean {
+  try {
+    return fs.statSync(targetPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function directoryHasEntries(targetPath: string): boolean {
+  try {
+    return fs.readdirSync(targetPath).length > 0;
+  } catch {
+    return false;
   }
 }
 

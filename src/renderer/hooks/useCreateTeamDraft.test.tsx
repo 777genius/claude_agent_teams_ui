@@ -1,9 +1,8 @@
 import React, { act, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { getStoredCreateTeamMemberRuntimePreferences } from '@renderer/services/createTeamPreferences';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loadSnapshotMock, saveSnapshotMock, deleteSnapshotMock } = vi.hoisted(() => ({
   loadSnapshotMock: vi.fn(),
@@ -21,7 +20,7 @@ vi.mock('@renderer/services/createTeamDraftStorage', () => ({
 
 import { useCreateTeamDraft } from './useCreateTeamDraft';
 
-function HookProbe({ onLoaded }: { onLoaded: () => void }): React.JSX.Element | null {
+const HookProbe = ({ onLoaded }: { onLoaded: () => void }): React.JSX.Element | null => {
   const draft = useCreateTeamDraft();
 
   useEffect(() => {
@@ -31,13 +30,13 @@ function HookProbe({ onLoaded }: { onLoaded: () => void }): React.JSX.Element | 
   }, [draft.isLoaded, onLoaded]);
 
   return null;
-}
+};
 
-function HookProbeWithDraft({
+const HookProbeWithDraft = ({
   onLoaded,
 }: {
   onLoaded: (draft: ReturnType<typeof useCreateTeamDraft>) => void;
-}): React.JSX.Element | null {
+}): React.JSX.Element | null => {
   const draft = useCreateTeamDraft();
 
   useEffect(() => {
@@ -47,7 +46,7 @@ function HookProbeWithDraft({
   }, [draft, onLoaded]);
 
   return null;
-}
+};
 
 describe('useCreateTeamDraft', () => {
   beforeEach(() => {

@@ -1,6 +1,6 @@
 {
   "hero": {
-    "title": "Claude Agent Teams",
+    "title": "Agent Teams",
     "subtitle": "あなたはCTO、エージェントはあなたのチーム。タスクを自分で処理し、互いにメッセージを送り、コードをレビューする。あなたはカンバンボードを見ながらコーヒーを飲むだけ。"
   },
   "features": [
@@ -38,7 +38,7 @@
   "faq": [
     {
       "id": "whatIsIt",
-      "question": "Claude Agent Teamsとは？",
+      "question": "Agent Teamsとは？",
       "answer": "独自のローカル協調レイヤーでAIエージェントチームをオーケストレーションできるデスクトップアプリです。各エージェントは役割を持ち、自律的に動き、カンバン上で連携し、Anthropic または Codex で実行できます。"
     },
     {

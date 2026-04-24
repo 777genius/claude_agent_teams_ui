@@ -2,35 +2,33 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Check, FileCode, FileDiff, FileText, GitBranch, GitCommit, Search } from 'lucide-react';
 
-/* ── Fake diff lines for the mini-terminal ─────────────────────────── */
+/* Fake diff lines for the mini-terminal */
 const diffLines = [
-  { type: '+', text: 'export function resolveHunk(ctx)' },
-  { type: '-', text: 'const legacy = parseDiff(raw)' },
-  { type: ' ', text: '  const chunks = split(input)' },
-  { type: '+', text: '  return mergeResults(a, b)' },
-  { type: '-', text: '  if (old) return fallback()' },
-  { type: '+', text: 'interface DiffRange { start: number }' },
-  { type: ' ', text: '  for (const h of hunks) {' },
-  { type: '+', text: '    yield computeDelta(h)' },
-  { type: '-', text: '    emit("change", raw)' },
-  { type: ' ', text: '  const meta = getFileInfo(p)' },
-  { type: '+', text: '  await writePatched(output)' },
-  { type: '-', text: '  delete cache[staleKey]' },
-  { type: '+', text: 'type HunkMeta = { offset: number }' },
-  { type: ' ', text: '  return ctx.finalize()' },
+  { type: '+', text: 'const bundle = readTaskLedger(taskId)' },
+  { type: ' ', text: '  const files = bundle.files' },
+  { type: '+', text: '  const state = resolveFileState(file)' },
+  { type: ' ', text: '  if (state.textAvailable) {' },
+  { type: '+', text: '    renderExactDiff(state.before, state.after)' },
+  { type: ' ', text: '  }' },
+  { type: '+', text: '  markManualOnly(metadataOnly)' },
+  { type: '+', text: 'interface LedgerState { sha256: string }' },
+  { type: ' ', text: '  for (const event of journal) {' },
+  { type: '+', text: '    attachWorktreeMeta(event)' },
+  { type: ' ', text: '  const relation = detectRename(file)' },
+  { type: '+', text: '  verifyExpectedHash(file)' },
+  { type: ' ', text: '  return reviewModel' },
   { type: '+', text: '  const diff = computeLineDiff(a, b)' },
-  { type: '-', text: '  throw new Error("parse failed")' },
 ];
 
-/* ── Phases ─────────────────────────────────────────────────────────── */
+/* Phases */
 const phases = [
-  { icon: Search, label: 'Scanning repository…', accent: 'rgba(147,197,253,0.7)' },
-  { icon: FileDiff, label: 'Computing diffs…', accent: 'rgba(253,186,116,0.7)' },
-  { icon: GitBranch, label: 'Resolving branches…', accent: 'rgba(167,139,250,0.7)' },
-  { icon: FileCode, label: 'Analyzing hunks…', accent: 'rgba(110,231,183,0.7)' },
+  { icon: Search, label: 'Reading task ledger...', accent: 'rgba(147,197,253,0.7)' },
+  { icon: FileDiff, label: 'Resolving file states...', accent: 'rgba(253,186,116,0.7)' },
+  { icon: GitBranch, label: 'Checking worktree context...', accent: 'rgba(167,139,250,0.7)' },
+  { icon: FileCode, label: 'Preparing review diffs...', accent: 'rgba(110,231,183,0.7)' },
 ];
 
-/* ── Orbiting icons ─────────────────────────────────────────────────── */
+/* Orbiting icons */
 const orbitItems = [
   { Icon: FileText, angle: 0, r: 76, size: 13, speed: 18 },
   { Icon: FileDiff, angle: 60, r: 76, size: 14, speed: 18 },
@@ -40,7 +38,7 @@ const orbitItems = [
   { Icon: Check, angle: 300, r: 76, size: 12, speed: 18 },
 ];
 
-/* ── Spark particles ────────────────────────────────────────────────── */
+/* Spark particles */
 const SPARK_COUNT = 12;
 
 const useSparks = () => {
@@ -70,7 +68,7 @@ const useSparks = () => {
   return sparks;
 };
 
-/* ── Fake file counter ──────────────────────────────────────────────── */
+/* Fake file counter */
 const useFileCounter = () => {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -88,7 +86,7 @@ const useFileCounter = () => {
   return count;
 };
 
-/* ── Component ──────────────────────────────────────────────────────── */
+/* Component */
 export const ChangesLoadingAnimation = (): React.JSX.Element => {
   const [phaseIdx, setPhaseIdx] = useState(0);
   const [phaseFading, setPhaseFading] = useState(false);
@@ -128,7 +126,7 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
 
   return (
     <div className="flex w-full flex-col items-center justify-center gap-4">
-      {/* ── Main scene ─────────────────────────────────────────── */}
+      {/* Main scene */}
       <div className="relative flex h-44 w-64 items-center justify-center">
         {/* Faint radial grid */}
         <svg className="pointer-events-none absolute inset-0 opacity-[0.04]" viewBox="0 0 256 176">
@@ -220,7 +218,7 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
           style={{ background: phase.accent, opacity: 0.05 }}
         />
 
-        {/* ── Center card: mini diff terminal ──────────────────── */}
+        {/* Center card: mini diff terminal */}
         <div className="clda-center-card relative z-10 flex w-44 flex-col overflow-hidden rounded-xl border border-[var(--color-border-emphasis)] bg-[var(--color-surface-raised)] shadow-2xl">
           {/* Title bar */}
           <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] px-2.5 py-1.5">
@@ -274,7 +272,7 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
         </div>
       </div>
 
-      {/* ── Phase indicator ────────────────────────────────────── */}
+      {/* Phase indicator */}
       <div className="flex items-center gap-3">
         {phases.map((p, i) => (
           <div
@@ -298,7 +296,7 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
         ))}
       </div>
 
-      {/* ── Bottom text ────────────────────────────────────────── */}
+      {/* Bottom text */}
       <div className="flex flex-col items-center gap-1">
         <p
           className="duration-400 text-xs font-medium tracking-wide text-[var(--color-text-secondary)] transition-all"
@@ -311,11 +309,11 @@ export const ChangesLoadingAnimation = (): React.JSX.Element => {
           {phase.label}
         </p>
         <p className="text-[10px] tabular-nums text-[var(--color-text-muted)] opacity-50">
-          {fileCount} objects processed
+          {fileCount} ledger objects processed
         </p>
       </div>
 
-      {/* ── Keyframes ──────────────────────────────────────────── */}
+      {/* Keyframes */}
       <style>{`
         .clda-orbit-ring {
           animation: cldaRingSpin 25s linear infinite;

@@ -1,10 +1,5 @@
 import { api } from '@renderer/api';
 import {
-  buildTaskChangePresenceKey,
-  isTaskSummaryCacheableForOptions,
-  type TaskChangeRequestOptions,
-} from '@renderer/utils/taskChangeRequest';
-import {
   getReviewChangeSetIdentityToken,
   type ReviewChangeSetLike,
 } from '@renderer/utils/reviewDecisionScope';
@@ -18,9 +13,14 @@ import {
   resolveTaskChangePresenceFromResult,
   shouldBackgroundRevalidateTaskPresence,
 } from '@renderer/utils/taskChangePresence';
+import {
+  buildTaskChangePresenceKey,
+  isTaskSummaryCacheableForOptions,
+  type TaskChangeRequestOptions,
+} from '@renderer/utils/taskChangeRequest';
 import { computeDiffContextHash } from '@shared/utils/diffContextHash';
 import { createLogger } from '@shared/utils/logger';
-import { normalizePathForComparison } from '@shared/utils/platformPath';
+import { isWindowsishPath, normalizePathForComparison } from '@shared/utils/platformPath';
 import { structuredPatch } from 'diff';
 
 /** Tracks in-flight checkTaskHasChanges calls to avoid duplicate requests */
@@ -51,16 +51,29 @@ import type {
   FileReviewDecision,
   HunkDecision,
   SnippetDiff,
+  TaskChangePresenceState,
   TaskChangeSet,
   TaskChangeSetV2,
-  TaskChangePresenceState,
 } from '@shared/types';
 import type { StateCreator } from 'zustand';
 
 const logger = createLogger('changeReviewSlice');
 
 function reviewPathsEqual(left: string, right: string): boolean {
-  return normalizePathForComparison(left) === normalizePathForComparison(right);
+  const caseInsensitive = isWindowsReviewPath(left) || isWindowsReviewPath(right);
+  return (
+    normalizeReviewPathForComparison(left, caseInsensitive) ===
+    normalizeReviewPathForComparison(right, caseInsensitive)
+  );
+}
+
+function normalizeReviewPathForComparison(filePath: string, caseInsensitive: boolean): string {
+  const normalized = normalizePathForComparison(filePath);
+  return caseInsensitive ? normalized.toLowerCase() : normalized;
+}
+
+function isWindowsReviewPath(filePath: string): boolean {
+  return isWindowsishPath(filePath) || filePath.includes('\\');
 }
 
 function findReviewFileByPath(
@@ -361,6 +374,19 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
   set,
   get
 ) => {
+  const addMatchingReviewPathAliases = (
+    aliases: Set<string>,
+    filePath: string,
+    canonicalFilePath: string,
+    record: Record<string, unknown>
+  ): void => {
+    for (const key of Object.keys(record)) {
+      if (reviewPathsEqual(key, filePath) || reviewPathsEqual(key, canonicalFilePath)) {
+        aliases.add(key);
+      }
+    }
+  };
+
   const buildResolvedFileInvalidation = (
     s: ChangeReviewSlice,
     filePath: string
@@ -372,29 +398,38 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
     | 'hunkContextHashesByFile'
     | 'fileContentVersionByPath'
   > => {
+    const existing = findReviewFileByPath(s.activeChangeSet?.files, filePath);
+    const canonicalFilePath = existing?.filePath ?? filePath;
+    const aliases = new Set([filePath, canonicalFilePath]);
+    addMatchingReviewPathAliases(aliases, filePath, canonicalFilePath, s.fileChunkCounts);
+    addMatchingReviewPathAliases(aliases, filePath, canonicalFilePath, s.fileContents);
+    addMatchingReviewPathAliases(aliases, filePath, canonicalFilePath, s.fileContentsLoading);
+    addMatchingReviewPathAliases(aliases, filePath, canonicalFilePath, s.fileContentVersionByPath);
     const nextFileChunkCounts = { ...s.fileChunkCounts };
-    delete nextFileChunkCounts[filePath];
+    for (const alias of aliases) delete nextFileChunkCounts[alias];
 
     const nextFileContents = { ...s.fileContents };
-    delete nextFileContents[filePath];
+    for (const alias of aliases) delete nextFileContents[alias];
 
     const nextFileContentsLoading = { ...s.fileContentsLoading };
-    delete nextFileContentsLoading[filePath];
+    for (const alias of aliases) delete nextFileContentsLoading[alias];
 
     const nextHunkContextHashesByFile = { ...s.hunkContextHashesByFile };
     const reviewKey = getReviewKeyForFilePath(s.activeChangeSet?.files, filePath);
     delete nextHunkContextHashesByFile[reviewKey];
-    delete nextHunkContextHashesByFile[filePath];
+    for (const alias of aliases) delete nextHunkContextHashesByFile[alias];
+
+    const nextFileContentVersionByPath = { ...s.fileContentVersionByPath };
+    for (const alias of aliases) {
+      nextFileContentVersionByPath[alias] = (s.fileContentVersionByPath[alias] ?? 0) + 1;
+    }
 
     return {
       fileChunkCounts: nextFileChunkCounts,
       fileContents: nextFileContents,
       fileContentsLoading: nextFileContentsLoading,
       hunkContextHashesByFile: nextHunkContextHashesByFile,
-      fileContentVersionByPath: {
-        ...s.fileContentVersionByPath,
-        [filePath]: (s.fileContentVersionByPath[filePath] ?? 0) + 1,
-      },
+      fileContentVersionByPath: nextFileContentVersionByPath,
     };
   };
 
@@ -917,30 +952,54 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
       filePath: string
     ) => {
       const state = get();
+      const fileEntry = findReviewFileByPath(state.activeChangeSet?.files, filePath);
+      const canonicalFilePath = fileEntry?.filePath ?? filePath;
       // Skip if already loaded or loading
-      if (state.fileContents[filePath] || state.fileContentsLoading[filePath]) return;
+      if (
+        state.fileContents[filePath] ||
+        state.fileContents[canonicalFilePath] ||
+        state.fileContentsLoading[filePath] ||
+        state.fileContentsLoading[canonicalFilePath]
+      )
+        return;
       const changeSetEpoch = state.changeSetEpoch;
       const fileVersion = state.fileContentVersionByPath[filePath] ?? 0;
+      const canonicalFileVersion = state.fileContentVersionByPath[canonicalFilePath] ?? 0;
 
       set((s) => ({
-        fileContentsLoading: { ...s.fileContentsLoading, [filePath]: true },
+        fileContentsLoading: {
+          ...s.fileContentsLoading,
+          [filePath]: true,
+          [canonicalFilePath]: true,
+        },
       }));
 
       try {
-        // Lookup snippets from activeChangeSet so backend can use them for reconstruction
-        const activeChangeSet = get().activeChangeSet;
-        const fileEntry = findReviewFileByPath(activeChangeSet?.files, filePath);
-        const canonicalFilePath = fileEntry?.filePath ?? filePath;
         const snippets = fileEntry?.snippets ?? [];
 
-        const content = await api.review.getFileContent(teamName, memberName, canonicalFilePath, snippets);
+        const content = await api.review.getFileContent(
+          teamName,
+          memberName,
+          canonicalFilePath,
+          snippets
+        );
         const latest = get();
         if (changeSetEpoch !== latest.changeSetEpoch) return;
         if ((latest.fileContentVersionByPath[filePath] ?? 0) !== fileVersion) return;
+        if ((latest.fileContentVersionByPath[canonicalFilePath] ?? 0) !== canonicalFileVersion)
+          return;
         set((s) => {
+          const nextFileContents = { ...s.fileContents, [canonicalFilePath]: content };
+          if (canonicalFilePath !== filePath) {
+            delete nextFileContents[filePath];
+          }
           const result: Partial<ChangeReviewSlice> = {
-            fileContents: { ...s.fileContents, [filePath]: content },
-            fileContentsLoading: { ...s.fileContentsLoading, [filePath]: false },
+            fileContents: nextFileContents,
+            fileContentsLoading: {
+              ...s.fileContentsLoading,
+              [filePath]: false,
+              [canonicalFilePath]: false,
+            },
           };
 
           // Update activeChangeSet stats if original was successfully resolved
@@ -970,9 +1029,15 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
         const latest = get();
         if (changeSetEpoch !== latest.changeSetEpoch) return;
         if ((latest.fileContentVersionByPath[filePath] ?? 0) !== fileVersion) return;
+        if ((latest.fileContentVersionByPath[canonicalFilePath] ?? 0) !== canonicalFileVersion)
+          return;
         logger.error('fetchFileContent error:', error);
         set((s) => ({
-          fileContentsLoading: { ...s.fileContentsLoading, [filePath]: false },
+          fileContentsLoading: {
+            ...s.fileContentsLoading,
+            [filePath]: false,
+            [canonicalFilePath]: false,
+          },
         }));
       }
     },
@@ -1109,7 +1174,11 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
 
       try {
         const content = fileContents[file.filePath] ?? fileContents[filePath];
-        const innerBaseCount = getFileHunkCount(file.filePath, file.snippets.length, fileChunkCounts);
+        const innerBaseCount = getFileHunkCount(
+          file.filePath,
+          file.snippets.length,
+          fileChunkCounts
+        );
         const innerMaxIdx = getMaxDecisionIndexForFile(reviewKey, hunkDecisions);
         const hunkContextHashes =
           innerMaxIdx < innerBaseCount
@@ -1156,6 +1225,21 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
         const totalLinesAdded = nextFiles.reduce((sum, f) => sum + f.linesAdded, 0);
         const totalLinesRemoved = nextFiles.reduce((sum, f) => sum + f.linesRemoved, 0);
 
+        const aliases = new Set([filePath, existing.filePath]);
+        const addMatchingAliases = (record: Record<string, unknown>): void => {
+          for (const key of Object.keys(record)) {
+            if (reviewPathsEqual(key, filePath) || reviewPathsEqual(key, existing.filePath)) {
+              aliases.add(key);
+            }
+          }
+        };
+        addMatchingAliases(s.fileChunkCounts);
+        addMatchingAliases(s.fileContents);
+        addMatchingAliases(s.fileContentsLoading);
+        addMatchingAliases(s.editedContents);
+        addMatchingAliases(s.reviewExternalChangesByFile);
+        addMatchingAliases(s.fileContentVersionByPath);
+
         const nextHunkDecisions = { ...s.hunkDecisions };
         const reviewKey = getReviewKeyForFilePath(s.activeChangeSet.files, filePath);
         const prefix = `${reviewKey}:`;
@@ -1167,34 +1251,28 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
         delete nextFileDecisions[reviewKey];
 
         const nextFileChunkCounts = { ...s.fileChunkCounts };
-        delete nextFileChunkCounts[filePath];
-        delete nextFileChunkCounts[existing.filePath];
+        for (const alias of aliases) delete nextFileChunkCounts[alias];
 
         const nextFileContents = { ...s.fileContents };
-        delete nextFileContents[filePath];
-        delete nextFileContents[existing.filePath];
+        for (const alias of aliases) delete nextFileContents[alias];
 
         const nextFileContentsLoading = { ...s.fileContentsLoading };
-        delete nextFileContentsLoading[filePath];
-        delete nextFileContentsLoading[existing.filePath];
+        for (const alias of aliases) delete nextFileContentsLoading[alias];
 
         const nextEditedContents = { ...s.editedContents };
-        delete nextEditedContents[filePath];
-        delete nextEditedContents[existing.filePath];
+        for (const alias of aliases) delete nextEditedContents[alias];
 
         const nextHashes = { ...s.hunkContextHashesByFile };
         delete nextHashes[reviewKey];
-        delete nextHashes[filePath];
+        for (const alias of aliases) delete nextHashes[alias];
 
         const nextReviewExternalChangesByFile = { ...s.reviewExternalChangesByFile };
-        delete nextReviewExternalChangesByFile[filePath];
-        delete nextReviewExternalChangesByFile[existing.filePath];
+        for (const alias of aliases) delete nextReviewExternalChangesByFile[alias];
 
-        const nextFileContentVersionByPath = {
-          ...s.fileContentVersionByPath,
-          [filePath]: (s.fileContentVersionByPath[filePath] ?? 0) + 1,
-          [existing.filePath]: (s.fileContentVersionByPath[existing.filePath] ?? 0) + 1,
-        };
+        const nextFileContentVersionByPath = { ...s.fileContentVersionByPath };
+        for (const alias of aliases) {
+          nextFileContentVersionByPath[alias] = (s.fileContentVersionByPath[alias] ?? 0) + 1;
+        }
 
         const nextSelected =
           s.selectedReviewFilePath && reviewPathsEqual(s.selectedReviewFilePath, existing.filePath)
@@ -1361,42 +1439,76 @@ export const createChangeReviewSlice: StateCreator<AppState, [], [], ChangeRevie
     discardAllEdits: () => set({ editedContents: {} }),
 
     saveEditedFile: async (filePath: string, projectPath?: string) => {
-      const content = get().editedContents[filePath];
-      if (!(filePath in get().editedContents)) return;
+      const state = get();
+      const fileEntry = findReviewFileByPath(state.activeChangeSet?.files, filePath);
+      const canonicalFilePath = fileEntry?.filePath ?? filePath;
+      const hasRequestedDraft = filePath in state.editedContents;
+      const hasCanonicalDraft = canonicalFilePath in state.editedContents;
+      const content = hasRequestedDraft
+        ? state.editedContents[filePath]
+        : state.editedContents[canonicalFilePath];
+      if (!hasRequestedDraft && !hasCanonicalDraft) return;
+      if (content === undefined) return;
       set((s) => ({
-        fileContentsLoading: { ...s.fileContentsLoading, [filePath]: false },
+        fileContentsLoading: {
+          ...s.fileContentsLoading,
+          [filePath]: false,
+          [canonicalFilePath]: false,
+        },
         applying: true,
         applyError: null,
         fileContentVersionByPath: {
           ...s.fileContentVersionByPath,
           [filePath]: (s.fileContentVersionByPath[filePath] ?? 0) + 1,
+          [canonicalFilePath]: (s.fileContentVersionByPath[canonicalFilePath] ?? 0) + 1,
         },
       }));
       try {
-        await api.review.saveEditedFile(filePath, content, projectPath);
+        await api.review.saveEditedFile(canonicalFilePath, content, projectPath);
         set((s) => {
+          const aliases = new Set([filePath, canonicalFilePath]);
+          addMatchingReviewPathAliases(aliases, filePath, canonicalFilePath, s.editedContents);
+          addMatchingReviewPathAliases(aliases, filePath, canonicalFilePath, s.fileChunkCounts);
+          addMatchingReviewPathAliases(
+            aliases,
+            filePath,
+            canonicalFilePath,
+            s.hunkContextHashesByFile
+          );
+          addMatchingReviewPathAliases(
+            aliases,
+            filePath,
+            canonicalFilePath,
+            s.reviewExternalChangesByFile
+          );
+          addMatchingReviewPathAliases(aliases, filePath, canonicalFilePath, s.fileContents);
+
           const nextEdited = { ...s.editedContents };
-          delete nextEdited[filePath];
+          for (const alias of aliases) delete nextEdited[alias];
 
           const nextFileChunkCounts = { ...s.fileChunkCounts };
-          delete nextFileChunkCounts[filePath];
+          for (const alias of aliases) delete nextFileChunkCounts[alias];
 
           const nextHunkContextHashesByFile = { ...s.hunkContextHashesByFile };
-          const reviewKey = getReviewKeyForFilePath(s.activeChangeSet?.files, filePath);
+          const reviewKey = getReviewKeyForFilePath(s.activeChangeSet?.files, canonicalFilePath);
           delete nextHunkContextHashesByFile[reviewKey];
-          delete nextHunkContextHashesByFile[filePath];
+          for (const alias of aliases) delete nextHunkContextHashesByFile[alias];
 
           const nextReviewExternalChangesByFile = { ...s.reviewExternalChangesByFile };
-          delete nextReviewExternalChangesByFile[filePath];
+          for (const alias of aliases) delete nextReviewExternalChangesByFile[alias];
 
           // Update cached content in-place to avoid skeleton flash.
           // Replace modifiedFullContent with saved version so CodeMirror
           // reflects the new baseline without a full re-fetch cycle.
           const nextContents = { ...s.fileContents };
-          const existing = nextContents[filePath];
+          const existing = nextContents[canonicalFilePath] ?? nextContents[filePath];
+          for (const alias of aliases) {
+            if (alias !== canonicalFilePath) delete nextContents[alias];
+          }
           if (existing) {
-            nextContents[filePath] = {
+            nextContents[canonicalFilePath] = {
               ...existing,
+              filePath: canonicalFilePath,
               modifiedFullContent: content,
               contentSource: 'disk-current',
             };

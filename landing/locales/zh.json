@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "立即下载",
     "ctaPrimary": "下载 {platform} 版",
     "ctaSecondary": "对比",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "有问题？我们有答案",
-    "subtitle": "关于 Claude Agent Teams 的一切"
+    "subtitle": "关于 Agent Teams 的一切"
   },
   "comparison": {
     "sectionTitle": "功能对比",
@@ -92,7 +92,7 @@
     "learnMore": "了解更多"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "面向开发者的 AI 智能体编排",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — 面向开发者的 AI 智能体编排",
+    "homeTitle": "Agent Teams - 面向开发者的 AI 智能体编排",
     "homeDescription": "免费开源桌面应用，用于组建 AI 智能体团队。看板、代码审查、跨团队通信。完全本地运行。"
   },
   "error": {

@@ -9,7 +9,7 @@
     "viewOnGithub": "View on GitHub"
   },
   "hero": {
-    "badge": "Claude Agent Teams",
+    "badge": "Agent Teams",
     "downloadNow": "حمّل الآن",
     "ctaPrimary": "تحميل لـ {platform}",
     "ctaSecondary": "مقارنة",
@@ -56,7 +56,7 @@
   },
   "faq": {
     "sectionTitle": "لديك أسئلة؟ لدينا إجابات",
-    "subtitle": "كل ما تحتاج معرفته عن Claude Agent Teams"
+    "subtitle": "كل ما تحتاج معرفته عن Agent Teams"
   },
   "comparison": {
     "sectionTitle": "كيف نقارن",
@@ -92,7 +92,7 @@
     "learnMore": "اعرف المزيد"
   },
   "footer": {
-    "copyright": "© {year} Claude Agent Teams",
+    "copyright": "© {year} Agent Teams",
     "tagline": "تنسيق وكلاء الذكاء الاصطناعي للمطورين",
     "links": {
       "github": "GitHub",
@@ -100,7 +100,7 @@
     }
   },
   "meta": {
-    "homeTitle": "Claude Agent Teams — تنسيق وكلاء الذكاء الاصطناعي للمطورين",
+    "homeTitle": "Agent Teams - تنسيق وكلاء الذكاء الاصطناعي للمطورين",
     "homeDescription": "تطبيق سطح مكتب مجاني ومفتوح المصدر لتشكيل فرق وكلاء الذكاء الاصطناعي. لوحة كانبان، مراجعة الكود، تواصل بين الفرق. يعمل محلياً بالكامل."
   },
   "error": {

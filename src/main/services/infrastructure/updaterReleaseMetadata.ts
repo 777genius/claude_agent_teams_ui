@@ -1,8 +1,13 @@
 const REPO_OWNER = '777genius';
 const REPO_NAME = 'claude_agent_teams_ui';
+const PLANNED_REPO_NAME = 'agent-teams-ai';
 
-export function buildReleaseAssetBase(version: string): string {
-  return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/v${version}`;
+export function buildReleaseAssetBase(version: string, repoName = REPO_NAME): string {
+  return `https://github.com/${REPO_OWNER}/${repoName}/releases/download/v${version}`;
+}
+
+export function buildReleaseAssetBases(version: string): readonly string[] {
+  return [buildReleaseAssetBase(version), buildReleaseAssetBase(version, PLANNED_REPO_NAME)];
 }
 
 export function getExpectedReleaseAssetUrl(
@@ -16,7 +21,7 @@ export function getExpectedReleaseAssetUrl(
     case 'darwin':
       return arch === 'arm64'
         ? `${base}/Claude.Agent.Teams.UI-${version}-arm64.dmg`
-        : `${base}/Claude.Agent.Teams.UI-${version}.dmg`;
+        : `${base}/Claude.Agent.Teams.UI-${version}-x64.dmg`;
     case 'win32':
       return `${base}/Claude.Agent.Teams.UI.Setup.${version}.exe`;
     case 'linux':
@@ -26,8 +31,26 @@ export function getExpectedReleaseAssetUrl(
   }
 }
 
+export function getExpectedReleaseAssetUrls(
+  version: string,
+  platform: NodeJS.Platform,
+  arch: NodeJS.Architecture
+): readonly string[] {
+  const assetUrl = getExpectedReleaseAssetUrl(version, platform, arch);
+  if (!assetUrl) {
+    return [];
+  }
+
+  const primaryBase = buildReleaseAssetBase(version);
+  return buildReleaseAssetBases(version).map((base) => assetUrl.replace(primaryBase, base));
+}
+
 export function getLatestMacMetadataUrl(version: string): string {
   return `${buildReleaseAssetBase(version)}/latest-mac.yml`;
+}
+
+export function getLatestMacMetadataUrls(version: string): readonly string[] {
+  return buildReleaseAssetBases(version).map((base) => `${base}/latest-mac.yml`);
 }
 
 export function getExpectedLatestMacArtifacts(
@@ -39,7 +62,7 @@ export function getExpectedLatestMacArtifacts(
         `Claude.Agent.Teams.UI-${version}-arm64-mac.zip`,
         `Claude.Agent.Teams.UI-${version}-arm64.dmg`,
       ]
-    : [`Claude.Agent.Teams.UI-${version}-mac.zip`, `Claude.Agent.Teams.UI-${version}.dmg`];
+    : [`Claude.Agent.Teams.UI-${version}-x64-mac.zip`, `Claude.Agent.Teams.UI-${version}-x64.dmg`];
 }
 
 function stripYamlScalar(rawValue: string): string {

@@ -13,6 +13,10 @@ function safeTaskIdSegment(taskId: string): string {
   return `task-id-${createHash('sha256').update(taskId).digest('hex').slice(0, 32)}`;
 }
 
+function sha(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
 describe('TaskChangeLedgerReader', () => {
   let tmpDir: string | null = null;
 
@@ -252,6 +256,172 @@ describe('TaskChangeLedgerReader', () => {
     expect(result?.files[0]?.isNewFile).toBe(false);
     expect(result?.files[0]?.linesAdded).toBe(3);
     expect(result?.files[0]?.linesRemoved).toBe(2);
+  });
+
+  it('resolves Windows rename relation paths case-insensitively in legacy fallback grouping', async () => {
+    const relation = { kind: 'rename', oldPath: 'src/OLD.ts', newPath: 'src/NEW.ts' };
+    tmpDir = await makeLedgerBundle({
+      events: [
+        {
+          schemaVersion: 1,
+          eventId: 'event-old',
+          taskId: TASK_ID,
+          taskRef: TASK_ID,
+          taskRefKind: 'canonical',
+          phase: 'work',
+          executionSeq: 1,
+          sessionId: 'session-1',
+          toolUseId: 'tool-1',
+          source: 'shell_snapshot',
+          operation: 'delete',
+          confidence: 'high',
+          workspaceRoot: 'C:\\Repo',
+          filePath: 'C:\\Repo\\SRC\\Old.ts',
+          relativePath: 'SRC\\Old.ts',
+          timestamp: '2026-03-01T10:00:00.000Z',
+          toolStatus: 'succeeded',
+          before: null,
+          after: null,
+          relation,
+          linesAdded: 0,
+          linesRemoved: 2,
+        },
+      ],
+    });
+
+    const reader = new TaskChangeLedgerReader();
+    const result = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: 'C:\\Repo',
+      includeDetails: false,
+    });
+
+    expect(result?.files).toHaveLength(1);
+    expect(result?.files[0]?.filePath.replace(/\\/g, '/')).toBe('C:/Repo/src/NEW.ts');
+    expect(result?.files[0]?.ledgerSummary?.relation).toEqual(relation);
+  });
+
+  it('does not synthesize rename display paths from unsafe suffix matches', async () => {
+    const relation = { kind: 'rename', oldPath: 'new.ts', newPath: 'old.ts' };
+    tmpDir = await makeLedgerBundle({
+      events: [
+        {
+          schemaVersion: 1,
+          eventId: 'event-old',
+          taskId: TASK_ID,
+          taskRef: TASK_ID,
+          taskRefKind: 'canonical',
+          phase: 'work',
+          executionSeq: 1,
+          sessionId: 'session-1',
+          toolUseId: 'tool-1',
+          source: 'shell_snapshot',
+          operation: 'delete',
+          confidence: 'high',
+          workspaceRoot: 'C:\\Repo',
+          filePath: 'C:\\Repo\\src\\renew.ts',
+          relativePath: 'src\\renew.ts',
+          timestamp: '2026-03-01T10:00:00.000Z',
+          toolStatus: 'succeeded',
+          before: null,
+          after: null,
+          relation,
+          linesAdded: 0,
+          linesRemoved: 1,
+        },
+      ],
+    });
+
+    const reader = new TaskChangeLedgerReader();
+    const result = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: 'C:\\Repo',
+      includeDetails: false,
+    });
+
+    expect(result?.files).toHaveLength(1);
+    expect(result?.files[0]?.filePath.replace(/\\/g, '/')).toBe('C:/Repo/src/renew.ts');
+  });
+
+  it('does not mark delete-then-create lifecycle on an existing path as a new file', async () => {
+    const filePath = '/repo/src/replaced.ts';
+    const original = 'export const value = 1;\n';
+    const modified = 'export const value = 2;\n';
+    tmpDir = await makeLedgerBundle({
+      events: [
+        {
+          schemaVersion: 1,
+          eventId: 'event-delete',
+          taskId: TASK_ID,
+          taskRef: TASK_ID,
+          taskRefKind: 'canonical',
+          phase: 'work',
+          executionSeq: 1,
+          sessionId: 'session-1',
+          toolUseId: 'tool-1',
+          source: 'shell_snapshot',
+          operation: 'delete',
+          confidence: 'high',
+          workspaceRoot: '/repo',
+          filePath,
+          relativePath: 'src/replaced.ts',
+          timestamp: '2026-03-01T10:00:00.000Z',
+          toolStatus: 'succeeded',
+          before: null,
+          after: null,
+          oldString: original,
+          newString: '',
+          beforeState: { exists: true, sha256: sha(original) },
+          afterState: { exists: false },
+          linesAdded: 0,
+          linesRemoved: 1,
+        },
+        {
+          schemaVersion: 1,
+          eventId: 'event-create',
+          taskId: TASK_ID,
+          taskRef: TASK_ID,
+          taskRefKind: 'canonical',
+          phase: 'work',
+          executionSeq: 2,
+          sessionId: 'session-1',
+          toolUseId: 'tool-2',
+          source: 'shell_snapshot',
+          operation: 'create',
+          confidence: 'high',
+          workspaceRoot: '/repo',
+          filePath,
+          relativePath: 'src/replaced.ts',
+          timestamp: '2026-03-01T10:01:00.000Z',
+          toolStatus: 'succeeded',
+          before: null,
+          after: null,
+          oldString: '',
+          newString: modified,
+          beforeState: { exists: false },
+          afterState: { exists: true, sha256: sha(modified) },
+          linesAdded: 1,
+          linesRemoved: 0,
+        },
+      ],
+    });
+
+    const reader = new TaskChangeLedgerReader();
+    const result = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: '/repo',
+      includeDetails: true,
+    });
+
+    expect(result?.files).toHaveLength(1);
+    expect(result?.files[0]?.filePath).toBe(filePath);
+    expect(result?.files[0]?.isNewFile).toBe(false);
   });
 
   it('preserves v2 worktree metadata from centralized ledger summaries', async () => {

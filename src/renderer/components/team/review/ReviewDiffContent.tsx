@@ -143,6 +143,10 @@ const SnippetDiffView = ({
 
 export const ReviewDiffContent = ({ file }: ReviewDiffContentProps) => {
   const nonErrorSnippets = useMemo(() => file.snippets.filter((s) => !s.isError), [file.snippets]);
+  const hasLedgerMetadataOnly =
+    file.ledgerSummary?.reviewability === 'metadata-only' ||
+    file.ledgerSummary?.contentAvailability === 'metadata-only' ||
+    file.ledgerSummary?.contentAvailability === 'hash-only';
   const ledgerMetadataRows = useMemo(() => {
     const rows = new Set<string>();
     for (const snippet of nonErrorSnippets) {
@@ -180,7 +184,11 @@ export const ReviewDiffContent = ({ file }: ReviewDiffContentProps) => {
       ))}
 
       {nonErrorSnippets.length === 0 && (
-        <div className="py-8 text-center text-sm text-text-muted">No changes to display</div>
+        <div className="py-8 text-center text-sm text-text-muted">
+          {hasLedgerMetadataOnly
+            ? 'Ledger metadata is available, but no text diff can be rendered for this file.'
+            : 'No text changes to display'}
+        </div>
       )}
     </div>
   );

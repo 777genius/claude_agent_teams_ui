@@ -19,7 +19,9 @@ export function getDerivedTaskStatus(
 }
 
 /** Derive the current review state from historyEvents. */
-export function getDerivedReviewState(task: Pick<TeamTask, 'historyEvents'>): TeamReviewState {
+export function getDerivedReviewStateFromHistory(
+  task: Pick<TeamTask, 'historyEvents'>
+): TeamReviewState | null {
   const events = getTaskHistoryEvents(task);
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i];
@@ -31,11 +33,40 @@ export function getDerivedReviewState(task: Pick<TeamTask, 'historyEvents'>): Te
     ) {
       return event.to;
     }
-    // A status_changed to in_progress after a review event resets review state
-    if (event.type === 'status_changed' && event.to === 'in_progress') {
+    if (event.type === 'status_changed' && (event.to === 'in_progress' || event.to === 'deleted')) {
+      return 'none';
+    }
+    if (event.type === 'status_changed' && event.to === 'pending') {
+      for (let previousIndex = i - 1; previousIndex >= 0; previousIndex--) {
+        const previous = events[previousIndex];
+        if (
+          previous.type === 'review_requested' ||
+          previous.type === 'review_changes_requested' ||
+          previous.type === 'review_approved' ||
+          previous.type === 'review_started'
+        ) {
+          return previous.to === 'needsFix' ? 'needsFix' : 'none';
+        }
+        if (
+          previous.type === 'task_created' ||
+          (previous.type === 'status_changed' &&
+            (previous.to === 'in_progress' ||
+              previous.to === 'pending' ||
+              previous.to === 'deleted'))
+        ) {
+          return 'none';
+        }
+      }
       return 'none';
     }
   }
+  return null;
+}
+
+/** Derive the current review state from historyEvents. */
+export function getDerivedReviewState(task: Pick<TeamTask, 'historyEvents'>): TeamReviewState {
+  const derived = getDerivedReviewStateFromHistory(task);
+  if (derived) return derived;
   return 'none';
 }
 

@@ -1,7 +1,7 @@
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 
-import type { TaskStallAlert } from './TeamTaskStallTypes';
 import type { TeamDataService } from '../TeamDataService';
+import type { TaskStallAlert } from './TeamTaskStallTypes';
 
 function buildLeadAlertText(alerts: TaskStallAlert[]): string {
   return alerts

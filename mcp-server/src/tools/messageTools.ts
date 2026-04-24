@@ -2,6 +2,7 @@ import type { FastMCP } from 'fastmcp';
 import { z } from 'zod';
 
 import { getController } from '../controller';
+import { assertConfiguredTeam } from '../utils/teamConfig';
 import { jsonTextContent } from '../utils/format';
 
 const toolContextSchema = {
@@ -12,7 +13,8 @@ const toolContextSchema = {
 export function registerMessageTools(server: Pick<FastMCP, 'addTool'>) {
   server.addTool({
     name: 'message_send',
-    description: 'Send a message into team inbox',
+    description:
+      'Send a visible team/user message into team inbox. OpenCode teammates should use this for normal replies to the human user, lead, or same-team teammates. When to is "user", from is required and must be your configured teammate name. Do not invent placeholder task refs. If the message is not about a real board task, omit # task labels; never use #00000000.',
     parameters: z.object({
       ...toolContextSchema,
       to: z.string().min(1),
@@ -31,6 +33,15 @@ export function registerMessageTools(server: Pick<FastMCP, 'addTool'>) {
           })
         )
         .optional(),
+      taskRefs: z
+        .array(
+          z.object({
+            taskId: z.string().min(1),
+            displayId: z.string().min(1),
+            teamName: z.string().min(1),
+          })
+        )
+        .optional(),
     }),
     execute: async ({
       teamName,
@@ -42,19 +53,23 @@ export function registerMessageTools(server: Pick<FastMCP, 'addTool'>) {
       source,
       leadSessionId,
       attachments,
-    }) =>
-      await Promise.resolve(
+      taskRefs,
+    }) => {
+      assertConfiguredTeam(teamName, claudeDir);
+      return await Promise.resolve(
         jsonTextContent(
           getController(teamName, claudeDir).messages.sendMessage({
-          to,
-          text,
-          ...(from ? { from } : {}),
-          ...(summary ? { summary } : {}),
-          ...(source ? { source } : {}),
-          ...(leadSessionId ? { leadSessionId } : {}),
-          ...(attachments?.length ? { attachments } : {}),
+            to,
+            text,
+            ...(from ? { from } : {}),
+            ...(summary ? { summary } : {}),
+            ...(source ? { source } : {}),
+            ...(leadSessionId ? { leadSessionId } : {}),
+            ...(attachments?.length ? { attachments } : {}),
+            ...(taskRefs?.length ? { taskRefs } : {}),
           })
         )
-      ),
+      );
+    },
   });
 }

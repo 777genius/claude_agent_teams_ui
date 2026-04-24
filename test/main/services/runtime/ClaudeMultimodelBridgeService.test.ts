@@ -1,5 +1,6 @@
 // @vitest-environment node
 import type { PathLike } from 'fs';
+import { readFile as readFileFixture, writeFile } from 'fs/promises';
 import * as path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -810,15 +811,20 @@ describe('ClaudeMultimodelBridgeService', () => {
   });
 
   it('loads projected OpenCode transcript data through the runtime transcript command', async () => {
-    execCliMock.mockImplementation((_binaryPath, args) => {
+    execCliMock.mockImplementation(async (_binaryPath, args) => {
       const normalizedArgs = Array.isArray(args) ? args.join(' ') : '';
 
       if (
-        normalizedArgs
-        === 'runtime transcript --json --provider opencode --team team-a --member alice --limit 20'
+        normalizedArgs.startsWith(
+          'runtime transcript --json --provider opencode --team team-a --member alice --projection-only --limit 20 --output '
+        )
       ) {
-        return Promise.resolve({
-          stdout: JSON.stringify({
+        const outputIndex = Array.isArray(args) ? args.indexOf('--output') : -1;
+        const outputPath =
+          outputIndex >= 0 && Array.isArray(args) ? String(args[outputIndex + 1] ?? '') : '';
+        await writeFile(
+          outputPath,
+          JSON.stringify({
             schemaVersion: 1,
             providerId: 'opencode',
             transcript: {
@@ -856,6 +862,10 @@ describe('ClaudeMultimodelBridgeService', () => {
               },
             },
           }),
+          'utf8'
+        );
+        return Promise.resolve({
+          stdout: '',
           stderr: '',
           exitCode: 0,
         });
@@ -894,6 +904,71 @@ describe('ClaudeMultimodelBridgeService', () => {
         ]),
       },
     });
+  });
+
+  it('loads a large real OpenCode projection fixture through output-file transcript delivery', async () => {
+    const fixturePath = path.resolve(
+      process.cwd(),
+      'test/fixtures/team/opencode/relay-works-10-jack-projection-transcript.json'
+    );
+    const fixtureRaw = await readFileFixture(fixturePath, 'utf8');
+
+    execCliMock.mockImplementation(async (_binaryPath, args) => {
+      const normalizedArgs = Array.isArray(args) ? args.join(' ') : '';
+
+      if (
+        normalizedArgs.startsWith(
+          'runtime transcript --json --provider opencode --team relay-works-10 --member jack --projection-only --limit 200 --output '
+        )
+      ) {
+        const outputIndex = Array.isArray(args) ? args.indexOf('--output') : -1;
+        const outputPath =
+          outputIndex >= 0 && Array.isArray(args) ? String(args[outputIndex + 1] ?? '') : '';
+        await writeFile(outputPath, fixtureRaw, 'utf8');
+        return Promise.resolve({
+          stdout: '',
+          stderr: '',
+          exitCode: 0,
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected execCli call: ${normalizedArgs}`));
+    });
+
+    const { ClaudeMultimodelBridgeService } =
+      await import('@main/services/runtime/ClaudeMultimodelBridgeService');
+    const service = new ClaudeMultimodelBridgeService();
+
+    const transcript = await service.getOpenCodeTranscript('/mock/agent_teams_orchestrator', {
+      teamId: 'relay-works-10',
+      memberName: 'jack',
+      limit: 200,
+    });
+
+    const projectedMessages = transcript?.logProjection?.messages ?? [];
+    const toolNames = projectedMessages.flatMap((message) =>
+      message.toolCalls.map((toolCall) => toolCall.name)
+    );
+
+    expect(fixtureRaw.length).toBeGreaterThan(64_000);
+    expect(transcript?.sessionId).toBe('ses_23edf9243ffeSNYPWObDloBJyQ');
+    expect(transcript?.messageCount).toBe(65);
+    expect(transcript?.toolCallCount).toBe(36);
+    expect(transcript?.messages).toEqual([]);
+    expect(projectedMessages).toHaveLength(101);
+    expect(toolNames).toEqual(
+      expect.arrayContaining([
+        'agent-teams_runtime_bootstrap_checkin',
+        'agent-teams_member_briefing',
+        'agent-teams_message_send',
+        'agent-teams_task_start',
+        'agent-teams_task_add_comment',
+        'agent-teams_task_complete',
+        'bash',
+        'read',
+      ])
+    );
+    expect(toolNames).not.toContain('SendMessage');
   });
 
   it('verifies OpenCode models through execution-grade runtime probes', async () => {

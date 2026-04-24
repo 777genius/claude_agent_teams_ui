@@ -8,12 +8,20 @@ const controllerModule =
   (agentTeamsControllerModule as ControllerModule).default ?? agentTeamsControllerModule;
 const { createController } = controllerModule;
 
+const FORCED_CLAUDE_DIR_ENV = 'AGENT_TEAMS_MCP_CLAUDE_DIR';
+
 /** Re-export agentBlocks utilities (stripAgentBlocks, wrapAgentBlock, etc.) */
 export const agentBlocks = controllerModule.agentBlocks;
 
 export function getController(teamName: string, claudeDir?: string) {
+  const forcedClaudeDir = process.env[FORCED_CLAUDE_DIR_ENV]?.trim();
+  let resolvedClaudeDir = claudeDir;
+  if (forcedClaudeDir) {
+    resolvedClaudeDir = forcedClaudeDir;
+  }
+
   return createController({
     teamName,
-    ...(claudeDir ? { claudeDir } : {}),
+    ...(resolvedClaudeDir ? { claudeDir: resolvedClaudeDir } : {}),
   });
 }

@@ -394,10 +394,10 @@ export class RuntimeStoreBatchWriter {
     capabilitySnapshotId: string | null;
     behaviorFingerprint: string | null;
     reason: RuntimeStoreWriteBatchReason;
-    writes: Array<{
+    writes: {
       descriptor: RuntimeStoreDescriptor;
       data: unknown;
-    }>;
+    }[];
   }): Promise<RuntimeStoreWriteBatch> {
     const clock = this.options.clock ?? (() => new Date());
     const batch: RuntimeStoreWriteBatch = {
@@ -787,17 +787,17 @@ export interface RuntimeStoreCrossStoreInvariantInput {
     runId: string | null;
     capabilitySnapshotId: string | null;
     aggregateState?: string;
-    members?: Array<{ name: string; launchState?: string }>;
+    members?: { name: string; launchState?: string }[];
   };
   sessionStore: {
-    sessions?: Array<{ teamName: string; memberName: string; runId: string | null }>;
+    sessions?: { teamName: string; memberName: string; runId: string | null }[];
   };
   transaction: { status?: string } | null;
   deliveryJournal: {
-    records?: Array<{ idempotencyKey: string; runId: string | null; status: string }>;
+    records?: { idempotencyKey: string; runId: string | null; status: string }[];
   };
   permissionStore: {
-    requests?: Array<{ appRequestId: string; runId: string | null; status: string }>;
+    requests?: { appRequestId: string; runId: string | null; status: string }[];
   };
   compatibilitySnapshot: { snapshotId: string | null };
   manifest: RuntimeStoreManifest;

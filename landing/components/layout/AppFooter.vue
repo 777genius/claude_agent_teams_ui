@@ -1,16 +1,19 @@
 <script setup lang="ts">
 const { t } = useI18n();
+const { repoUrl } = useGithubRepo();
 const year = new Date().getFullYear();
 </script>
 
 <template>
   <footer class="app-footer">
     <v-container class="app-footer__inner">
-      <span class="app-footer__copy">{{ t("footer.copyright", { year }) }} · {{ t("footer.tagline") }}</span>
+      <span class="app-footer__copy"
+        >{{ t('footer.copyright', { year }) }} · {{ t('footer.tagline') }}</span
+      >
       <div class="app-footer__links">
         <a class="app-footer__link" href="https://github.com/777genius" target="_blank">Author</a>
         <span class="app-footer__divider" />
-        <a class="app-footer__link" href="https://github.com/777genius/claude_agent_teams_ui" target="_blank">GitHub</a>
+        <a class="app-footer__link" :href="repoUrl" target="_blank">GitHub</a>
       </div>
     </v-container>
   </footer>
@@ -31,7 +34,7 @@ const year = new Date().getFullYear();
 .app-footer__copy {
   font-size: 13px;
   opacity: 0.5;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .app-footer__links {
@@ -46,7 +49,7 @@ const year = new Date().getFullYear();
   font-size: 13px;
   opacity: 0.7;
   transition: opacity 0.2s ease;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .app-footer__link:hover {

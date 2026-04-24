@@ -16,7 +16,8 @@
 // On Windows this saturates all threads, blocking the event loop.
 process.env.UV_THREADPOOL_SIZE ??= '16';
 
-// Sentry must be the first import to capture early errors.
+// Keep userData stable before any integration can initialize Electron storage.
+// Sentry must stay near the top to capture early errors after storage migration.
 import './sentry';
 
 import {
@@ -53,6 +54,7 @@ import {
   resolveAgentTeamsMcpLaunchSpec,
   TeamMcpConfigBuilder,
 } from '@main/services/team/TeamMcpConfigBuilder';
+import { killTrackedCliProcesses } from '@main/utils/childProcess';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import {
   CONTEXT_CHANGED,
@@ -114,9 +116,6 @@ import {
   OpenCodeBridgeCommandHandshakePort,
 } from './services/team/opencode/bridge/OpenCodeBridgeHandshakeClient';
 import { OpenCodeStateChangingBridgeCommandService } from './services/team/opencode/bridge/OpenCodeStateChangingBridgeCommandService';
-import { resolveOpenCodeTeamLaunchModeFromEnv } from './services/team/opencode/config/OpenCodeLaunchModeEnv';
-import { resolveOpenCodeProductionE2EEvidencePath } from './services/team/opencode/e2e/OpenCodeProductionE2EEvidencePath';
-import { OpenCodeProductionE2EEvidenceStore } from './services/team/opencode/e2e/OpenCodeProductionE2EEvidenceStore';
 import { OpenCodeRuntimeManifestEvidenceReader } from './services/team/opencode/store/OpenCodeRuntimeManifestEvidenceReader';
 import {
   buildTeamControlApiBaseUrl,
@@ -131,13 +130,19 @@ import {
 } from './services/team/TeamReconcileDrainScheduler';
 import { TeamSentMessagesStore } from './services/team/TeamSentMessagesStore';
 import { getAppIconPath } from './utils/appIcon';
-import { getProjectsBasePath, getTeamsBasePath, getTodosBasePath } from './utils/pathDecoder';
+import {
+  getClaudeBasePath,
+  getProjectsBasePath,
+  getTeamsBasePath,
+  getTodosBasePath,
+} from './utils/pathDecoder';
 import {
   clearRendererAvailability,
   markRendererReady,
   markRendererUnavailable,
   safeSendToRenderer,
 } from './utils/safeWebContentsSend';
+import { earlyElectronUserDataMigrationResult } from './bootstrapUserDataMigration';
 import { syncTelemetryFlag } from './sentry';
 import {
   ActiveTeamRegistry,
@@ -179,6 +184,21 @@ import type { FileChangeEvent } from '@main/types';
 import type { TeamChangeEvent } from '@shared/types';
 
 const logger = createLogger('App');
+let openCodeLifecycleBridge: OpenCodeReadinessBridge | null = null;
+if (
+  earlyElectronUserDataMigrationResult.migrated &&
+  earlyElectronUserDataMigrationResult.legacyPath &&
+  earlyElectronUserDataMigrationResult.currentPath
+) {
+  logger.info(
+    `Migrated Electron userData from ${earlyElectronUserDataMigrationResult.legacyPath} to ${earlyElectronUserDataMigrationResult.currentPath}`
+  );
+} else if (
+  earlyElectronUserDataMigrationResult.fallbackToLegacy &&
+  earlyElectronUserDataMigrationResult.legacyPath
+) {
+  logger.warn(`Electron userData migration failed, using legacy path for this run`);
+}
 startEventLoopLagMonitor();
 
 // Windows: set AppUserModelId early so native notifications show the correct
@@ -205,10 +225,12 @@ async function createOpenCodeRuntimeAdapterRegistry(): Promise<TeamRuntimeAdapte
   const binaryPath = await ClaudeBinaryResolver.resolve();
   if (!binaryPath) {
     logger.warn('[OpenCode] Runtime adapter bridge disabled: orchestrator CLI binary not resolved');
+    openCodeLifecycleBridge = null;
     return new TeamRuntimeAdapterRegistry();
   }
 
   const bridgeEnv = applyOpenCodeAutoUpdatePolicy({ ...process.env });
+  bridgeEnv.AGENT_TEAMS_MCP_CLAUDE_DIR = getClaudeBasePath();
   try {
     const mcpLaunchSpec = await resolveAgentTeamsMcpLaunchSpec();
     const mcpEntry = mcpLaunchSpec.args[0];
@@ -252,19 +274,31 @@ async function createOpenCodeRuntimeAdapterRegistry(): Promise<TeamRuntimeAdapte
       teamsBasePath: getTeamsBasePath(),
     }),
   });
-  return new TeamRuntimeAdapterRegistry([
-    new OpenCodeTeamRuntimeAdapter(
-      new OpenCodeReadinessBridge(bridgeClient, {
-        stateChangingCommands,
-        productionE2eEvidence: new OpenCodeProductionE2EEvidenceStore({
-          filePath: resolveOpenCodeProductionE2EEvidencePath({ bridgeControlDir }),
-        }),
-      }),
-      {
-        launchMode: resolveOpenCodeTeamLaunchModeFromEnv(),
-      }
-    ),
-  ]);
+  const readinessBridge = new OpenCodeReadinessBridge(bridgeClient, {
+    stateChangingCommands,
+  });
+  openCodeLifecycleBridge = readinessBridge;
+  return new TeamRuntimeAdapterRegistry([new OpenCodeTeamRuntimeAdapter(readinessBridge)]);
+}
+
+async function cleanupOpenCodeHostsForLifecycle(reason: 'startup' | 'shutdown'): Promise<void> {
+  if (!openCodeLifecycleBridge) {
+    return;
+  }
+  const result = await openCodeLifecycleBridge.cleanupOpenCodeHosts({
+    reason,
+    mode: reason === 'shutdown' ? 'force' : 'stale',
+    staleAgeMs: reason === 'startup' ? 5 * 60_000 : null,
+    leaseStaleAgeMs: reason === 'startup' ? 24 * 60 * 60_000 : null,
+  });
+  if (result.cleaned > 0) {
+    logger.info(
+      `[OpenCode] ${reason} host cleanup removed ${result.cleaned} registry host(s), ${result.remaining} remaining`
+    );
+  }
+  for (const diagnostic of result.diagnostics) {
+    logger.warn(`[OpenCode] ${reason} host cleanup: ${diagnostic}`);
+  }
 }
 
 // --- Team display name cache (avoid listTeams() on every notification) ---
@@ -533,6 +567,70 @@ let rendererRecoveryAttempts = 0;
 let fileChangeCleanup: (() => void) | null = null;
 let todoChangeCleanup: (() => void) | null = null;
 let teamChangeCleanup: (() => void) | null = null;
+let shutdownPromise: Promise<void> | null = null;
+let shutdownComplete = false;
+const startupTimers = new Set<ReturnType<typeof setTimeout>>();
+
+const SHUTDOWN_STEP_TIMEOUT_MS = 5_000;
+
+function isShutdownStarted(): boolean {
+  return shutdownComplete || shutdownPromise !== null;
+}
+
+function scheduleStartupTask(action: () => void, delayMs: number): void {
+  const timer = setTimeout(() => {
+    startupTimers.delete(timer);
+    if (isShutdownStarted()) {
+      return;
+    }
+    action();
+  }, delayMs);
+  timer.unref?.();
+  startupTimers.add(timer);
+}
+
+function clearStartupTimers(): void {
+  for (const timer of startupTimers) {
+    clearTimeout(timer);
+  }
+  startupTimers.clear();
+}
+
+function clearInboxNotifyTimers(): void {
+  for (const timer of inboxNotifyTimers.values()) {
+    clearTimeout(timer);
+  }
+  inboxNotifyTimers.clear();
+}
+
+async function runShutdownStep(
+  label: string,
+  action: () => void | Promise<void>,
+  timeoutMs: number = SHUTDOWN_STEP_TIMEOUT_MS
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    await Promise.race([
+      Promise.resolve().then(action),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(() => {
+          logger.warn(`Shutdown step timed out after ${timeoutMs}ms: ${label}`);
+          resolve();
+        }, timeoutMs);
+        timeout.unref?.();
+      }),
+    ]);
+  } catch (error) {
+    logger.warn(
+      `Shutdown step failed (${label}): ${error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 /**
  * Resolve production renderer index path.
@@ -686,22 +784,19 @@ function wireFileWatcherEvents(context: ServiceContext): void {
         }
 
         // Relay inbox changes into active runtime recipients.
-        if (teamProvisioningService.isTeamAlive(teamName) && detail.startsWith('inboxes/')) {
+        if (detail.startsWith('inboxes/')) {
           const match = /^inboxes\/(.+)\.json$/.exec(detail);
-          if (match && teamDataService) {
+          if (match) {
             const inboxName = match[1];
 
-            void teamDataService
-              .getLeadMemberName(teamName)
-              .then((leadName) => {
-                if (!leadName) return;
-                if (inboxName === leadName) {
-                  return teamProvisioningService.relayLeadInboxMessages(teamName);
+            void teamProvisioningService
+              .relayInboxFileToLiveRecipient(teamName, inboxName)
+              .then((relay) => {
+                if (relay.diagnostics?.length) {
+                  logger.warn(
+                    `[FileWatcher] relay diagnostics for ${teamName}/${inboxName}: ${relay.diagnostics.join('; ')}`
+                  );
                 }
-                // Teammate inbox relay DISABLED (2026-03-23): teammates read their own
-                // inbox files directly via fs.watch. See teams.ts handleSendMessage for details.
-                // Lead relay is still needed (lead reads stdin only, not inbox files).
-                return undefined;
               })
               .catch((e: unknown) =>
                 logger.warn(`[FileWatcher] relay failed for ${teamName}: ${String(e)}`)
@@ -714,13 +809,12 @@ function wireFileWatcherEvents(context: ServiceContext): void {
           const timerKey = `${teamName}:${detail}`;
           const existing = inboxNotifyTimers.get(timerKey);
           if (existing) clearTimeout(existing);
-          inboxNotifyTimers.set(
-            timerKey,
-            setTimeout(() => {
-              inboxNotifyTimers.delete(timerKey);
-              void notifyNewInboxMessages(teamName, detail).catch(() => undefined);
-            }, INBOX_NOTIFY_DEBOUNCE_MS)
-          );
+          const timer = setTimeout(() => {
+            inboxNotifyTimers.delete(timerKey);
+            void notifyNewInboxMessages(teamName, detail).catch(() => undefined);
+          }, INBOX_NOTIFY_DEBOUNCE_MS);
+          timer.unref?.();
+          inboxNotifyTimers.set(timerKey, timer);
         }
 
         // Show native OS notification for new lead → user messages (sentMessages.json).
@@ -728,13 +822,12 @@ function wireFileWatcherEvents(context: ServiceContext): void {
           const timerKey = `${teamName}:sentMessages`;
           const existing = inboxNotifyTimers.get(timerKey);
           if (existing) clearTimeout(existing);
-          inboxNotifyTimers.set(
-            timerKey,
-            setTimeout(() => {
-              inboxNotifyTimers.delete(timerKey);
-              void notifyNewSentMessages(teamName).catch(() => undefined);
-            }, INBOX_NOTIFY_DEBOUNCE_MS)
-          );
+          const timer = setTimeout(() => {
+            inboxNotifyTimers.delete(timerKey);
+            void notifyNewSentMessages(teamName).catch(() => undefined);
+          }, INBOX_NOTIFY_DEBOUNCE_MS);
+          timer.unref?.();
+          inboxNotifyTimers.set(timerKey, timer);
         }
       }
 
@@ -907,6 +1000,19 @@ async function initializeServices(): Promise<void> {
 
   // Initialize updater and CLI installer services
   updaterService = new UpdaterService();
+  updaterService.setBeforeQuitAndInstall(async () => {
+    try {
+      await shutdownServices();
+    } catch (error) {
+      logger.error(
+        `Shutdown before update install failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      shutdownComplete = true;
+    }
+  });
   cliInstallerService = new CliInstallerService();
   ptyTerminalService = new PtyTerminalService();
   const teamMemberLogsFinder = new TeamMemberLogsFinder();
@@ -927,6 +1033,9 @@ async function initializeServices(): Promise<void> {
   teamDataService.setMemberRuntimeAdvisoryService(teamMemberRuntimeAdvisoryService);
   teamProvisioningService = new TeamProvisioningService();
   teamProvisioningService.setRuntimeAdapterRegistry(await createOpenCodeRuntimeAdapterRegistry());
+  await cleanupOpenCodeHostsForLifecycle('startup').catch((error: unknown) =>
+    logger.warn(`[OpenCode] Startup host cleanup failed: ${String(error)}`)
+  );
   // Startup GC: remove stale MCP config files from previous sessions (best-effort)
   void new TeamMcpConfigBuilder().gcStaleConfigs();
   void teamDataService
@@ -1177,6 +1286,10 @@ async function initializeServices(): Promise<void> {
 async function startHttpServer(
   modeSwitchHandler: (mode: 'local' | 'ssh') => Promise<void>
 ): Promise<void> {
+  if (isShutdownStarted()) {
+    return;
+  }
+
   try {
     if (httpServer.isRunning()) {
       await syncTeamControlApiState();
@@ -1200,6 +1313,11 @@ async function startHttpServer(
       modeSwitchHandler,
       config.httpServer?.port ?? 3456
     );
+    if (isShutdownStarted()) {
+      await httpServer.stop().catch(() => undefined);
+      await clearTeamControlApiState().catch(() => undefined);
+      return;
+    }
     await syncTeamControlApiState();
     logger.info(`HTTP sidecar server running on port ${port}`);
   } catch (error) {
@@ -1212,100 +1330,120 @@ async function startHttpServer(
 /**
  * Shuts down all services.
  */
-function shutdownServices(): void {
-  logger.info('Shutting down services...');
-
-  // Clear pending auto-resume timers before anything else — otherwise the
-  // dangling setTimeout handles keep the event loop alive past shutdown and
-  // may fire against a torn-down provisioning service.
-  clearAutoResumeService();
-
-  // Kill all team CLI processes via SIGKILL BEFORE anything else.
-  // This must happen before the OS closes stdin pipes (on app exit),
-  // because stdin EOF triggers CLI's graceful shutdown which deletes team files.
-  if (teamProvisioningService) {
-    teamProvisioningService.stopAllTeams();
+async function shutdownServices(): Promise<void> {
+  if (shutdownPromise) {
+    return shutdownPromise;
   }
 
-  // Best-effort cleanup of MCP config files owned by this process
-  void new TeamMcpConfigBuilder().gcOwnConfigs();
+  shutdownPromise = (async () => {
+    logger.info('Shutting down services...');
 
-  // Sync backup all team data (files are stable after SIGKILL).
-  if (teamBackupService) {
-    teamBackupService.runShutdownBackupSync();
-  }
+    clearStartupTimers();
+    clearInboxNotifyTimers();
 
-  // Stop HTTP server
-  if (httpServer?.isRunning()) {
-    void httpServer.stop();
-  }
-  void clearTeamControlApiState();
+    // Clear pending auto-resume timers before anything else. Dangling timers can
+    // keep the event loop alive and fire against a torn-down provisioning service.
+    clearAutoResumeService();
 
-  // Clean up file watcher event listeners
-  if (fileChangeCleanup) {
-    fileChangeCleanup();
-    fileChangeCleanup = null;
-  }
-  if (todoChangeCleanup) {
-    todoChangeCleanup();
-    todoChangeCleanup = null;
-  }
-  if (teamChangeCleanup) {
-    teamChangeCleanup();
-    teamChangeCleanup = null;
-  }
+    // Kill all team CLI processes via SIGKILL before anything else.
+    // This must happen before the OS closes stdin pipes on app exit, because
+    // stdin EOF triggers CLI cleanup that can delete team files.
+    if (teamProvisioningService) {
+      await runShutdownStep('stop all teams', () => teamProvisioningService.stopAllTeams(), 10_000);
+    }
+    await runShutdownStep(
+      'OpenCode host registry cleanup',
+      () => cleanupOpenCodeHostsForLifecycle('shutdown'),
+      10_000
+    );
+    await runShutdownStep('tracked CLI subprocess cleanup', () =>
+      killTrackedCliProcesses('SIGKILL')
+    );
 
-  // Clean up editor state (watcher, git service)
-  cleanupEditorState();
+    await runShutdownStep('MCP config GC', () => new TeamMcpConfigBuilder().gcOwnConfigs());
 
-  // Dispose all contexts (including local)
-  if (contextRegistry) {
-    contextRegistry.dispose();
-  }
+    // Sync backup all team data. Files are stable after SIGKILL.
+    if (teamBackupService) {
+      await runShutdownStep('team backup sync', () => teamBackupService?.runShutdownBackupSync());
+    }
 
-  // Dispose SSH connection manager
-  if (sshConnectionManager) {
-    sshConnectionManager.dispose();
-  }
+    if (httpServer?.isRunning()) {
+      await runShutdownStep('HTTP server stop', () => httpServer.stop());
+    }
+    await runShutdownStep('team control state cleanup', () => clearTeamControlApiState());
 
-  // Stop background polling timers (prevents hanging shutdown).
-  if (teamDataService) {
-    teamDataService.stopProcessHealthPolling();
-  }
-  if (teamTaskStallMonitor) {
-    void teamTaskStallMonitor.stop();
-    teamTaskStallMonitor = null;
-  }
-  branchStatusService?.dispose();
-  branchStatusService = null;
+    await runShutdownStep('file watcher event cleanup', () => {
+      if (fileChangeCleanup) {
+        fileChangeCleanup();
+        fileChangeCleanup = null;
+      }
+      if (todoChangeCleanup) {
+        todoChangeCleanup();
+        todoChangeCleanup = null;
+      }
+      if (teamChangeCleanup) {
+        teamChangeCleanup();
+        teamChangeCleanup = null;
+      }
+    });
 
-  // Stop scheduled task execution and croner jobs
-  if (schedulerService) {
-    void schedulerService.stop();
-  }
+    await runShutdownStep('editor cleanup', () => cleanupEditorState());
 
-  void skillsWatcherService?.stopAll();
-  providerConnectionService.setCodexModelCatalogFeature(null);
-  providerConnectionService.setCodexAccountFeature(null);
-  void codexModelCatalogFeature?.dispose();
-  codexModelCatalogFeature = null;
-  void codexAccountFeature?.dispose();
-  codexAccountFeature = null;
+    if (contextRegistry) {
+      await runShutdownStep('context registry dispose', () => contextRegistry.dispose());
+    }
 
-  // Kill all PTY processes
-  if (ptyTerminalService) {
-    ptyTerminalService.killAll();
-  }
+    if (sshConnectionManager) {
+      await runShutdownStep('SSH connection manager dispose', () => sshConnectionManager.dispose());
+    }
 
-  // Remove IPC handlers
-  removeIpcHandlers();
-  removeCodexAccountIpc(ipcMain);
-  removeRecentProjectsIpc(ipcMain);
+    if (teamDataService) {
+      await runShutdownStep('team data polling stop', () =>
+        teamDataService.stopProcessHealthPolling()
+      );
+    }
+    if (updaterService) {
+      await runShutdownStep('updater periodic check stop', () =>
+        updaterService.stopPeriodicCheck()
+      );
+    }
+    if (teamTaskStallMonitor) {
+      await runShutdownStep('team task stall monitor stop', () => teamTaskStallMonitor?.stop());
+      teamTaskStallMonitor = null;
+    }
+    await runShutdownStep('branch status dispose', () => branchStatusService?.dispose());
+    branchStatusService = null;
 
-  // Dispose backup service timers
-  teamBackupService?.dispose();
+    if (schedulerService) {
+      await runShutdownStep('scheduler stop', () => schedulerService.stop());
+    }
 
-  logger.info('Services shut down successfully');
+    await runShutdownStep('skills watcher stop', () => skillsWatcherService?.stopAll());
+    await runShutdownStep('provider connection feature detach', () => {
+      providerConnectionService.setCodexModelCatalogFeature(null);
+      providerConnectionService.setCodexAccountFeature(null);
+    });
+    await runShutdownStep('Codex model catalog dispose', () => codexModelCatalogFeature?.dispose());
+    codexModelCatalogFeature = null;
+    await runShutdownStep('Codex account dispose', () => codexAccountFeature?.dispose());
+    codexAccountFeature = null;
+
+    if (ptyTerminalService) {
+      await runShutdownStep('PTY terminals kill', () => ptyTerminalService.killAll());
+    }
+
+    await runShutdownStep('IPC handlers cleanup', () => {
+      removeIpcHandlers();
+      removeCodexAccountIpc(ipcMain);
+      removeRecentProjectsIpc(ipcMain);
+    });
+
+    await runShutdownStep('team backup dispose', () => teamBackupService?.dispose());
+
+    logger.info('Services shut down successfully');
+  })();
+
+  return shutdownPromise;
 }
 
 /**
@@ -1322,6 +1460,9 @@ function syncTrafficLightPosition(win: BrowserWindow): void {
 }
 
 function scheduleRendererRecovery(win: BrowserWindow): void {
+  if (isShutdownStarted()) {
+    return;
+  }
   if (rendererRecoveryTimer) {
     return;
   }
@@ -1336,6 +1477,9 @@ function scheduleRendererRecovery(win: BrowserWindow): void {
 
   rendererRecoveryTimer = setTimeout(() => {
     rendererRecoveryTimer = null;
+    if (isShutdownStarted()) {
+      return;
+    }
     if (!mainWindow || mainWindow !== win || win.isDestroyed()) {
       return;
     }
@@ -1347,12 +1491,17 @@ function scheduleRendererRecovery(win: BrowserWindow): void {
       logger.error(`Renderer recovery reload failed: ${String(error)}`);
     }
   }, delayMs);
+  rendererRecoveryTimer.unref?.();
 }
 
 /**
  * Creates the main application window.
  */
 function createWindow(): void {
+  if (isShutdownStarted()) {
+    return;
+  }
+
   const isMac = process.platform === 'darwin';
   const isDev = process.env.NODE_ENV === 'development';
   const iconPath = isMac ? undefined : getAppIconPath();
@@ -1440,6 +1589,9 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.on('did-start-loading', () => {
+    if (isShutdownStarted()) {
+      return;
+    }
     markRendererUnavailable(mainWindow);
     branchStatusService?.resetAllTracking();
   });
@@ -1447,6 +1599,9 @@ function createWindow(): void {
   // Set traffic light position + notify renderer on first load, and auto-check for updates
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
+      if (isShutdownStarted()) {
+        return;
+      }
       markRendererReady(mainWindow);
       rendererRecoveryAttempts = 0;
       if (rendererRecoveryTimer) {
@@ -1455,9 +1610,12 @@ function createWindow(): void {
       }
       logger.warn('[startup] renderer did-finish-load');
       syncTrafficLightPosition(mainWindow);
-      setTimeout(() => {
-        safeSendToRenderer(mainWindow, WINDOW_FULLSCREEN_CHANGED, mainWindow?.isFullScreen());
+      const fullscreenSyncTimer = setTimeout(() => {
+        if (!isShutdownStarted()) {
+          safeSendToRenderer(mainWindow, WINDOW_FULLSCREEN_CHANGED, mainWindow?.isFullScreen());
+        }
       }, 0);
+      fullscreenSyncTimer.unref?.();
       // Start file watchers now that the window is visible and responsive.
       // Deferred from initializeServices() to avoid blocking window creation
       // with fs.watch() setup (especially slow on Windows with recursive watchers).
@@ -1466,17 +1624,21 @@ function createWindow(): void {
         // On Windows, delay FileWatcher startup to let the renderer complete
         // its initial IPC calls without UV thread pool contention. Recursive
         // fs.watch() on NTFS saturates all 4 default UV threads.
-        setTimeout(() => activeContext.startFileWatcher(), 1500);
+        scheduleStartupTask(() => activeContext.startFileWatcher(), 1500);
       } else {
-        activeContext.startFileWatcher();
+        if (!isShutdownStarted()) {
+          activeContext.startFileWatcher();
+        }
       }
 
-      setTimeout(() => updaterService.checkForUpdates(), 3000);
-      updaterService.startPeriodicCheck(60 * 60 * 1000);
+      if (!isShutdownStarted()) {
+        scheduleStartupTask(() => void updaterService.checkForUpdates(), 3000);
+        updaterService.startPeriodicCheck(60 * 60 * 1000);
+      }
 
       // Defer non-critical startup work to avoid thread pool contention.
       // The window is now visible and responsive; these run in the background.
-      setTimeout(() => {
+      scheduleStartupTask(() => {
         void teamProvisioningService.warmup();
         teamDataService.startProcessHealthPolling();
         void schedulerService?.start();
@@ -1546,11 +1708,12 @@ function createWindow(): void {
 
     // For zoom keys (including Cmd+0 reset), defer sync until zoom is applied
     if (ZOOM_IN_KEYS.has(input.key) || ZOOM_OUT_KEYS.has(input.key) || input.key === '0') {
-      setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
+      const zoomSyncTimer = setTimeout(() => {
+        if (!isShutdownStarted() && mainWindow && !mainWindow.isDestroyed()) {
           syncTrafficLightPosition(mainWindow);
         }
       }, 100);
+      zoomSyncTimer.unref?.();
     }
   });
 
@@ -1588,6 +1751,9 @@ function createWindow(): void {
   // Handle renderer process crashes (render-process-gone replaces deprecated 'crashed' event)
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     logger.error('Renderer process gone:', details.reason, details.exitCode);
+    if (isShutdownStarted()) {
+      return;
+    }
     markRendererUnavailable(mainWindow);
     branchStatusService?.resetAllTracking();
     const activeContext = contextRegistry.getActive();
@@ -1666,6 +1832,9 @@ void app.whenReady().then(async () => {
 
     // Listen for notification click events
     notificationManager.on('notification-clicked', (_error) => {
+      if (isShutdownStarted()) {
+        return;
+      }
       if (mainWindow) {
         mainWindow.show();
         mainWindow.focus();
@@ -1679,6 +1848,9 @@ void app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
+    if (isShutdownStarted()) {
+      return;
+    }
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
@@ -1689,7 +1861,10 @@ void app.whenReady().then(async () => {
  * All windows closed handler.
  */
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  const shouldQuitWhenAllWindowsClosed =
+    process.platform !== 'darwin' || !configManager.getConfig().general.showDockIcon;
+
+  if (shouldQuitWhenAllWindowsClosed) {
     app.quit();
   }
 });
@@ -1697,6 +1872,25 @@ app.on('window-all-closed', () => {
 /**
  * Before quit handler - cleanup.
  */
-app.on('before-quit', () => {
-  shutdownServices();
+app.on('before-quit', (event) => {
+  if (shutdownComplete) {
+    return;
+  }
+
+  event.preventDefault();
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.hide();
+    }
+  }
+
+  void shutdownServices()
+    .catch((error) => {
+      logger.error(`Shutdown failed: ${error instanceof Error ? error.message : String(error)}`);
+    })
+    .finally(() => {
+      shutdownComplete = true;
+      app.quit();
+    });
 });

@@ -1,4 +1,4 @@
-# Claude Agent Teams UI
+# Agent Teams
 
 A new approach to task management with AI agent teams. Assemble agent teams with different roles that work autonomously in parallel, communicate with each other, create and manage their own tasks, review code, and collaborate across teams. You manage everything through a kanban board — like a CTO with an AI engineering team.
 

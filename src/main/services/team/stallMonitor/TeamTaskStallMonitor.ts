@@ -1,7 +1,6 @@
 import { createLogger } from '@shared/utils/logger';
 import { getTaskDisplayId } from '@shared/utils/taskIdentity';
 
-import { ActiveTeamRegistry } from './ActiveTeamRegistry';
 import {
   getTeamTaskStallActivationGraceMs,
   getTeamTaskStallScanIntervalMs,
@@ -10,10 +9,11 @@ import {
   isTeamTaskStallMonitorEnabled,
 } from './featureGates';
 
-import type { TeamTaskStallSnapshotSource } from './TeamTaskStallSnapshotSource';
-import type { TeamTaskStallPolicy } from './TeamTaskStallPolicy';
+import type { ActiveTeamRegistry } from './ActiveTeamRegistry';
 import type { TeamTaskStallJournal } from './TeamTaskStallJournal';
 import type { TeamTaskStallNotifier } from './TeamTaskStallNotifier';
+import type { TeamTaskStallPolicy } from './TeamTaskStallPolicy';
+import type { TeamTaskStallSnapshotSource } from './TeamTaskStallSnapshotSource';
 import type { TaskStallAlert, TaskStallEvaluation } from './TeamTaskStallTypes';
 import type { TeamChangeEvent } from '@shared/types';
 

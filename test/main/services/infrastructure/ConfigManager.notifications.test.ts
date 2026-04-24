@@ -20,7 +20,7 @@ describe('ConfigManager notification config shape', () => {
     vi.resetModules();
 
     overrideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'config-notifications-'));
-    const configPath = path.join(overrideRoot, 'claude-devtools-config.json');
+    const configPath = path.join(overrideRoot, 'agent-teams-config.json');
     const pathDecoder = await import('../../../../src/main/utils/pathDecoder');
     pathDecoder.setClaudeBasePathOverride(overrideRoot);
 
@@ -35,9 +35,8 @@ describe('ConfigManager notification config shape', () => {
       })
     );
 
-    const { configManager } = await import(
-      '../../../../src/main/services/infrastructure/ConfigManager'
-    );
+    const { configManager } =
+      await import('../../../../src/main/services/infrastructure/ConfigManager');
     const config = configManager.getConfig();
 
     expect(config.notifications.autoResumeOnRateLimit).toBe(true);
@@ -52,5 +51,152 @@ describe('ConfigManager notification config shape', () => {
       expect(persisted.notifications.notifyOnTeamLaunched).toBe(false);
       expect('notifyOnInboxMessages' in persisted.notifications).toBe(false);
     });
+  });
+
+  it('copies legacy config to the new Agent Teams config filename', async () => {
+    vi.resetModules();
+
+    overrideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'config-notifications-'));
+    const legacyConfigPath = path.join(overrideRoot, 'claude-devtools-config.json');
+    const configPath = path.join(overrideRoot, 'agent-teams-config.json');
+    const pathDecoder = await import('../../../../src/main/utils/pathDecoder');
+    pathDecoder.setClaudeBasePathOverride(overrideRoot);
+
+    fs.writeFileSync(
+      legacyConfigPath,
+      JSON.stringify({
+        notifications: {
+          autoResumeOnRateLimit: true,
+        },
+      })
+    );
+
+    const { configManager } =
+      await import('../../../../src/main/services/infrastructure/ConfigManager');
+
+    expect(configManager.getConfigPath()).toBe(configPath);
+    expect(configManager.getConfig().notifications.autoResumeOnRateLimit).toBe(true);
+    expect(fs.existsSync(legacyConfigPath)).toBe(true);
+    expect(fs.existsSync(configPath)).toBe(true);
+
+    await vi.waitFor(() => {
+      const persisted = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+        notifications: Record<string, unknown>;
+      };
+      expect(persisted.notifications.autoResumeOnRateLimit).toBe(true);
+      expect(persisted.notifications.enabled).toBe(true);
+    });
+  });
+
+  it('does not overwrite an existing Agent Teams config with legacy config', async () => {
+    vi.resetModules();
+
+    overrideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'config-notifications-'));
+    const legacyConfigPath = path.join(overrideRoot, 'claude-devtools-config.json');
+    const configPath = path.join(overrideRoot, 'agent-teams-config.json');
+    const pathDecoder = await import('../../../../src/main/utils/pathDecoder');
+    pathDecoder.setClaudeBasePathOverride(overrideRoot);
+
+    fs.writeFileSync(
+      legacyConfigPath,
+      JSON.stringify({
+        notifications: {
+          autoResumeOnRateLimit: true,
+        },
+      })
+    );
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        notifications: {
+          autoResumeOnRateLimit: false,
+        },
+      })
+    );
+
+    const { configManager } =
+      await import('../../../../src/main/services/infrastructure/ConfigManager');
+
+    expect(configManager.getConfigPath()).toBe(configPath);
+    expect(configManager.getConfig().notifications.autoResumeOnRateLimit).toBe(false);
+
+    await vi.waitFor(() => {
+      const persisted = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+        notifications: Record<string, unknown>;
+      };
+      expect(persisted.notifications.autoResumeOnRateLimit).toBe(false);
+      expect(persisted.notifications.enabled).toBe(true);
+    });
+  });
+
+  it('copies pre-devtools legacy config when newer legacy config is absent', async () => {
+    vi.resetModules();
+
+    overrideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'config-notifications-'));
+    const legacyConfigPath = path.join(overrideRoot, 'claude-code-context-config.json');
+    const configPath = path.join(overrideRoot, 'agent-teams-config.json');
+    const pathDecoder = await import('../../../../src/main/utils/pathDecoder');
+    pathDecoder.setClaudeBasePathOverride(overrideRoot);
+
+    fs.writeFileSync(
+      legacyConfigPath,
+      JSON.stringify({
+        notifications: {
+          autoResumeOnRateLimit: true,
+        },
+      })
+    );
+
+    const { configManager } =
+      await import('../../../../src/main/services/infrastructure/ConfigManager');
+
+    expect(configManager.getConfigPath()).toBe(configPath);
+    expect(configManager.getConfig().notifications.autoResumeOnRateLimit).toBe(true);
+    expect(fs.existsSync(legacyConfigPath)).toBe(true);
+    expect(fs.existsSync(configPath)).toBe(true);
+
+    await vi.waitFor(() => {
+      const persisted = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+        notifications: Record<string, unknown>;
+      };
+      expect(persisted.notifications.autoResumeOnRateLimit).toBe(true);
+      expect(persisted.notifications.enabled).toBe(true);
+    });
+  });
+
+  it('prefers a valid older legacy config over an invalid newer legacy config', async () => {
+    vi.resetModules();
+
+    overrideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'config-notifications-'));
+    const invalidNewerLegacyPath = path.join(overrideRoot, 'claude-devtools-config.json');
+    const validOlderLegacyPath = path.join(overrideRoot, 'claude-code-context-config.json');
+    const configPath = path.join(overrideRoot, 'agent-teams-config.json');
+    const pathDecoder = await import('../../../../src/main/utils/pathDecoder');
+    pathDecoder.setClaudeBasePathOverride(overrideRoot);
+
+    fs.writeFileSync(invalidNewerLegacyPath, '', 'utf8');
+    fs.writeFileSync(
+      validOlderLegacyPath,
+      JSON.stringify({
+        notifications: {
+          autoResumeOnRateLimit: true,
+        },
+      })
+    );
+
+    const { configManager } =
+      await import('../../../../src/main/services/infrastructure/ConfigManager');
+
+    expect(configManager.getConfigPath()).toBe(configPath);
+    expect(configManager.getConfig().notifications.autoResumeOnRateLimit).toBe(true);
+
+    await vi.waitFor(() => {
+      const persisted = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+        notifications: Record<string, unknown>;
+      };
+      expect(persisted.notifications.autoResumeOnRateLimit).toBe(true);
+      expect(persisted.notifications.enabled).toBe(true);
+    });
+    expect(fs.existsSync(validOlderLegacyPath)).toBe(true);
   });
 });

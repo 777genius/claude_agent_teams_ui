@@ -5,6 +5,7 @@ import {
   assertBridgeResultCanMutateState,
   createOpenCodeBridgeHandshakeIdentityHash,
   createOpenCodeBridgeIdempotencyKey,
+  isOpenCodeBridgeCommandName,
   parseSingleBridgeJsonResult,
   stableHash,
   validateBridgeResultEnvelope,
@@ -47,6 +48,10 @@ describe('OpenCodeBridgeCommandContract', () => {
         command: 'opencode.launchTeam',
       },
     });
+  });
+
+  it('accepts opencode.cleanupHosts as a bridge command', () => {
+    expect(isOpenCodeBridgeCommandName('opencode.cleanupHosts')).toBe(true);
   });
 
   it('validates result request id and command against the command envelope', () => {

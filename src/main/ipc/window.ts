@@ -5,7 +5,7 @@
  */
 
 import { createLogger } from '@shared/utils/logger';
-import { app, BrowserWindow, type IpcMain } from 'electron';
+import { app, BrowserWindow, type IpcMain, type IpcMainInvokeEvent } from 'electron';
 
 const WINDOW_IS_FULLSCREEN = 'window:isFullScreen';
 
@@ -18,14 +18,20 @@ function getMainWindow(): BrowserWindow | null {
   return all.length > 0 ? all[0] : null;
 }
 
+function getWindowForEvent(event: IpcMainInvokeEvent): BrowserWindow | null {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) return win;
+  return getMainWindow();
+}
+
 export function registerWindowHandlers(ipcMain: IpcMain): void {
-  ipcMain.handle('window:minimize', () => {
-    const win = getMainWindow();
+  ipcMain.handle('window:minimize', (event) => {
+    const win = getWindowForEvent(event);
     if (win && !win.isDestroyed()) win.minimize();
   });
 
-  ipcMain.handle('window:maximize', () => {
-    const win = getMainWindow();
+  ipcMain.handle('window:maximize', (event) => {
+    const win = getWindowForEvent(event);
     if (win && !win.isDestroyed()) {
       if (win.isMaximized()) win.unmaximize();
       else win.maximize();
@@ -33,23 +39,22 @@ export function registerWindowHandlers(ipcMain: IpcMain): void {
   });
 
   ipcMain.handle('window:close', () => {
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) win.close();
+    app.quit();
   });
 
-  ipcMain.handle('window:isMaximized', (): boolean => {
-    const win = getMainWindow();
+  ipcMain.handle('window:isMaximized', (event): boolean => {
+    const win = getWindowForEvent(event);
     return win != null && !win.isDestroyed() && win.isMaximized();
   });
 
-  ipcMain.handle(WINDOW_IS_FULLSCREEN, (): boolean => {
-    const win = getMainWindow();
+  ipcMain.handle(WINDOW_IS_FULLSCREEN, (event): boolean => {
+    const win = getWindowForEvent(event);
     return win != null && !win.isDestroyed() && win.isFullScreen();
   });
 
   ipcMain.handle('app:relaunch', () => {
     app.relaunch();
-    app.exit(0);
+    app.quit();
   });
 
   logger.info('Window handlers registered');

@@ -613,6 +613,8 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     expect(prompt).toContain(
       'Do NOT ask the user or the lead to send you a task ID, task description, or "next task" right after bootstrap.'
     );
+    expect(prompt).toContain('retry tool search at most once');
+    expect(prompt).toContain('Do NOT keep searching for member_briefing');
   });
 
   it('launchTeam hydration prompt includes task-comment handling guidance by default', async () => {
@@ -744,6 +746,12 @@ describe('TeamProvisioningService prompt content (solo mode discipline)', () => 
     );
     expect(prompt).toContain(
       'Browse/search compact inventory rows only: task_list'
+    );
+    expect(prompt).toContain(
+      `Browse/search compact inventory rows only: task_list { teamName: "${teamName}", owner?: "<member>", status?: "pending|in_progress|completed"`
+    );
+    expect(prompt).not.toContain(
+      `Browse/search compact inventory rows only: task_list { teamName: "${teamName}", owner?: "<member>", status?: "pending|in_progress|completed|deleted"`
     );
     expect(prompt).toContain(
       'task_list is inventory/search/drill-down only. Do NOT treat task_list as the lead\'s working queue.'

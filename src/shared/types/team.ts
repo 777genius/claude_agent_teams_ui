@@ -73,6 +73,8 @@ export interface TeamSummary {
   confirmedMemberCount?: number;
   /** Missing teammate names from the last partial launch marker. */
   missingMembers?: string[];
+  /** Teammates intentionally skipped for the last launch. */
+  skippedMembers?: string[];
   /** Durable aggregate launch state derived from persisted launch-state evidence. */
   teamLaunchState?: TeamLaunchAggregateState;
   /** ISO timestamp of the last durable launch-state evaluation. */
@@ -81,7 +83,13 @@ export interface TeamSummary {
   confirmedCount?: number;
   pendingCount?: number;
   failedCount?: number;
+  skippedCount?: number;
   runtimeAlivePendingCount?: number;
+  shellOnlyPendingCount?: number;
+  runtimeProcessPendingCount?: number;
+  runtimeCandidatePendingCount?: number;
+  noRuntimePendingCount?: number;
+  permissionPendingCount?: number;
 }
 
 export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted';
@@ -587,6 +595,8 @@ export interface InboxMessage {
   timestamp: string;
   read: boolean;
   taskRefs?: TaskRef[];
+  /** Durable delivery intent used by OpenCode inbox retry. */
+  actionMode?: AgentActionMode;
   /** Authoritative task comment id attached by runtime-authored task notifications. */
   commentId?: string;
   summary?: string;
@@ -668,6 +678,13 @@ export interface SendMessageResult {
   deliveredViaStdin?: boolean;
   messageId: string;
   deduplicated?: boolean;
+  runtimeDelivery?: {
+    providerId: 'opencode';
+    attempted: boolean;
+    delivered: boolean;
+    reason?: string;
+    diagnostics?: string[];
+  };
 }
 
 export interface AddTaskCommentRequest {
@@ -678,14 +695,19 @@ export interface AddTaskCommentRequest {
 
 export type MemberStatus = 'active' | 'idle' | 'terminated' | 'unknown';
 
-export type MemberSpawnStatus = 'offline' | 'waiting' | 'spawning' | 'online' | 'error';
+export type MemberSpawnStatus = 'offline' | 'waiting' | 'spawning' | 'online' | 'error' | 'skipped';
 export type MemberLaunchState =
   | 'starting'
   | 'runtime_pending_bootstrap'
   | 'runtime_pending_permission'
   | 'confirmed_alive'
-  | 'failed_to_start';
-export type TeamLaunchAggregateState = 'clean_success' | 'partial_pending' | 'partial_failure';
+  | 'failed_to_start'
+  | 'skipped_for_launch';
+export type TeamLaunchAggregateState =
+  | 'clean_success'
+  | 'partial_pending'
+  | 'partial_failure'
+  | 'partial_skipped';
 export type PersistedTeamLaunchPhase = 'active' | 'finished' | 'reconciled';
 
 export type KanbanColumnId = 'todo' | 'in_progress' | 'done' | 'review' | 'approved';
@@ -742,6 +764,7 @@ export interface MemberRuntimeAdvisory {
     | 'quota_exhausted'
     | 'rate_limited'
     | 'auth_error'
+    | 'codex_native_timeout'
     | 'network_error'
     | 'provider_overloaded'
     | 'backend_error'
@@ -933,6 +956,9 @@ export interface PersistedTeamLaunchMemberState {
   laneOwnerProviderId?: TeamProviderId;
   launchIdentity?: ProviderModelLaunchIdentity;
   launchState: MemberLaunchState;
+  skippedForLaunch?: boolean;
+  skipReason?: string;
+  skippedAt?: string;
   agentToolAccepted: boolean;
   runtimeAlive: boolean;
   bootstrapConfirmed: boolean;
@@ -940,6 +966,12 @@ export interface PersistedTeamLaunchMemberState {
   hardFailureReason?: string;
   pendingPermissionRequestIds?: string[];
   runtimePid?: number;
+  runtimeSessionId?: string;
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+  pidSource?: TeamAgentRuntimePidSource;
+  runtimeDiagnostic?: string;
+  runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  runtimeLastSeenAt?: string;
   firstSpawnAcceptedAt?: string;
   lastHeartbeatAt?: string;
   lastRuntimeAliveAt?: string;
@@ -952,7 +984,13 @@ export interface PersistedTeamLaunchSummary {
   confirmedCount: number;
   pendingCount: number;
   failedCount: number;
+  skippedCount?: number;
   runtimeAlivePendingCount: number;
+  shellOnlyPendingCount?: number;
+  runtimeProcessPendingCount?: number;
+  runtimeCandidatePendingCount?: number;
+  noRuntimePendingCount?: number;
+  permissionPendingCount?: number;
 }
 
 export interface PersistedTeamLaunchSnapshot {
@@ -983,6 +1021,27 @@ export type MemberSpawnLivenessSource = 'heartbeat' | 'process';
 
 export type TeamAgentRuntimeBackendType = 'lead' | 'tmux' | 'iterm2' | 'in-process' | 'process';
 
+export type TeamAgentRuntimeLivenessKind =
+  | 'confirmed_bootstrap'
+  | 'runtime_process'
+  | 'runtime_process_candidate'
+  | 'permission_blocked'
+  | 'shell_only'
+  | 'registered_only'
+  | 'stale_metadata'
+  | 'not_found';
+
+export type TeamAgentRuntimePidSource =
+  | 'lead_process'
+  | 'tmux_pane'
+  | 'tmux_child'
+  | 'agent_process_table'
+  | 'opencode_bridge'
+  | 'runtime_bootstrap'
+  | 'persisted_metadata';
+
+export type TeamAgentRuntimeDiagnosticSeverity = 'info' | 'warning' | 'error';
+
 export interface TeamAgentRuntimeEntry {
   memberName: string;
   alive: boolean;
@@ -995,6 +1054,21 @@ export interface TeamAgentRuntimeEntry {
   pid?: number;
   runtimeModel?: string;
   rssBytes?: number;
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+  pidSource?: TeamAgentRuntimePidSource;
+  processCommand?: string;
+  paneId?: string;
+  panePid?: number;
+  paneCurrentCommand?: string;
+  runtimePid?: number;
+  runtimeSessionId?: string;
+  runtimeLeaseExpiresAt?: string;
+  runtimeLastSeenAt?: string;
+  /** True when a previous/persisted launch confirmed bootstrap, separate from current live liveness. */
+  historicalBootstrapConfirmed?: boolean;
+  runtimeDiagnostic?: string;
+  runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  diagnostics?: string[];
   updatedAt: string;
 }
 
@@ -1039,6 +1113,10 @@ export interface MemberSpawnStatusEntry {
   error?: string;
   /** Hard failure reason for failed_to_start. */
   hardFailureReason?: string;
+  /** True when the user intentionally skipped this teammate for the current launch only. */
+  skippedForLaunch?: boolean;
+  skipReason?: string;
+  skippedAt?: string;
   /**
    * Optional provenance for `online`.
    * - heartbeat: teammate sent a real inbox/native message after bootstrap
@@ -1061,6 +1139,14 @@ export interface MemberSpawnStatusEntry {
   lastHeartbeatAt?: string;
   /** Live runtime model observed from the teammate process, when available. */
   runtimeModel?: string;
+  /** Compact runtime liveness classification for launch UI. */
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+  /** Short user-facing liveness diagnostic. */
+  runtimeDiagnostic?: string;
+  /** Visual severity for runtimeDiagnostic. */
+  runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  /** ISO timestamp of the last liveness evaluation. */
+  livenessLastCheckedAt?: string;
   /** ISO timestamp of the last status change. */
   updatedAt: string;
 }
@@ -1175,6 +1261,28 @@ export interface TeamProvisioningProgress {
   assistantOutput?: string;
   /** True once provisioning has written a readable config.json for this team. */
   configReady?: boolean;
+  /** Bounded structured launch diagnostics for the progress UI. */
+  launchDiagnostics?: TeamLaunchDiagnosticItem[];
+}
+
+export interface TeamLaunchDiagnosticItem {
+  id: string;
+  memberName?: string;
+  severity: TeamAgentRuntimeDiagnosticSeverity;
+  code:
+    | 'spawn_accepted'
+    | 'runtime_process_detected'
+    | 'runtime_process_candidate'
+    | 'tmux_shell_only'
+    | 'runtime_not_found'
+    | 'permission_pending'
+    | 'bootstrap_confirmed'
+    | 'bootstrap_stalled'
+    | 'stale_runtime_event_rejected'
+    | 'process_table_unavailable';
+  label: string;
+  detail?: string;
+  observedAt: string;
 }
 
 export interface TeamRuntimeState {

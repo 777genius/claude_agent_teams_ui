@@ -1,4 +1,4 @@
-# Claude Agent Teams Landing
+# Agent Teams Landing
 
 ## Quick start
 

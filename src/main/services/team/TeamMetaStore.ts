@@ -1,6 +1,6 @@
 import { FileReadTimeoutError, readFileUtf8WithTimeout } from '@main/utils/fsRead';
-import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { getTeamsBasePath } from '@main/utils/pathDecoder';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -45,7 +45,9 @@ function normalizeOptionalBackendId(value: unknown): string | undefined {
 }
 
 function normalizeProviderId(value: unknown): TeamProviderId | undefined {
-  return value === 'anthropic' || value === 'codex' || value === 'gemini' ? value : undefined;
+  return value === 'anthropic' || value === 'codex' || value === 'gemini' || value === 'opencode'
+    ? value
+    : undefined;
 }
 
 function normalizeOptionalString(value: unknown): string | null {
@@ -162,10 +164,7 @@ export class TeamMetaStore {
       return null;
     }
 
-    const providerId =
-      file.providerId === 'anthropic' || file.providerId === 'codex' || file.providerId === 'gemini'
-        ? file.providerId
-        : undefined;
+    const providerId = normalizeProviderId(file.providerId);
 
     return {
       version: 1,

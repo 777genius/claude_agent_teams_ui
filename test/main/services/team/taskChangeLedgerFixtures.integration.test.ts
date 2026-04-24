@@ -8,6 +8,7 @@ import { FileContentResolver } from '@main/services/team/FileContentResolver';
 import { ReviewApplierService } from '@main/services/team/ReviewApplierService';
 import { TaskChangeLedgerReader } from '@main/services/team/TaskChangeLedgerReader';
 import { setClaudeBasePathOverride } from '@main/utils/pathDecoder';
+import { buildPathChangeLabels } from '@renderer/components/team/review/pathChangeLabels';
 
 import { materializeTaskChangeLedgerFixture } from './taskChangeLedgerFixtureUtils';
 
@@ -32,7 +33,9 @@ async function writeTaskFile(baseDir: string, taskId: string, projectPath: strin
         createdAt: '2026-03-01T09:55:00.000Z',
         updatedAt: '2026-03-01T10:10:00.000Z',
         projectPath,
-        workIntervals: [{ startedAt: '2026-03-01T10:00:00.000Z', completedAt: '2026-03-01T10:10:00.000Z' }],
+        workIntervals: [
+          { startedAt: '2026-03-01T10:00:00.000Z', completedAt: '2026-03-01T10:10:00.000Z' },
+        ],
         historyEvents: [],
       },
       null,
@@ -47,7 +50,9 @@ function createLedgerBackedChangeExtractorService(params: {
   taskChangePresenceRepository?: { upsertEntry: ReturnType<typeof vi.fn> };
   teamLogSourceTracker?: {
     ensureTracking: ReturnType<
-      typeof vi.fn<() => Promise<{ projectFingerprint: string | null; logSourceGeneration: string | null }>>
+      typeof vi.fn<
+        () => Promise<{ projectFingerprint: string | null; logSourceGeneration: string | null }>
+      >
     >;
   };
 }) {
@@ -141,6 +146,52 @@ describe('task change ledger golden fixtures', () => {
     });
   });
 
+  it('projects service-read ledger rename and copy fixtures into UI relation labels', async () => {
+    const renameFixture = await materializeTaskChangeLedgerFixture('rename');
+    const copyFixture = await materializeTaskChangeLedgerFixture('copy');
+    cleanups.push(renameFixture.cleanup, copyFixture.cleanup);
+    const claudeBaseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'change-labels-ledger-'));
+    cleanups.push(async () => {
+      await fs.rm(claudeBaseDir, { recursive: true, force: true });
+    });
+    setClaudeBasePathOverride(claudeBaseDir);
+    await writeTaskFile(claudeBaseDir, renameFixture.manifest.taskId, renameFixture.projectDir);
+    await writeTaskFile(claudeBaseDir, copyFixture.manifest.taskId, copyFixture.projectDir);
+
+    const renameService = createLedgerBackedChangeExtractorService({
+      projectDir: renameFixture.projectDir,
+    }).service;
+    const copyService = createLedgerBackedChangeExtractorService({
+      projectDir: copyFixture.projectDir,
+    }).service;
+
+    const rename = await renameService.getTaskChanges(
+      TEAM_NAME,
+      renameFixture.manifest.taskId,
+      SUMMARY_OPTIONS
+    );
+    const copy = await copyService.getTaskChanges(
+      TEAM_NAME,
+      copyFixture.manifest.taskId,
+      SUMMARY_OPTIONS
+    );
+
+    const renameFile = rename.files[0];
+    const copyFile = copy.files[0];
+    expect(renameFile?.filePath).toBe(path.join(renameFixture.projectDir, 'src', 'new.ts'));
+    expect(copyFile?.filePath).toBe(path.join(copyFixture.projectDir, 'src', 'copy.ts'));
+    expect(buildPathChangeLabels(rename.files, {})[renameFile!.filePath]).toEqual({
+      kind: 'renamed',
+      direction: 'from',
+      otherPath: 'src/old.ts',
+    });
+    expect(buildPathChangeLabels(copy.files, {})[copyFile!.filePath]).toEqual({
+      kind: 'copied',
+      direction: 'from',
+      otherPath: 'src/base.ts',
+    });
+  });
+
   it('returns warning-only notice fixtures without synthesizing fake file changes', async () => {
     const fixture = await materializeTaskChangeLedgerFixture('notices-only');
     cleanups.push(fixture.cleanup);
@@ -175,9 +226,7 @@ describe('task change ledger golden fixtures', () => {
     });
 
     expect(result?.files).toHaveLength(1);
-    expect(result?.warnings).toContain(
-      'Task change summary fell back to journal reconstruction.'
-    );
+    expect(result?.warnings).toContain('Task change summary fell back to journal reconstruction.');
   });
 
   it('uses journal tail hash, not only size and mtime, when freshness is missing', async () => {
@@ -199,8 +248,7 @@ describe('task change ledger golden fixtures', () => {
     const raw = await fs.readFile(eventPath, 'utf8');
     const mutated = raw.replace(
       /"eventId":"([0-9a-f])([0-9a-f]+)"/,
-      (_match, first: string, rest: string) =>
-        `"eventId":"${first === 'a' ? 'b' : 'a'}${rest}"`
+      (_match, first: string, rest: string) => `"eventId":"${first === 'a' ? 'b' : 'a'}${rest}"`
     );
     expect(mutated).not.toBe(raw);
     expect(mutated.length).toBe(raw.length);
@@ -218,9 +266,7 @@ describe('task change ledger golden fixtures', () => {
     });
 
     expect(result?.files).toHaveLength(1);
-    expect(result?.warnings).toContain(
-      'Task change summary fell back to journal reconstruction.'
-    );
+    expect(result?.warnings).toContain('Task change summary fell back to journal reconstruction.');
   });
 
   it('surfaces recovered-journal warnings from real recovered artifacts', async () => {
@@ -237,7 +283,9 @@ describe('task change ledger golden fixtures', () => {
     });
 
     expect(result?.files).toHaveLength(1);
-    expect(result?.warnings).toContain('Task change ledger recovered from malformed journal lines.');
+    expect(result?.warnings).toContain(
+      'Task change ledger recovered from malformed journal lines.'
+    );
   });
 
   it('keeps missing-blob fixture unavailable instead of synthesizing empty text', async () => {
@@ -255,7 +303,12 @@ describe('task change ledger golden fixtures', () => {
     expect(file).toBeDefined();
 
     const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
-    const resolved = await resolver.getFileContent(TEAM_NAME, 'alice', file!.filePath, file!.snippets);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
+    );
 
     expect(resolved.originalFullContent).toBeNull();
     expect(resolved.modifiedFullContent).toBe('export const missing = 2;\n');
@@ -276,7 +329,12 @@ describe('task change ledger golden fixtures', () => {
     const file = changeSet?.files[0];
     expect(file).toBeDefined();
     const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
-    const resolved = await resolver.getFileContent(TEAM_NAME, 'alice', file!.filePath, file!.snippets);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
+    );
 
     const service = new ReviewApplierService();
     const result = await service.applyReviewDecisions(
@@ -305,9 +363,220 @@ describe('task change ledger golden fixtures', () => {
     await expect(fs.stat(path.join(fixture.projectDir, 'src', 'copy.ts'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
-    await expect(fs.readFile(path.join(fixture.projectDir, 'src', 'base.ts'), 'utf8')).resolves.toBe(
-      'export const copied = true;\n'
+    await expect(
+      fs.readFile(path.join(fixture.projectDir, 'src', 'base.ts'), 'utf8')
+    ).resolves.toBe('export const copied = true;\n');
+  });
+
+  it('rejects create fixtures by deleting the created path only when the ledger hash matches', async () => {
+    const fixture = await materializeTaskChangeLedgerFixture('v2-summary');
+    cleanups.push(fixture.cleanup);
+    const reader = new TaskChangeLedgerReader();
+    const changeSet = await reader.readTaskChanges({
+      teamName: TEAM_NAME,
+      taskId: fixture.manifest.taskId,
+      projectDir: fixture.projectDir,
+      projectPath: fixture.projectDir,
+      includeDetails: true,
+    });
+    const file = changeSet?.files[0];
+    expect(file).toBeDefined();
+    const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
     );
+    await fs.mkdir(path.dirname(file!.filePath), { recursive: true });
+    await fs.writeFile(file!.filePath, resolved.modifiedFullContent ?? '', 'utf8');
+
+    const service = new ReviewApplierService();
+    const result = await service.applyReviewDecisions(
+      {
+        teamName: TEAM_NAME,
+        decisions: [
+          {
+            filePath: file!.filePath,
+            fileDecision: 'rejected',
+            hunkDecisions: { 0: 'rejected' },
+          },
+        ],
+      },
+      new Map([
+        [
+          file!.filePath,
+          {
+            ...file!,
+            ...resolved,
+          },
+        ],
+      ])
+    );
+
+    expect(result).toMatchObject({ applied: 1, conflicts: 0 });
+    await expect(fs.stat(file!.filePath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('blocks create fixture reject when the created path changed after ledger capture', async () => {
+    const fixture = await materializeTaskChangeLedgerFixture('v2-summary');
+    cleanups.push(fixture.cleanup);
+    const reader = new TaskChangeLedgerReader();
+    const changeSet = await reader.readTaskChanges({
+      teamName: TEAM_NAME,
+      taskId: fixture.manifest.taskId,
+      projectDir: fixture.projectDir,
+      projectPath: fixture.projectDir,
+      includeDetails: true,
+    });
+    const file = changeSet?.files[0];
+    expect(file).toBeDefined();
+    const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
+    );
+    await fs.mkdir(path.dirname(file!.filePath), { recursive: true });
+    await fs.writeFile(file!.filePath, 'external edit\n', 'utf8');
+
+    const service = new ReviewApplierService();
+    const result = await service.applyReviewDecisions(
+      {
+        teamName: TEAM_NAME,
+        decisions: [
+          {
+            filePath: file!.filePath,
+            fileDecision: 'rejected',
+            hunkDecisions: { 0: 'rejected' },
+          },
+        ],
+      },
+      new Map([
+        [
+          file!.filePath,
+          {
+            ...file!,
+            ...resolved,
+          },
+        ],
+      ])
+    );
+
+    expect(result.applied).toBe(0);
+    expect(result.conflicts).toBe(1);
+    expect(result.errors[0]?.code).toBe('conflict');
+    await expect(fs.readFile(file!.filePath, 'utf8')).resolves.toBe('external edit\n');
+  });
+
+  it('rejects grouped rename fixtures by restoring the old path and removing the new path', async () => {
+    const fixture = await materializeTaskChangeLedgerFixture('rename');
+    cleanups.push(fixture.cleanup);
+    const reader = new TaskChangeLedgerReader();
+    const changeSet = await reader.readTaskChanges({
+      teamName: TEAM_NAME,
+      taskId: fixture.manifest.taskId,
+      projectDir: fixture.projectDir,
+      projectPath: fixture.projectDir,
+      includeDetails: true,
+    });
+    const file = changeSet?.files[0];
+    expect(file).toBeDefined();
+    const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
+    );
+
+    const service = new ReviewApplierService();
+    const result = await service.applyReviewDecisions(
+      {
+        teamName: TEAM_NAME,
+        decisions: [
+          {
+            filePath: file!.filePath,
+            fileDecision: 'rejected',
+            hunkDecisions: { 0: 'rejected' },
+          },
+        ],
+      },
+      new Map([
+        [
+          file!.filePath,
+          {
+            ...file!,
+            ...resolved,
+          },
+        ],
+      ])
+    );
+
+    expect(result).toMatchObject({ applied: 1, conflicts: 0 });
+    await expect(fs.stat(path.join(fixture.projectDir, 'src', 'new.ts'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(
+      fs.readFile(path.join(fixture.projectDir, 'src', 'old.ts'), 'utf8')
+    ).resolves.toBe('export const renamed = true;\n');
+  });
+
+  it('blocks grouped rename reject when the new path changed after ledger capture', async () => {
+    const fixture = await materializeTaskChangeLedgerFixture('rename');
+    cleanups.push(fixture.cleanup);
+    const reader = new TaskChangeLedgerReader();
+    const changeSet = await reader.readTaskChanges({
+      teamName: TEAM_NAME,
+      taskId: fixture.manifest.taskId,
+      projectDir: fixture.projectDir,
+      projectPath: fixture.projectDir,
+      includeDetails: true,
+    });
+    const file = changeSet?.files[0];
+    expect(file).toBeDefined();
+    const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
+    );
+    await fs.writeFile(path.join(fixture.projectDir, 'src', 'new.ts'), 'external edit\n', 'utf8');
+
+    const service = new ReviewApplierService();
+    const result = await service.applyReviewDecisions(
+      {
+        teamName: TEAM_NAME,
+        decisions: [
+          {
+            filePath: file!.filePath,
+            fileDecision: 'rejected',
+            hunkDecisions: { 0: 'rejected' },
+          },
+        ],
+      },
+      new Map([
+        [
+          file!.filePath,
+          {
+            ...file!,
+            ...resolved,
+          },
+        ],
+      ])
+    );
+
+    expect(result.applied).toBe(0);
+    expect(result.conflicts).toBe(1);
+    expect(result.errors[0]?.code).toBe('conflict');
+    await expect(
+      fs.readFile(path.join(fixture.projectDir, 'src', 'new.ts'), 'utf8')
+    ).resolves.toBe('external edit\n');
+    await expect(fs.stat(path.join(fixture.projectDir, 'src', 'old.ts'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 
   it('requires manual review when a fixture is missing original ledger text', async () => {
@@ -324,7 +593,12 @@ describe('task change ledger golden fixtures', () => {
     const file = changeSet?.files[0];
     expect(file).toBeDefined();
     const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
-    const resolved = await resolver.getFileContent(TEAM_NAME, 'alice', file!.filePath, file!.snippets);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
+    );
 
     const service = new ReviewApplierService();
     const result = await service.applyReviewDecisions(
@@ -353,6 +627,60 @@ describe('task change ledger golden fixtures', () => {
     expect(result.errors[0]?.code).toBe('manual-review-required');
   });
 
+  it('requires manual review for binary metadata-only fixtures and keeps the binary file intact', async () => {
+    const fixture = await materializeTaskChangeLedgerFixture('binary');
+    cleanups.push(fixture.cleanup);
+    const reader = new TaskChangeLedgerReader();
+    const changeSet = await reader.readTaskChanges({
+      teamName: TEAM_NAME,
+      taskId: fixture.manifest.taskId,
+      projectDir: fixture.projectDir,
+      projectPath: fixture.projectDir,
+      includeDetails: true,
+    });
+    const file = changeSet?.files[0];
+    expect(file).toBeDefined();
+    const before = await fs.readFile(file!.filePath);
+    const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'alice',
+      file!.filePath,
+      file!.snippets
+    );
+    expect(file!.snippets[0]?.ledger?.modifiedFullContent).toBeNull();
+    expect(resolved.originalFullContent).toBeNull();
+    expect(resolved.modifiedFullContent).toBeNull();
+    expect(resolved.contentSource).toBe('unavailable');
+
+    const service = new ReviewApplierService();
+    const result = await service.applyReviewDecisions(
+      {
+        teamName: TEAM_NAME,
+        decisions: [
+          {
+            filePath: file!.filePath,
+            fileDecision: 'rejected',
+            hunkDecisions: { 0: 'rejected' },
+          },
+        ],
+      },
+      new Map([
+        [
+          file!.filePath,
+          {
+            ...file!,
+            ...resolved,
+          },
+        ],
+      ])
+    );
+
+    expect(result.applied).toBe(0);
+    expect(result.errors[0]?.code).toBe('manual-review-required');
+    await expect(fs.readFile(file!.filePath)).resolves.toEqual(before);
+  });
+
   it('uses ledger fixtures as the primary source in ChangeExtractorService', async () => {
     const fixture = await materializeTaskChangeLedgerFixture('generation-mismatch');
     cleanups.push(fixture.cleanup);
@@ -368,12 +696,14 @@ describe('task change ledger golden fixtures', () => {
         projectDir: fixture.projectDir,
       });
 
-    const result = await service.getTaskChanges(TEAM_NAME, fixture.manifest.taskId, SUMMARY_OPTIONS);
+    const result = await service.getTaskChanges(
+      TEAM_NAME,
+      fixture.manifest.taskId,
+      SUMMARY_OPTIONS
+    );
 
     expect(result.files).toHaveLength(1);
-    expect(result.warnings).toContain(
-      'Task change summary fell back to journal reconstruction.'
-    );
+    expect(result.warnings).toContain('Task change summary fell back to journal reconstruction.');
     expect(findLogFileRefsForTask).not.toHaveBeenCalled();
     expect(computeTaskChanges).not.toHaveBeenCalled();
   });
@@ -399,7 +729,11 @@ describe('task change ledger golden fixtures', () => {
       teamLogSourceTracker: { ensureTracking },
     });
 
-    const result = await service.getTaskChanges(TEAM_NAME, fixture.manifest.taskId, SUMMARY_OPTIONS);
+    const result = await service.getTaskChanges(
+      TEAM_NAME,
+      fixture.manifest.taskId,
+      SUMMARY_OPTIONS
+    );
 
     expect(result.files).toEqual([]);
     expect(result.warnings).toContain(

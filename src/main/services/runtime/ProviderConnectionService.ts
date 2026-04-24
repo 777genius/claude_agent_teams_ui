@@ -11,7 +11,11 @@ import type {
   CodexAccountSnapshotDto,
 } from '@features/codex-account/contracts';
 import type { CodexAccountFeatureFacade } from '@features/codex-account/main';
-import type { CodexModelCatalogFeatureFacade } from '@features/codex-model-catalog/main';
+import type { CodexModelCatalogDto } from '@features/codex-model-catalog';
+import type {
+  CodexModelCatalogFeatureFacade,
+  CodexModelCatalogRequest,
+} from '@features/codex-model-catalog/main';
 import type {
   CliProviderAuthMode,
   CliProviderConnectionInfo,
@@ -105,6 +109,20 @@ export class ProviderConnectionService {
     feature: Pick<CodexModelCatalogFeatureFacade, 'getCatalog'> | null
   ): void {
     this.codexModelCatalogFeature = feature;
+  }
+
+  async getCodexModelCatalog(
+    request: CodexModelCatalogRequest = {}
+  ): Promise<CodexModelCatalogDto | null> {
+    if (!this.codexModelCatalogFeature) {
+      return null;
+    }
+
+    try {
+      return await this.codexModelCatalogFeature.getCatalog(request);
+    } catch {
+      return null;
+    }
   }
 
   setApiKeyService(apiKeyService: ApiKeyService): void {

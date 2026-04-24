@@ -9,13 +9,11 @@
  * Pattern mirrors `composerDraftStorage.ts`.
  */
 
-import { del, get, set } from 'idb-keyval';
+import { isTeamEffortLevel } from '@shared/utils/effortLevels';
 import { isTeamProviderId } from '@shared/utils/teamProvider';
+import { del, get, set } from 'idb-keyval';
 
 import type { TeamProviderId } from '@shared/types';
-
-import { isTeamEffortLevel } from '@shared/utils/effortLevels';
-
 import type { EffortLevel } from '@shared/types';
 
 // ---------------------------------------------------------------------------

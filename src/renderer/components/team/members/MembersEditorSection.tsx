@@ -3,10 +3,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@renderer/components/ui/button';
 import { Checkbox } from '@renderer/components/ui/checkbox';
 import { Label } from '@renderer/components/ui/label';
-import { getParticipantAvatarUrlByIndex } from '@renderer/utils/memberAvatarCatalog';
 import { CUSTOM_ROLE, NO_ROLE, PRESET_ROLES } from '@renderer/constants/teamRoles';
-import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
+import { getParticipantAvatarUrlByIndex } from '@renderer/utils/memberAvatarCatalog';
 import { isTeamEffortLevel } from '@shared/utils/effortLevels';
+import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import { GitBranch, Plus } from 'lucide-react';
 
 import { MembersJsonEditor } from '../dialogs/MembersJsonEditor';
@@ -488,6 +488,7 @@ export {
   createMemberDraftsFromInputs,
   filterEditableMemberInputs,
   getMemberDraftRole,
+  normalizeLeadProviderForMode,
   normalizeMemberDraftForProviderMode,
   normalizeProviderForMode,
   validateMemberNameInline,

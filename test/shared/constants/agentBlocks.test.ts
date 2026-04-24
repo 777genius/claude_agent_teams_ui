@@ -29,4 +29,22 @@ describe('agentBlocks', () => {
     expect(unwrapAgentBlock('```info_for_agent\ninside\n```')).toBe('inside');
     expect(unwrapAgentBlock('<agent-block>\ninside\n</agent-block>')).toBe('inside');
   });
+
+  it('strips OpenCode runtime-only delivery blocks from display text', () => {
+    const text = [
+      '<opencode_runtime_identity>',
+      'Do not use SendMessage.',
+      '</opencode_runtime_identity>',
+      '<opencode_app_message_delivery>',
+      'Use agent-teams_message_send.',
+      '</opencode_app_message_delivery>',
+      'Human-visible task text',
+    ].join('\n');
+
+    expect(stripAgentBlocks(text)).toBe('Human-visible task text');
+    expect(extractAgentBlockContents(text)).toEqual([
+      'Do not use SendMessage.',
+      'Use agent-teams_message_send.',
+    ]);
+  });
 });

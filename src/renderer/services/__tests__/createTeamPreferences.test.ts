@@ -1,11 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
-
 import {
   applyStoredCreateTeamMemberRuntimePreferences,
-  getStoredCreateTeamProvider,
   getStoredCreateTeamMemberRuntimePreferences,
+  getStoredCreateTeamProvider,
   setStoredCreateTeamMemberRuntimePreferences,
 } from '@renderer/services/createTeamPreferences';
+import { afterEach, describe, expect, it } from 'vitest';
 
 describe('createTeamPreferences', () => {
   afterEach(() => {

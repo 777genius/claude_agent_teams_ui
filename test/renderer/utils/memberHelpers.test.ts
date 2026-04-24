@@ -191,7 +191,7 @@ describe('memberHelpers spawn-aware presence', () => {
     });
 
     expect(runtimePending.launchVisualState).toBe('runtime_pending');
-    expect(runtimePending.launchStatusLabel).toBe('connecting');
+    expect(runtimePending.launchStatusLabel).toBe('waiting for bootstrap');
     expect(settling.launchVisualState).toBe('settling');
     expect(settling.launchStatusLabel).toBe('joining team');
   });
@@ -209,11 +209,40 @@ describe('memberHelpers spawn-aware presence', () => {
       isTeamProvisioning: false,
     });
 
-    expect(permissionPending.presenceLabel).toBe('connecting');
+    expect(permissionPending.presenceLabel).toBe('awaiting permission');
     expect(permissionPending.launchVisualState).toBe('permission_pending');
     expect(permissionPending.launchStatusLabel).toBe('awaiting permission');
     expect(permissionPending.dotClass).toContain('bg-amber-400');
     expect(permissionPending.cardClass).toContain('member-waiting-shimmer');
+  });
+
+  it('surfaces strict runtime liveness diagnostics as launch labels', () => {
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'runtime_pending_bootstrap',
+        spawnLivenessSource: undefined,
+        spawnRuntimeAlive: false,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          livenessKind: 'shell_only',
+          pidSource: 'tmux_pane',
+          runtimeDiagnostic: 'tmux pane foreground command is zsh',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: false,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'shell only',
+      launchVisualState: 'shell_only',
+      launchStatusLabel: 'shell only',
+    });
   });
 
   it('returns shared launch status labels without changing generic presence labels', () => {
@@ -361,6 +390,23 @@ describe('memberHelpers spawn-aware presence', () => {
         'anthropic'
       )
     ).toContain('Anthropic authentication error');
+  });
+
+  it('renders Codex native timeout separately from network errors', () => {
+    const advisory = {
+      kind: 'api_error' as const,
+      observedAt: '2026-04-07T09:00:00.000Z',
+      reasonCode: 'codex_native_timeout' as const,
+      message: 'Codex native exec timed out after 120000ms.',
+    };
+
+    expect(getMemberRuntimeAdvisoryLabel(advisory, 'codex')).toBe('Codex native timeout');
+    expect(getMemberRuntimeAdvisoryTitle(advisory, 'codex')).toContain(
+      'Codex native mailbox turn timed out'
+    );
+    expect(getMemberRuntimeAdvisoryTitle(advisory, 'codex')).toContain(
+      'Codex native exec timed out after 120000ms.'
+    );
   });
 
   it('marks launch presentation as an error when the runtime has a terminal API error', () => {

@@ -4,7 +4,7 @@ export const RUNTIME_PERMISSION_REQUEST_SCHEMA_VERSION = 1;
 
 export type OpenCodePermissionDecision = 'once' | 'always' | 'reject';
 
-export type OpenCodeRawPermissionRequest = {
+export interface OpenCodeRawPermissionRequest {
   id?: unknown;
   requestID?: unknown;
   sessionID?: unknown;
@@ -15,7 +15,7 @@ export type OpenCodeRawPermissionRequest = {
   tool?: unknown;
   title?: unknown;
   kind?: unknown;
-};
+}
 
 export interface OpenCodeNormalizedPermissionRequest {
   requestId: string;
@@ -375,8 +375,8 @@ export class RuntimePermissionRequestStore {
     teamName: string;
     visibleProviderRequestIds: Set<string>;
     now: string;
-  }): Promise<Array<Pick<RuntimePermissionRequestRecord, 'appRequestId' | 'memberName'>>> {
-    const expired: Array<Pick<RuntimePermissionRequestRecord, 'appRequestId' | 'memberName'>> = [];
+  }): Promise<Pick<RuntimePermissionRequestRecord, 'appRequestId' | 'memberName'>[]> {
+    const expired: Pick<RuntimePermissionRequestRecord, 'appRequestId' | 'memberName'>[] = [];
     await this.store.updateLocked((records) =>
       records.map((record) => {
         if (
@@ -592,7 +592,7 @@ export class RuntimePermissionReconciler {
     for (const permission of pending) {
       visibleProviderRequestIds.add(permission.requestId);
       const session = input.sessionsByOpenCodeId.get(permission.sessionId);
-      if (!session || session.runId !== input.runId) {
+      if (session?.runId !== input.runId) {
         await this.diagnostics.append({
           type: 'opencode_permission_unmatched_session',
           providerId: 'opencode',

@@ -12,7 +12,7 @@ const buildDate = new Date().toISOString().split("T")[0];
 
 export default defineEventHandler((event) => {
   const config = useRuntimeConfig();
-  const siteUrl = (config.public.siteUrl as string) || "https://claude-agent-teams.dev";
+  const siteUrl = (config.public.siteUrl as string) || "https://777genius.github.io/claude_agent_teams_ui";
 
   setHeader(event, "content-type", "application/xml; charset=utf-8");
 

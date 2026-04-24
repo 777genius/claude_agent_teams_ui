@@ -1,10 +1,9 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { resolveTeamLeadColorName } from '@shared/utils/teamMemberColors';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@renderer/components/common/ProviderBrandLogo', () => ({
   ProviderBrandLogo: () => React.createElement('span', { 'data-testid': 'provider-logo' }),
@@ -21,6 +20,8 @@ vi.mock('@renderer/components/team/dialogs/LimitContextCheckbox', () => ({
 vi.mock('@renderer/components/team/dialogs/TeamModelSelector', () => ({
   getProviderScopedTeamModelLabel: (_providerId: string, model: string) => model || 'Default',
   getTeamProviderLabel: (providerId: string) => providerId,
+  OPENCODE_TEAM_LEAD_DISABLED_BADGE_LABEL: 'not teamlead',
+  OPENCODE_TEAM_LEAD_DISABLED_REASON: 'OpenCode is not available for team lead.',
   TeamModelSelector: () => React.createElement('div', null, 'team-model-selector'),
 }));
 

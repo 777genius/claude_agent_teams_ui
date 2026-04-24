@@ -1,14 +1,14 @@
-import { TeamTaskReader } from '../TeamTaskReader';
-import { TeamKanbanManager } from '../TeamKanbanManager';
-import { TeamTranscriptSourceLocator } from '../taskLogs/discovery/TeamTranscriptSourceLocator';
 import { BoardTaskActivityTranscriptReader } from '../taskLogs/activity/BoardTaskActivityTranscriptReader';
 import { isBoardTaskActivityReadEnabled } from '../taskLogs/activity/featureGates';
+import { TeamTranscriptSourceLocator } from '../taskLogs/discovery/TeamTranscriptSourceLocator';
 import { isBoardTaskExactLogsReadEnabled } from '../taskLogs/exact/featureGates';
+import { TeamKanbanManager } from '../TeamKanbanManager';
+import { TeamTaskReader } from '../TeamTaskReader';
 
 import { BoardTaskActivityBatchIndexer } from './BoardTaskActivityBatchIndexer';
+import { buildResolvedReviewerIndex } from './reviewerResolution';
 import { TeamTaskLogFreshnessReader } from './TeamTaskLogFreshnessReader';
 import { TeamTaskStallExactRowReader } from './TeamTaskStallExactRowReader';
-import { buildResolvedReviewerIndex } from './reviewerResolution';
 
 import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
 import type { TeamTaskStallSnapshot } from './TeamTaskStallTypes';

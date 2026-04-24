@@ -74,7 +74,7 @@ export class TeamTaskLogFreshnessReader {
       uniqueTaskIds.map(async (taskId, index) => {
         const candidates = signalFilePathCandidates[index] ?? [];
         const result = await this.readFirstSignal(candidates);
-        if (!result || result.parsed.taskId !== taskId) {
+        if (result?.parsed.taskId !== taskId) {
           return null;
         }
         const parsed = result.parsed;

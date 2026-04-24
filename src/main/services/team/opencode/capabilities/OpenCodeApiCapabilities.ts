@@ -370,9 +370,10 @@ async function runDirectSafeProbes(input: {
   evidence: Record<OpenCodeApiEndpointKey, OpenCodeEndpointEvidence>;
   diagnostics: string[];
 }): Promise<void> {
-  for (const [key, probe] of Object.entries(DIRECT_SAFE_PROBES) as Array<
-    [OpenCodeApiEndpointKey, DirectSafeProbe]
-  >) {
+  for (const [key, probe] of Object.entries(DIRECT_SAFE_PROBES) as [
+    OpenCodeApiEndpointKey,
+    DirectSafeProbe,
+  ][]) {
     if (input.endpoints[key]) {
       continue;
     }

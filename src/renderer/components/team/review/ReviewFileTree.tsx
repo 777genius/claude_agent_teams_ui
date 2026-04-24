@@ -29,7 +29,8 @@ interface ReviewFileTreeProps {
   fileContents?: Record<string, FileChangeWithContent>;
   pathChangeLabels?: Record<
     string,
-    { kind: 'deleted' } | { kind: 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string }
+    | { kind: 'deleted' }
+    | { kind: 'copied' | 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string }
   >;
   selectedFilePath: string | null;
   onSelectFile: (filePath: string) => void;

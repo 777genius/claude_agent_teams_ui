@@ -1,6 +1,6 @@
 {
   "hero": {
-    "title": "Claude Agent Teams",
+    "title": "Agent Teams",
     "subtitle": "आप CTO हैं, एजेंट आपकी टीम हैं। वे खुद टास्क संभालते हैं, आपस में बात करते हैं, एक-दूसरे का कोड रिव्यू करते हैं। आप बस कानबन बोर्ड देखें और कॉफी पिएँ।"
   },
   "features": [
@@ -38,7 +38,7 @@
   "faq": [
     {
       "id": "whatIsIt",
-      "question": "Claude Agent Teams क्या है?",
+      "question": "Agent Teams क्या है?",
       "answer": "यह एक डेस्कटॉप ऐप है जो हमारी अपनी लोकल coordination layer के साथ AI agent teams को orchestrate करता है। हर agent की एक भूमिका होती है, वह स्वायत्त रूप से काम करता है, kanban board पर सहयोग करता है, और Anthropic या Codex पर चल सकता है।"
     },
     {

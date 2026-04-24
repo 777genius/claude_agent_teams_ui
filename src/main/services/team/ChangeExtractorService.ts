@@ -1,5 +1,6 @@
 import { getTasksBasePath } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
+import { resolveTaskChangePresenceFromResult } from '@shared/utils/taskChangePresence';
 import {
   getTaskChangeStateBucket,
   isTaskChangeSummaryCacheable,
@@ -11,6 +12,7 @@ import * as path from 'path';
 
 import { JsonTaskChangeSummaryCacheRepository } from './cache/JsonTaskChangeSummaryCacheRepository';
 import { TaskChangeComputer } from './TaskChangeComputer';
+import { TaskChangeLedgerReader } from './TaskChangeLedgerReader';
 import {
   buildTaskChangePresenceDescriptor,
   computeTaskChangePresenceProjectFingerprint,
@@ -22,7 +24,6 @@ import {
   type TaskChangeEffectiveOptions,
   type TaskChangeTaskMeta,
 } from './taskChangeWorkerTypes';
-import { TaskChangeLedgerReader } from './TaskChangeLedgerReader';
 import { TeamConfigReader } from './TeamConfigReader';
 
 import type { TaskChangePresenceRepository } from './cache/TaskChangePresenceRepository';
@@ -31,7 +32,6 @@ import type { TaskChangeWorkerClient } from './TaskChangeWorkerClient';
 import type { TeamLogSourceTracker } from './TeamLogSourceTracker';
 import type { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
 import type { AgentChangeSet, ChangeStats, TaskChangeSetV2 } from '@shared/types';
-import { resolveTaskChangePresenceFromResult } from '@shared/utils/taskChangePresence';
 
 const logger = createLogger('Service:ChangeExtractorService');
 

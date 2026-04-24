@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { useDisplay } from 'vuetify'
-import { testimonials } from '~/data/testimonials'
-import { useLandingContent } from '~/composables/useLandingContent'
+import { useDisplay } from 'vuetify';
+import { testimonials } from '~/data/testimonials';
+import { useLandingContent } from '~/composables/useLandingContent';
 
 const { content } = useLandingContent();
 const { t } = useI18n();
+const { issuesUrl } = useGithubRepo();
 const { smAndUp } = useDisplay();
 
 const expanded = ref(false);
@@ -16,7 +17,7 @@ const items = computed(() =>
       if (!contentItem) return null;
       return { ...contentItem, avatar: entry.avatar };
     })
-    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .filter((item): item is NonNullable<typeof item> => item !== null),
 );
 
 const visibleItems = computed(() => {
@@ -24,9 +25,7 @@ const visibleItems = computed(() => {
   return items.value.slice(0, smAndUp.value ? 4 : 2);
 });
 
-const hasMore = computed(() =>
-  !expanded.value && items.value.length > (smAndUp.value ? 4 : 2)
-);
+const hasMore = computed(() => !expanded.value && items.value.length > (smAndUp.value ? 4 : 2));
 
 const getInitial = (name: string) => name.charAt(0).toUpperCase();
 </script>
@@ -36,32 +35,21 @@ const getInitial = (name: string) => name.charAt(0).toUpperCase();
     <v-container>
       <div class="testimonials-section__header">
         <h2 class="testimonials-section__title">
-          {{ t("testimonials.sectionTitle") }}
+          {{ t('testimonials.sectionTitle') }}
         </h2>
         <p class="testimonials-section__subtitle">
-          {{ t("testimonials.sectionSubtitle") }}
+          {{ t('testimonials.sectionSubtitle') }}
         </p>
       </div>
 
       <v-row justify="center">
-        <v-col
-          v-for="(item, index) in visibleItems"
-          :key="item.id"
-          cols="12"
-          sm="6"
-        >
-          <div
-            class="testimonials-section__card-wrap"
-            :style="{ '--delay': `${index * 0.08}s` }"
-          >
+        <v-col v-for="(item, index) in visibleItems" :key="item.id" cols="12" sm="6">
+          <div class="testimonials-section__card-wrap" :style="{ '--delay': `${index * 0.08}s` }">
             <div class="testimonial-card">
               <div class="testimonial-card__quote">"</div>
               <p class="testimonial-card__text">{{ item.text }}</p>
               <div class="testimonial-card__author">
-                <div
-                  class="testimonial-card__avatar"
-                  :style="{ background: item.avatar }"
-                >
+                <div class="testimonial-card__avatar" :style="{ background: item.avatar }">
                   {{ getInitial(item.name) }}
                 </div>
                 <div class="testimonial-card__info">
@@ -75,17 +63,14 @@ const getInitial = (name: string) => name.charAt(0).toUpperCase();
       </v-row>
 
       <div v-if="hasMore || expanded" class="testimonials-section__toggle">
-        <button
-          class="testimonials-section__toggle-btn"
-          @click="expanded = !expanded"
-        >
+        <button class="testimonials-section__toggle-btn" @click="expanded = !expanded">
           {{ expanded ? t('testimonials.showLess') : t('testimonials.showMore') }}
         </button>
       </div>
 
       <p class="testimonials-section__feedback-cta">
         {{ t('testimonials.feedbackCta') }}
-        <a href="https://github.com/777genius/claude_agent_teams_ui/issues" target="_blank" class="testimonials-section__email">GitHub</a>
+        <a :href="issuesUrl" target="_blank" class="testimonials-section__email">GitHub</a>
       </p>
     </v-container>
   </section>
@@ -139,7 +124,9 @@ const getInitial = (name: string) => name.charAt(0).toUpperCase();
   height: 100%;
   display: flex;
   flex-direction: column;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .testimonial-card:hover {

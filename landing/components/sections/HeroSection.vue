@@ -7,21 +7,26 @@ const { baseURL } = useRuntimeConfig().app;
 
 const downloadStore = useDownloadStore();
 const { resolve, data: releaseData } = useReleaseDownloads();
+const { latestReleaseUrl, releaseDownloadUrl } = useGithubRepo();
 
 const releaseVersion = computed(() => releaseData.value?.version || null);
 const releaseDate = computed(() => {
   const raw = releaseData.value?.pubDate;
   if (!raw) return null;
-  return new Date(raw).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(raw).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 });
 
 onMounted(() => downloadStore.init());
 
 const heroDownloadUrl = computed(() => {
   const asset = downloadStore.selectedAsset;
-  if (!asset) return 'https://github.com/777genius/claude_agent_teams_ui/releases/latest';
+  if (!asset) return latestReleaseUrl.value;
   const arch = asset.os === 'macos' ? downloadStore.macArch : asset.arch;
-  return resolve(asset.os, arch)?.url || asset.url;
+  return resolve(asset.os, arch)?.url || releaseDownloadUrl(asset.fileName);
 });
 </script>
 
@@ -75,17 +80,17 @@ const heroDownloadUrl = computed(() => {
           <div class="hero-section__trust">
             <div class="hero-section__trust-item">
               <v-icon size="16" class="hero-section__trust-icon" :icon="mdiRobotOutline" />
-              <span>{{ t("hero.trust.agentTeams") }}</span>
+              <span>{{ t('hero.trust.agentTeams') }}</span>
             </div>
             <div class="hero-section__trust-divider" />
             <div class="hero-section__trust-item">
               <v-icon size="16" class="hero-section__trust-icon" :icon="mdiViewDashboardOutline" />
-              <span>{{ t("hero.trust.kanban") }}</span>
+              <span>{{ t('hero.trust.kanban') }}</span>
             </div>
             <div class="hero-section__trust-divider" />
             <div class="hero-section__trust-item">
               <v-icon size="16" class="hero-section__trust-icon" :icon="mdiOpenSourceInitiative" />
-              <span>{{ t("hero.trust.openSource") }}</span>
+              <span>{{ t('hero.trust.openSource') }}</span>
             </div>
           </div>
         </v-col>
@@ -108,7 +113,6 @@ const heroDownloadUrl = computed(() => {
           </div>
         </v-col>
       </v-row>
-
     </v-container>
   </section>
 </template>
@@ -262,7 +266,12 @@ const heroDownloadUrl = computed(() => {
   position: absolute;
   inset: -2px;
   border-radius: 22px;
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(255, 0, 255, 0.2), rgba(57, 255, 20, 0.1));
+  background: linear-gradient(
+    135deg,
+    rgba(0, 240, 255, 0.2),
+    rgba(255, 0, 255, 0.2),
+    rgba(57, 255, 20, 0.1)
+  );
   filter: blur(20px);
   opacity: 0.4;
   z-index: 0;
@@ -270,8 +279,15 @@ const heroDownloadUrl = computed(() => {
 }
 
 @keyframes glowPulse {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.02); }
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.02);
+  }
 }
 
 /* ─── SSR Fallback ─── */

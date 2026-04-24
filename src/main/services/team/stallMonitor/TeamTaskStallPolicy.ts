@@ -1,3 +1,4 @@
+import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
 import type {
   ReviewTaskContext,
   TaskStallBranch,
@@ -7,8 +8,7 @@ import type {
   TeamTaskStallSnapshot,
   WorkTaskContext,
 } from './TeamTaskStallTypes';
-import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
-import type { TeamTask, TaskWorkInterval, TaskHistoryEvent } from '@shared/types';
+import type { TaskHistoryEvent, TaskWorkInterval, TeamTask } from '@shared/types';
 
 const WORK_TOUCH_TOOLS = new Set(['task_start', 'task_add_comment', 'task_set_status']);
 const REVIEW_TOUCH_TOOLS = new Set(['review_start', 'task_add_comment']);
@@ -347,12 +347,12 @@ export class TeamTaskStallPolicy {
     }
 
     const workContext: WorkTaskContext | null = (() => {
-      const touch = findLastMeaningfulWorkTouch(records, task.owner!, openWorkInterval.startedAt);
+      const touch = findLastMeaningfulWorkTouch(records, task.owner, openWorkInterval.startedAt);
       if (!touch) {
         return null;
       }
       return {
-        owner: task.owner!,
+        owner: task.owner,
         intervalStartedAt: openWorkInterval.startedAt,
         lastMeaningfulTouch: touch,
         lastMeaningfulTouchAt: touch.timestamp,
@@ -452,7 +452,7 @@ export class TeamTaskStallPolicy {
     const reviewContext: ReviewTaskContext | null = (() => {
       const touch = findLastMeaningfulReviewTouch(
         records,
-        resolvedReviewer.reviewer!,
+        resolvedReviewer.reviewer,
         reviewWindowStartedAt,
         explicitReviewStarted
       );

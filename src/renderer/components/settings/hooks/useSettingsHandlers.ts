@@ -376,7 +376,7 @@ export function useSettingsHandlers({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'claude-devtools-config.json';
+    link.download = 'agent-teams-config.json';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

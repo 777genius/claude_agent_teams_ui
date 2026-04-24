@@ -25,7 +25,7 @@ interface FileSectionHeaderProps {
   externalChange?: { type: 'change' | 'add' | 'unlink' };
   pathChangeLabel?:
     | { kind: 'deleted' }
-    | { kind: 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string };
+    | { kind: 'copied' | 'moved' | 'renamed'; direction: 'from' | 'to'; otherPath: string };
   hasEdits: boolean;
   applying: boolean;
   isCollapsed: boolean;

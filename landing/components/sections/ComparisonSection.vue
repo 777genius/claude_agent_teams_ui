@@ -172,7 +172,7 @@ const rows = computed<ComparisonRow[]>(() => [
 ])
 
 const competitors = [
-  { key: 'us', name: 'Claude Agent Teams', highlight: true },
+  { key: 'us', name: 'Agent Teams', highlight: true },
   { key: 'vibeKanban', name: 'Vibe Kanban' },
   { key: 'aperant', name: 'Aperant' },
   { key: 'cursor', name: 'Cursor' },

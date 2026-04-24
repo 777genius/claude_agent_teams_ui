@@ -46,12 +46,12 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_STYLES,
 } from '@renderer/utils/memberHelpers';
+import { resolveTaskChangePresenceFromResult } from '@renderer/utils/taskChangePresence';
 import {
   buildTaskChangeRequestOptions,
   buildTaskChangeSignature,
   deriveTaskSince,
 } from '@renderer/utils/taskChangeRequest';
-import { resolveTaskChangePresenceFromResult } from '@renderer/utils/taskChangePresence';
 import { linkifyTaskIdsInMarkdown, parseTaskLinkHref } from '@renderer/utils/taskReferenceUtils';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { getTaskKanbanColumn } from '@shared/utils/reviewState';
@@ -158,7 +158,7 @@ export const TaskDetailDialog = ({
   const [taskChangesLoading, setTaskChangesLoading] = useState(false);
   const [taskChangesError, setTaskChangesError] = useState<string | null>(null);
   const loadedTaskChangeSummaryKeyRef = useRef<string | null>(null);
-  const taskChangesLoadInFlightRef = useRef(false);
+  const taskChangesLoadInFlightKeysRef = useRef<Set<string>>(new Set());
   const currentTaskChangeSummaryKeyRef = useRef<string | null>(null);
 
   // Inline editing: subject
@@ -384,12 +384,7 @@ export const TaskDetailDialog = ({
       setTaskChangesFiles(data?.files ?? null);
       const nextPresence = data ? resolveTaskChangePresenceFromResult(data) : null;
       if (currentTask && taskChangeRequestOptions) {
-        recordTaskChangePresence(
-          teamName,
-          currentTask.id,
-          taskChangeRequestOptions,
-          nextPresence
-        );
+        recordTaskChangePresence(teamName, currentTask.id, taskChangeRequestOptions, nextPresence);
       }
       if (currentTask) {
         setSelectedTeamTaskChangePresence(teamName, currentTask.id, nextPresence ?? 'unknown');
@@ -415,7 +410,6 @@ export const TaskDetailDialog = ({
       preserveFilesOnError?: boolean;
     } = {}): Promise<void> => {
       const requestKey = currentTaskChangeSummaryKeyRef.current;
-      if (taskChangesLoadInFlightRef.current) return;
       if (
         !requestKey ||
         !currentTask ||
@@ -424,8 +418,9 @@ export const TaskDetailDialog = ({
         !onViewChanges
       )
         return;
+      if (taskChangesLoadInFlightKeysRef.current.has(requestKey)) return;
 
-      taskChangesLoadInFlightRef.current = true;
+      taskChangesLoadInFlightKeysRef.current.add(requestKey);
       if (showSpinner) {
         setTaskChangesLoading(true);
       }
@@ -448,8 +443,8 @@ export const TaskDetailDialog = ({
           error instanceof Error ? error.message : 'Failed to load task changes summary'
         );
       } finally {
-        taskChangesLoadInFlightRef.current = false;
-        if (showSpinner) {
+        taskChangesLoadInFlightKeysRef.current.delete(requestKey);
+        if (showSpinner && currentTaskChangeSummaryKeyRef.current === requestKey) {
           setTaskChangesLoading(false);
         }
       }
@@ -1250,7 +1245,7 @@ export const TaskDetailDialog = ({
                     ))}
                   </div>
                 ) : changesSectionOpen ? (
-                  <p className="text-xs text-[var(--color-text-muted)]">No file changes detected</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">No file changes recorded</p>
                 ) : null}
               </CollapsibleTeamSection>
             ) : null}
