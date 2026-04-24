@@ -3,6 +3,10 @@
  * Runs before each test file.
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
 import { afterEach, beforeEach, expect, vi } from 'vitest';
 
 // Mock Sentry Electron SDK — it requires the real `electron` package at import
@@ -19,9 +23,14 @@ vi.mock('@sentry/electron/main', () => sentryNoOp);
 vi.mock('@sentry/electron/renderer', () => sentryNoOp);
 vi.mock('@sentry/react', () => sentryNoOp);
 
-// Mock HOME for tests that need a predictable home path. Use stubEnv so we never
-// touch process itself — stubbing process breaks vitest (process.listeners etc).
-vi.stubEnv('HOME', '/home/testuser');
+// Mock HOME for tests that need a predictable home path. It must be writable:
+// some services persist state in best-effort background writes after a test has
+// already reset path overrides.
+const testHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-teams-vitest-home-'));
+vi.stubEnv('HOME', testHomeDir);
+process.once('exit', () => {
+  fs.rmSync(testHomeDir, { recursive: true, force: true });
+});
 
 let errorSpy: ReturnType<typeof vi.spyOn>;
 let warnSpy: ReturnType<typeof vi.spyOn>;

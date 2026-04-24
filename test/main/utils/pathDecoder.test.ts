@@ -246,13 +246,13 @@ describe('pathDecoder', () => {
 
   describe('getProjectsBasePath', () => {
     it('should return projects base path', () => {
-      expect(getProjectsBasePath()).toBe(path.join('/home/testuser', '.claude', 'projects'));
+      expect(getProjectsBasePath()).toBe(path.join(defaultHome, '.claude', 'projects'));
     });
   });
 
   describe('getTodosBasePath', () => {
     it('should return todos base path', () => {
-      expect(getTodosBasePath()).toBe(path.join('/home/testuser', '.claude', 'todos'));
+      expect(getTodosBasePath()).toBe(path.join(defaultHome, '.claude', 'todos'));
     });
   });
 
