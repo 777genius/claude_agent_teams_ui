@@ -466,9 +466,7 @@ async function createOpenCodeLiveHarness(tempDir: string): Promise<{
     reconcileTimeoutMs: 90_000,
     stopTimeoutMs: 90_000,
   });
-  const adapter = new OpenCodeTeamRuntimeAdapter(readinessBridge, {
-    launchMode: 'dogfood',
-  });
+  const adapter = new OpenCodeTeamRuntimeAdapter(readinessBridge);
   const svc = new TeamProvisioningService();
   svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
   return { bridgeClient, selectedModel, svc };

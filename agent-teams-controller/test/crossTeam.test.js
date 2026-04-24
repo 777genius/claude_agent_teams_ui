@@ -149,7 +149,7 @@ describe('crossTeam module', () => {
           fromMember: 'ghost',
           text: 'Hello from nowhere',
         })
-      ).toThrow('Unknown fromMember');
+      ).toThrow('Unknown cross-team sender');
     });
 
     it('preserves reply conversation metadata for explicit replies', () => {
