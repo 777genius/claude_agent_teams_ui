@@ -585,6 +585,7 @@ function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput)
     `Use teamName="${input.teamName}", to="${replyRecipient}", from="${input.memberName}", text, and summary.`,
     'Do not answer only with plain assistant text when agent-teams_message_send is available.',
     'Do not use SendMessage or runtime_deliver_message for ordinary visible replies.',
+    'Do not invent placeholder task labels. If no explicit taskRefs are provided and the reply is not about a real board task, do not prefix text or summary with a # task label; never use #00000000.',
     input.actionMode ? `Action mode for this message: ${input.actionMode}.` : null,
     taskRefs ? `If your reply is about these tasks, include taskRefs exactly: ${taskRefs}` : null,
     input.messageId

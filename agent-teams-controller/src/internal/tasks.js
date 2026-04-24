@@ -684,6 +684,8 @@ function buildMemberTaskProtocol(teamName, messagingProtocol = createMemberMessa
    { teamName: "${teamName}", taskId: "<taskId>", text: "<summary of your finding or decision>", from: "<your-name>" }
    Do NOT comment on trivial coordination messages. Only comment when the information is valuable context for the task.
 9. When sending a message about a specific task, include its short display label like #<displayId> in your ${messagingProtocol.sendToolName} summary field for traceability.
+   - If the message is NOT about a real board task, do NOT include any # task label.
+   - Never invent placeholder task refs such as #00000000 or #<displayId>.
 10. In ALL human-facing or teammate-facing message text, when you mention a task reference, ALWAYS write it with a leading # (for example: #abcd1234, not abcd1234 or "task abcd1234").
 11. Review workflow clarity (IMPORTANT):
    - The work task (e.g. #1) is the thing that must end up APPROVED after review.

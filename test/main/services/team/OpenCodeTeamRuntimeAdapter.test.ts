@@ -359,6 +359,7 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
       'If your reply is about these tasks, include taskRefs exactly: [{"taskId":"task-1","displayId":"abcd1234","teamName":"team-a"}]'
     );
     expect(sentText).toContain('Do not use SendMessage or runtime_deliver_message');
+    expect(sentText).toContain('never use #00000000');
   });
 
   it('does not parse legacy native SendMessage wording to infer OpenCode reply recipient', async () => {

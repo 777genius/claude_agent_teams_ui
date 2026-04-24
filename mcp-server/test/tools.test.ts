@@ -592,6 +592,9 @@ describe('agent-teams-mcp tools', () => {
     ).content[0]?.text;
     expect(openCodeMemberBriefingText).toContain('agent-teams_message_send');
     expect(openCodeMemberBriefingText).toContain('Full details in task comment e5f6a7b8');
+    expect(openCodeMemberBriefingText).toContain(
+      'Never invent placeholder task refs such as #00000000'
+    );
     expect(openCodeMemberBriefingText).not.toContain('task_get_comment {');
     expect(openCodeMemberBriefingText).not.toContain('notify your team lead via SendMessage');
   });

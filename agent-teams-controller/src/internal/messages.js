@@ -1,6 +1,27 @@
 const messageStore = require('./messageStore.js');
 const runtimeHelpers = require('./runtimeHelpers.js');
 
+const PLACEHOLDER_TASK_REF_PREFIX = /^\s*#0{8}\b\s*(?:[:.-]\s*)?/i;
+
+function stripPlaceholderTaskRefPrefix(value) {
+  if (typeof value !== 'string' || !PLACEHOLDER_TASK_REF_PREFIX.test(value)) {
+    return value;
+  }
+  return value.replace(PLACEHOLDER_TASK_REF_PREFIX, '').trimStart();
+}
+
+function normalizePlaceholderTaskRefPrefixes(flags) {
+  const next = { ...(flags || {}) };
+  if (typeof next.text === 'string') {
+    const strippedText = stripPlaceholderTaskRefPrefix(next.text);
+    next.text = strippedText.trim() ? strippedText : next.text;
+  }
+  if (typeof next.summary === 'string') {
+    next.summary = stripPlaceholderTaskRefPrefix(next.summary);
+  }
+  return next;
+}
+
 function normalizeMessageSendFlags(context, flags) {
   const next = { ...(flags || {}) };
   const rawTo =
@@ -61,7 +82,7 @@ function assertUserDirectedMessageHasSender(context, flags) {
 }
 
 function sendMessage(context, flags) {
-  const normalized = normalizeMessageSendFlags(context, flags);
+  const normalized = normalizeMessageSendFlags(context, normalizePlaceholderTaskRefPrefixes(flags));
   assertUserDirectedMessageHasSender(context, normalized);
   return messageStore.sendInboxMessage(context.paths, normalized);
 }

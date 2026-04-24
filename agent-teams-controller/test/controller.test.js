@@ -177,8 +177,26 @@ describe('agent-teams-controller API', () => {
       'agent-teams_message_send { teamName: "my-team", to: "alice", from: "bob"'
     );
     expect(briefing).toContain('Full details in task comment e5f6a7b8');
+    expect(briefing).toContain('Never invent placeholder task refs such as #00000000');
     expect(briefing).not.toContain('task_get_comment {');
     expect(briefing).not.toContain('notify your team lead via SendMessage');
+  });
+
+  it('strips hallucinated zero task placeholder prefixes from visible messages', () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+
+    controller.messages.sendMessage({
+      to: 'user',
+      from: 'bob',
+      text: '#00000000 bootstrap check-in and briefing retrieved. No actionable tasks.',
+      summary: '#00000000 ready',
+    });
+
+    const userInboxPath = path.join(claudeDir, 'teams', 'my-team', 'inboxes', 'user.json');
+    const rows = JSON.parse(fs.readFileSync(userInboxPath, 'utf8'));
+    expect(rows[0].text).toBe('bootstrap check-in and briefing retrieved. No actionable tasks.');
+    expect(rows[0].summary).toBe('ready');
   });
 
   it('does not infer OpenCode briefing from a generic provider-scoped model alone', async () => {
