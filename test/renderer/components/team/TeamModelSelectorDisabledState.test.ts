@@ -315,6 +315,57 @@ describe('TeamModelSelector disabled Codex models', () => {
     });
   });
 
+  it('constrains long runtime model lists so the selector scrolls', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      providers: [
+        {
+          providerId: 'codex',
+          models: [
+            'gpt-5.4',
+            'gpt-5.4-mini',
+            'gpt-5.3-codex',
+            'gpt-5.3-codex-spark',
+            'gpt-5.2',
+            'gpt-5.1-codex',
+            'gpt-5.1-codex-mini',
+            'gpt-5',
+            'gpt-4.1',
+          ],
+        },
+      ],
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(TeamModelSelector, {
+          providerId: 'codex',
+          onProviderChange: () => undefined,
+          value: '',
+          onValueChange: () => undefined,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const modelGrid = host.querySelector(
+      '[data-testid="team-model-selector-model-grid"]'
+    ) as HTMLElement | null;
+
+    expect(modelGrid).toBeTruthy();
+    expect(modelGrid?.style.maxHeight).toBe('400px');
+    expect(modelGrid?.className).toContain('overflow-y-auto');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
   it('keeps the runtime-reported Codex model list visible during a background refresh', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliStatus = {

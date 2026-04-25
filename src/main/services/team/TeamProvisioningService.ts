@@ -10113,6 +10113,25 @@ export class TeamProvisioningService {
       };
     }
 
+    const equivalentOpenRouterMatches = this.findEquivalentOpenRouterModelIds(
+      trimmedModelId,
+      availableModels
+    );
+    if (equivalentOpenRouterMatches.length === 1) {
+      return {
+        ok: true,
+        resolvedModelId: equivalentOpenRouterMatches[0],
+      };
+    }
+    if (equivalentOpenRouterMatches.length > 1) {
+      return {
+        ok: false,
+        reason:
+          `Selected model ${trimmedModelId} matched multiple live provider models: ` +
+          equivalentOpenRouterMatches.join(', '),
+      };
+    }
+
     if (trimmedModelId.includes('/')) {
       return {
         ok: false,
@@ -10142,6 +10161,27 @@ export class TeamProvisioningService {
       ok: false,
       reason: `Selected model ${trimmedModelId} was not found in the live provider catalog.`,
     };
+  }
+
+  private findEquivalentOpenRouterModelIds(
+    requestedModelId: string,
+    availableModels: readonly string[]
+  ): string[] {
+    const equivalentIds = new Set<string>();
+
+    if (requestedModelId.startsWith('openrouter/')) {
+      equivalentIds.add(requestedModelId.slice('openrouter/'.length));
+    } else if (requestedModelId.includes('/')) {
+      equivalentIds.add(`openrouter/${requestedModelId}`);
+    }
+
+    if (equivalentIds.size === 0) {
+      return [];
+    }
+
+    return Array.from(
+      new Set(availableModels.filter((candidate) => equivalentIds.has(candidate.trim())))
+    );
   }
 
   private resolveProviderCompatibilityModel(params: {
