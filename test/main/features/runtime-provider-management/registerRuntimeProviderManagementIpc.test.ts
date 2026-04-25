@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { registerRuntimeProviderManagementIpc } from '../../../../src/features/runtime-provider-management/main';
 import {
+  RUNTIME_PROVIDER_MANAGEMENT_CONNECT,
   RUNTIME_PROVIDER_MANAGEMENT_CONNECT_API_KEY,
   RUNTIME_PROVIDER_MANAGEMENT_DIRECTORY,
   RUNTIME_PROVIDER_MANAGEMENT_MODELS,
+  RUNTIME_PROVIDER_MANAGEMENT_SETUP_FORM,
   RUNTIME_PROVIDER_MANAGEMENT_VIEW,
 } from '../../../../src/features/runtime-provider-management/contracts';
 
@@ -12,6 +14,7 @@ import type { RuntimeProviderManagementFeatureFacade } from '../../../../src/fea
 import type {
   RuntimeProviderManagementDirectoryResponse,
   RuntimeProviderManagementProviderResponse,
+  RuntimeProviderManagementSetupFormResponse,
   RuntimeProviderManagementViewResponse,
   RuntimeProviderManagementModelsResponse,
   RuntimeProviderManagementModelTestResponse,
@@ -118,9 +121,34 @@ describe('registerRuntimeProviderManagementIpc', () => {
         diagnostics: [],
       },
     };
+    const setupFormResponse: RuntimeProviderManagementSetupFormResponse = {
+      schemaVersion: 1,
+      runtimeId: 'opencode',
+      setupForm: {
+        runtimeId: 'opencode',
+        providerId: 'openrouter',
+        displayName: 'OpenRouter',
+        method: 'api',
+        supported: true,
+        title: 'Connect OpenRouter',
+        description: null,
+        submitLabel: 'Connect',
+        disabledReason: null,
+        source: 'curated',
+        secret: {
+          key: 'key',
+          label: 'API key',
+          placeholder: 'Paste API key',
+          required: true,
+        },
+        prompts: [],
+      },
+    };
     const feature: RuntimeProviderManagementFeatureFacade = {
       loadView: vi.fn(() => Promise.resolve(viewResponse)),
       loadProviderDirectory: vi.fn(() => Promise.resolve(directoryResponse)),
+      loadSetupForm: vi.fn(() => Promise.resolve(setupFormResponse)),
+      connectProvider: vi.fn(() => Promise.resolve(connectedResponse)),
       connectWithApiKey: vi.fn(() => Promise.resolve(connectedResponse)),
       forgetCredential: vi.fn(() => Promise.resolve(forgottenResponse)),
       loadModels: vi.fn(() => Promise.resolve(modelsResponse)),
@@ -146,6 +174,38 @@ describe('registerRuntimeProviderManagementIpc', () => {
       filter: 'connectable',
       limit: 10,
     });
+
+    await handlers.get(RUNTIME_PROVIDER_MANAGEMENT_SETUP_FORM)?.(
+      {},
+      {
+        runtimeId: 'opencode',
+        providerId: 'openrouter',
+      }
+    );
+    expect(feature.loadSetupForm).toHaveBeenCalledWith({
+      runtimeId: 'opencode',
+      providerId: 'openrouter',
+    });
+
+    const genericConnectResponse = await handlers.get(RUNTIME_PROVIDER_MANAGEMENT_CONNECT)?.(
+      {},
+      {
+        runtimeId: 'opencode',
+        providerId: 'openrouter',
+        method: 'api',
+        apiKey: 'sk-secret-value',
+        metadata: {},
+      }
+    );
+
+    expect(feature.connectProvider).toHaveBeenCalledWith({
+      runtimeId: 'opencode',
+      providerId: 'openrouter',
+      method: 'api',
+      apiKey: 'sk-secret-value',
+      metadata: {},
+    });
+    expect(JSON.stringify(genericConnectResponse)).not.toContain('sk-secret-value');
 
     const response = await handlers.get(RUNTIME_PROVIDER_MANAGEMENT_CONNECT_API_KEY)?.(
       {},

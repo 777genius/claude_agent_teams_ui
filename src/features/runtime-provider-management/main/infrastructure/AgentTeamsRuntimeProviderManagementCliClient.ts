@@ -6,10 +6,12 @@ import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import type {
   RuntimeProviderManagementApi,
   RuntimeProviderManagementConnectApiKeyInput,
+  RuntimeProviderManagementConnectInput,
   RuntimeProviderManagementDirectoryResponse,
   RuntimeProviderManagementErrorDto,
   RuntimeProviderManagementForgetInput,
   RuntimeProviderManagementLoadDirectoryInput,
+  RuntimeProviderManagementLoadSetupFormInput,
   RuntimeProviderManagementLoadModelsInput,
   RuntimeProviderManagementLoadViewInput,
   RuntimeProviderManagementModelsResponse,
@@ -17,6 +19,7 @@ import type {
   RuntimeProviderManagementProviderResponse,
   RuntimeProviderManagementRuntimeId,
   RuntimeProviderManagementSetDefaultModelInput,
+  RuntimeProviderManagementSetupFormResponse,
   RuntimeProviderManagementTestModelInput,
   RuntimeProviderManagementViewResponse,
 } from '@features/runtime-provider-management/contracts';
@@ -30,6 +33,7 @@ type RuntimeProviderManagementErrorResponse =
   | RuntimeProviderManagementViewResponse
   | RuntimeProviderManagementDirectoryResponse
   | RuntimeProviderManagementProviderResponse
+  | RuntimeProviderManagementSetupFormResponse
   | RuntimeProviderManagementModelsResponse
   | RuntimeProviderManagementModelTestResponse;
 
@@ -282,6 +286,121 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
         return response;
       }
       return errorResponse<RuntimeProviderManagementDirectoryResponse>(
+        input.runtimeId,
+        normalizeCommandFailure(error)
+      );
+    }
+  }
+
+  async loadSetupForm(
+    input: RuntimeProviderManagementLoadSetupFormInput
+  ): Promise<RuntimeProviderManagementSetupFormResponse> {
+    const { binaryPath, env } = await resolveCliEnv();
+    if (!binaryPath) {
+      return errorResponse<RuntimeProviderManagementSetupFormResponse>(
+        input.runtimeId,
+        'Multimodel runtime binary was not found.',
+        'runtime-missing'
+      );
+    }
+
+    const projectPath = normalizeProjectPath(input.projectPath);
+    try {
+      const { stdout } = await execCli(
+        binaryPath,
+        appendProjectPathArgs(
+          [
+            'runtime',
+            'providers',
+            'setup-form',
+            '--runtime',
+            input.runtimeId,
+            '--provider',
+            input.providerId,
+            '--json',
+          ],
+          projectPath
+        ),
+        runtimeProviderCommandOptions({ env, timeout: COMMAND_TIMEOUT_MS }, projectPath)
+      );
+      return extractJsonObject<RuntimeProviderManagementSetupFormResponse>(stdout);
+    } catch (error) {
+      const response =
+        extractJsonObjectFromError<RuntimeProviderManagementSetupFormResponse>(error);
+      if (response) {
+        return response;
+      }
+      return errorResponse<RuntimeProviderManagementSetupFormResponse>(
+        input.runtimeId,
+        normalizeCommandFailure(error)
+      );
+    }
+  }
+
+  async connectProvider(
+    input: RuntimeProviderManagementConnectInput
+  ): Promise<RuntimeProviderManagementProviderResponse> {
+    const { binaryPath, env } = await resolveCliEnv();
+    if (!binaryPath) {
+      return errorResponse<RuntimeProviderManagementProviderResponse>(
+        input.runtimeId,
+        'Multimodel runtime binary was not found.',
+        'runtime-missing'
+      );
+    }
+
+    const projectPath = normalizeProjectPath(input.projectPath);
+    try {
+      const child = spawnCli(
+        binaryPath,
+        appendProjectPathArgs(
+          [
+            'runtime',
+            'providers',
+            'connect',
+            '--runtime',
+            input.runtimeId,
+            '--provider',
+            input.providerId,
+            '--stdin-json',
+            '--json',
+          ],
+          projectPath
+        ),
+        runtimeProviderCommandOptions(
+          {
+            env,
+            stdio: 'pipe' as const,
+          },
+          projectPath
+        )
+      ) as ChildProcessWithoutNullStreams;
+      const result = await collectSpawnOutput(
+        child,
+        JSON.stringify({
+          method: input.method,
+          apiKey: input.apiKey ?? null,
+          metadata: input.metadata ?? {},
+        })
+      );
+      if (result.code === 0) {
+        return extractJsonObject<RuntimeProviderManagementProviderResponse>(result.stdout);
+      }
+
+      try {
+        return extractJsonObject<RuntimeProviderManagementProviderResponse>(result.stdout);
+      } catch {
+        return errorResponse<RuntimeProviderManagementProviderResponse>(
+          input.runtimeId,
+          `Runtime provider connect command failed with exit code ${String(result.code ?? 'unknown')}.`
+        );
+      }
+    } catch (error) {
+      const response = extractJsonObjectFromError<RuntimeProviderManagementProviderResponse>(error);
+      if (response) {
+        return response;
+      }
+      return errorResponse<RuntimeProviderManagementProviderResponse>(
         input.runtimeId,
         normalizeCommandFailure(error)
       );

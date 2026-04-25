@@ -17,6 +17,55 @@ export type RuntimeProviderOwnershipDto = 'managed' | 'local' | 'env' | 'project
 
 export type RuntimeProviderAuthMethodDto = 'api' | 'oauth' | 'wellknown';
 
+export type RuntimeProviderSetupMethodDto = 'api' | 'oauth' | 'manual';
+
+export type RuntimeProviderSetupPromptTypeDto = 'text' | 'select';
+
+export interface RuntimeProviderSetupPromptOptionDto {
+  label: string;
+  value: string;
+  hint: string | null;
+}
+
+export interface RuntimeProviderSetupPromptConditionDto {
+  key: string;
+  op: string;
+  value: string;
+}
+
+export interface RuntimeProviderSetupPromptDto {
+  key: string;
+  type: RuntimeProviderSetupPromptTypeDto;
+  label: string;
+  placeholder: string | null;
+  required: boolean;
+  secret: boolean;
+  options: readonly RuntimeProviderSetupPromptOptionDto[];
+  when: RuntimeProviderSetupPromptConditionDto | null;
+}
+
+export type RuntimeProviderSetupFormSourceDto = 'opencode-auth' | 'curated' | 'oauth' | 'manual';
+
+export interface RuntimeProviderSetupFormDto {
+  runtimeId: RuntimeProviderManagementRuntimeId;
+  providerId: string;
+  displayName: string;
+  method: RuntimeProviderSetupMethodDto;
+  supported: boolean;
+  title: string;
+  description: string | null;
+  submitLabel: string;
+  disabledReason: string | null;
+  source: RuntimeProviderSetupFormSourceDto;
+  secret: {
+    key: 'key';
+    label: string;
+    placeholder: string | null;
+    required: boolean;
+  } | null;
+  prompts: readonly RuntimeProviderSetupPromptDto[];
+}
+
 export type RuntimeProviderActionIdDto =
   | 'connect'
   | 'use'
@@ -165,6 +214,13 @@ export interface RuntimeProviderManagementProviderResponse {
   error?: RuntimeProviderManagementErrorDto;
 }
 
+export interface RuntimeProviderManagementSetupFormResponse {
+  schemaVersion: 1;
+  runtimeId: RuntimeProviderManagementRuntimeId;
+  setupForm?: RuntimeProviderSetupFormDto;
+  error?: RuntimeProviderManagementErrorDto;
+}
+
 export type RuntimeProviderModelAvailabilityDto =
   | 'available'
   | 'unavailable'
@@ -232,6 +288,21 @@ export interface RuntimeProviderManagementConnectApiKeyInput {
   runtimeId: RuntimeProviderManagementRuntimeId;
   providerId: string;
   apiKey: string;
+  projectPath?: string | null;
+}
+
+export interface RuntimeProviderManagementLoadSetupFormInput {
+  runtimeId: RuntimeProviderManagementRuntimeId;
+  providerId: string;
+  projectPath?: string | null;
+}
+
+export interface RuntimeProviderManagementConnectInput {
+  runtimeId: RuntimeProviderManagementRuntimeId;
+  providerId: string;
+  method: RuntimeProviderSetupMethodDto;
+  apiKey?: string | null;
+  metadata?: Record<string, string> | null;
   projectPath?: string | null;
 }
 

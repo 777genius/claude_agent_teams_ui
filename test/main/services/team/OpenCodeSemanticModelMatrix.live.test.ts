@@ -17,6 +17,7 @@ import {
 import {
   createOpenCodeLiveHarness,
   getRuntimeTranscript,
+  waitForOpenCodeMemberIdle,
   type InboxMessage,
   waitForMemberInboxMessage,
   waitForOpenCodeLanesStopped,
@@ -95,6 +96,7 @@ async function runModelScenario(input: {
   const projectPath = path.join(tempDir, 'project');
   const teamName = `${input.scenario.teamNamePrefix}-${sanitizeModelForTeamName(input.model)}-${Date.now()}`;
   let harness: Awaited<ReturnType<typeof createOpenCodeLiveHarness>> | null = null;
+  let keepTempDir = false;
 
   try {
     await fs.mkdir(tempClaudeRoot, { recursive: true });
@@ -160,6 +162,7 @@ async function runModelScenario(input: {
       source: 'manual',
       text: input.scenario.directDelivery.textLines.join('\n'),
     });
+    diagnostics.push(`directDelivery=${formatDeliveryDiagnostic(directDelivery)}`);
     if (!directDelivery.delivered) {
       throw new Error(`Direct OpenCode delivery failed: ${JSON.stringify(directDelivery, null, 2)}`);
     }
@@ -178,6 +181,13 @@ async function runModelScenario(input: {
     });
     stages.directReply = true;
     stages.taskRefs = hasTaskRef(directReply, directTaskRef);
+    await waitForOpenCodeMemberIdle({
+      bridgeClient: harness.bridgeClient,
+      teamName,
+      memberName: input.scenario.directDelivery.memberName,
+      projectPath,
+      timeoutMs: 90_000,
+    });
 
     const peerTaskRef = taskRefForScenario(
       input.scenario,
@@ -193,17 +203,44 @@ async function runModelScenario(input: {
       source: 'manual',
       text: input.scenario.peerDelivery.textLines.join('\n'),
     });
+    diagnostics.push(`peerDelivery=${formatDeliveryDiagnostic(peerDelivery)}`);
     if (!peerDelivery.delivered) {
       throw new Error(`Peer OpenCode delivery failed: ${JSON.stringify(peerDelivery, null, 2)}`);
     }
+    if (peerDelivery.accepted === false || peerDelivery.queuedBehindMessageId) {
+      throw new Error(
+        `Peer OpenCode delivery was not accepted immediately: ${JSON.stringify(
+          peerDelivery,
+          null,
+          2
+        )}`
+      );
+    }
 
-    const peerMessage = await waitForMemberInboxMessage(
-      teamName,
-      input.scenario.peerDelivery.recipientName,
-      input.scenario.peerDelivery.senderName,
-      input.scenario.peerDelivery.peerToken,
-      180_000
-    );
+    let peerMessage: Awaited<ReturnType<typeof waitForMemberInboxMessage>>;
+    try {
+      peerMessage = await waitForMemberInboxMessage(
+        teamName,
+        input.scenario.peerDelivery.recipientName,
+        input.scenario.peerDelivery.senderName,
+        input.scenario.peerDelivery.peerToken,
+        180_000
+      );
+    } catch (error) {
+      const transcript = await getRuntimeTranscript({
+        bridgeClient: harness.bridgeClient,
+        teamName,
+        memberName: input.scenario.peerDelivery.senderName,
+        projectPath,
+      });
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nSender transcript: ${JSON.stringify(
+          transcript,
+          null,
+          2
+        )}`
+      );
+    }
     assertVisibleReplyContract(peerMessage, {
       expectedFrom: input.scenario.peerDelivery.senderName,
       expectedTo: input.scenario.peerDelivery.recipientName,
@@ -240,6 +277,10 @@ async function runModelScenario(input: {
       diagnostics,
     };
   } catch (error) {
+    if (process.env.OPENCODE_E2E_KEEP_FAILED === '1') {
+      keepTempDir = true;
+      diagnostics.push(`tempDir=${tempDir}`);
+    }
     diagnostics.push(error instanceof Error ? error.message : String(error));
     return {
       model: input.model,
@@ -256,7 +297,9 @@ async function runModelScenario(input: {
       await waitForOpenCodeLanesStopped(teamName).catch(() => undefined);
     }
     setClaudeBasePathOverride(null);
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    if (!keepTempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }
 
@@ -334,6 +377,34 @@ function scoreModel(stages: ModelResult['stages']): number {
     (stages.longPrompt ? 10 : 0) +
     (stages.latencyStable ? 5 : 0)
   );
+}
+
+function formatDeliveryDiagnostic(delivery: {
+  delivered?: unknown;
+  accepted?: unknown;
+  responsePending?: unknown;
+  responseState?: unknown;
+  ledgerStatus?: unknown;
+  queuedBehindMessageId?: unknown;
+  reason?: unknown;
+  visibleReplyMessageId?: unknown;
+  visibleReplyCorrelation?: unknown;
+  diagnostics?: unknown;
+}): string {
+  return JSON.stringify({
+    delivered: delivery.delivered,
+    accepted: delivery.accepted,
+    responsePending: delivery.responsePending,
+    responseState: delivery.responseState,
+    ledgerStatus: delivery.ledgerStatus,
+    queuedBehindMessageId: delivery.queuedBehindMessageId,
+    reason: delivery.reason,
+    visibleReplyMessageId: delivery.visibleReplyMessageId,
+    visibleReplyCorrelation: delivery.visibleReplyCorrelation,
+    diagnostics: Array.isArray(delivery.diagnostics)
+      ? delivery.diagnostics.slice(0, 5)
+      : delivery.diagnostics,
+  });
 }
 
 async function writeModelMatrixReport(report: ModelMatrixReport): Promise<void> {

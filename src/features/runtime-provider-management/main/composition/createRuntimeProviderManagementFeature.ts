@@ -4,15 +4,18 @@ import type { RuntimeProviderManagementPort } from '../../core/application';
 import type {
   RuntimeProviderManagementApi,
   RuntimeProviderManagementConnectApiKeyInput,
+  RuntimeProviderManagementConnectInput,
   RuntimeProviderManagementDirectoryResponse,
   RuntimeProviderManagementForgetInput,
   RuntimeProviderManagementLoadDirectoryInput,
+  RuntimeProviderManagementLoadSetupFormInput,
   RuntimeProviderManagementLoadModelsInput,
   RuntimeProviderManagementLoadViewInput,
   RuntimeProviderManagementModelTestResponse,
   RuntimeProviderManagementModelsResponse,
   RuntimeProviderManagementProviderResponse,
   RuntimeProviderManagementSetDefaultModelInput,
+  RuntimeProviderManagementSetupFormResponse,
   RuntimeProviderManagementTestModelInput,
   RuntimeProviderManagementViewResponse,
 } from '@features/runtime-provider-management/contracts';
@@ -33,6 +36,12 @@ export function createRuntimeProviderManagementFeature(
     loadProviderDirectory: (
       input: RuntimeProviderManagementLoadDirectoryInput
     ): Promise<RuntimeProviderManagementDirectoryResponse> => port.loadProviderDirectory(input),
+    loadSetupForm: (
+      input: RuntimeProviderManagementLoadSetupFormInput
+    ): Promise<RuntimeProviderManagementSetupFormResponse> => port.loadSetupForm(input),
+    connectProvider: (
+      input: RuntimeProviderManagementConnectInput
+    ): Promise<RuntimeProviderManagementProviderResponse> => port.connectProvider(input),
     connectWithApiKey: (
       input: RuntimeProviderManagementConnectApiKeyInput
     ): Promise<RuntimeProviderManagementProviderResponse> => port.connectWithApiKey(input),

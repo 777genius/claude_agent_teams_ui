@@ -1,10 +1,48 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 
 const buildProviderAwareCliEnvMock = vi.fn();
 const resolveBinaryMock = vi.fn();
 const execCliMock = vi.fn();
 const spawnCliMock = vi.fn();
 const resolveInteractiveShellEnvMock = vi.fn();
+
+function createSpawnProcess(stdoutPayload: unknown, exitCode = 0): {
+  child: {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    stdin: {
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    once: EventEmitter['once'];
+  };
+  stdinWrite: ReturnType<typeof vi.fn>;
+} {
+  const processEvents = new EventEmitter();
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  const stdinWrite = vi.fn();
+  const stdinEnd = vi.fn(() => {
+    queueMicrotask(() => {
+      stdout.emit('data', Buffer.from(JSON.stringify(stdoutPayload)));
+      processEvents.emit('close', exitCode);
+    });
+  });
+
+  return {
+    child: {
+      stdout,
+      stderr,
+      stdin: {
+        write: stdinWrite,
+        end: stdinEnd,
+      },
+      once: processEvents.once.bind(processEvents),
+    },
+    stdinWrite,
+  };
+}
 
 vi.mock('@main/services/runtime/providerAwareCliEnv', () => ({
   buildProviderAwareCliEnv: (...args: unknown[]) => buildProviderAwareCliEnvMock(...args),
@@ -208,5 +246,122 @@ describe('AgentTeamsRuntimeProviderManagementCliClient', () => {
       expect.objectContaining({ cwd: '/Users/test/project' })
     );
     expect(JSON.stringify(execCliMock.mock.calls[0])).not.toContain('undefined');
+  });
+
+  it('loads provider setup forms through the CLI contract', async () => {
+    execCliMock.mockResolvedValue({
+      stdout: JSON.stringify({
+        schemaVersion: 1,
+        runtimeId: 'opencode',
+        setupForm: {
+          runtimeId: 'opencode',
+          providerId: 'openrouter',
+          displayName: 'OpenRouter',
+          method: 'api',
+          supported: true,
+          title: 'Connect OpenRouter',
+          description: null,
+          submitLabel: 'Connect',
+          disabledReason: null,
+          source: 'curated',
+          secret: {
+            key: 'key',
+            label: 'API key',
+            placeholder: 'Paste API key',
+            required: true,
+          },
+          prompts: [],
+        },
+      }),
+      stderr: '',
+    });
+
+    const client = new AgentTeamsRuntimeProviderManagementCliClient();
+    const response = await client.loadSetupForm({
+      runtimeId: 'opencode',
+      providerId: 'openrouter',
+      projectPath: '/Users/test/project',
+    });
+
+    expect(response.setupForm?.providerId).toBe('openrouter');
+    expect(execCliMock).toHaveBeenCalledWith(
+      '/repo/cli-dev',
+      [
+        'runtime',
+        'providers',
+        'setup-form',
+        '--runtime',
+        'opencode',
+        '--provider',
+        'openrouter',
+        '--json',
+        '--project-path',
+        '/Users/test/project',
+      ],
+      expect.objectContaining({ cwd: '/Users/test/project' })
+    );
+  });
+
+  it('passes generic provider setup payload through stdin JSON only', async () => {
+    const { child, stdinWrite } = createSpawnProcess({
+      schemaVersion: 1,
+      runtimeId: 'opencode',
+      provider: {
+        providerId: 'cloudflare-ai-gateway',
+        displayName: 'Cloudflare AI Gateway',
+        state: 'connected',
+        ownership: ['managed'],
+        recommended: false,
+        modelCount: 0,
+        defaultModelId: null,
+        authMethods: ['api'],
+        actions: [],
+        detail: null,
+      },
+    });
+    spawnCliMock.mockReturnValue(child);
+
+    const client = new AgentTeamsRuntimeProviderManagementCliClient();
+    const response = await client.connectProvider({
+      runtimeId: 'opencode',
+      providerId: 'cloudflare-ai-gateway',
+      method: 'api',
+      apiKey: 'sk-secret-value',
+      metadata: {
+        accountId: 'account-123',
+        gatewayId: 'gateway-456',
+      },
+      projectPath: '/Users/test/project',
+    });
+
+    expect(response.provider?.providerId).toBe('cloudflare-ai-gateway');
+    expect(spawnCliMock).toHaveBeenCalledWith(
+      '/repo/cli-dev',
+      [
+        'runtime',
+        'providers',
+        'connect',
+        '--runtime',
+        'opencode',
+        '--provider',
+        'cloudflare-ai-gateway',
+        '--stdin-json',
+        '--json',
+        '--project-path',
+        '/Users/test/project',
+      ],
+      expect.objectContaining({ cwd: '/Users/test/project' })
+    );
+    expect(JSON.stringify(spawnCliMock.mock.calls[0])).not.toContain('sk-secret-value');
+    expect(stdinWrite).toHaveBeenCalledWith(
+      JSON.stringify({
+        method: 'api',
+        apiKey: 'sk-secret-value',
+        metadata: {
+          accountId: 'account-123',
+          gatewayId: 'gateway-456',
+        },
+      })
+    );
   });
 });

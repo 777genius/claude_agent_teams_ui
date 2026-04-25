@@ -6,6 +6,13 @@ import { Checkbox } from '@renderer/components/ui/checkbox';
 import { Input } from '@renderer/components/ui/input';
 import { Label } from '@renderer/components/ui/label';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@renderer/components/ui/select';
+import {
   compareOpenCodeTeamModelRecommendations,
   getOpenCodeTeamModelRecommendation,
   isOpenCodeTeamModelRecommended,
@@ -41,6 +48,7 @@ import type {
   RuntimeProviderDirectoryFilterDto,
   RuntimeProviderModelDto,
   RuntimeProviderModelTestResultDto,
+  RuntimeProviderSetupPromptDto,
 } from '@features/runtime-provider-management/contracts';
 import type { CSSProperties, JSX, KeyboardEvent } from 'react';
 
@@ -64,7 +72,6 @@ interface ProviderRowProps {
   readonly state: RuntimeProviderManagementState;
   readonly active: boolean;
   readonly formOpen: boolean;
-  readonly apiKeyValue: string;
   readonly busy: boolean;
   readonly disabled: boolean;
   readonly actions: RuntimeProviderManagementActions;
@@ -93,7 +100,7 @@ function formatDirectorySetupKind(provider: RuntimeProviderDirectoryEntryDto): s
     case 'connect-api-key':
       return 'Connect';
     case 'configure-manually':
-      return 'Configure manually';
+      return 'Manual setup required';
     case 'requires-environment':
       return 'Requires environment';
     case 'available-readonly':
@@ -139,7 +146,7 @@ function directoryEntryMatchesQuery(
 function directorySetupKindClassName(provider: RuntimeProviderDirectoryEntryDto): string {
   switch (provider.setupKind) {
     case 'connected':
-      return 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200';
+      return 'border-emerald-300/70 bg-emerald-600 text-emerald-50';
     case 'connect-api-key':
     case 'available-readonly':
       return 'border-sky-400/30 bg-sky-400/10 text-sky-200';
@@ -189,10 +196,191 @@ function stateStyle(provider: RuntimeProviderConnectionDto): CSSProperties | und
   }
 
   return {
-    color: '#86efac',
-    borderColor: 'rgba(74, 222, 128, 0.38)',
-    backgroundColor: 'rgba(74, 222, 128, 0.11)',
+    color: '#ecfdf5',
+    borderColor: 'rgba(134, 239, 172, 0.72)',
+    backgroundColor: '#16a34a',
   };
+}
+
+function setupPromptVisible(
+  prompt: RuntimeProviderSetupPromptDto,
+  values: Readonly<Record<string, string>>
+): boolean {
+  if (!prompt.when) {
+    return true;
+  }
+  const currentValue = values[prompt.when.key] ?? '';
+  switch (prompt.when.op) {
+    case 'eq':
+      return currentValue === prompt.when.value;
+    case 'neq':
+    case 'ne':
+      return currentValue !== prompt.when.value;
+    default:
+      return true;
+  }
+}
+
+function setupFormCanSubmit(state: RuntimeProviderManagementState, providerId: string): boolean {
+  const form = state.setupForm?.providerId === providerId ? state.setupForm : null;
+  if (!form?.supported || !form.secret || !state.apiKeyValue.trim()) {
+    return false;
+  }
+  return form.prompts
+    .filter((prompt) => setupPromptVisible(prompt, state.setupMetadata))
+    .every((prompt) => !prompt.required || Boolean(state.setupMetadata[prompt.key]?.trim()));
+}
+
+function ProviderSetupFormPanel({
+  provider,
+  state,
+  busy,
+  disabled,
+  actions,
+}: {
+  readonly provider: RuntimeProviderConnectionDto;
+  readonly state: RuntimeProviderManagementState;
+  readonly busy: boolean;
+  readonly disabled: boolean;
+  readonly actions: RuntimeProviderManagementActions;
+}): JSX.Element {
+  const form = state.setupForm?.providerId === provider.providerId ? state.setupForm : null;
+  const loading = state.setupFormLoading && state.activeFormProviderId === provider.providerId;
+  const error = state.setupFormError;
+  const submitError =
+    state.activeFormProviderId === provider.providerId ? state.setupSubmitError : null;
+  const canSubmit = setupFormCanSubmit(state, provider.providerId);
+
+  return (
+    <div
+      className="mt-3 rounded-md border p-3"
+      style={{ borderColor: 'var(--color-border-subtle)' }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+          <Loader2 className="size-3.5 animate-spin" />
+          Loading provider setup...
+        </div>
+      ) : null}
+
+      {!loading && error ? (
+        <div className="rounded-md border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs text-red-200">
+          {error}
+        </div>
+      ) : null}
+
+      {!loading && form ? (
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs font-medium text-[var(--color-text)]">{form.title}</div>
+            {form.description ? (
+              <div className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                {form.description}
+              </div>
+            ) : null}
+          </div>
+
+          {form.secret ? (
+            <div className="space-y-1.5">
+              <Label htmlFor={`runtime-provider-key-${provider.providerId}`} className="text-xs">
+                {form.secret.label}
+              </Label>
+              <Input
+                id={`runtime-provider-key-${provider.providerId}`}
+                type="password"
+                value={state.apiKeyValue}
+                disabled={disabled || busy || !form.supported}
+                onChange={(event) => actions.setApiKeyValue(event.target.value)}
+                placeholder={form.secret.placeholder ?? 'Paste API key'}
+                className="h-9 text-sm"
+                autoFocus
+              />
+            </div>
+          ) : null}
+
+          {form.prompts
+            .filter((prompt) => setupPromptVisible(prompt, state.setupMetadata))
+            .map((prompt) => (
+              <div key={prompt.key} className="space-y-1.5">
+                <Label
+                  htmlFor={`runtime-provider-${provider.providerId}-${prompt.key}`}
+                  className="text-xs"
+                >
+                  {prompt.label}
+                </Label>
+                {prompt.type === 'select' ? (
+                  <Select
+                    value={state.setupMetadata[prompt.key] ?? ''}
+                    disabled={disabled || busy || !form.supported}
+                    onValueChange={(value) => actions.setSetupMetadataValue(prompt.key, value)}
+                  >
+                    <SelectTrigger
+                      id={`runtime-provider-${provider.providerId}-${prompt.key}`}
+                      className="h-9 text-sm"
+                    >
+                      <SelectValue placeholder={prompt.placeholder ?? 'Select value'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {prompt.options.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id={`runtime-provider-${provider.providerId}-${prompt.key}`}
+                    type={prompt.secret ? 'password' : 'text'}
+                    value={state.setupMetadata[prompt.key] ?? ''}
+                    disabled={disabled || busy || !form.supported}
+                    onChange={(event) =>
+                      actions.setSetupMetadataValue(prompt.key, event.target.value)
+                    }
+                    placeholder={prompt.placeholder ?? undefined}
+                    className="h-9 text-sm"
+                  />
+                )}
+              </div>
+            ))}
+
+          {form.disabledReason && !form.supported ? (
+            <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+              {form.disabledReason}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {submitError ? (
+        <div className="mt-3 rounded-md border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs text-red-200">
+          {submitError}
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex justify-end gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={actions.cancelConnect}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={disabled || busy || loading || !canSubmit}
+          onClick={() => void actions.submitConnect(provider.providerId)}
+        >
+          {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+          {form?.submitLabel ?? 'Connect'}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function RuntimeSummary({
@@ -457,7 +645,10 @@ function ProviderActions({
         variant="outline"
         disabled={disabled || busy || !connect.enabled}
         title={connect.disabledReason ?? undefined}
-        onClick={onStartConnect}
+        onClick={(event) => {
+          event.stopPropagation();
+          onStartConnect();
+        }}
       >
         {busy ? (
           <Loader2 className="mr-1 size-3.5 animate-spin" />
@@ -478,7 +669,10 @@ function ProviderActions({
           variant="ghost"
           disabled={disabled || busy || !forget.enabled}
           title={forget.disabledReason ?? undefined}
-          onClick={onForget}
+          onClick={(event) => {
+            event.stopPropagation();
+            onForget();
+          }}
         >
           {busy ? (
             <Loader2 className="mr-1 size-3.5 animate-spin" />
@@ -508,20 +702,39 @@ function ProviderRow({
   state,
   active,
   formOpen,
-  apiKeyValue,
   busy,
   disabled,
   actions,
 }: ProviderRowProps): JSX.Element {
+  const connect = getProviderAction(provider, 'connect');
+  const canOpenConnect = provider.state !== 'connected' && connect?.enabled === true;
+  const canSelectModels = provider.state === 'connected' && provider.modelCount > 0;
+  const clickable = !disabled && (canOpenConnect || canSelectModels);
+  const visuallyActive = active && (canSelectModels || formOpen);
+  const handleActivate = (): void => {
+    if (!clickable) {
+      return;
+    }
+    if (canOpenConnect) {
+      actions.startConnect(provider.providerId);
+      return;
+    }
+    actions.selectProvider(provider.providerId);
+  };
+
   return (
     <div
       data-testid={`runtime-provider-row-${provider.providerId}`}
-      className={`cursor-pointer rounded-lg border p-3 transition-all hover:border-sky-300/60 hover:bg-sky-400/[0.08] hover:shadow-[0_0_0_1px_rgba(125,211,252,0.18)] ${
-        active
+      className={`rounded-lg border p-3 transition-all ${
+        clickable
+          ? 'cursor-pointer hover:border-sky-300/60 hover:bg-sky-400/[0.08] hover:shadow-[0_0_0_1px_rgba(125,211,252,0.18)]'
+          : 'cursor-default'
+      } ${
+        visuallyActive
           ? 'border-sky-300/70 bg-sky-400/[0.075] shadow-[0_0_0_1px_rgba(125,211,252,0.22)]'
           : 'border-[var(--color-border-subtle)] bg-white/[0.02]'
       }`}
-      onClick={() => actions.selectProvider(provider.providerId)}
+      onClick={handleActivate}
     >
       <div className="grid w-full grid-cols-[1fr_auto] items-start gap-3">
         <div className="min-w-0 text-left">
@@ -575,46 +788,13 @@ function ProviderRow({
       </div>
 
       {formOpen ? (
-        <div
-          className="mt-3 rounded-md border p-3"
-          style={{ borderColor: 'var(--color-border-subtle)' }}
-        >
-          <div className="space-y-1.5">
-            <Label htmlFor={`runtime-provider-key-${provider.providerId}`} className="text-xs">
-              {provider.displayName} API key
-            </Label>
-            <Input
-              id={`runtime-provider-key-${provider.providerId}`}
-              type="password"
-              value={apiKeyValue}
-              disabled={disabled || busy}
-              onChange={(event) => actions.setApiKeyValue(event.target.value)}
-              placeholder="Paste API key"
-              className="h-9 text-sm"
-              autoFocus
-            />
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={actions.cancelConnect}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={disabled || busy || !apiKeyValue.trim()}
-              onClick={() => void actions.submitConnect(provider.providerId)}
-            >
-              {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
-              Save key
-            </Button>
-          </div>
-        </div>
+        <ProviderSetupFormPanel
+          provider={provider}
+          state={state}
+          busy={busy}
+          disabled={disabled}
+          actions={actions}
+        />
       ) : null}
 
       {active && provider.state === 'connected' && provider.modelCount > 0 ? (
@@ -634,7 +814,6 @@ function DirectoryProviderRow({
   state,
   active,
   formOpen,
-  apiKeyValue,
   disabled,
   busy,
   actions,
@@ -643,7 +822,6 @@ function DirectoryProviderRow({
   readonly state: RuntimeProviderManagementState;
   readonly active: boolean;
   readonly formOpen: boolean;
-  readonly apiKeyValue: string;
   readonly disabled: boolean;
   readonly busy: boolean;
   readonly actions: RuntimeProviderManagementActions;
@@ -651,24 +829,42 @@ function DirectoryProviderRow({
   const connect = getDirectoryAction(provider, 'connect');
   const configure = getDirectoryAction(provider, 'configure');
   const forget = getDirectoryAction(provider, 'forget');
+  const canOpenConnect = provider.state !== 'connected' && connect?.enabled === true;
+  const canSelectModels = provider.state === 'connected' && provider.modelCount !== 0;
+  const clickable = !disabled && (canOpenConnect || canSelectModels);
+  const visuallyActive = active && (canSelectModels || formOpen);
+  const handleActivate = (): void => {
+    if (!clickable) {
+      return;
+    }
+    if (canOpenConnect) {
+      actions.startConnect(provider.providerId);
+      return;
+    }
+    actions.selectDirectoryProvider(provider.providerId);
+  };
 
   return (
     <div
       role="button"
-      tabIndex={disabled ? -1 : 0}
+      tabIndex={clickable ? 0 : -1}
       data-testid={`runtime-provider-directory-row-${provider.providerId}`}
-      className={`cursor-pointer rounded-lg border p-3 transition-all hover:border-sky-300/60 hover:bg-sky-400/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 ${
-        active
+      className={`rounded-lg border p-3 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 ${
+        clickable
+          ? 'cursor-pointer hover:border-sky-300/60 hover:bg-sky-400/[0.08]'
+          : 'cursor-default'
+      } ${
+        visuallyActive
           ? 'border-sky-300/70 bg-sky-400/[0.075] shadow-[0_0_0_1px_rgba(125,211,252,0.22)]'
           : 'border-[var(--color-border-subtle)] bg-white/[0.02]'
       }`}
-      onClick={() => actions.selectDirectoryProvider(provider.providerId)}
+      onClick={handleActivate}
       onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') {
+        if (!clickable || (event.key !== 'Enter' && event.key !== ' ')) {
           return;
         }
         event.preventDefault();
-        actions.selectDirectoryProvider(provider.providerId);
+        handleActivate();
       }}
     >
       <div className="grid grid-cols-[1fr_auto] gap-3">
@@ -760,47 +956,13 @@ function DirectoryProviderRow({
       </div>
 
       {formOpen ? (
-        <div
-          className="mt-3 rounded-md border p-3"
-          style={{ borderColor: 'var(--color-border-subtle)' }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div className="space-y-1.5">
-            <Label htmlFor={`runtime-provider-key-${provider.providerId}`} className="text-xs">
-              {provider.displayName} API key
-            </Label>
-            <Input
-              id={`runtime-provider-key-${provider.providerId}`}
-              type="password"
-              value={apiKeyValue}
-              disabled={disabled || busy}
-              onChange={(event) => actions.setApiKeyValue(event.target.value)}
-              placeholder="Paste API key"
-              className="h-9 text-sm"
-              autoFocus
-            />
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={actions.cancelConnect}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={disabled || busy || !apiKeyValue.trim()}
-              onClick={() => void actions.submitConnect(provider.providerId)}
-            >
-              {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
-              Save key
-            </Button>
-          </div>
-        </div>
+        <ProviderSetupFormPanel
+          provider={directoryEntryToProviderConnection(provider)}
+          state={state}
+          busy={busy}
+          disabled={disabled}
+          actions={actions}
+        />
       ) : null}
 
       {active && provider.state === 'connected' && provider.modelCount !== 0 ? (
@@ -909,7 +1071,6 @@ function ProviderDirectoryPanel({
                 state={state}
                 active={active}
                 formOpen={state.activeFormProviderId === provider.providerId}
-                apiKeyValue={state.apiKeyValue}
                 disabled={disabled || state.directoryLoading}
                 busy={state.savingProviderId === provider.providerId}
                 actions={actions}
@@ -962,15 +1123,20 @@ function ModelBadges({
         <Badge
           className={
             modelRecommendation.level === 'recommended'
-              ? 'bg-amber-400/15 px-1.5 py-0 text-[10px] text-amber-200'
-              : 'bg-red-400/15 px-1.5 py-0 text-[10px] text-red-200'
+              ? 'bg-emerald-400/15 px-1.5 py-0 text-[10px] text-emerald-200'
+              : modelRecommendation.level === 'recommended-with-limits'
+                ? 'bg-amber-400/15 px-1.5 py-0 text-[10px] text-amber-200'
+                : modelRecommendation.level === 'unavailable-in-opencode'
+                  ? 'bg-slate-400/15 px-1.5 py-0 text-[10px] text-slate-200'
+                  : 'bg-red-400/15 px-1.5 py-0 text-[10px] text-red-200'
           }
           title={modelRecommendation.reason}
         >
-          {modelRecommendation.level === 'recommended' ? (
-            <Star className="mr-1 size-3 fill-current" />
-          ) : (
+          {modelRecommendation.level === 'not-recommended' ||
+          modelRecommendation.level === 'unavailable-in-opencode' ? (
             <AlertTriangle className="mr-1 size-3" />
+          ) : (
+            <Star className="mr-1 size-3 fill-current" />
           )}
           {modelRecommendation.label}
         </Badge>
@@ -1036,6 +1202,7 @@ function ModelRow({
     if (event.key !== 'Enter' && event.key !== ' ') {
       return;
     }
+    event.stopPropagation();
     event.preventDefault();
     chooseModel();
   };
@@ -1047,7 +1214,10 @@ function ModelRow({
       aria-pressed={selected}
       data-testid={`runtime-provider-model-row-${model.modelId}`}
       className="cursor-pointer rounded-md border px-3 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/45"
-      onClick={chooseModel}
+      onClick={(event) => {
+        event.stopPropagation();
+        chooseModel();
+      }}
       onKeyDown={handleKeyDown}
       style={{
         borderColor: selected ? 'rgba(96, 165, 250, 0.45)' : 'var(--color-border-subtle)',
@@ -1146,13 +1316,19 @@ function ProviderModelList({
             value={state.modelQuery}
             disabled={disabled || state.modelsLoading}
             onChange={(event) => actions.setModelQuery(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
             placeholder="Search models"
             className="h-10 pl-10 pr-3 text-sm leading-5"
             style={{ paddingLeft: 42 }}
           />
         </div>
         {hasRecommendedModels ? (
-          <div className="flex h-10 items-center gap-2 rounded-md border border-white/10 px-3">
+          <div
+            className="flex h-10 items-center gap-2 rounded-md border border-white/10 px-3"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
             <Checkbox
               id={`runtime-provider-${provider.providerId}-recommended-only`}
               checked={recommendedOnly}
@@ -1341,7 +1517,6 @@ export function RuntimeProviderManagementPanelView({
                 state={state}
                 active={provider.providerId === state.selectedProviderId}
                 formOpen={state.activeFormProviderId === provider.providerId}
-                apiKeyValue={state.apiKeyValue}
                 busy={state.savingProviderId === provider.providerId}
                 disabled={disabled || state.directoryLoading}
                 actions={actions}
@@ -1376,7 +1551,6 @@ export function RuntimeProviderManagementPanelView({
                 state={state}
                 active={provider.providerId === state.selectedProviderId}
                 formOpen={state.activeFormProviderId === provider.providerId}
-                apiKeyValue={state.apiKeyValue}
                 busy={state.savingProviderId === provider.providerId}
                 disabled={disabled || state.loading}
                 actions={actions}

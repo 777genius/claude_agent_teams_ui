@@ -66,6 +66,11 @@ function createState(
     directorySelectedProviderId: null,
     directorySupported: true,
     activeFormProviderId: null,
+    setupForm: null,
+    setupFormLoading: false,
+    setupFormError: null,
+    setupSubmitError: null,
+    setupMetadata: {},
     apiKeyValue: '',
     modelPickerProviderId: null,
     modelPickerMode: null,
@@ -101,6 +106,7 @@ function createActions(): RuntimeProviderManagementActions {
     startConnect: vi.fn(),
     cancelConnect: vi.fn(),
     setApiKeyValue: vi.fn(),
+    setSetupMetadataValue: vi.fn(),
     submitConnect: vi.fn(() => Promise.resolve()),
     forgetProvider: vi.fn(() => Promise.resolve()),
     openModelPicker: vi.fn(),
@@ -188,7 +194,10 @@ describe('RuntimeProviderManagementPanelView', () => {
       await Promise.resolve();
     });
 
-    expect(actions.selectProvider).toHaveBeenCalledWith('openrouter');
+    expect(actions.startConnect).toHaveBeenCalledWith('openrouter');
+    expect(actions.selectProvider).not.toHaveBeenCalled();
+
+    vi.mocked(actions.startConnect).mockClear();
 
     await act(async () => {
       const connect = Array.from(host.querySelectorAll('button')).find((button) =>
@@ -208,6 +217,25 @@ describe('RuntimeProviderManagementPanelView', () => {
             providers: state.view?.providers ?? [],
             activeFormProviderId: 'openrouter',
             apiKeyValue: 'sk-secret-value',
+            setupForm: {
+              runtimeId: 'opencode',
+              providerId: 'openrouter',
+              displayName: 'OpenRouter',
+              method: 'api',
+              supported: true,
+              title: 'Connect OpenRouter',
+              description: null,
+              submitLabel: 'Connect',
+              disabledReason: null,
+              source: 'curated',
+              secret: {
+                key: 'key',
+                label: 'API key',
+                placeholder: 'Paste API key',
+                required: true,
+              },
+              prompts: [],
+            },
           },
           actions,
           disabled: false,
@@ -359,6 +387,36 @@ describe('RuntimeProviderManagementPanelView', () => {
                   supportedInlineAuth: false,
                 },
               },
+              {
+                providerId: 'cloudflare-workers-ai',
+                displayName: 'Cloudflare Workers AI',
+                state: 'not-connected',
+                setupKind: 'connect-api-key',
+                ownership: [],
+                recommended: false,
+                modelCount: 8,
+                defaultModelId: null,
+                authMethods: ['api'],
+                actions: [
+                  {
+                    id: 'connect',
+                    label: 'Connect',
+                    enabled: true,
+                    disabledReason: null,
+                    requiresSecret: true,
+                    ownershipScope: 'managed',
+                  },
+                ],
+                sources: ['opencode-provider'],
+                sourceLabel: 'OpenCode catalog',
+                providerSource: 'models.dev',
+                detail: 'App-managed API-key setup is available for this provider',
+                metadata: {
+                  hasKnownModels: true,
+                  requiresManualConfig: false,
+                  supportedInlineAuth: true,
+                },
+              },
             ],
           }),
           actions,
@@ -370,6 +428,7 @@ describe('RuntimeProviderManagementPanelView', () => {
 
     expect(host.textContent).toContain('115 OpenCode providers');
     expect(host.textContent).toContain('DeepSeek');
+    expect(host.textContent).toContain('Cloudflare Workers AI');
     expect(host.textContent).toContain('62 models');
     expect(host.textContent).toContain('OpenCode catalog');
     expect(host.querySelector('[data-testid="runtime-provider-search"]')).not.toBeNull();
@@ -381,7 +440,18 @@ describe('RuntimeProviderManagementPanelView', () => {
       await Promise.resolve();
     });
 
-    expect(actions.selectDirectoryProvider).toHaveBeenCalledWith('deepseek');
+    expect(actions.selectDirectoryProvider).not.toHaveBeenCalled();
+    expect(actions.startConnect).not.toHaveBeenCalled();
+
+    await act(async () => {
+      host
+        .querySelector('[data-testid="runtime-provider-directory-row-cloudflare-workers-ai"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(actions.startConnect).toHaveBeenCalledWith('cloudflare-workers-ai');
+    expect(actions.selectDirectoryProvider).not.toHaveBeenCalled();
   });
 
   it('uses the unified provider search when compact search has no matches', async () => {
@@ -498,6 +568,24 @@ describe('RuntimeProviderManagementPanelView', () => {
         },
         {
           providerId: 'openrouter',
+          modelId: 'openrouter/qwen/qwen3-coder-plus',
+          displayName: 'qwen/qwen3-coder-plus',
+          sourceLabel: 'OpenRouter',
+          free: false,
+          default: false,
+          availability: 'untested',
+        },
+        {
+          providerId: 'openrouter',
+          modelId: 'openrouter/openai/gpt-oss-120b:free',
+          displayName: 'openai/gpt-oss-120b:free',
+          sourceLabel: 'OpenRouter',
+          free: true,
+          default: false,
+          availability: 'untested',
+        },
+        {
+          providerId: 'openrouter',
           modelId: 'openrouter/qwen/qwen3-coder-flash',
           displayName: 'qwen/qwen3-coder-flash',
           sourceLabel: 'OpenRouter',
@@ -534,8 +622,10 @@ describe('RuntimeProviderManagementPanelView', () => {
     expect(host.textContent).toContain('Used for new teams');
     expect(host.textContent).toContain('Model probe passed');
     expect(host.textContent).toContain('Not recommended');
+    expect(host.textContent).toContain('Unavailable in OpenCode');
     expect(host.textContent).toContain('Recommended only');
     expect(host.textContent).toContain('Recommended');
+    expect(host.textContent).toContain('Recommended with limits');
     expect(host.textContent).not.toContain('Set OpenCode default');
     expect(
       Array.from(host.querySelectorAll('button')).some(
@@ -570,9 +660,15 @@ describe('RuntimeProviderManagementPanelView', () => {
     ) as HTMLElement | null;
     expect(modelResult?.style.color).toBe('#86efac');
     expect((host.textContent ?? '').indexOf('qwen/qwen3-coder-flash')).toBeLessThan(
+      (host.textContent ?? '').indexOf('openai/gpt-oss-120b:free')
+    );
+    expect((host.textContent ?? '').indexOf('openai/gpt-oss-120b:free')).toBeLessThan(
       (host.textContent ?? '').indexOf('opencode/big-pickle')
     );
     expect((host.textContent ?? '').indexOf('opencode/big-pickle')).toBeLessThan(
+      (host.textContent ?? '').indexOf('qwen/qwen3-coder-plus')
+    );
+    expect((host.textContent ?? '').indexOf('qwen/qwen3-coder-plus')).toBeLessThan(
       (host.textContent ?? '').indexOf('openrouter/openai/gpt-oss-20b:free')
     );
 
@@ -585,7 +681,9 @@ describe('RuntimeProviderManagementPanelView', () => {
     });
 
     expect(host.textContent).toContain('qwen/qwen3-coder-flash');
+    expect(host.textContent).toContain('openai/gpt-oss-120b:free');
     expect(host.textContent).not.toContain('opencode/big-pickle');
+    expect(host.textContent).not.toContain('qwen/qwen3-coder-plus');
     expect(host.textContent).not.toContain('openrouter/openai/gpt-oss-20b:free');
 
     await act(async () => {
@@ -606,6 +704,7 @@ describe('RuntimeProviderManagementPanelView', () => {
     });
 
     expect(actions.useModelForNewTeams).toHaveBeenCalledWith('openrouter/openai/gpt-oss-20b:free');
+    expect(actions.selectProvider).not.toHaveBeenCalled();
 
     vi.mocked(actions.useModelForNewTeams).mockClear();
     await act(async () => {
@@ -624,6 +723,81 @@ describe('RuntimeProviderManagementPanelView', () => {
       'openrouter/openai/gpt-oss-20b:free'
     );
     expect(actions.useModelForNewTeams).not.toHaveBeenCalled();
+  });
+
+  it('keeps directory provider models visible when a model row is selected', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const actions = createActions();
+    const provider = {
+      providerId: 'openrouter',
+      displayName: 'OpenRouter',
+      state: 'connected' as const,
+      ownership: ['managed'] as const,
+      recommended: true,
+      modelCount: 174,
+      defaultModelId: null,
+      authMethods: ['api'] as const,
+      actions: [],
+      sources: ['opencode-provider'] as const,
+      sourceLabel: 'OpenCode catalog',
+      providerSource: 'models.dev',
+      detail: 'Connected via app-managed OpenCode credential',
+      setupKind: 'connected' as const,
+      metadata: {
+        hasKnownModels: true,
+        requiresManualConfig: false,
+        supportedInlineAuth: true,
+      },
+    };
+    const state = createState({
+      providers: [],
+      directoryLoaded: true,
+      directoryEntries: [provider],
+      directoryTotalCount: 1,
+      selectedProviderId: 'openrouter',
+      modelPickerProviderId: 'openrouter',
+      modelPickerMode: 'use',
+      models: [
+        {
+          providerId: 'openrouter',
+          modelId: 'openrouter/google/gemini-3-flash-preview',
+          displayName: 'google/gemini-3-flash-preview',
+          sourceLabel: 'OpenRouter',
+          free: false,
+          default: false,
+          availability: 'untested',
+        },
+      ],
+    });
+
+    await act(async () => {
+      root.render(
+        React.createElement(RuntimeProviderManagementPanelView, {
+          state,
+          actions,
+          disabled: false,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      host
+        .querySelector(
+          '[data-testid="runtime-provider-model-row-openrouter/google/gemini-3-flash-preview"]'
+        )
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(actions.useModelForNewTeams).toHaveBeenCalledWith(
+      'openrouter/google/gemini-3-flash-preview'
+    );
+    expect(actions.selectDirectoryProvider).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('google/gemini-3-flash-preview');
+    expect(host.textContent).not.toContain('No models found.');
   });
 
   it('renders verified brand icons for common OpenCode providers', async () => {
@@ -676,29 +850,40 @@ describe('RuntimeProviderManagementPanelView', () => {
     for (const provider of providers) {
       const logo = host.querySelector(
         `[data-testid="runtime-provider-logo-${provider.providerId}"]`
-      );
+      ) as HTMLElement | null;
       expect(logo).not.toBeNull();
+      expect(logo?.className).toContain('runtime-provider-brand-icon');
       expect(logo?.querySelector('svg,img')).not.toBeNull();
+      expect(logo?.getAttribute('style')).toContain(
+        '--runtime-provider-brand-fallback-background'
+      );
+      expect(logo?.getAttribute('style')).toContain('--runtime-provider-brand-fallback-border');
+      if (logo?.querySelector('svg')) {
+        expect(logo.getAttribute('style')).toContain(
+          '--runtime-provider-brand-fallback-color'
+        );
+      }
     }
   });
 
-  it('uses branded initials for popular providers without verified compact logo assets', async () => {
+  it('uses Models.dev logos only for verified providers and initials for unknown providers', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const root = createRoot(host);
     const actions = createActions();
     const baseProvider = createState().view!.providers[0];
     const providers = [
-      { providerId: 'xai', displayName: 'xAI', label: 'xAI' },
-      { providerId: 'groq', displayName: 'Groq', label: 'G' },
-      { providerId: 'deepseek', displayName: 'DeepSeek', label: 'DS' },
-      { providerId: 'deepinfra', displayName: 'Deep Infra', label: 'DI' },
-      { providerId: 'fireworks-ai', displayName: 'Fireworks AI', label: 'FW' },
-      { providerId: 'togetherai', displayName: 'Together AI', label: 'TA' },
-      { providerId: 'amazon-bedrock', displayName: 'Amazon Bedrock', label: 'AWS' },
-      { providerId: 'azure', displayName: 'Azure', label: 'AZ' },
-      { providerId: 'cohere', displayName: 'Cohere', label: 'CO' },
-      { providerId: 'ollama-cloud', displayName: 'Ollama Cloud', label: 'OL' },
+      { providerId: 'xai', displayName: 'xAI', logo: 'xai' },
+      { providerId: 'groq', displayName: 'Groq', logo: 'groq' },
+      { providerId: 'deepseek', displayName: 'DeepSeek', logo: 'deepseek' },
+      { providerId: 'cohere', displayName: 'Cohere', logo: 'cohere' },
+      {
+        providerId: 'cloudferro-sherlock',
+        displayName: 'CloudFerro Sherlock',
+        logo: 'cloudferro-sherlock',
+      },
+      { providerId: 'clarifai', displayName: 'Clarifai', label: 'CL' },
+      { providerId: 'unknown-provider', displayName: 'Unknown Provider', label: 'UN' },
     ].map((provider) => ({
       ...baseProvider,
       ...provider,
@@ -727,7 +912,13 @@ describe('RuntimeProviderManagementPanelView', () => {
       const logo = host.querySelector(
         `[data-testid="runtime-provider-logo-${provider.providerId}"]`
       );
-      expect(logo?.textContent).toBe(provider.label);
+      if ('logo' in provider) {
+        const image = logo?.querySelector('img') as HTMLImageElement | null;
+        expect(image?.src).toContain(`https://models.dev/logos/${provider.logo}.svg`);
+        expect(logo?.className).toContain('runtime-provider-brand-icon');
+      } else {
+        expect(logo?.textContent).toBe(provider.label);
+      }
     }
   });
 });

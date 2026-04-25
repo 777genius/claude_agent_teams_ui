@@ -5081,10 +5081,7 @@ export class TeamProvisioningService {
       });
       const records = await ledger.list().catch(() => []);
       for (const record of records) {
-        if (
-          record.status === 'failed_terminal' ||
-          (record.status === 'responded' && record.inboxReadCommittedAt)
-        ) {
+        if (record.status === 'failed_terminal' || record.status === 'responded') {
           continue;
         }
         const nextAttemptMs = record.nextAttemptAt ? Date.parse(record.nextAttemptAt) : NaN;
@@ -5340,13 +5337,37 @@ export class TeamProvisioningService {
         ? this.createOpenCodePromptDeliveryLedger(teamName, laneIdentity.laneId)
         : null;
     const now = nowIso();
-    const active = ledger
+    let active = ledger
       ? await ledger.getActiveForMember({
           teamName,
           memberName: canonicalMemberName,
           laneId: laneIdentity.laneId,
         })
       : null;
+    if (active && active.inboxMessageId !== messageId && ledger) {
+      const proof = await this.applyOpenCodeVisibleDestinationProof({
+        ledger,
+        ledgerRecord: active,
+        teamName,
+        replyRecipient: active.replyRecipient,
+        memberName: canonicalMemberName,
+      });
+      active = proof.ledgerRecord;
+      const activeReadAllowed = this.isOpenCodeDeliveryResponseReadCommitAllowed({
+        responseState: active.responseState,
+        actionMode: active.actionMode ?? undefined,
+        taskRefs: active.taskRefs,
+        visibleReply: proof.visibleReply,
+        ledgerRecord: active,
+      });
+      if (activeReadAllowed) {
+        this.logOpenCodePromptDeliveryEvent('opencode_prompt_delivery_response_observed', active, {
+          visibleReplySemanticallySufficient: true,
+          unblockedNextDelivery: true,
+        });
+        active = null;
+      }
+    }
     if (active && active.inboxMessageId !== messageId) {
       const activeDueMs = active.nextAttemptAt ? Date.parse(active.nextAttemptAt) : NaN;
       this.scheduleOpenCodePromptDeliveryWatchdog({

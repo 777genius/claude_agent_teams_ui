@@ -251,7 +251,9 @@ describe('TeamModelSelector disabled Codex models', () => {
           },
           models: [
             'openrouter/openai/gpt-oss-20b:free',
+            'openrouter/qwen/qwen3-coder-plus',
             'opencode/big-pickle',
+            'openrouter/openai/gpt-oss-120b:free',
             'openrouter/qwen/qwen3-coder-flash',
           ],
           modelVerificationState: 'idle',
@@ -279,7 +281,11 @@ describe('TeamModelSelector disabled Codex models', () => {
     expect(host.textContent).toContain('Recommended only');
     expect(host.textContent).toContain('qwen/qwen3-coder-flash');
     expect(host.textContent).toContain('Recommended');
+    expect(host.textContent).toContain('openai/gpt-oss-120b:free');
+    expect(host.textContent).toContain('Recommended with limits');
     expect(host.textContent).toContain('big-pickle');
+    expect(host.textContent).toContain('qwen/qwen3-coder-plus');
+    expect(host.textContent).toContain('Unavailable in OpenCode');
     expect(host.textContent).toContain('openai/gpt-oss-20b:free');
     expect(host.textContent).toContain('Not recommended');
 
@@ -290,12 +296,20 @@ describe('TeamModelSelector disabled Codex models', () => {
       text.includes('qwen/qwen3-coder-flash')
     );
     const neutralIndex = buttonTexts.findIndex((text) => text.includes('big-pickle'));
+    const limitedIndex = buttonTexts.findIndex((text) =>
+      text.includes('openai/gpt-oss-120b:free')
+    );
     const notRecommendedIndex = buttonTexts.findIndex((text) =>
       text.includes('openai/gpt-oss-20b:free')
     );
+    const unavailableIndex = buttonTexts.findIndex((text) =>
+      text.includes('qwen/qwen3-coder-plus')
+    );
     expect(recommendedIndex).toBeGreaterThanOrEqual(0);
-    expect(neutralIndex).toBeGreaterThan(recommendedIndex);
-    expect(notRecommendedIndex).toBeGreaterThan(neutralIndex);
+    expect(limitedIndex).toBeGreaterThan(recommendedIndex);
+    expect(neutralIndex).toBeGreaterThan(limitedIndex);
+    expect(unavailableIndex).toBeGreaterThan(neutralIndex);
+    expect(notRecommendedIndex).toBeGreaterThan(unavailableIndex);
 
     await act(async () => {
       const checkbox = Array.from(host.querySelectorAll('button')).find(
@@ -306,7 +320,9 @@ describe('TeamModelSelector disabled Codex models', () => {
     });
 
     expect(host.textContent).toContain('qwen/qwen3-coder-flash');
+    expect(host.textContent).toContain('openai/gpt-oss-120b:free');
     expect(host.textContent).not.toContain('big-pickle');
+    expect(host.textContent).not.toContain('qwen/qwen3-coder-plus');
     expect(host.textContent).not.toContain('openai/gpt-oss-20b:free');
 
     await act(async () => {

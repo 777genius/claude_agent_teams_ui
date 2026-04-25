@@ -292,7 +292,32 @@ describe('useRuntimeProviderManagement', () => {
   });
 
   it('keeps the API key draft when provider connect fails', async () => {
-    const connectWithApiKey = vi.fn(() =>
+    const loadSetupForm = vi.fn(() =>
+      Promise.resolve({
+        schemaVersion: 1,
+        runtimeId: 'opencode',
+        setupForm: {
+          runtimeId: 'opencode',
+          providerId: 'openrouter',
+          displayName: 'OpenRouter',
+          method: 'api',
+          supported: true,
+          title: 'Connect OpenRouter',
+          description: null,
+          submitLabel: 'Connect',
+          disabledReason: null,
+          source: 'curated',
+          secret: {
+            key: 'key',
+            label: 'API key',
+            placeholder: 'Paste API key',
+            required: true,
+          },
+          prompts: [],
+        },
+      })
+    );
+    const connectProvider = vi.fn(() =>
       Promise.resolve({
         schemaVersion: 1,
         runtimeId: 'opencode',
@@ -306,7 +331,8 @@ describe('useRuntimeProviderManagement', () => {
       configurable: true,
       value: {
         runtimeProviderManagement: {
-          connectWithApiKey,
+          loadSetupForm,
+          connectProvider,
         },
       } as unknown as ElectronAPI,
     });
@@ -322,20 +348,25 @@ describe('useRuntimeProviderManagement', () => {
       actions?.setApiKeyValue('sk-bad-value');
     });
     await act(async () => {
-      await Promise.resolve();
+      await vi.waitFor(() => {
+        expect(loadSetupForm).toHaveBeenCalled();
+      });
     });
 
     await act(async () => {
       await actions?.submitConnect('openrouter');
     });
 
-    expect(connectWithApiKey).toHaveBeenCalledWith({
+    expect(connectProvider).toHaveBeenCalledWith({
       runtimeId: 'opencode',
       providerId: 'openrouter',
+      method: 'api',
       apiKey: 'sk-bad-value',
+      metadata: {},
       projectPath: null,
     });
-    expect(state?.error).toBe('Invalid API key');
+    expect(state?.error).toBeNull();
+    expect(state?.setupSubmitError).toBe('Invalid API key');
     expect(state?.apiKeyValue).toBe('sk-bad-value');
   });
 

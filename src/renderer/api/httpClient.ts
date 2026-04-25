@@ -1207,6 +1207,24 @@ export class HttpAPIClient implements ElectronAPI {
         recoverable: true,
       },
     }),
+    loadSetupForm: async (input) => ({
+      schemaVersion: 1,
+      runtimeId: input.runtimeId,
+      error: {
+        code: 'runtime-unhealthy',
+        message: 'Runtime provider management is not available in browser mode.',
+        recoverable: true,
+      },
+    }),
+    connectProvider: async (input) => ({
+      schemaVersion: 1,
+      runtimeId: input.runtimeId,
+      error: {
+        code: 'unsupported-action',
+        message: 'Runtime provider management is not available in browser mode.',
+        recoverable: true,
+      },
+    }),
     connectWithApiKey: async (input) => ({
       schemaVersion: 1,
       runtimeId: input.runtimeId,

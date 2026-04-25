@@ -4068,6 +4068,153 @@ describe('TeamProvisioningService', () => {
       expect(sendMessageToMember).toHaveBeenCalledTimes(1);
     });
 
+    it('unblocks newer OpenCode deliveries when the previous pending delivery now has visible proof', async () => {
+      const svc = new TeamProvisioningService();
+      const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
+        ok: true,
+        providerId: 'opencode',
+        memberName: String(input.memberName),
+        sessionId: 'oc-session-bob',
+        prePromptCursor: 'cursor-before',
+        responseObservation: {
+          state: 'empty_assistant_turn' as const,
+          deliveredUserMessageId: 'oc-user-empty',
+          assistantMessageId: 'oc-assistant-empty',
+          toolCallNames: [],
+          visibleMessageToolCallId: null,
+          visibleReplyMessageId: null,
+          visibleReplyCorrelation: null,
+          latestAssistantPreview: null,
+          reason: 'empty_assistant_turn',
+        },
+        diagnostics: [],
+      }));
+      const observeMessageDelivery = vi.fn(async () => ({
+        ok: true,
+        providerId: 'opencode',
+        memberName: 'bob',
+        responseObservation: {
+          state: 'empty_assistant_turn' as const,
+          deliveredUserMessageId: 'oc-user-empty',
+          assistantMessageId: 'oc-assistant-empty',
+          toolCallNames: [],
+          visibleMessageToolCallId: null,
+          visibleReplyMessageId: null,
+          visibleReplyCorrelation: null,
+          latestAssistantPreview: null,
+          reason: 'empty_assistant_turn',
+        },
+        diagnostics: [],
+      }));
+      svc.setRuntimeAdapterRegistry(
+        new TeamRuntimeAdapterRegistry([
+          {
+            providerId: 'opencode',
+            prepare: vi.fn(),
+            launch: vi.fn(),
+            reconcile: vi.fn(),
+            stop: vi.fn(),
+            sendMessageToMember,
+            observeMessageDelivery,
+          } as any,
+        ])
+      );
+
+      (svc as any).getTrackedRunId = vi.fn(() => 'run-1');
+      (svc as any).provisioningRunByTeam.set('team-a', 'run-1');
+      (svc as any).setSecondaryRuntimeRun({
+        teamName: 'team-a',
+        runId: 'opencode-run-bob',
+        providerId: 'opencode',
+        laneId: 'secondary:opencode:bob',
+        memberName: 'bob',
+        cwd: '/repo',
+      });
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          projectPath: '/repo',
+          members: [
+            { name: 'team-lead', providerId: 'codex', model: 'gpt-5.4' },
+            { name: 'bob', providerId: 'opencode', model: 'minimax-m2.5-free' },
+          ],
+        })),
+      };
+      (svc as any).teamMetaStore = {
+        getMeta: vi.fn(async () => ({
+          launchIdentity: { providerId: 'codex' },
+          providerId: 'codex',
+        })),
+      };
+      (svc as any).membersMetaStore = {
+        getMembers: vi.fn(async () => [
+          {
+            name: 'bob',
+            providerId: 'opencode',
+            model: 'opencode/minimax-m2.5-free',
+          },
+        ]),
+      };
+
+      await expect(
+        svc.deliverOpenCodeMemberMessage('team-a', {
+          memberName: 'bob',
+          text: 'First prompt.',
+          messageId: 'msg-active-old',
+          replyRecipient: 'user',
+          actionMode: 'ask',
+          source: 'watcher',
+          inboxTimestamp: '2026-04-25T10:00:00.000Z',
+        })
+      ).resolves.toMatchObject({
+        delivered: true,
+        accepted: true,
+        responsePending: true,
+        responseState: 'empty_assistant_turn',
+      });
+
+      const inboxDir = path.join(tempTeamsBase, 'team-a', 'inboxes');
+      await fsPromises.mkdir(inboxDir, { recursive: true });
+      await fsPromises.writeFile(
+        path.join(inboxDir, 'user.json'),
+        `${JSON.stringify(
+          [
+            {
+              from: 'bob',
+              to: 'user',
+              text: 'Delayed but sufficient answer.',
+              timestamp: '2026-04-25T10:00:03.000Z',
+              read: false,
+              messageId: 'reply-old-1',
+              relayOfMessageId: 'msg-active-old',
+              source: 'runtime_delivery',
+            },
+          ],
+          null,
+          2
+        )}\n`,
+        'utf8'
+      );
+
+      await expect(
+        svc.deliverOpenCodeMemberMessage('team-a', {
+          memberName: 'bob',
+          text: 'Second prompt.',
+          messageId: 'msg-active-new',
+          replyRecipient: 'user',
+          actionMode: 'ask',
+          source: 'watcher',
+          inboxTimestamp: '2026-04-25T10:00:05.000Z',
+        })
+      ).resolves.toMatchObject({
+        delivered: true,
+        accepted: true,
+        responsePending: true,
+        responseState: 'empty_assistant_turn',
+      });
+      expect(sendMessageToMember).toHaveBeenCalledTimes(2);
+      expect(observeMessageDelivery).not.toHaveBeenCalled();
+    });
+
     it('uses lane-scoped manifest activeRunId for OpenCode member delivery after restart', async () => {
       const svc = new TeamProvisioningService();
       const teamName = 'team-a';

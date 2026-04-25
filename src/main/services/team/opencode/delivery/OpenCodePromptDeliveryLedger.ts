@@ -786,10 +786,7 @@ function isTaskRefArray(value: unknown): value is TaskRef[] {
 }
 
 function isTerminalForAutomaticSelection(record: OpenCodePromptDeliveryLedgerRecord): boolean {
-  return (
-    record.status === 'failed_terminal' ||
-    (record.status === 'responded' && record.inboxReadCommittedAt != null)
-  );
+  return record.status === 'failed_terminal' || record.status === 'responded';
 }
 
 function compareOpenCodePromptDeliveryDueOrder(

@@ -275,6 +275,44 @@ export async function getRuntimeTranscript(input: {
     }));
 }
 
+export async function waitForOpenCodeMemberIdle(input: {
+  bridgeClient: OpenCodeBridgeCommandClient;
+  teamName: string;
+  memberName: string;
+  projectPath: string;
+  timeoutMs: number;
+}): Promise<void> {
+  const deadline = Date.now() + input.timeoutMs;
+  let lastState: string | null = null;
+
+  while (Date.now() < deadline) {
+    const transcript = await getRuntimeTranscript(input);
+    lastState = getTranscriptDurableState(transcript);
+    if (lastState === 'idle') {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+
+  throw new Error(
+    `Timed out waiting for OpenCode member ${input.memberName} to become idle. Last durableState: ${
+      lastState ?? 'unknown'
+    }`
+  );
+}
+
+function getTranscriptDurableState(transcript: unknown): string | null {
+  if (!transcript || typeof transcript !== 'object') {
+    return null;
+  }
+  const data = (transcript as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  const durableState = (data as { durableState?: unknown }).durableState;
+  return typeof durableState === 'string' ? durableState : null;
+}
+
 async function startLiveTeamControlApi(svc: TeamProvisioningService): Promise<{
   baseUrl: string;
   close: () => Promise<void>;

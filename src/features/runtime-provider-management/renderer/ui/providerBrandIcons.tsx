@@ -1,4 +1,4 @@
-import opencodeIconUrl from '../assets/provider-icons/opencode-favicon.png';
+import { useEffect, useState } from 'react';
 
 import type { CSSProperties, JSX } from 'react';
 
@@ -49,6 +49,8 @@ const MINIMAX_PATH =
   'M11.43 3.92a.86.86 0 1 0-1.718 0v14.236a1.999 1.999 0 0 1-3.997 0V9.022a.86.86 0 1 0-1.718 0v3.87a1.999 1.999 0 0 1-3.997 0V11.49a.57.57 0 0 1 1.139 0v1.404a.86.86 0 0 0 1.719 0V9.022a1.999 1.999 0 0 1 3.997 0v9.134a.86.86 0 0 0 1.719 0V3.92a1.998 1.998 0 1 1 3.996 0v11.788a.57.57 0 1 1-1.139 0zm10.572 3.105a2 2 0 0 0-1.999 1.997v7.63a.86.86 0 0 1-1.718 0V3.923a1.999 1.999 0 0 0-3.997 0v16.16a.86.86 0 0 1-1.719 0V18.08a.57.57 0 1 0-1.138 0v2a1.998 1.998 0 0 0 3.996 0V3.92a.86.86 0 0 1 1.719 0v12.73a1.999 1.999 0 0 0 3.996 0V9.023a.86.86 0 1 1 1.72 0v6.686a.57.57 0 0 0 1.138 0V9.022a2 2 0 0 0-1.998-1.997';
 const NVIDIA_PATH =
   'M8.948 8.798v-1.43a6.7 6.7 0 0 1 .424-.018c3.922-.124 6.493 3.374 6.493 3.374s-2.774 3.851-5.75 3.851c-.398 0-.787-.062-1.158-.185v-4.346c1.528.185 1.837.857 2.747 2.385l2.04-1.714s-1.492-1.952-4-1.952a6.016 6.016 0 0 0-.796.035m0-4.735v2.138l.424-.027c5.45-.185 9.01 4.47 9.01 4.47s-4.08 4.964-8.33 4.964c-.37 0-.733-.035-1.095-.097v1.325c.3.035.61.062.91.062 3.957 0 6.82-2.023 9.593-4.408.459.371 2.34 1.263 2.73 1.652-2.633 2.208-8.772 3.984-12.253 3.984-.335 0-.653-.018-.971-.053v1.864H24V4.063zm0 10.326v1.131c-3.657-.654-4.673-4.46-4.673-4.46s1.758-1.944 4.673-2.262v1.237H8.94c-1.528-.186-2.73 1.245-2.73 1.245s.68 2.412 2.739 3.11M2.456 10.9s2.164-3.197 6.5-3.533V6.201C4.153 6.59 0 10.653 0 10.653s2.35 6.802 8.948 7.42v-1.237c-4.84-.6-6.492-5.936-6.492-5.936z';
+const OPENCODE_PATH =
+  'M8.40005 17.4H19.2001V21H4.80005V13.8H8.40005V17.4ZM15.6001 10.2V13.8H8.40005V10.2H15.6001ZM19.2001 10.2H15.6001V6.6H4.80005V3H19.2001V10.2Z';
 const PERPLEXITY_PATH =
   'M22.3977 7.0896h-2.3106V.0676l-7.5094 6.3542V.1577h-1.1554v6.1966L4.4904 0v7.0896H1.6023v10.3976h2.8882V24l6.932-6.3591v6.2005h1.1554v-6.0469l6.9318 6.1807v-6.4879h2.8882V7.0896zm-3.4657-4.531v4.531h-5.355l5.355-4.531zm-13.2862.0676 4.8691 4.4634H5.6458V2.6262zM2.7576 16.332V8.245h7.8476l-6.1149 6.1147v1.9723H2.7576zm2.8882 5.0404v-3.8852h.0001v-2.6488l5.7763-5.7764v7.0111l-5.7764 5.2993zm12.7086.0248-5.7766-5.1509V9.0618l5.7766 5.7766v6.5588zm2.8882-5.0652h-1.733v-1.9723L13.3948 8.245h7.8478v8.087z';
 const VERCEL_PATH = 'm12 1.608 12 20.784H0Z';
@@ -224,10 +226,12 @@ const BRAND_ICONS: Record<string, BrandIconDescriptor> = {
     paths: [{ d: NVIDIA_PATH }],
   },
   opencode: {
-    kind: 'image',
-    src: opencodeIconUrl,
+    kind: 'svg',
+    viewBox: '0 0 24 24',
     background: 'rgba(148, 163, 184, 0.12)',
     border: 'rgba(148, 163, 184, 0.32)',
+    color: '#94A3B8',
+    paths: [{ d: OPENCODE_PATH }],
   },
   openai: {
     kind: 'svg',
@@ -389,6 +393,111 @@ const BRAND_ALIASES: Record<string, string> = {
   vertex: 'google-vertex',
 };
 
+// Verified against https://models.dev/logos/{provider}.svg by comparing each
+// current provider logo to the Models.dev default fallback SVG.
+const MODELS_DEV_LOGO_PROVIDER_IDS = new Set([
+  '302ai',
+  'abacus',
+  'aihubmix',
+  'alibaba',
+  'alibaba-cn',
+  'alibaba-coding-plan',
+  'alibaba-coding-plan-cn',
+  'amazon-bedrock',
+  'anthropic',
+  'azure',
+  'bailing',
+  'baseten',
+  'berget',
+  'cerebras',
+  'cloudferro-sherlock',
+  'cloudflare-ai-gateway',
+  'cloudflare-workers-ai',
+  'cohere',
+  'deepinfra',
+  'deepseek',
+  'digitalocean',
+  'dinference',
+  'drun',
+  'evroc',
+  'fastrouter',
+  'fireworks-ai',
+  'firmware',
+  'friendli',
+  'github-copilot',
+  'github-models',
+  'gitlab',
+  'google',
+  'google-vertex',
+  'groq',
+  'helicone',
+  'hpc-ai',
+  'huggingface',
+  'iflowcn',
+  'inception',
+  'inference',
+  'io-net',
+  'jiekou',
+  'kilo',
+  'kimi-for-coding',
+  'kuae-cloud-coding-plan',
+  'llama',
+  'llmgateway',
+  'lucidquery',
+  'meganova',
+  'minimax',
+  'minimax-cn',
+  'mistral',
+  'mixlayer',
+  'moark',
+  'modelscope',
+  'moonshotai',
+  'moonshotai-cn',
+  'nano-gpt',
+  'nebius',
+  'nova',
+  'novita-ai',
+  'nvidia',
+  'ollama-cloud',
+  'openai',
+  'opencode',
+  'opencode-go',
+  'openrouter',
+  'ovhcloud',
+  'perplexity',
+  'perplexity-agent',
+  'poe',
+  'privatemode-ai',
+  'qihang-ai',
+  'qiniu-ai',
+  'regolo-ai',
+  'scaleway',
+  'siliconflow',
+  'siliconflow-cn',
+  'stackit',
+  'submodel',
+  'tencent-coding-plan',
+  'tencent-tokenhub',
+  'the-grid-ai',
+  'togetherai',
+  'v0',
+  'venice',
+  'vercel',
+  'vivgrid',
+  'vultr',
+  'wafer.ai',
+  'xai',
+  'xiaomi',
+  'xiaomi-token-plan-ams',
+  'xiaomi-token-plan-cn',
+  'xiaomi-token-plan-sgp',
+  'zai',
+  'zai-coding-plan',
+  'zenmux',
+  'zhipuai',
+  'zhipuai-coding-plan',
+]);
+
 function normalizeProviderKey(value: string): string {
   return value
     .trim()
@@ -397,26 +506,80 @@ function normalizeProviderKey(value: string): string {
     .replace(/(?:^-)|(?:-$)/g, '');
 }
 
-function getBrandIconKey(provider: ProviderBrand): string | null {
+function normalizeModelsDevProviderId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/(?:^-)|(?:-$)/g, '');
+}
+
+function hasLocalGraphicIcon(key: string): boolean {
+  const descriptor = BRAND_ICONS[key];
+  return Boolean(descriptor && descriptor.kind !== 'letters');
+}
+
+function hasLetterIcon(key: string): boolean {
+  return Boolean(BRAND_ICONS[key]?.kind === 'letters' || LETTER_BRANDS[key]);
+}
+
+function getLocalBrandIconKey(provider: ProviderBrand): string | null {
   const providerId = normalizeProviderKey(provider.providerId);
   const displayName = normalizeProviderKey(provider.displayName);
   const aliasedProviderId = BRAND_ALIASES[providerId] ?? providerId;
   const aliasedDisplayName = BRAND_ALIASES[displayName] ?? displayName;
-  const direct = BRAND_ICONS[aliasedProviderId]
+  const direct = hasLocalGraphicIcon(aliasedProviderId)
     ? aliasedProviderId
-    : LETTER_BRANDS[aliasedProviderId]
-      ? aliasedProviderId
-      : BRAND_ICONS[aliasedDisplayName]
-        ? aliasedDisplayName
-        : LETTER_BRANDS[aliasedDisplayName]
-          ? aliasedDisplayName
-          : null;
+    : hasLocalGraphicIcon(aliasedDisplayName)
+      ? aliasedDisplayName
+      : null;
   if (direct) {
     return direct;
   }
 
   for (const [needle, iconKey] of Object.entries(BRAND_ALIASES)) {
-    if (displayName.includes(needle) || providerId.includes(needle)) {
+    if (
+      (displayName.includes(needle) || providerId.includes(needle)) &&
+      hasLocalGraphicIcon(iconKey)
+    ) {
+      return iconKey;
+    }
+  }
+
+  return null;
+}
+
+function getModelsDevLogoKey(provider: ProviderBrand): string | null {
+  const providerId = normalizeProviderKey(provider.providerId);
+  const displayName = normalizeProviderKey(provider.displayName);
+  const candidates = [
+    normalizeModelsDevProviderId(provider.providerId),
+    BRAND_ALIASES[providerId],
+    providerId,
+    normalizeModelsDevProviderId(provider.displayName),
+    BRAND_ALIASES[displayName],
+    displayName,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  return candidates.find((candidate) => MODELS_DEV_LOGO_PROVIDER_IDS.has(candidate)) ?? null;
+}
+
+function getLetterBrandIconKey(provider: ProviderBrand): string | null {
+  const providerId = normalizeProviderKey(provider.providerId);
+  const displayName = normalizeProviderKey(provider.displayName);
+  const aliasedProviderId = BRAND_ALIASES[providerId] ?? providerId;
+  const aliasedDisplayName = BRAND_ALIASES[displayName] ?? displayName;
+  const direct = hasLetterIcon(aliasedProviderId)
+    ? aliasedProviderId
+    : hasLetterIcon(aliasedDisplayName)
+      ? aliasedDisplayName
+      : null;
+  if (direct) {
+    return direct;
+  }
+
+  for (const [needle, iconKey] of Object.entries(BRAND_ALIASES)) {
+    if ((displayName.includes(needle) || providerId.includes(needle)) && hasLetterIcon(iconKey)) {
       return iconKey;
     }
   }
@@ -436,42 +599,78 @@ function fallbackDescriptor(provider: ProviderBrand): BrandIconDescriptor {
 }
 
 function descriptorFor(provider: ProviderBrand): BrandIconDescriptor {
-  const key = getBrandIconKey(provider);
-  return key
-    ? (BRAND_ICONS[key] ?? LETTER_BRANDS[key] ?? fallbackDescriptor(provider))
-    : fallbackDescriptor(provider);
+  const localKey = getLocalBrandIconKey(provider);
+  if (localKey) {
+    return BRAND_ICONS[localKey] ?? fallbackDescriptor(provider);
+  }
+
+  const modelsDevKey = getModelsDevLogoKey(provider);
+  if (modelsDevKey) {
+    return {
+      kind: 'image',
+      src: `https://models.dev/logos/${encodeURIComponent(modelsDevKey)}.svg`,
+      background: 'rgba(148, 163, 184, 0.12)',
+      border: 'rgba(148, 163, 184, 0.28)',
+    };
+  }
+
+  const letterKey = getLetterBrandIconKey(provider);
+  if (letterKey) {
+    return LETTER_BRANDS[letterKey] ?? fallbackDescriptor(provider);
+  }
+
+  return fallbackDescriptor(provider);
 }
 
 function shellStyle(descriptor: BrandIconDescriptor): CSSProperties {
-  return {
-    backgroundColor: descriptor.background,
-    borderColor: descriptor.border,
-    color: descriptor.kind === 'image' ? undefined : descriptor.color,
-  };
+  const style: CSSProperties & Record<string, string | undefined> = {};
+
+  style['--runtime-provider-brand-fallback-background'] = descriptor.background;
+  style['--runtime-provider-brand-fallback-border'] = descriptor.border;
+  if (descriptor.kind !== 'image') {
+    style['--runtime-provider-brand-fallback-color'] = descriptor.color;
+  }
+
+  return style;
 }
 
 export function ProviderBrandIcon({ provider }: { readonly provider: ProviderBrand }): JSX.Element {
   const descriptor = descriptorFor(provider);
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageSrc = descriptor.kind === 'image' ? descriptor.src : null;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageSrc]);
+
+  const renderedDescriptor =
+    descriptor.kind === 'image' && imageFailed ? fallbackDescriptor(provider) : descriptor;
 
   return (
     <span
       data-testid={`runtime-provider-logo-${provider.providerId}`}
       aria-hidden="true"
-      className="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md border"
-      style={shellStyle(descriptor)}
+      className="runtime-provider-brand-icon inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md border"
+      style={shellStyle(renderedDescriptor)}
     >
-      {descriptor.kind === 'image' ? (
-        <img src={descriptor.src} alt="" className="size-5 object-contain" draggable={false} />
+      {renderedDescriptor.kind === 'image' ? (
+        <img
+          src={renderedDescriptor.src}
+          alt=""
+          className="size-5 object-contain"
+          draggable={false}
+          onError={() => setImageFailed(true)}
+        />
       ) : null}
-      {descriptor.kind === 'svg' ? (
-        <svg viewBox={descriptor.viewBox} className="h-[18px] w-[18px]" focusable="false">
-          {descriptor.paths.map((path) => (
+      {renderedDescriptor.kind === 'svg' ? (
+        <svg viewBox={renderedDescriptor.viewBox} className="h-[18px] w-[18px]" focusable="false">
+          {renderedDescriptor.paths.map((path) => (
             <path key={path.d} d={path.d} fill={path.fill ?? 'currentColor'} />
           ))}
         </svg>
       ) : null}
-      {descriptor.kind === 'letters' ? (
-        <span className="text-[10px] font-semibold leading-none">{descriptor.label}</span>
+      {renderedDescriptor.kind === 'letters' ? (
+        <span className="text-[10px] font-semibold leading-none">{renderedDescriptor.label}</span>
       ) : null}
     </span>
   );

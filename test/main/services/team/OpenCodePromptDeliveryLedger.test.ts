@@ -286,6 +286,72 @@ describe('OpenCodePromptDeliveryLedger', () => {
     expect(observed.observedAssistantPreview).toBe('Понял');
   });
 
+  it('does not keep responded live deliveries active when no inbox commit is needed', async () => {
+    const store = createStore();
+    const direct = await store.ensurePending({
+      teamName: 'team-a',
+      memberName: 'bob',
+      laneId: 'secondary:opencode:bob',
+      inboxMessageId: 'direct-ui-send',
+      inboxTimestamp: '2026-04-25T09:59:00.000Z',
+      source: 'ui-send',
+      replyRecipient: 'user',
+      actionMode: 'ask',
+      taskRefs: [],
+      payloadHash: 'sha256:direct',
+      now: '2026-04-25T10:00:00.000Z',
+    });
+
+    const responded = await store.applyDeliveryResult({
+      id: direct.id,
+      accepted: true,
+      attempted: true,
+      responseObservation: {
+        state: 'responded_visible_message',
+        deliveredUserMessageId: 'oc-user-direct',
+        assistantMessageId: 'oc-assistant-direct',
+        toolCallNames: ['agent-teams_message_send'],
+        visibleMessageToolCallId: 'tool-call-direct',
+        visibleReplyMessageId: 'reply-direct',
+        visibleReplyCorrelation: 'direct_child_message_send',
+        latestAssistantPreview: 'I will send the requested update.',
+        reason: null,
+      },
+      now: '2026-04-25T10:00:05.000Z',
+    });
+    expect(responded.status).toBe('responded');
+    expect(responded.inboxReadCommittedAt).toBeNull();
+
+    await expect(store.getActiveForMember({
+      teamName: 'team-a',
+      memberName: 'bob',
+      laneId: 'secondary:opencode:bob',
+    })).resolves.toBeNull();
+
+    const peer = await store.ensurePending({
+      teamName: 'team-a',
+      memberName: 'bob',
+      laneId: 'secondary:opencode:bob',
+      inboxMessageId: 'peer-relay',
+      inboxTimestamp: '2026-04-25T10:01:00.000Z',
+      source: 'manual',
+      replyRecipient: 'jack',
+      actionMode: 'delegate',
+      taskRefs: [],
+      payloadHash: 'sha256:peer',
+      now: '2026-04-25T10:01:00.000Z',
+    });
+
+    await expect(store.getActiveForMember({
+      teamName: 'team-a',
+      memberName: 'bob',
+      laneId: 'secondary:opencode:bob',
+    })).resolves.toMatchObject({
+      id: peer.id,
+      inboxMessageId: 'peer-relay',
+    });
+  });
+
   it('lists due nonterminal records in deterministic due order', async () => {
     const store = createStore();
     const first = await store.ensurePending({

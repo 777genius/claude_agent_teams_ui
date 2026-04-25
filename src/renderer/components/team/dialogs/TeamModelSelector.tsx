@@ -537,15 +537,20 @@ export const TeamModelSelector: React.FC<TeamModelSelectorProps> = ({
                               className={cn(
                                 'inline-flex items-center justify-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
                                 modelRecommendation.level === 'recommended'
-                                  ? 'bg-amber-300/12 border-amber-300/35 text-amber-200'
-                                  : 'border-red-300/35 bg-red-400/10 text-red-200'
+                                  ? 'bg-emerald-300/12 border-emerald-300/35 text-emerald-200'
+                                  : modelRecommendation.level === 'recommended-with-limits'
+                                    ? 'bg-amber-300/12 border-amber-300/35 text-amber-200'
+                                    : modelRecommendation.level === 'unavailable-in-opencode'
+                                      ? 'border-slate-300/30 bg-slate-400/10 text-slate-200'
+                                      : 'border-red-300/35 bg-red-400/10 text-red-200'
                               )}
                               title={modelRecommendation.reason}
                             >
-                              {modelRecommendation.level === 'recommended' ? (
-                                <Star className="size-3 shrink-0 fill-current" />
-                              ) : (
+                              {modelRecommendation.level === 'not-recommended' ||
+                              modelRecommendation.level === 'unavailable-in-opencode' ? (
                                 <AlertTriangle className="size-3 shrink-0" />
+                              ) : (
+                                <Star className="size-3 shrink-0 fill-current" />
                               )}
                               <span>{modelRecommendation.label}</span>
                             </span>

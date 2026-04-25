@@ -16,6 +16,7 @@ import type {
   RuntimeProviderManagementViewDto,
   RuntimeProviderModelDto,
   RuntimeProviderModelTestResultDto,
+  RuntimeProviderSetupFormDto,
 } from '@features/runtime-provider-management/contracts';
 
 interface UseRuntimeProviderManagementOptions {
@@ -45,6 +46,11 @@ export interface RuntimeProviderManagementState {
   directorySelectedProviderId: string | null;
   directorySupported: boolean;
   activeFormProviderId: string | null;
+  setupForm: RuntimeProviderSetupFormDto | null;
+  setupFormLoading: boolean;
+  setupFormError: string | null;
+  setupSubmitError: string | null;
+  setupMetadata: Readonly<Record<string, string>>;
   apiKeyValue: string;
   modelPickerProviderId: string | null;
   modelPickerMode: RuntimeProviderModelPickerMode | null;
@@ -77,6 +83,7 @@ export interface RuntimeProviderManagementActions {
   startConnect: (providerId: string) => void;
   cancelConnect: () => void;
   setApiKeyValue: (value: string) => void;
+  setSetupMetadataValue: (key: string, value: string) => void;
   submitConnect: (providerId: string) => Promise<void>;
   forgetProvider: (providerId: string) => Promise<void>;
   openModelPicker: (providerId: string, mode: RuntimeProviderModelPickerMode) => void;
@@ -186,6 +193,11 @@ export function useRuntimeProviderManagement(
   );
   const [directorySupported, setDirectorySupported] = useState(true);
   const [activeFormProviderId, setActiveFormProviderId] = useState<string | null>(null);
+  const [setupForm, setSetupForm] = useState<RuntimeProviderSetupFormDto | null>(null);
+  const [setupFormLoading, setSetupFormLoading] = useState(false);
+  const [setupFormError, setSetupFormError] = useState<string | null>(null);
+  const [setupSubmitError, setSetupSubmitError] = useState<string | null>(null);
+  const [setupMetadata, setSetupMetadata] = useState<Record<string, string>>({});
   const [apiKeyValue, setApiKeyValue] = useState('');
   const [modelPickerProviderId, setModelPickerProviderId] = useState<string | null>(null);
   const [modelPickerMode, setModelPickerMode] = useState<RuntimeProviderModelPickerMode | null>(
@@ -206,6 +218,7 @@ export function useRuntimeProviderManagement(
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const directoryRequestSeq = useRef(0);
+  const setupFormRequestSeq = useRef(0);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!options.enabled) {
@@ -342,6 +355,11 @@ export function useRuntimeProviderManagement(
       setDirectoryLoaded(false);
       setDirectorySelectedProviderId(null);
       setApiKeyValue('');
+      setSetupMetadata({});
+      setSetupForm(null);
+      setSetupFormLoading(false);
+      setSetupFormError(null);
+      setSetupSubmitError(null);
       setActiveFormProviderId(null);
       const reset = resetModelState();
       setModelPickerProviderId(reset.modelPickerProviderId);
@@ -530,6 +548,11 @@ export function useRuntimeProviderManagement(
       setDirectorySelectedProviderId(providerId);
       setSelectedProviderId(providerId);
       setActiveFormProviderId(null);
+      setSetupForm(null);
+      setSetupFormError(null);
+      setSetupSubmitError(null);
+      setSetupMetadata({});
+      setApiKeyValue('');
 
       const compactProvider = view?.providers.find(
         (provider) => provider.providerId === providerId
@@ -561,15 +584,60 @@ export function useRuntimeProviderManagement(
     setDirectoryNextCursor(null);
   }, []);
 
-  const startConnect = useCallback((providerId: string): void => {
-    setSelectedProviderId(providerId);
-    setActiveFormProviderId(providerId);
-    setModelPickerProviderId(null);
-    setModelPickerMode(null);
-    setApiKeyValue('');
-    setError(null);
-    setSuccessMessage(null);
-  }, []);
+  const startConnect = useCallback(
+    (providerId: string): void => {
+      setSelectedProviderId(providerId);
+      setActiveFormProviderId(providerId);
+      setModelPickerProviderId(null);
+      setModelPickerMode(null);
+      setApiKeyValue('');
+      setSetupMetadata({});
+      setSetupForm(null);
+      setSetupFormError(null);
+      setSetupSubmitError(null);
+      setSetupFormLoading(true);
+      setError(null);
+      setSuccessMessage(null);
+      const requestSeq = setupFormRequestSeq.current + 1;
+      setupFormRequestSeq.current = requestSeq;
+
+      void withUiTimeout(
+        api.runtimeProviderManagement.loadSetupForm({
+          runtimeId: options.runtimeId,
+          providerId,
+          projectPath: options.projectPath ?? null,
+        }),
+        'Provider setup form load timed out'
+      )
+        .then((response) => {
+          if (setupFormRequestSeq.current !== requestSeq) {
+            return;
+          }
+          if (response.error) {
+            setSetupFormError(response.error.message);
+            return;
+          }
+          setSetupForm(response.setupForm ?? null);
+          if (!response.setupForm) {
+            setSetupFormError('Provider setup form response was empty');
+          }
+        })
+        .catch((setupError) => {
+          if (setupFormRequestSeq.current !== requestSeq) {
+            return;
+          }
+          setSetupFormError(
+            setupError instanceof Error ? setupError.message : 'Failed to load provider setup form'
+          );
+        })
+        .finally(() => {
+          if (setupFormRequestSeq.current === requestSeq) {
+            setSetupFormLoading(false);
+          }
+        });
+    },
+    [options.projectPath, options.runtimeId]
+  );
 
   const updateProviderQuery = useCallback(
     (value: string): void => {
@@ -584,43 +652,79 @@ export function useRuntimeProviderManagement(
   );
 
   const cancelConnect = useCallback((): void => {
+    setupFormRequestSeq.current += 1;
     setActiveFormProviderId(null);
     setApiKeyValue('');
+    setSetupMetadata({});
+    setSetupForm(null);
+    setSetupFormLoading(false);
+    setSetupFormError(null);
+    setSetupSubmitError(null);
     setError(null);
+  }, []);
+
+  const updateApiKeyValue = useCallback((value: string): void => {
+    setApiKeyValue(value);
+    setSetupSubmitError(null);
+  }, []);
+
+  const setSetupMetadataValue = useCallback((key: string, value: string): void => {
+    setSetupMetadata((current) => ({
+      ...current,
+      [key]: value,
+    }));
+    setSetupSubmitError(null);
   }, []);
 
   const submitConnect = useCallback(
     async (providerId: string): Promise<void> => {
       const apiKey = apiKeyValue.trim();
       if (!apiKey) {
-        setError('API key is required');
+        setSetupSubmitError('API key is required');
+        return;
+      }
+      if (!setupForm) {
+        setSetupSubmitError(setupFormError ?? 'Provider setup form is not loaded');
+        return;
+      }
+      if (!setupForm.supported) {
+        setSetupSubmitError(
+          setupForm.disabledReason ?? 'Provider setup is not supported in the app'
+        );
         return;
       }
 
       setSavingProviderId(providerId);
       setError(null);
+      setSetupSubmitError(null);
       setSuccessMessage(null);
       try {
         const response = await withUiTimeout(
-          api.runtimeProviderManagement.connectWithApiKey({
+          api.runtimeProviderManagement.connectProvider({
             runtimeId: options.runtimeId,
             providerId,
+            method: setupForm.method,
             apiKey,
+            metadata: setupMetadata,
             projectPath: options.projectPath ?? null,
           }),
           'Provider connect timed out'
         );
         if (response.error) {
-          setError(response.error.message);
+          setSetupSubmitError(response.error.message);
           return;
         }
         if (response.provider) {
           setView((current) => replaceProvider(current, response.provider!));
         }
         setActiveFormProviderId(null);
-        setSuccessMessage('Provider connected');
+        setSuccessMessage(null);
         setSavingProviderId(null);
         setApiKeyValue('');
+        setSetupMetadata({});
+        setSetupForm(null);
+        setSetupFormError(null);
+        setSetupSubmitError(null);
         void Promise.resolve(options.onProviderChanged?.())
           .then(() => refresh())
           .then(() => loadDirectoryPage({ refresh: true, cursor: null }))
@@ -630,14 +734,14 @@ export function useRuntimeProviderManagement(
             );
           });
       } catch (connectError) {
-        setError(
+        setSetupSubmitError(
           connectError instanceof Error ? connectError.message : 'Failed to connect provider'
         );
       } finally {
         setSavingProviderId(null);
       }
     },
-    [apiKeyValue, loadDirectoryPage, options, refresh]
+    [apiKeyValue, loadDirectoryPage, options, refresh, setupForm, setupFormError, setupMetadata]
   );
 
   const forgetProvider = useCallback(
@@ -806,7 +910,14 @@ export function useRuntimeProviderManagement(
   );
 
   const selectProvider = useCallback((providerId: string): void => {
+    setupFormRequestSeq.current += 1;
     setSelectedProviderId(providerId);
+    setActiveFormProviderId(null);
+    setSetupForm(null);
+    setSetupFormError(null);
+    setSetupSubmitError(null);
+    setSetupMetadata({});
+    setApiKeyValue('');
   }, []);
 
   const state = useMemo<RuntimeProviderManagementState>(
@@ -828,6 +939,11 @@ export function useRuntimeProviderManagement(
       directorySelectedProviderId,
       directorySupported,
       activeFormProviderId,
+      setupForm,
+      setupFormLoading,
+      setupFormError,
+      setupSubmitError,
+      setupMetadata,
       apiKeyValue,
       modelPickerProviderId,
       modelPickerMode,
@@ -847,6 +963,11 @@ export function useRuntimeProviderManagement(
     [
       activeFormProviderId,
       apiKeyValue,
+      setupForm,
+      setupFormError,
+      setupFormLoading,
+      setupSubmitError,
+      setupMetadata,
       directoryEntries,
       directoryError,
       directoryFilter,
@@ -894,7 +1015,8 @@ export function useRuntimeProviderManagement(
       searchAllProviders,
       startConnect,
       cancelConnect,
-      setApiKeyValue,
+      setApiKeyValue: updateApiKeyValue,
+      setSetupMetadataValue,
       submitConnect,
       forgetProvider,
       openModelPicker,
@@ -920,9 +1042,11 @@ export function useRuntimeProviderManagement(
       selectProvider,
       setDefaultModel,
       setDirectoryFilter,
+      setSetupMetadataValue,
       startConnect,
       submitConnect,
       testModel,
+      updateApiKeyValue,
       updateDirectoryQuery,
       updateProviderQuery,
       useModelForNewTeams,

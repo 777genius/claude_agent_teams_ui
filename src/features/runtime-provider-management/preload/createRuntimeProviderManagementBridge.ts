@@ -1,9 +1,11 @@
 import {
+  RUNTIME_PROVIDER_MANAGEMENT_CONNECT,
   RUNTIME_PROVIDER_MANAGEMENT_CONNECT_API_KEY,
   RUNTIME_PROVIDER_MANAGEMENT_DIRECTORY,
   RUNTIME_PROVIDER_MANAGEMENT_FORGET,
   RUNTIME_PROVIDER_MANAGEMENT_MODELS,
   RUNTIME_PROVIDER_MANAGEMENT_SET_DEFAULT_MODEL,
+  RUNTIME_PROVIDER_MANAGEMENT_SETUP_FORM,
   RUNTIME_PROVIDER_MANAGEMENT_TEST_MODEL,
   RUNTIME_PROVIDER_MANAGEMENT_VIEW,
   type RuntimeProviderManagementApi,
@@ -11,15 +13,18 @@ import {
 
 import type {
   RuntimeProviderManagementConnectApiKeyInput,
+  RuntimeProviderManagementConnectInput,
   RuntimeProviderManagementDirectoryResponse,
   RuntimeProviderManagementForgetInput,
   RuntimeProviderManagementLoadDirectoryInput,
+  RuntimeProviderManagementLoadSetupFormInput,
   RuntimeProviderManagementLoadModelsInput,
   RuntimeProviderManagementLoadViewInput,
   RuntimeProviderManagementModelTestResponse,
   RuntimeProviderManagementModelsResponse,
   RuntimeProviderManagementProviderResponse,
   RuntimeProviderManagementSetDefaultModelInput,
+  RuntimeProviderManagementSetupFormResponse,
   RuntimeProviderManagementTestModelInput,
   RuntimeProviderManagementViewResponse,
 } from '@features/runtime-provider-management/contracts';
@@ -37,6 +42,14 @@ export function createRuntimeProviderManagementBridge(
       input: RuntimeProviderManagementLoadDirectoryInput
     ): Promise<RuntimeProviderManagementDirectoryResponse> =>
       ipcRenderer.invoke(RUNTIME_PROVIDER_MANAGEMENT_DIRECTORY, input),
+    loadSetupForm: (
+      input: RuntimeProviderManagementLoadSetupFormInput
+    ): Promise<RuntimeProviderManagementSetupFormResponse> =>
+      ipcRenderer.invoke(RUNTIME_PROVIDER_MANAGEMENT_SETUP_FORM, input),
+    connectProvider: (
+      input: RuntimeProviderManagementConnectInput
+    ): Promise<RuntimeProviderManagementProviderResponse> =>
+      ipcRenderer.invoke(RUNTIME_PROVIDER_MANAGEMENT_CONNECT, input),
     connectWithApiKey: (
       input: RuntimeProviderManagementConnectApiKeyInput
     ): Promise<RuntimeProviderManagementProviderResponse> =>
