@@ -122,8 +122,9 @@ vi.mock('@renderer/components/ui/dialog', () => ({
 }));
 
 vi.mock('@renderer/components/ui/input', () => ({
-  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) =>
-    React.createElement('input', props),
+  Input: React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+    (props, ref) => React.createElement('input', { ...props, ref })
+  ),
 }));
 
 vi.mock('@renderer/components/ui/label', () => ({
@@ -441,6 +442,16 @@ function findButtonByText(container: HTMLElement, text: string): HTMLButtonEleme
   return button;
 }
 
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  if (!setter) {
+    throw new Error('HTMLInputElement value setter not found');
+  }
+
+  setter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('ProviderRuntimeSettingsDialog', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -563,6 +574,65 @@ describe('ProviderRuntimeSettingsDialog', () => {
         authMode: 'api_key',
       },
     });
+    expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
+  });
+
+  it('accepts and saves a typed Anthropic API key from provider settings', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onRefreshProvider = vi.fn(() => Promise.resolve(undefined));
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createAnthropicProvider({
+              authenticated: false,
+              authMethod: null,
+              apiKeyConfigured: false,
+              apiKeySource: null,
+              apiKeySourceLabel: null,
+            }),
+          ],
+          initialProviderId: 'anthropic',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      findButtonByText(host, 'Set API key').click();
+      await Promise.resolve();
+    });
+
+    const input = host.querySelector('#anthropic-api-key') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      setInputValue(input!, 'sk-ant-test-key');
+      await Promise.resolve();
+    });
+
+    expect(input!.value).toBe('sk-ant-test-key');
+
+    await act(async () => {
+      findButtonByText(host, 'Save key').click();
+      await Promise.resolve();
+    });
+
+    expect(storeState.saveApiKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        envVarName: 'ANTHROPIC_API_KEY',
+        name: 'Anthropic API Key',
+        scope: 'user',
+        value: 'sk-ant-test-key',
+      })
+    );
     expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
   });
 

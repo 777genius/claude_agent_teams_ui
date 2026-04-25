@@ -65,8 +65,9 @@ const PROVIDERS: ProviderDef[] = [
 ];
 
 const OPENCODE_UI_DISABLED_REASON = 'OpenCode team launch is not ready.';
-export const OPENCODE_TEAM_LEAD_DISABLED_REASON = 'OpenCode is not available for team lead.';
-export const OPENCODE_TEAM_LEAD_DISABLED_BADGE_LABEL = 'not teamlead';
+export const OPENCODE_TEAM_LEAD_DISABLED_REASON =
+  'OpenCode is teammate-only in this phase. Use Anthropic, Codex, or Gemini as the team lead, then add OpenCode as a teammate.';
+export const OPENCODE_TEAM_LEAD_DISABLED_BADGE_LABEL = 'side lane';
 
 export function getTeamModelLabel(model: string): string {
   return getCatalogTeamModelLabel(model) ?? model;
