@@ -1736,6 +1736,73 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(rows[0].read).toBe(false);
   });
 
+  it('reuses existing OpenCode prompt ledger metadata during watchdog relay retries', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    const taskRefs = [{ teamName, taskId: 'task-1', displayId: 'abcd1234' }];
+    hoisted.files.set(
+      `/mock/teams/${teamName}/config.json`,
+      JSON.stringify({
+        name: teamName,
+        projectPath: '/tmp/my-team',
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'jack', role: 'developer', providerId: 'opencode', model: 'openrouter/test' },
+        ],
+      })
+    );
+    seedMemberInbox(teamName, 'jack', [
+      {
+        from: 'bob',
+        to: 'jack',
+        text: 'Please answer the app user.',
+        timestamp: '2026-02-23T17:00:00.000Z',
+        read: false,
+        messageId: 'opencode-ledger-metadata-1',
+        actionMode: 'ask',
+      },
+    ]);
+    vi.spyOn(service as any, 'createOpenCodePromptDeliveryLedger').mockReturnValue({
+      getByInboxMessage: vi.fn(async () => ({
+        id: 'record-1',
+        status: 'retry_scheduled',
+        replyRecipient: 'user',
+        actionMode: 'delegate',
+        taskRefs,
+        source: 'manual',
+      })),
+    });
+    const deliverSpy = vi.spyOn(service, 'deliverOpenCodeMemberMessage').mockResolvedValue({
+      delivered: true,
+      accepted: true,
+      responsePending: true,
+      responseState: 'pending',
+      diagnostics: ['opencode_delivery_response_pending'],
+    });
+
+    const relay = await service.relayOpenCodeMemberInboxMessages(teamName, 'jack', {
+      onlyMessageId: 'opencode-ledger-metadata-1',
+      source: 'watchdog',
+    });
+
+    expect(relay).toMatchObject({
+      attempted: 1,
+      delivered: 0,
+      failed: 0,
+      lastDelivery: { delivered: true, responsePending: true },
+    });
+    expect(deliverSpy).toHaveBeenCalledWith(
+      teamName,
+      expect.objectContaining({
+        messageId: 'opencode-ledger-metadata-1',
+        replyRecipient: 'user',
+        actionMode: 'delegate',
+        taskRefs,
+        source: 'manual',
+      })
+    );
+  });
+
   it('skips failed-terminal OpenCode rows without blocking newer unread rows', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';

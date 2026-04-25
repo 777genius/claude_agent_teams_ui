@@ -10,18 +10,19 @@ import type {
   RuntimeProviderManagementForgetInput,
   RuntimeProviderManagementLoadModelsInput,
   RuntimeProviderManagementLoadViewInput,
-  RuntimeProviderManagementModelTestResponse,
   RuntimeProviderManagementModelsResponse,
+  RuntimeProviderManagementModelTestResponse,
   RuntimeProviderManagementProviderResponse,
+  RuntimeProviderManagementRuntimeId,
   RuntimeProviderManagementSetDefaultModelInput,
   RuntimeProviderManagementTestModelInput,
-  RuntimeProviderManagementRuntimeId,
   RuntimeProviderManagementViewResponse,
 } from '@features/runtime-provider-management/contracts';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 
 const COMMAND_TIMEOUT_MS = 45_000;
 const PROBE_COMMAND_TIMEOUT_MS = 90_000;
+const COMMAND_ERROR_DETAIL_LIMIT = 1_600;
 
 type RuntimeProviderManagementErrorResponse =
   | RuntimeProviderManagementViewResponse
@@ -54,9 +55,54 @@ function extractJsonObject<T>(raw: string): T {
   return JSON.parse(raw.slice(start, end + 1)) as T;
 }
 
+function tryExtractJsonObject<T>(raw: string | null): T | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    return extractJsonObject<T>(raw);
+  } catch {
+    return null;
+  }
+}
+
+function readErrorTextProperty(error: unknown, propertyName: 'stderr' | 'stdout'): string | null {
+  if (!error || typeof error !== 'object' || !(propertyName in error)) {
+    return null;
+  }
+  const value = (error as Record<string, unknown>)[propertyName];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  return null;
+}
+
+function extractJsonObjectFromError<T>(error: unknown): T | null {
+  return (
+    tryExtractJsonObject<T>(readErrorTextProperty(error, 'stdout')) ??
+    tryExtractJsonObject<T>(readErrorTextProperty(error, 'stderr'))
+  );
+}
+
+function truncateCommandErrorDetail(message: string): string {
+  if (message.length <= COMMAND_ERROR_DETAIL_LIMIT) {
+    return message;
+  }
+  return `${message.slice(0, COMMAND_ERROR_DETAIL_LIMIT).trimEnd()}...`;
+}
+
 function normalizeCommandFailure(error: unknown): string {
+  const stderr = readErrorTextProperty(error, 'stderr');
+  if (stderr) {
+    return truncateCommandErrorDetail(stderr);
+  }
+  const stdout = readErrorTextProperty(error, 'stdout');
+  if (stdout) {
+    return truncateCommandErrorDetail(stdout);
+  }
   if (error instanceof Error && error.message.trim()) {
-    return error.message;
+    return truncateCommandErrorDetail(error.message);
   }
   return 'Runtime provider management command failed';
 }
@@ -156,6 +202,10 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
       return extractJsonObject<RuntimeProviderManagementViewResponse>(stdout);
     } catch (error) {
+      const response = extractJsonObjectFromError<RuntimeProviderManagementViewResponse>(error);
+      if (response) {
+        return response;
+      }
       return errorResponse<RuntimeProviderManagementViewResponse>(
         input.runtimeId,
         normalizeCommandFailure(error)
@@ -208,6 +258,10 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
         );
       }
     } catch (error) {
+      const response = extractJsonObjectFromError<RuntimeProviderManagementProviderResponse>(error);
+      if (response) {
+        return response;
+      }
       return errorResponse<RuntimeProviderManagementProviderResponse>(
         input.runtimeId,
         normalizeCommandFailure(error)
@@ -287,6 +341,10 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       });
       return extractJsonObject<RuntimeProviderManagementModelsResponse>(stdout);
     } catch (error) {
+      const response = extractJsonObjectFromError<RuntimeProviderManagementModelsResponse>(error);
+      if (response) {
+        return response;
+      }
       return errorResponse<RuntimeProviderManagementModelsResponse>(
         input.runtimeId,
         normalizeCommandFailure(error)
@@ -325,6 +383,11 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
       return extractJsonObject<RuntimeProviderManagementModelTestResponse>(stdout);
     } catch (error) {
+      const response =
+        extractJsonObjectFromError<RuntimeProviderManagementModelTestResponse>(error);
+      if (response) {
+        return response;
+      }
       return errorResponse<RuntimeProviderManagementModelTestResponse>(
         input.runtimeId,
         normalizeCommandFailure(error),
@@ -366,6 +429,10 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
       return extractJsonObject<RuntimeProviderManagementViewResponse>(stdout);
     } catch (error) {
+      const response = extractJsonObjectFromError<RuntimeProviderManagementViewResponse>(error);
+      if (response) {
+        return response;
+      }
       return errorResponse<RuntimeProviderManagementViewResponse>(
         input.runtimeId,
         normalizeCommandFailure(error),

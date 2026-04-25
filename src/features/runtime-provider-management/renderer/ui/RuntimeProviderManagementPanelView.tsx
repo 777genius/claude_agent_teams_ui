@@ -1,13 +1,20 @@
+import { useEffect, useMemo, useState } from 'react';
+
 import { Badge } from '@renderer/components/ui/badge';
 import { Button } from '@renderer/components/ui/button';
+import { Checkbox } from '@renderer/components/ui/checkbox';
 import { Input } from '@renderer/components/ui/input';
 import { Label } from '@renderer/components/ui/label';
+import {
+  compareOpenCodeTeamModelRecommendations,
+  getOpenCodeTeamModelRecommendation,
+  isOpenCodeTeamModelRecommended,
+} from '@renderer/utils/openCodeModelRecommendations';
 import {
   AlertTriangle,
   CheckCircle2,
   KeyRound,
   Loader2,
-  Play,
   RefreshCcw,
   Search,
   Star,
@@ -21,6 +28,8 @@ import {
   getProviderModelsLabel,
 } from '../../core/domain';
 
+import { ProviderBrandIcon } from './providerBrandIcons';
+
 import type {
   RuntimeProviderManagementActions,
   RuntimeProviderManagementState,
@@ -30,7 +39,7 @@ import type {
   RuntimeProviderModelDto,
   RuntimeProviderModelTestResultDto,
 } from '@features/runtime-provider-management/contracts';
-import type { JSX } from 'react';
+import type { CSSProperties, JSX, KeyboardEvent } from 'react';
 
 interface RuntimeProviderManagementPanelViewProps {
   readonly state: RuntimeProviderManagementState;
@@ -43,8 +52,6 @@ interface ProviderActionsProps {
   readonly busy: boolean;
   readonly disabled: boolean;
   readonly onStartConnect: () => void;
-  readonly onUse: () => void;
-  readonly onSetDefault: () => void;
   readonly onForget: () => void;
 }
 
@@ -62,7 +69,7 @@ interface ProviderRowProps {
 function stateClassName(provider: RuntimeProviderConnectionDto): string {
   switch (provider.state) {
     case 'connected':
-      return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200';
+      return 'border-emerald-400/35 bg-emerald-400/10';
     case 'available':
       return 'border-sky-400/25 bg-sky-400/10 text-sky-200';
     case 'error':
@@ -74,6 +81,18 @@ function stateClassName(provider: RuntimeProviderConnectionDto): string {
   }
 }
 
+function stateStyle(provider: RuntimeProviderConnectionDto): CSSProperties | undefined {
+  if (provider.state !== 'connected') {
+    return undefined;
+  }
+
+  return {
+    color: '#86efac',
+    borderColor: 'rgba(74, 222, 128, 0.38)',
+    backgroundColor: 'rgba(74, 222, 128, 0.11)',
+  };
+}
+
 function RuntimeSummary({
   state,
   onRefresh,
@@ -82,9 +101,11 @@ function RuntimeSummary({
   onRefresh: () => void;
 }): JSX.Element {
   const runtime = state.view?.runtime;
+  const loadingWithoutRuntime = state.loading && !runtime;
   return (
     <div
       className="rounded-lg border p-3"
+      aria-busy={state.loading}
       style={{
         borderColor: 'var(--color-border-subtle)',
         backgroundColor: 'rgba(255, 255, 255, 0.025)',
@@ -96,18 +117,36 @@ function RuntimeSummary({
             OpenCode runtime
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline" className="border-white/10">
-              {runtime ? formatRuntimeState(runtime) : state.loading ? 'Loading' : 'Unavailable'}
+            <Badge
+              variant="outline"
+              className={`border-white/10 ${loadingWithoutRuntime ? 'bg-white/[0.04]' : ''}`}
+            >
+              {runtime
+                ? formatRuntimeState(runtime)
+                : state.loading
+                  ? 'Checking runtime'
+                  : 'Unavailable'}
             </Badge>
             {runtime?.version ? (
               <span style={{ color: 'var(--color-text-secondary)' }}>v{runtime.version}</span>
             ) : null}
             {state.view?.defaultModel ? (
               <span className="break-all" style={{ color: 'var(--color-text-secondary)' }}>
-                Default: {state.view.defaultModel}
+                OpenCode default: {state.view.defaultModel}
               </span>
             ) : null}
           </div>
+          {state.loading ? (
+            <div
+              className="mt-2 flex items-center gap-2 text-xs"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              <Loader2 className="size-3.5 animate-spin" />
+              <span>
+                Loading managed OpenCode runtime, connected providers, and model defaults...
+              </span>
+            </div>
+          ) : null}
           {state.view?.diagnostics.length ? (
             <div
               className="mt-2 space-y-1 text-[11px]"
@@ -131,9 +170,158 @@ function RuntimeSummary({
           ) : (
             <RefreshCcw className="mr-1 size-3.5" />
           )}
-          Refresh
+          {state.loading ? 'Checking...' : 'Refresh'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function RuntimeProviderLoadingPlaceholder(): JSX.Element {
+  return (
+    <div
+      data-testid="runtime-provider-loading-skeleton"
+      className="rounded-lg border p-3"
+      style={{
+        borderColor: 'var(--color-border-subtle)',
+        backgroundColor: 'rgba(255,255,255,0.02)',
+      }}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <div
+            className="skeleton-shimmer size-6 rounded-md border"
+            style={{
+              borderColor: 'var(--color-border-subtle)',
+              backgroundColor: 'var(--skeleton-base)',
+            }}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+              Loading OpenCode providers
+            </div>
+            <div
+              className="skeleton-shimmer mt-1 h-3 w-72 max-w-full rounded-sm"
+              style={{ backgroundColor: 'var(--skeleton-base-dim)' }}
+            />
+          </div>
+        </div>
+        <div className="mt-3 space-y-2" aria-hidden="true">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="rounded-md border px-3 py-2.5"
+              style={{
+                borderColor: 'var(--color-border-subtle)',
+                backgroundColor: 'rgba(255,255,255,0.018)',
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="skeleton-shimmer size-5 rounded-md border"
+                      style={{
+                        borderColor: 'var(--color-border-subtle)',
+                        backgroundColor: 'var(--skeleton-base)',
+                      }}
+                    />
+                    <div
+                      className="skeleton-shimmer h-4 rounded-sm"
+                      style={{
+                        width: index === 0 ? 120 : index === 1 ? 92 : 150,
+                        backgroundColor: 'var(--skeleton-base)',
+                      }}
+                    />
+                    <div
+                      className="skeleton-shimmer h-5 rounded-md border"
+                      style={{
+                        width: index === 1 ? 72 : 96,
+                        borderColor: 'var(--color-border-subtle)',
+                        backgroundColor: 'var(--skeleton-base-dim)',
+                      }}
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <div
+                      className="skeleton-shimmer h-3 rounded-sm"
+                      style={{
+                        width: index === 2 ? 64 : 82,
+                        backgroundColor: 'var(--skeleton-base-dim)',
+                      }}
+                    />
+                    <div
+                      className="skeleton-shimmer h-3 rounded-sm"
+                      style={{
+                        width: index === 0 ? 178 : 132,
+                        backgroundColor: 'var(--skeleton-base-dim)',
+                      }}
+                    />
+                  </div>
+                </div>
+                <div
+                  className="skeleton-shimmer h-8 w-20 shrink-0 rounded-md border"
+                  style={{
+                    borderColor: 'var(--color-border-subtle)',
+                    backgroundColor: 'var(--skeleton-base-dim)',
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+          <div
+            className="skeleton-shimmer h-9 rounded-md border"
+            style={{
+              width: '74%',
+              borderColor: 'var(--color-border-subtle)',
+              backgroundColor: 'var(--skeleton-base-dim)',
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RuntimeProviderModelLoadingSkeleton(): JSX.Element {
+  return (
+    <div className="space-y-2" data-testid="runtime-provider-model-loading-skeleton">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={index}
+          className="rounded-md border px-3 py-2.5"
+          style={{
+            borderColor: 'var(--color-border-subtle)',
+            backgroundColor: 'rgba(255,255,255,0.02)',
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div
+                className="skeleton-shimmer h-4 rounded-sm"
+                style={{
+                  width: index === 0 ? '42%' : index === 1 ? '54%' : '36%',
+                  backgroundColor: 'var(--skeleton-base)',
+                }}
+              />
+              <div
+                className="skeleton-shimmer mt-2 h-3 rounded-sm"
+                style={{
+                  width: index === 0 ? '64%' : index === 1 ? '46%' : '58%',
+                  backgroundColor: 'var(--skeleton-base-dim)',
+                }}
+              />
+            </div>
+            <div
+              className="skeleton-shimmer h-8 w-20 shrink-0 rounded-md border"
+              style={{
+                borderColor: 'var(--color-border-subtle)',
+                backgroundColor: 'var(--skeleton-base-dim)',
+              }}
+            />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -143,13 +331,9 @@ function ProviderActions({
   busy,
   disabled,
   onStartConnect,
-  onUse,
-  onSetDefault,
   onForget,
 }: ProviderActionsProps): JSX.Element {
   const connect = getProviderAction(provider, 'connect');
-  const use = getProviderAction(provider, 'use');
-  const setDefault = getProviderAction(provider, 'set-default');
   const forget = getProviderAction(provider, 'forget');
   const configure = getProviderAction(provider, 'configure');
 
@@ -175,32 +359,6 @@ function ProviderActions({
 
   return (
     <div className="flex flex-wrap justify-end gap-1.5">
-      {use ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={disabled || busy || !use.enabled}
-          title={use.disabledReason ?? undefined}
-          onClick={onUse}
-        >
-          <Play className="mr-1 size-3.5" />
-          {use.label}
-        </Button>
-      ) : null}
-      {setDefault ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={disabled || busy || !setDefault.enabled}
-          title={setDefault.disabledReason ?? undefined}
-          onClick={onSetDefault}
-        >
-          <Star className="mr-1 size-3.5" />
-          {setDefault.label}
-        </Button>
-      ) : null}
       {forget ? (
         <Button
           type="button"
@@ -229,9 +387,6 @@ function ProviderActions({
           {configure.label}
         </Button>
       ) : null}
-      {!use && !setDefault && !forget && !configure ? (
-        <span className="text-xs text-[var(--color-text-muted)]">No actions</span>
-      ) : null}
     </div>
   );
 }
@@ -248,25 +403,25 @@ function ProviderRow({
 }: ProviderRowProps): JSX.Element {
   return (
     <div
-      className="rounded-lg border p-3"
-      style={{
-        borderColor: active ? 'rgba(96, 165, 250, 0.4)' : 'var(--color-border-subtle)',
-        backgroundColor: active ? 'rgba(96, 165, 250, 0.055)' : 'rgba(255,255,255,0.02)',
-      }}
+      data-testid={`runtime-provider-row-${provider.providerId}`}
+      className={`cursor-pointer rounded-lg border p-3 transition-all hover:border-sky-300/60 hover:bg-sky-400/[0.08] hover:shadow-[0_0_0_1px_rgba(125,211,252,0.18)] ${
+        active
+          ? 'border-sky-300/70 bg-sky-400/[0.075] shadow-[0_0_0_1px_rgba(125,211,252,0.22)]'
+          : 'border-[var(--color-border-subtle)] bg-white/[0.02]'
+      }`}
+      onClick={() => actions.selectProvider(provider.providerId)}
     >
       <div className="grid w-full grid-cols-[1fr_auto] items-start gap-3">
-        <button
-          type="button"
-          className="min-w-0 text-left"
-          onClick={() => actions.selectProvider(provider.providerId)}
-        >
+        <div className="min-w-0 text-left">
           <div className="flex flex-wrap items-center gap-2">
+            <ProviderBrandIcon provider={provider} />
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               {provider.displayName}
             </span>
             {provider.recommended ? <Badge variant="secondary">Recommended</Badge> : null}
             <span
               className={`rounded-md border px-2 py-0.5 text-[11px] ${stateClassName(provider)}`}
+              style={stateStyle(provider)}
             >
               {formatProviderState(provider)}
             </span>
@@ -277,7 +432,7 @@ function ProviderRow({
             </span>
             {provider.defaultModelId ? (
               <span className="break-all" style={{ color: 'var(--color-text-secondary)' }}>
-                Default: {provider.defaultModelId}
+                OpenCode default: {provider.defaultModelId}
               </span>
             ) : null}
             {provider.ownership.map((owner) => (
@@ -295,15 +450,13 @@ function ProviderRow({
               {provider.detail}
             </div>
           ) : null}
-        </button>
+        </div>
         <div className="flex justify-end">
           <ProviderActions
             provider={provider}
             busy={busy}
             disabled={disabled}
             onStartConnect={() => actions.startConnect(provider.providerId)}
-            onUse={() => actions.openModelPicker(provider.providerId, 'use')}
-            onSetDefault={() => actions.openModelPicker(provider.providerId, 'runtime-default')}
             onForget={() => void actions.forgetProvider(provider.providerId)}
           />
         </div>
@@ -364,12 +517,44 @@ function ProviderRow({
   );
 }
 
-function ModelBadges({ model }: { readonly model: RuntimeProviderModelDto }): JSX.Element {
+function ModelBadges({
+  model,
+  usedForNewTeams,
+}: {
+  readonly model: RuntimeProviderModelDto;
+  readonly usedForNewTeams: boolean;
+}): JSX.Element | null {
+  const modelRecommendation = getOpenCodeTeamModelRecommendation(model.modelId);
+
+  if (!model.free && !model.default && !usedForNewTeams && !modelRecommendation) {
+    return null;
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Badge variant="outline" className="border-white/10 px-1.5 py-0 text-[10px]">
-        {model.sourceLabel}
-      </Badge>
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {modelRecommendation ? (
+        <Badge
+          className={
+            modelRecommendation.level === 'recommended'
+              ? 'bg-amber-400/15 px-1.5 py-0 text-[10px] text-amber-200'
+              : 'bg-red-400/15 px-1.5 py-0 text-[10px] text-red-200'
+          }
+          title={modelRecommendation.reason}
+        >
+          {modelRecommendation.level === 'recommended' ? (
+            <Star className="mr-1 size-3 fill-current" />
+          ) : (
+            <AlertTriangle className="mr-1 size-3" />
+          )}
+          {modelRecommendation.label}
+        </Badge>
+      ) : null}
+      {usedForNewTeams ? (
+        <Badge className="bg-sky-400/15 px-1.5 py-0 text-[10px] text-sky-100">
+          <Star className="mr-1 size-3" />
+          Used for new teams
+        </Badge>
+      ) : null}
       {model.free ? (
         <Badge className="bg-emerald-400/15 px-1.5 py-0 text-[10px] text-emerald-200">free</Badge>
       ) : null}
@@ -389,7 +574,11 @@ function ModelResult({
     return null;
   }
   return (
-    <div className={`mt-2 text-xs ${result.ok ? 'text-emerald-200' : 'text-red-200'}`}>
+    <div
+      className="mt-2 text-xs"
+      style={{ color: result.ok ? '#86efac' : '#fecaca' }}
+      data-testid={`runtime-provider-model-result-${result.modelId}`}
+    >
       {result.message}
     </div>
   );
@@ -401,82 +590,79 @@ function ModelRow({
   selected,
   disabled,
   testing,
-  savingDefault,
   result,
   actions,
-  mode,
 }: {
   readonly provider: RuntimeProviderConnectionDto;
   readonly model: RuntimeProviderModelDto;
   readonly selected: boolean;
   readonly disabled: boolean;
   readonly testing: boolean;
-  readonly savingDefault: boolean;
   readonly result: RuntimeProviderModelTestResultDto | undefined;
   readonly actions: RuntimeProviderManagementActions;
-  readonly mode: RuntimeProviderManagementState['modelPickerMode'];
 }): JSX.Element {
-  const useButton = (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      disabled={disabled}
-      onClick={() => actions.useModelForNewTeams(model.modelId)}
-    >
-      Use for new teams
-    </Button>
-  );
-  const setDefaultButton = (
-    <Button
-      type="button"
-      size="sm"
-      variant={model.default ? 'ghost' : 'outline'}
-      disabled={disabled || savingDefault}
-      onClick={() => void actions.setDefaultModel(provider.providerId, model.modelId)}
-    >
-      {savingDefault ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
-      Set OpenCode default
-    </Button>
-  );
+  const chooseModel = (): void => {
+    if (!disabled) {
+      actions.useModelForNewTeams(model.modelId);
+    }
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    chooseModel();
+  };
 
   return (
     <div
-      className="rounded-md border p-3"
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-pressed={selected}
+      data-testid={`runtime-provider-model-row-${model.modelId}`}
+      className="cursor-pointer rounded-md border px-3 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/45"
+      onClick={chooseModel}
+      onKeyDown={handleKeyDown}
       style={{
         borderColor: selected ? 'rgba(96, 165, 250, 0.45)' : 'var(--color-border-subtle)',
         backgroundColor: selected ? 'rgba(96, 165, 250, 0.06)' : 'rgba(255,255,255,0.02)',
       }}
     >
-      <div className="grid grid-cols-[1fr_auto] gap-3">
-        <button
-          type="button"
-          className="min-w-0 text-left"
-          onClick={() => actions.selectModel(model.modelId)}
-        >
-          <div className="break-all text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <div className="block w-full min-w-0 text-left">
+          <div
+            className="text-sm font-medium leading-5"
+            style={{ color: 'var(--color-text)', overflowWrap: 'anywhere' }}
+          >
             {model.displayName}
           </div>
-          <div className="mt-1 break-all text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+          <div
+            className="mt-1 text-[11px] leading-4"
+            style={{ color: 'var(--color-text-muted)', overflowWrap: 'anywhere' }}
+          >
             {model.modelId}
           </div>
-          <div className="mt-2">
-            <ModelBadges model={model} />
-          </div>
-        </button>
-        <div className="flex flex-col items-end gap-1.5">
+          <ModelBadges model={model} usedForNewTeams={selected} />
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <Button
             type="button"
             size="sm"
-            variant="ghost"
+            variant="outline"
+            className="h-8 min-w-20 justify-center"
             disabled={disabled || testing}
-            onClick={() => void actions.testModel(provider.providerId, model.modelId)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void actions.testModel(provider.providerId, model.modelId);
+            }}
           >
-            {testing ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+            {testing ? (
+              <Loader2 className="mr-1 size-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1 size-3.5" />
+            )}
             Test
           </Button>
-          {mode === 'runtime-default' ? setDefaultButton : useButton}
-          {mode === 'runtime-default' ? useButton : setDefaultButton}
         </div>
       </div>
       <ModelResult result={result} />
@@ -496,18 +682,66 @@ function ProviderModelList({
   readonly disabled: boolean;
 }): JSX.Element {
   const pickerOpen = state.modelPickerProviderId === provider.providerId;
+  const [recommendedOnly, setRecommendedOnly] = useState(false);
+  const hasRecommendedModels = useMemo(
+    () => state.models.some((model) => isOpenCodeTeamModelRecommended(model.modelId)),
+    [state.models]
+  );
+
+  useEffect(() => {
+    if (!hasRecommendedModels) {
+      setRecommendedOnly(false);
+    }
+  }, [hasRecommendedModels]);
+
+  const visibleModels = useMemo(
+    () =>
+      state.models
+        .map((model, index) => ({ model, index }))
+        .filter(({ model }) => !recommendedOnly || isOpenCodeTeamModelRecommended(model.modelId))
+        .sort((left, right) => {
+          const recommendationOrder = compareOpenCodeTeamModelRecommendations(
+            left.model.modelId,
+            right.model.modelId
+          );
+          return recommendationOrder || left.index - right.index;
+        })
+        .map(({ model }) => model),
+    [recommendedOnly, state.models]
+  );
 
   return (
     <div className="mt-4 space-y-3 border-t border-white/10 pt-3">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-[var(--color-text-muted)]" />
-        <Input
-          value={state.modelQuery}
-          disabled={disabled || state.modelsLoading}
-          onChange={(event) => actions.setModelQuery(event.target.value)}
-          placeholder="Search models"
-          className="h-9 pl-9 text-sm"
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+          <Input
+            data-testid="runtime-provider-model-search"
+            value={state.modelQuery}
+            disabled={disabled || state.modelsLoading}
+            onChange={(event) => actions.setModelQuery(event.target.value)}
+            placeholder="Search models"
+            className="h-10 pl-10 pr-3 text-sm leading-5"
+            style={{ paddingLeft: 42 }}
+          />
+        </div>
+        {hasRecommendedModels ? (
+          <div className="flex h-10 items-center gap-2 rounded-md border border-white/10 px-3">
+            <Checkbox
+              id={`runtime-provider-${provider.providerId}-recommended-only`}
+              checked={recommendedOnly}
+              disabled={disabled || state.modelsLoading}
+              onCheckedChange={(checked) => setRecommendedOnly(checked === true)}
+              className="size-3.5"
+            />
+            <Label
+              htmlFor={`runtime-provider-${provider.providerId}-recommended-only`}
+              className="cursor-pointer text-xs font-normal text-[var(--color-text-secondary)]"
+            >
+              Recommended only
+            </Label>
+          </div>
+        ) : null}
       </div>
 
       {state.modelsError ? (
@@ -516,18 +750,19 @@ function ProviderModelList({
         </div>
       ) : null}
 
-      <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-        {!pickerOpen || state.modelsLoading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-            <Loader2 className="size-4 animate-spin" />
-            Loading models
+      <div
+        data-testid="runtime-provider-model-list"
+        className="space-y-2 overflow-y-auto pr-1"
+        style={{ maxHeight: 300 }}
+      >
+        {!pickerOpen || state.modelsLoading ? <RuntimeProviderModelLoadingSkeleton /> : null}
+        {pickerOpen && !state.modelsLoading && visibleModels.length === 0 && !state.modelsError ? (
+          <div className="text-sm text-[var(--color-text-muted)]">
+            {recommendedOnly ? 'No recommended models found.' : 'No models found.'}
           </div>
         ) : null}
-        {pickerOpen && !state.modelsLoading && state.models.length === 0 && !state.modelsError ? (
-          <div className="text-sm text-[var(--color-text-muted)]">No models found.</div>
-        ) : null}
         {pickerOpen
-          ? state.models.map((model) => (
+          ? visibleModels.map((model) => (
               <ModelRow
                 key={model.modelId}
                 provider={provider}
@@ -535,10 +770,8 @@ function ProviderModelList({
                 selected={state.selectedModelId === model.modelId}
                 disabled={disabled}
                 testing={state.testingModelId === model.modelId}
-                savingDefault={state.savingDefaultModelId === model.modelId}
                 result={state.modelResults[model.modelId]}
                 actions={actions}
-                mode={state.modelPickerMode}
               />
             ))
           : null}
@@ -552,7 +785,27 @@ export function RuntimeProviderManagementPanelView({
   actions,
   disabled,
 }: RuntimeProviderManagementPanelViewProps): JSX.Element {
-  const selectedProviderId = state.selectedProviderId ?? state.providers[0]?.providerId ?? null;
+  const providerQuery = state.providerQuery.trim().toLowerCase();
+  const filteredProviders = providerQuery
+    ? state.providers.filter((provider) =>
+        [
+          provider.providerId,
+          provider.displayName,
+          provider.detail ?? '',
+          provider.defaultModelId ?? '',
+          getProviderModelsLabel(provider),
+          formatProviderState(provider),
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(providerQuery)
+      )
+    : state.providers;
+  const selectedProviderId = filteredProviders.some(
+    (provider) => provider.providerId === state.selectedProviderId
+  )
+    ? state.selectedProviderId
+    : (filteredProviders[0]?.providerId ?? state.selectedProviderId ?? null);
 
   return (
     <div className="space-y-3">
@@ -586,8 +839,26 @@ export function RuntimeProviderManagementPanelView({
         </div>
       ) : null}
 
+      {state.providers.length > 0 ? (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+          <Input
+            data-testid="runtime-provider-search"
+            value={state.providerQuery}
+            disabled={disabled || state.loading}
+            onChange={(event) => actions.setProviderQuery(event.target.value)}
+            placeholder="Search providers"
+            className="h-9 pr-3 text-sm"
+            style={{ paddingLeft: 40 }}
+          />
+        </div>
+      ) : null}
+
       <div className="max-h-[62vh] space-y-2 overflow-y-auto pr-1">
-        {state.providers.map((provider) => (
+        {state.loading && state.providers.length === 0 ? (
+          <RuntimeProviderLoadingPlaceholder />
+        ) : null}
+        {filteredProviders.map((provider) => (
           <ProviderRow
             key={provider.providerId}
             provider={provider}
@@ -601,6 +872,18 @@ export function RuntimeProviderManagementPanelView({
           />
         ))}
       </div>
+
+      {!state.loading && state.providers.length > 0 && filteredProviders.length === 0 ? (
+        <div
+          className="rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: 'var(--color-border-subtle)',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
+          No providers match that search.
+        </div>
+      ) : null}
 
       {!state.loading && state.providers.length === 0 ? (
         <div

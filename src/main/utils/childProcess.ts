@@ -28,11 +28,15 @@ function execFileAsync(
     child = execFile(cmd, args, options, (err, stdout, stderr) => {
       settled = true;
       cleanup();
-      if (err)
-        reject(
-          err instanceof Error ? err : new Error(typeof err === 'string' ? err : 'Unknown error')
-        );
-      else resolve({ stdout: String(stdout), stderr: String(stderr) });
+      if (err) {
+        const normalizedError =
+          err instanceof Error ? err : new Error(typeof err === 'string' ? err : 'Unknown error');
+        Object.assign(normalizedError, {
+          stdout: String(stdout),
+          stderr: String(stderr),
+        });
+        reject(normalizedError);
+      } else resolve({ stdout: String(stdout), stderr: String(stderr) });
     });
     if (!settled) {
       trackCliProcess(child);

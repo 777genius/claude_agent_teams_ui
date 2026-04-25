@@ -239,5 +239,22 @@ describe('cli child process helpers', () => {
       expect(execMock).toHaveBeenCalled();
       expect(result.stdout).toBe('2.3.4');
     });
+
+    it('preserves stdout and stderr on execFile failures', async () => {
+      setPlatform('linux');
+      const execFileMock = child.execFile as unknown as Mock;
+      execFileMock.mockImplementation(
+        (_cmd: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
+          cb(new Error('Command failed'), '{"error":"bad"}', 'bun: not found');
+          return {} as any;
+        }
+      );
+
+      await expect(execCli('/usr/bin/claude', ['--version'])).rejects.toMatchObject({
+        message: 'Command failed',
+        stdout: '{"error":"bad"}',
+        stderr: 'bun: not found',
+      });
+    });
   });
 });

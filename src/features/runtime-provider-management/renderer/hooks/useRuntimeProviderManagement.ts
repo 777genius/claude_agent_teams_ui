@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@renderer/api';
 
 import { selectInitialProviderId } from '../../core/domain';
-import { saveOpenCodeModelForNewTeams } from '../adapters/createTeamDefaultModelWriter';
+import {
+  getOpenCodeModelForNewTeams,
+  saveOpenCodeModelForNewTeams,
+} from '../adapters/createTeamDefaultModelWriter';
 
 import type {
   RuntimeProviderConnectionDto,
@@ -25,6 +28,7 @@ export interface RuntimeProviderManagementState {
   view: RuntimeProviderManagementViewDto | null;
   providers: readonly RuntimeProviderConnectionDto[];
   selectedProviderId: string | null;
+  providerQuery: string;
   activeFormProviderId: string | null;
   apiKeyValue: string;
   modelPickerProviderId: string | null;
@@ -46,6 +50,7 @@ export interface RuntimeProviderManagementState {
 export interface RuntimeProviderManagementActions {
   refresh: () => Promise<void>;
   selectProvider: (providerId: string) => void;
+  setProviderQuery: (value: string) => void;
   startConnect: (providerId: string) => void;
   cancelConnect: () => void;
   setApiKeyValue: (value: string) => void;
@@ -111,11 +116,35 @@ function withUiTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 70_0
   });
 }
 
+function buildFailedModelTestResult(
+  providerId: string,
+  modelId: string,
+  message: string
+): RuntimeProviderModelTestResultDto {
+  return {
+    providerId,
+    modelId,
+    ok: false,
+    availability: 'unknown',
+    message,
+    diagnostics: [],
+  };
+}
+
+function resolveSavedModelForNewTeams(models: readonly RuntimeProviderModelDto[]): string | null {
+  const savedModelId = getOpenCodeModelForNewTeams();
+  if (!savedModelId) {
+    return null;
+  }
+  return models.some((model) => model.modelId === savedModelId) ? savedModelId : null;
+}
+
 export function useRuntimeProviderManagement(
   options: UseRuntimeProviderManagementOptions
 ): [RuntimeProviderManagementState, RuntimeProviderManagementActions] {
   const [view, setView] = useState<RuntimeProviderManagementViewDto | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [providerQuery, setProviderQuery] = useState('');
   const [activeFormProviderId, setActiveFormProviderId] = useState<string | null>(null);
   const [apiKeyValue, setApiKeyValue] = useState('');
   const [modelPickerProviderId, setModelPickerProviderId] = useState<string | null>(null);
@@ -170,6 +199,7 @@ export function useRuntimeProviderManagement(
 
   useEffect(() => {
     if (!options.enabled) {
+      setProviderQuery('');
       setApiKeyValue('');
       setActiveFormProviderId(null);
       const reset = resetModelState();
@@ -216,9 +246,7 @@ export function useRuntimeProviderManagement(
           if (current && nextModels.some((model) => model.modelId === current)) {
             return current;
           }
-          return (
-            nextModels.find((model) => model.default)?.modelId ?? nextModels[0]?.modelId ?? null
-          );
+          return resolveSavedModelForNewTeams(nextModels);
         });
       })
       .catch((modelsLoadError) => {
@@ -413,7 +441,7 @@ export function useRuntimeProviderManagement(
   const useModelForNewTeams = useCallback((modelId: string): void => {
     saveOpenCodeModelForNewTeams(modelId);
     setSelectedModelId(modelId);
-    setSuccessMessage('Model saved for new teams');
+    setSuccessMessage(null);
     setError(null);
   }, []);
 
@@ -433,7 +461,10 @@ export function useRuntimeProviderManagement(
           100_000
         );
         if (response.error) {
-          setError(response.error.message);
+          setModelResults((current) => ({
+            ...current,
+            [modelId]: buildFailedModelTestResult(providerId, modelId, response.error!.message),
+          }));
           return;
         }
         if (response.result) {
@@ -441,10 +472,16 @@ export function useRuntimeProviderManagement(
             ...current,
             [modelId]: response.result!,
           }));
-          setSuccessMessage(response.result.ok ? 'Model probe passed' : response.result.message);
         }
       } catch (testError) {
-        setError(testError instanceof Error ? testError.message : 'Failed to test model');
+        setModelResults((current) => ({
+          ...current,
+          [modelId]: buildFailedModelTestResult(
+            providerId,
+            modelId,
+            testError instanceof Error ? testError.message : 'Failed to test model'
+          ),
+        }));
       } finally {
         setTestingModelId(null);
       }
@@ -504,6 +541,7 @@ export function useRuntimeProviderManagement(
       view,
       providers: view?.providers ?? [],
       selectedProviderId,
+      providerQuery,
       activeFormProviderId,
       apiKeyValue,
       modelPickerProviderId,
@@ -533,6 +571,7 @@ export function useRuntimeProviderManagement(
       models,
       modelsError,
       modelsLoading,
+      providerQuery,
       savingDefaultModelId,
       savingProviderId,
       selectedModelId,
@@ -547,6 +586,7 @@ export function useRuntimeProviderManagement(
     () => ({
       refresh,
       selectProvider,
+      setProviderQuery,
       startConnect,
       cancelConnect,
       setApiKeyValue,

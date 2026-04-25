@@ -5951,6 +5951,16 @@ export class TeamProvisioningService {
       if (trackedRun && this.shouldRouteOpenCodeToRuntimeAdapter(trackedRun.request)) {
         return trackedRunId;
       }
+      if (
+        trackedRunId &&
+        this.provisioningRunByTeam.get(teamName) === trackedRunId &&
+        this.runtimeAdapterProgressByRunId.has(trackedRunId)
+      ) {
+        const runtimeProgress = this.runtimeAdapterProgressByRunId.get(trackedRunId);
+        if (runtimeProgress && this.isCancellableRuntimeAdapterProgress(runtimeProgress)) {
+          return trackedRunId;
+        }
+      }
       const runtimeRun = this.runtimeAdapterRunByTeam.get(teamName);
       if (runtimeRun?.providerId === 'opencode') {
         return runtimeRun.runId;
@@ -13447,6 +13457,18 @@ export class TeamProvisioningService {
           message.from.trim().toLowerCase() !== memberName.trim().toLowerCase()
             ? message.from.trim()
             : 'user';
+        const effectiveReplyRecipient =
+          existingRecord?.replyRecipient ??
+          options.deliveryMetadata?.replyRecipient ??
+          fallbackReplyRecipient;
+        const effectiveActionMode =
+          existingRecord?.actionMode ??
+          options.deliveryMetadata?.actionMode ??
+          message.actionMode ??
+          null;
+        const effectiveTaskRefs =
+          existingRecord?.taskRefs ?? options.deliveryMetadata?.taskRefs ?? message.taskRefs ?? [];
+        const effectiveSource = existingRecord?.source ?? options.source ?? 'watcher';
         result.attempted += 1;
         if (message.attachments?.length) {
           const reason = 'opencode_attachments_not_supported_for_secondary_runtime';
@@ -13458,17 +13480,17 @@ export class TeamProvisioningService {
             runId: await this.resolveCurrentOpenCodeRuntimeRunId(teamName, memberIdentity.laneId),
             inboxMessageId: message.messageId,
             inboxTimestamp: message.timestamp,
-            source: options.source ?? 'watcher',
-            replyRecipient: options.deliveryMetadata?.replyRecipient ?? fallbackReplyRecipient,
-            actionMode: options.deliveryMetadata?.actionMode ?? message.actionMode ?? null,
-            taskRefs: options.deliveryMetadata?.taskRefs ?? message.taskRefs ?? [],
+            source: effectiveSource,
+            replyRecipient: effectiveReplyRecipient,
+            actionMode: effectiveActionMode,
+            taskRefs: effectiveTaskRefs,
             payloadHash: hashOpenCodePromptDeliveryPayload({
               text: message.text,
-              replyRecipient: options.deliveryMetadata?.replyRecipient ?? fallbackReplyRecipient,
-              actionMode: options.deliveryMetadata?.actionMode ?? message.actionMode ?? null,
-              taskRefs: options.deliveryMetadata?.taskRefs ?? message.taskRefs ?? [],
+              replyRecipient: effectiveReplyRecipient,
+              actionMode: effectiveActionMode,
+              taskRefs: effectiveTaskRefs,
               attachments: message.attachments,
-              source: options.source ?? 'watcher',
+              source: effectiveSource,
             }),
             now,
           });
@@ -13499,10 +13521,10 @@ export class TeamProvisioningService {
           memberName,
           text: message.text,
           messageId: message.messageId,
-          replyRecipient: options.deliveryMetadata?.replyRecipient ?? fallbackReplyRecipient,
-          actionMode: options.deliveryMetadata?.actionMode ?? message.actionMode,
-          taskRefs: options.deliveryMetadata?.taskRefs ?? message.taskRefs,
-          source: options.source ?? 'watcher',
+          replyRecipient: effectiveReplyRecipient,
+          actionMode: effectiveActionMode ?? undefined,
+          taskRefs: effectiveTaskRefs,
+          source: effectiveSource,
           inboxTimestamp: message.timestamp,
         });
         result.lastDelivery = delivery;

@@ -79,6 +79,8 @@ const VARIANT_STYLES: Record<BannerVariant, { border: string; bg: string }> = {
   warning: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.06)' },
 };
 
+const OPENCODE_DOWNLOAD_URL = 'https://opencode.ai/download';
+
 /** Minimum banner height — prevents layout shift between states (loading → installed → checking). */
 const BANNER_MIN_H = 'min-h-[4.25rem]';
 
@@ -560,6 +562,19 @@ function hasVisibleAuthenticatedMultimodelProvider(
   return visibleProviders.some((provider) => provider.authenticated);
 }
 
+function shouldShowOpenCodeDownloadAction(
+  provider: CliProviderStatus,
+  showSkeleton: boolean
+): boolean {
+  return (
+    provider.providerId === 'opencode' &&
+    !showSkeleton &&
+    !provider.supported &&
+    !provider.authenticated &&
+    provider.backend == null
+  );
+}
+
 const InstalledBanner = ({
   cliStatus,
   sourceProviderMap,
@@ -901,6 +916,21 @@ const InstalledBanner = ({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-start gap-2">
+                    {shouldShowOpenCodeDownloadAction(provider, showSkeleton) ? (
+                      <button
+                        type="button"
+                        onClick={() => void api.openExternal(OPENCODE_DOWNLOAD_URL)}
+                        className="flex items-center gap-1 rounded-md border px-2 py-[3px] text-[10px] font-medium transition-colors hover:bg-white/5"
+                        style={{
+                          borderColor: 'rgba(14, 165, 233, 0.36)',
+                          color: '#7dd3fc',
+                        }}
+                        title="Download OpenCode CLI"
+                      >
+                        <Download className="size-3" />
+                        Download
+                      </button>
+                    ) : null}
                     <button
                       onClick={() => onProviderManage(provider.providerId)}
                       disabled={actionDisabled}

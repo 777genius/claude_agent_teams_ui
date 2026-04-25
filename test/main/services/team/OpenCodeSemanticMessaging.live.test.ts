@@ -190,8 +190,8 @@ liveDescribe('OpenCode semantic messaging live e2e', () => {
       const replyToken = `opencode-peer-reply-e2e-${Date.now()}`;
       const peerInstructionText = [
         `Peer relay token: ${peerToken}.`,
-        `Please reply to the app user with exactly ${replyToken}.`,
-        `Use agent-teams_message_send with teamName="${teamName}", to="user", from="${recipientName}", text exactly "${replyToken}", and summary "peer reply".`,
+        `Jack, reply to the app user with exactly ${replyToken}.`,
+        `Use agent-teams_message_send to user from ${recipientName} with summary "peer reply".`,
       ].join(' ');
       const progressEvents: TeamProvisioningProgress[] = [];
 
@@ -258,11 +258,10 @@ liveDescribe('OpenCode semantic messaging live e2e', () => {
           messageId: `ui-peer-message-${Date.now()}`,
           replyRecipient: recipientName,
           text: [
-            `Send ${recipientName} a team message by calling agent-teams_message_send exactly once.`,
-            `Set to="${recipientName}" and from="${senderName}".`,
-            'Use this exact message text, with no extra text:',
+            `Send one team message to ${recipientName}.`,
+            'Use the exact message text below and no extra commentary:',
             peerInstructionText,
-            `Use agent-teams_message_send with to="${recipientName}" and from="${senderName}".`,
+            `Call agent-teams_message_send with to="${recipientName}", from="${senderName}", text set to the exact message text above, and summary "peer relay".`,
             'Do not reply to user instead of sending the team message.',
           ].join('\n'),
         });
@@ -280,7 +279,7 @@ liveDescribe('OpenCode semantic messaging live e2e', () => {
             recipientName,
             senderName,
             replyToken,
-            90_000
+            180_000
           );
         } catch (error) {
           const transcript = await getRuntimeTranscript(bridgeClient, teamName, senderName);
@@ -293,16 +292,13 @@ liveDescribe('OpenCode semantic messaging live e2e', () => {
           );
         }
 
-        const relay = await svc.relayOpenCodeMemberInboxMessages(teamName, recipientName, {
-          onlyMessageId: peerMessage.messageId,
-          source: 'manual',
-          deliveryMetadata: {
-            replyRecipient: 'user',
-          },
-        });
-        if (relay.delivered < 1) {
-          throw new Error(`OpenCode peer relay failed: ${JSON.stringify(relay, null, 2)}`);
-        }
+        await waitForOpenCodePeerRelay(
+          svc,
+          teamName,
+          recipientName,
+          peerMessage.messageId,
+          180_000
+        );
 
         let reply: InboxMessage;
         try {
@@ -408,6 +404,37 @@ async function waitForMemberInboxMessage(
       2
     )}`
   );
+}
+
+async function waitForOpenCodePeerRelay(
+  svc: TeamProvisioningService,
+  teamName: string,
+  memberName: string,
+  messageId: string,
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastRelay: Awaited<ReturnType<TeamProvisioningService['relayOpenCodeMemberInboxMessages']>> | null =
+    null;
+
+  while (Date.now() < deadline) {
+    lastRelay = await svc.relayOpenCodeMemberInboxMessages(teamName, memberName, {
+      onlyMessageId: messageId,
+      source: 'manual',
+      deliveryMetadata: {
+        replyRecipient: 'user',
+      },
+    });
+    if (lastRelay.delivered >= 1) {
+      return;
+    }
+    if (lastRelay.failed > 0 && lastRelay.lastDelivery?.responsePending !== true) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  }
+
+  throw new Error(`OpenCode peer relay failed: ${JSON.stringify(lastRelay, null, 2)}`);
 }
 
 async function readInboxMessages(inboxPath: string): Promise<InboxMessage[]> {

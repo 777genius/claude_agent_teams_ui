@@ -231,6 +231,90 @@ describe('TeamModelSelector disabled Codex models', () => {
     });
   });
 
+  it('labels, sorts, and filters OpenCode models with real Agent Teams E2E recommendations', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.cliStatus = {
+      flavor: 'agent_teams_orchestrator',
+      providers: [
+        {
+          providerId: 'opencode',
+          authMethod: 'api_key',
+          backend: {
+            kind: 'opencode-cli',
+            label: 'OpenCode CLI',
+            endpointLabel: 'opencode',
+          },
+          authenticated: true,
+          supported: true,
+          capabilities: {
+            teamLaunch: true,
+          },
+          models: [
+            'openrouter/openai/gpt-oss-20b:free',
+            'opencode/big-pickle',
+            'openrouter/qwen/qwen3-coder-flash',
+          ],
+          modelVerificationState: 'idle',
+          modelAvailability: [],
+        },
+      ],
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(TeamModelSelector, {
+          providerId: 'opencode',
+          onProviderChange: () => undefined,
+          value: '',
+          onValueChange: () => undefined,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Recommended only');
+    expect(host.textContent).toContain('qwen/qwen3-coder-flash');
+    expect(host.textContent).toContain('Recommended');
+    expect(host.textContent).toContain('big-pickle');
+    expect(host.textContent).toContain('openai/gpt-oss-20b:free');
+    expect(host.textContent).toContain('Not recommended');
+
+    const buttonTexts = Array.from(host.querySelectorAll('button')).map(
+      (button) => button.textContent ?? ''
+    );
+    const recommendedIndex = buttonTexts.findIndex((text) =>
+      text.includes('qwen/qwen3-coder-flash')
+    );
+    const neutralIndex = buttonTexts.findIndex((text) => text.includes('big-pickle'));
+    const notRecommendedIndex = buttonTexts.findIndex((text) =>
+      text.includes('openai/gpt-oss-20b:free')
+    );
+    expect(recommendedIndex).toBeGreaterThanOrEqual(0);
+    expect(neutralIndex).toBeGreaterThan(recommendedIndex);
+    expect(notRecommendedIndex).toBeGreaterThan(neutralIndex);
+
+    await act(async () => {
+      const checkbox = Array.from(host.querySelectorAll('button')).find(
+        (button) => button.getAttribute('role') === 'checkbox'
+      );
+      checkbox?.click();
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('qwen/qwen3-coder-flash');
+    expect(host.textContent).not.toContain('big-pickle');
+    expect(host.textContent).not.toContain('openai/gpt-oss-20b:free');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
   it('keeps the runtime-reported Codex model list visible during a background refresh', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     storeState.cliStatus = {
