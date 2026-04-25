@@ -45,6 +45,7 @@ interface RuntimeProviderManagementPanelViewProps {
   readonly state: RuntimeProviderManagementState;
   readonly actions: RuntimeProviderManagementActions;
   readonly disabled: boolean;
+  readonly projectPath?: string | null;
 }
 
 interface ProviderActionsProps {
@@ -97,7 +98,8 @@ function RuntimeSummary({
   state,
   onRefresh,
   disabled,
-}: Pick<RuntimeProviderManagementPanelViewProps, 'state' | 'disabled'> & {
+  projectPath,
+}: Pick<RuntimeProviderManagementPanelViewProps, 'state' | 'disabled' | 'projectPath'> & {
   onRefresh: () => void;
 }): JSX.Element {
   const runtime = state.view?.runtime;
@@ -135,6 +137,15 @@ function RuntimeSummary({
                 OpenCode default: {state.view.defaultModel}
               </span>
             ) : null}
+          </div>
+          <div
+            className="mt-1 truncate text-[11px]"
+            style={{ color: 'var(--color-text-muted)' }}
+            title={projectPath ?? undefined}
+          >
+            {projectPath
+              ? `Managing selected project profile: ${projectPath}`
+              : 'Managing fallback OpenCode profile. Select a project to manage launch credentials for that project.'}
           </div>
           {state.loading ? (
             <div
@@ -784,6 +795,7 @@ export function RuntimeProviderManagementPanelView({
   state,
   actions,
   disabled,
+  projectPath = null,
 }: RuntimeProviderManagementPanelViewProps): JSX.Element {
   const providerQuery = state.providerQuery.trim().toLowerCase();
   const filteredProviders = providerQuery
@@ -809,7 +821,12 @@ export function RuntimeProviderManagementPanelView({
 
   return (
     <div className="space-y-3">
-      <RuntimeSummary state={state} disabled={disabled} onRefresh={() => void actions.refresh()} />
+      <RuntimeSummary
+        state={state}
+        disabled={disabled}
+        projectPath={projectPath}
+        onRefresh={() => void actions.refresh()}
+      />
 
       {state.error ? (
         <div

@@ -7,6 +7,7 @@ import type { JSX } from 'react';
 interface RuntimeProviderManagementPanelProps {
   readonly runtimeId: RuntimeProviderManagementRuntimeId;
   readonly open: boolean;
+  readonly projectPath?: string | null;
   readonly disabled?: boolean;
   readonly onProviderChanged?: () => Promise<void> | void;
 }
@@ -14,14 +15,23 @@ interface RuntimeProviderManagementPanelProps {
 export function RuntimeProviderManagementPanel({
   runtimeId,
   open,
+  projectPath = null,
   disabled = false,
   onProviderChanged,
 }: RuntimeProviderManagementPanelProps): JSX.Element {
   const [state, actions] = useRuntimeProviderManagement({
     runtimeId,
     enabled: open,
+    projectPath,
     onProviderChanged,
   });
 
-  return <RuntimeProviderManagementPanelView state={state} actions={actions} disabled={disabled} />;
+  return (
+    <RuntimeProviderManagementPanelView
+      state={state}
+      actions={actions}
+      disabled={disabled}
+      projectPath={projectPath}
+    />
+  );
 }

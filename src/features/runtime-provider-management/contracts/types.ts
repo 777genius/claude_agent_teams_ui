@@ -150,22 +150,26 @@ export interface RuntimeProviderManagementModelTestResponse {
 
 export interface RuntimeProviderManagementLoadViewInput {
   runtimeId: RuntimeProviderManagementRuntimeId;
+  projectPath?: string | null;
 }
 
 export interface RuntimeProviderManagementConnectApiKeyInput {
   runtimeId: RuntimeProviderManagementRuntimeId;
   providerId: string;
   apiKey: string;
+  projectPath?: string | null;
 }
 
 export interface RuntimeProviderManagementForgetInput {
   runtimeId: RuntimeProviderManagementRuntimeId;
   providerId: string;
+  projectPath?: string | null;
 }
 
 export interface RuntimeProviderManagementLoadModelsInput {
   runtimeId: RuntimeProviderManagementRuntimeId;
   providerId: string;
+  projectPath?: string | null;
   query?: string | null;
   limit?: number | null;
 }
@@ -174,6 +178,7 @@ export interface RuntimeProviderManagementTestModelInput {
   runtimeId: RuntimeProviderManagementRuntimeId;
   providerId: string;
   modelId: string;
+  projectPath?: string | null;
 }
 
 export interface RuntimeProviderManagementSetDefaultModelInput {
@@ -181,4 +186,5 @@ export interface RuntimeProviderManagementSetDefaultModelInput {
   providerId: string;
   modelId: string;
   probe?: boolean;
+  projectPath?: string | null;
 }

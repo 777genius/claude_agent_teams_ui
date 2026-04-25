@@ -72,6 +72,7 @@ interface Props {
   readonly onOpenChange: (open: boolean) => void;
   readonly providers: CliProviderStatus[];
   readonly initialProviderId: CliProviderId;
+  readonly projectPath?: string | null;
   readonly providerStatusLoading?: Partial<Record<CliProviderId, boolean>>;
   readonly disabled?: boolean;
   readonly onSelectBackend: (providerId: CliProviderId, backendId: string) => Promise<void> | void;
@@ -543,6 +544,7 @@ export const ProviderRuntimeSettingsDialog = ({
   onOpenChange,
   providers,
   initialProviderId,
+  projectPath = null,
   providerStatusLoading = {},
   disabled = false,
   onSelectBackend,
@@ -1168,6 +1170,7 @@ export const ProviderRuntimeSettingsDialog = ({
               <RuntimeProviderManagementPanel
                 runtimeId="opencode"
                 open={open}
+                projectPath={projectPath}
                 disabled={disabled || selectedProviderLoading}
                 onProviderChanged={() => onRefreshProvider?.('opencode')}
               />

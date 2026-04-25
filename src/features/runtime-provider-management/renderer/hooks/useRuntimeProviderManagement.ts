@@ -19,6 +19,7 @@ import type {
 interface UseRuntimeProviderManagementOptions {
   runtimeId: RuntimeProviderManagementRuntimeId;
   enabled: boolean;
+  projectPath?: string | null;
   onProviderChanged?: () => Promise<void> | void;
 }
 
@@ -175,6 +176,7 @@ export function useRuntimeProviderManagement(
     try {
       const response = await api.runtimeProviderManagement.loadView({
         runtimeId: options.runtimeId,
+        projectPath: options.projectPath ?? null,
       });
       if (response.error) {
         setView(null);
@@ -195,7 +197,7 @@ export function useRuntimeProviderManagement(
     } finally {
       setLoading(false);
     }
-  }, [options.enabled, options.runtimeId]);
+  }, [options.enabled, options.projectPath, options.runtimeId]);
 
   useEffect(() => {
     if (!options.enabled) {
@@ -226,6 +228,7 @@ export function useRuntimeProviderManagement(
       api.runtimeProviderManagement.loadModels({
         runtimeId: options.runtimeId,
         providerId: modelPickerProviderId,
+        projectPath: options.projectPath ?? null,
         query: modelQuery.trim() || null,
         limit: 250,
       }),
@@ -268,7 +271,7 @@ export function useRuntimeProviderManagement(
     return () => {
       cancelled = true;
     };
-  }, [modelPickerProviderId, modelQuery, options.enabled, options.runtimeId]);
+  }, [modelPickerProviderId, modelQuery, options.enabled, options.projectPath, options.runtimeId]);
 
   useEffect(() => {
     if (!options.enabled || activeFormProviderId) {
@@ -338,6 +341,7 @@ export function useRuntimeProviderManagement(
             runtimeId: options.runtimeId,
             providerId,
             apiKey,
+            projectPath: options.projectPath ?? null,
           }),
           'Provider connect timed out'
         );
@@ -381,6 +385,7 @@ export function useRuntimeProviderManagement(
           api.runtimeProviderManagement.forgetCredential({
             runtimeId: options.runtimeId,
             providerId,
+            projectPath: options.projectPath ?? null,
           }),
           'Provider forget timed out'
         );
@@ -456,6 +461,7 @@ export function useRuntimeProviderManagement(
             runtimeId: options.runtimeId,
             providerId,
             modelId,
+            projectPath: options.projectPath ?? null,
           }),
           'Model test timed out',
           100_000
@@ -486,7 +492,7 @@ export function useRuntimeProviderManagement(
         setTestingModelId(null);
       }
     },
-    [options.runtimeId]
+    [options.projectPath, options.runtimeId]
   );
 
   const setDefaultModel = useCallback(
@@ -501,6 +507,7 @@ export function useRuntimeProviderManagement(
             providerId,
             modelId,
             probe: true,
+            projectPath: options.projectPath ?? null,
           }),
           'Set default model timed out',
           100_000

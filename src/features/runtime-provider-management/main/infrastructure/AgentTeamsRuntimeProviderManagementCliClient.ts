@@ -107,6 +107,22 @@ function normalizeCommandFailure(error: unknown): string {
   return 'Runtime provider management command failed';
 }
 
+function normalizeProjectPath(projectPath: string | null | undefined): string | null {
+  const normalized = projectPath?.trim();
+  return normalized ? normalized : null;
+}
+
+function appendProjectPathArgs(args: string[], projectPath: string | null): string[] {
+  return projectPath ? [...args, '--project-path', projectPath] : args;
+}
+
+function runtimeProviderCommandOptions<T extends { env: NodeJS.ProcessEnv }>(
+  options: T,
+  projectPath: string | null
+): T & { cwd?: string } {
+  return projectPath ? { ...options, cwd: projectPath } : options;
+}
+
 async function resolveCliEnv(): Promise<{
   binaryPath: string | null;
   env: NodeJS.ProcessEnv;
@@ -194,11 +210,15 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
     }
 
+    const projectPath = normalizeProjectPath(input.projectPath);
     try {
       const { stdout } = await execCli(
         binaryPath,
-        ['runtime', 'providers', 'view', '--runtime', input.runtimeId, '--json', '--compact'],
-        { env, timeout: COMMAND_TIMEOUT_MS }
+        appendProjectPathArgs(
+          ['runtime', 'providers', 'view', '--runtime', input.runtimeId, '--json', '--compact'],
+          projectPath
+        ),
+        runtimeProviderCommandOptions({ env, timeout: COMMAND_TIMEOUT_MS }, projectPath)
       );
       return extractJsonObject<RuntimeProviderManagementViewResponse>(stdout);
     } catch (error) {
@@ -225,24 +245,31 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
     }
 
+    const projectPath = normalizeProjectPath(input.projectPath);
     try {
       const child = spawnCli(
         binaryPath,
-        [
-          'runtime',
-          'providers',
-          'connect-api-key',
-          '--runtime',
-          input.runtimeId,
-          '--provider',
-          input.providerId,
-          '--stdin-key',
-          '--json',
-        ],
-        {
-          env,
-          stdio: 'pipe',
-        }
+        appendProjectPathArgs(
+          [
+            'runtime',
+            'providers',
+            'connect-api-key',
+            '--runtime',
+            input.runtimeId,
+            '--provider',
+            input.providerId,
+            '--stdin-key',
+            '--json',
+          ],
+          projectPath
+        ),
+        runtimeProviderCommandOptions(
+          {
+            env,
+            stdio: 'pipe' as const,
+          },
+          projectPath
+        )
       ) as ChildProcessWithoutNullStreams;
       const result = await collectSpawnOutput(child, input.apiKey);
       if (result.code === 0) {
@@ -281,20 +308,24 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
     }
 
+    const projectPath = normalizeProjectPath(input.projectPath);
     try {
       const { stdout } = await execCli(
         binaryPath,
-        [
-          'runtime',
-          'providers',
-          'forget',
-          '--runtime',
-          input.runtimeId,
-          '--provider',
-          input.providerId,
-          '--json',
-        ],
-        { env, timeout: COMMAND_TIMEOUT_MS }
+        appendProjectPathArgs(
+          [
+            'runtime',
+            'providers',
+            'forget',
+            '--runtime',
+            input.runtimeId,
+            '--provider',
+            input.providerId,
+            '--json',
+          ],
+          projectPath
+        ),
+        runtimeProviderCommandOptions({ env, timeout: COMMAND_TIMEOUT_MS }, projectPath)
       );
       return extractJsonObject<RuntimeProviderManagementProviderResponse>(stdout);
     } catch (error) {
@@ -317,7 +348,8 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
     }
 
-    const args = [
+    const projectPath = normalizeProjectPath(input.projectPath);
+    let args = [
       'runtime',
       'providers',
       'models',
@@ -333,10 +365,11 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
     if (typeof input.limit === 'number' && Number.isFinite(input.limit) && input.limit > 0) {
       args.push('--limit', String(Math.floor(input.limit)));
     }
+    args = appendProjectPathArgs(args, projectPath);
 
     try {
       const { stdout } = await execCli(binaryPath, args, {
-        env,
+        ...runtimeProviderCommandOptions({ env }, projectPath),
         timeout: COMMAND_TIMEOUT_MS,
       });
       return extractJsonObject<RuntimeProviderManagementModelsResponse>(stdout);
@@ -364,22 +397,26 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
     }
 
+    const projectPath = normalizeProjectPath(input.projectPath);
     try {
       const { stdout } = await execCli(
         binaryPath,
-        [
-          'runtime',
-          'providers',
-          'test-model',
-          '--runtime',
-          input.runtimeId,
-          '--provider',
-          input.providerId,
-          '--model',
-          input.modelId,
-          '--json',
-        ],
-        { env, timeout: PROBE_COMMAND_TIMEOUT_MS }
+        appendProjectPathArgs(
+          [
+            'runtime',
+            'providers',
+            'test-model',
+            '--runtime',
+            input.runtimeId,
+            '--provider',
+            input.providerId,
+            '--model',
+            input.modelId,
+            '--json',
+          ],
+          projectPath
+        ),
+        runtimeProviderCommandOptions({ env, timeout: PROBE_COMMAND_TIMEOUT_MS }, projectPath)
       );
       return extractJsonObject<RuntimeProviderManagementModelTestResponse>(stdout);
     } catch (error) {
@@ -408,24 +445,28 @@ export class AgentTeamsRuntimeProviderManagementCliClient implements RuntimeProv
       );
     }
 
+    const projectPath = normalizeProjectPath(input.projectPath);
     try {
       const { stdout } = await execCli(
         binaryPath,
-        [
-          'runtime',
-          'providers',
-          'set-default',
-          '--runtime',
-          input.runtimeId,
-          '--provider',
-          input.providerId,
-          '--model',
-          input.modelId,
-          '--probe',
-          '--compact',
-          '--json',
-        ],
-        { env, timeout: PROBE_COMMAND_TIMEOUT_MS }
+        appendProjectPathArgs(
+          [
+            'runtime',
+            'providers',
+            'set-default',
+            '--runtime',
+            input.runtimeId,
+            '--provider',
+            input.providerId,
+            '--model',
+            input.modelId,
+            '--probe',
+            '--compact',
+            '--json',
+          ],
+          projectPath
+        ),
+        runtimeProviderCommandOptions({ env, timeout: PROBE_COMMAND_TIMEOUT_MS }, projectPath)
       );
       return extractJsonObject<RuntimeProviderManagementViewResponse>(stdout);
     } catch (error) {

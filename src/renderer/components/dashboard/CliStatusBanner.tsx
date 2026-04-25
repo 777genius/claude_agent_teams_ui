@@ -44,6 +44,7 @@ import { createLoadingMultimodelCliStatus } from '@renderer/store/slices/cliInst
 import { formatBytes } from '@renderer/utils/formatters';
 import { filterMainScreenCliProviders } from '@renderer/utils/geminiUiFreeze';
 import { isMultimodelRuntimeStatus } from '@renderer/utils/multimodelProviderVisibility';
+import { resolveProjectPathById } from '@renderer/utils/projectLookup';
 import { refreshCliStatusForCurrentMode } from '@renderer/utils/refreshCliStatus';
 import { getRuntimeDisplayName as getHumanRuntimeDisplayName } from '@renderer/utils/runtimeDisplayName';
 import {
@@ -1013,6 +1014,9 @@ const InstalledBanner = ({
 export const CliStatusBanner = (): React.JSX.Element | null => {
   const isElectron = useMemo(() => isElectronMode(), []);
   const appConfig = useStore((s) => s.appConfig);
+  const selectedProjectId = useStore((s) => s.selectedProjectId);
+  const projects = useStore((s) => s.projects);
+  const repositoryGroups = useStore((s) => s.repositoryGroups);
   const updateConfig = useStore((s) => s.updateConfig);
   const {
     cliStatus,
@@ -1048,6 +1052,10 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
     loadDashboardCliStatusBannerCollapsed()
   );
   const multimodelEnabled = appConfig?.general?.multimodelEnabled ?? true;
+  const selectedProjectPath = useMemo(
+    () => resolveProjectPathById(selectedProjectId, projects, repositoryGroups)?.path ?? null,
+    [projects, repositoryGroups, selectedProjectId]
+  );
   const loadingCliStatus = useMemo(
     () =>
       !cliStatus && cliStatusLoading && multimodelEnabled
@@ -1289,6 +1297,7 @@ export const CliStatusBanner = (): React.JSX.Element | null => {
           open={manageDialogOpen}
           onOpenChange={setManageDialogOpen}
           providers={visibleCliProviders}
+          projectPath={selectedProjectPath}
           initialProviderId={
             visibleCliProviders.some((provider) => provider.providerId === manageProviderId)
               ? manageProviderId
