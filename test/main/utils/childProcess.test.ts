@@ -19,7 +19,12 @@ vi.mock('child_process', async (importOriginal) => {
 
 // Import after the mock call so that the mocked module is returned.
 import * as child from 'child_process';
-import { execCli, killTrackedCliProcesses, spawnCli } from '@main/utils/childProcess';
+import {
+  execCli,
+  killTrackedCliProcesses,
+  quoteWindowsCmdArg,
+  spawnCli,
+} from '@main/utils/childProcess';
 
 type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
@@ -66,6 +71,15 @@ describe('cli child process helpers', () => {
 
   afterEach(() => {
     setPlatform(originalPlatform);
+  });
+
+  describe('quoteWindowsCmdArg', () => {
+    it('keeps percent signs literal in cmd.exe command strings', () => {
+      const quoted = quoteWindowsCmdArg('C:\\Users\\Alice\\a%PATH%b.txt');
+      expect(quoted).toContain('"C:\\Users\\Alice\\a"^%"PATH"^%"b.txt"');
+      expect(quoted).not.toContain('%PATH%');
+      expect(quoted).not.toContain('%%PATH%%');
+    });
   });
 
   describe('spawnCli', () => {

@@ -192,11 +192,15 @@ function quoteCmdChunk(chunk: string): string {
   return `"${escaped}"`;
 }
 
-function quoteArg(arg: string): string {
+export function quoteWindowsCmdArg(arg: string): string {
   if (/[^A-Za-z0-9_\-/.]/.test(arg)) {
     return arg.split('%').map(quoteCmdChunk).join('^%');
   }
   return arg;
+}
+
+function quoteArg(arg: string): string {
+  return quoteWindowsCmdArg(arg);
 }
 
 /** Env vars injected into every spawned Claude CLI process. */
