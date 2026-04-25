@@ -67,10 +67,12 @@ vi.mock('@features/runtime-provider-management/renderer', () => ({
     runtimeId,
     open,
     disabled,
+    projectPath,
   }: {
     runtimeId: string;
     open: boolean;
     disabled?: boolean;
+    projectPath?: string | null;
   }) =>
     React.createElement(
       'section',
@@ -79,6 +81,7 @@ vi.mock('@features/runtime-provider-management/renderer', () => ({
         'data-runtime-id': runtimeId,
         'data-open': String(open),
         'data-disabled': String(Boolean(disabled)),
+        'data-project-path': projectPath ?? '',
       },
       `Runtime provider management: ${runtimeId}`
     ),
@@ -1453,6 +1456,7 @@ describe('ProviderRuntimeSettingsDialog', () => {
           onOpenChange: vi.fn(),
           providers: [createOpenCodeProvider()],
           initialProviderId: 'opencode',
+          projectPath: '/tmp/project-a',
           onSelectBackend: vi.fn(),
           onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
         })
@@ -1464,6 +1468,7 @@ describe('ProviderRuntimeSettingsDialog', () => {
     expect(panel).not.toBeNull();
     expect(panel?.getAttribute('data-runtime-id')).toBe('opencode');
     expect(panel?.getAttribute('data-open')).toBe('true');
+    expect(panel?.getAttribute('data-project-path')).toBe('/tmp/project-a');
     expect(host.textContent).toContain('Runtime provider management: opencode');
     expect(host.textContent).not.toContain('Desktop currently exposes status only.');
   });

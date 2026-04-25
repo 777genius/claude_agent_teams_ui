@@ -41,6 +41,17 @@ describe('useRuntimeProviderManagement', () => {
     return React.createElement('div');
   }
 
+  function EnabledHarness(props: { projectPath?: string | null }): React.ReactElement {
+    const hook = useRuntimeProviderManagement({
+      runtimeId: 'opencode',
+      enabled: true,
+      projectPath: props.projectPath,
+    });
+    state = hook[0];
+    actions = hook[1];
+    return React.createElement('div');
+  }
+
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     host = document.createElement('div');
@@ -72,6 +83,49 @@ describe('useRuntimeProviderManagement', () => {
     expect(state?.successMessage).toBeNull();
     expect(getStoredCreateTeamProvider()).toBe('opencode');
     expect(getStoredCreateTeamModel('opencode')).toBe(modelId);
+  });
+
+  it('passes projectPath to the runtime provider management API', async () => {
+    const loadView = vi.fn(() =>
+      Promise.resolve({
+        schemaVersion: 1,
+        runtimeId: 'opencode',
+        view: {
+          runtimeId: 'opencode',
+          title: 'OpenCode',
+          runtime: {
+            state: 'ready',
+            cliPath: '/opt/homebrew/bin/opencode',
+            version: '1.0.0',
+            managedProfile: 'active',
+            localAuth: 'synced',
+          },
+          providers: [],
+          defaultModel: null,
+          fallbackModel: null,
+          diagnostics: [],
+        },
+      })
+    );
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        runtimeProviderManagement: {
+          loadView,
+        },
+      } as unknown as ElectronAPI,
+    });
+
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(React.createElement(EnabledHarness, { projectPath: '/tmp/project-a' }));
+      await Promise.resolve();
+    });
+
+    expect(loadView).toHaveBeenCalledWith({
+      runtimeId: 'opencode',
+      projectPath: '/tmp/project-a',
+    });
   });
 
   it('keeps failed model probes scoped to the model result instead of a global success banner', async () => {

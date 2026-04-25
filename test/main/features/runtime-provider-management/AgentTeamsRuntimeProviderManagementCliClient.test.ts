@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const buildProviderAwareCliEnvMock = vi.fn();
 const resolveBinaryMock = vi.fn();
 const execCliMock = vi.fn();
+const spawnCliMock = vi.fn();
 const resolveInteractiveShellEnvMock = vi.fn();
 
 vi.mock('@main/services/runtime/providerAwareCliEnv', () => ({
@@ -17,7 +18,7 @@ vi.mock('@main/services/team/ClaudeBinaryResolver', () => ({
 
 vi.mock('@main/utils/childProcess', () => ({
   execCli: (...args: unknown[]) => execCliMock(...args),
-  spawnCli: vi.fn(),
+  spawnCli: (...args: unknown[]) => spawnCliMock(...args),
   killProcessTree: vi.fn(),
 }));
 
@@ -84,6 +85,43 @@ describe('AgentTeamsRuntimeProviderManagementCliClient', () => {
     expect(response.error?.code).toBe('auth-required');
     expect(response.error?.message).toBe(
       'Provider opencode must be connected before testing a model'
+    );
+  });
+
+  it('passes project path as cwd and CLI flag for project-aware provider management', async () => {
+    execCliMock.mockResolvedValue({
+      stdout: JSON.stringify({
+        schemaVersion: 1,
+        runtimeId: 'opencode',
+        view: {
+          runtimeId: 'opencode',
+          title: 'OpenCode',
+          runtime: {
+            state: 'ready',
+            cliPath: '/opt/homebrew/bin/opencode',
+            version: '1.0.0',
+            managedProfile: 'active',
+            localAuth: 'synced',
+          },
+          providers: [],
+          defaultModel: null,
+          fallbackModel: null,
+          diagnostics: [],
+        },
+      }),
+      stderr: '',
+    });
+
+    const client = new AgentTeamsRuntimeProviderManagementCliClient();
+    await client.loadView({
+      runtimeId: 'opencode',
+      projectPath: '/Users/test/project',
+    });
+
+    expect(execCliMock).toHaveBeenCalledWith(
+      '/repo/cli-dev',
+      expect.arrayContaining(['--project-path', '/Users/test/project']),
+      expect.objectContaining({ cwd: '/Users/test/project' })
     );
   });
 });
