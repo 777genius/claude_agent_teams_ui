@@ -40,7 +40,7 @@ function expandWindowsExtensions(candidate: string): string[] {
     return [candidate];
   }
 
-  return [candidate, ...pathext.map((ext) => `${candidate}${ext.toLowerCase()}`)];
+  return [...pathext.map((ext) => `${candidate}${ext.toLowerCase()}`), candidate];
 }
 
 async function verifyBinary(candidate: string): Promise<string | null> {

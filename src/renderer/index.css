@@ -790,6 +790,20 @@ body.theme-transitioning {
   -webkit-app-region: no-drag;
 }
 
+button,
+input,
+textarea,
+select,
+a[href],
+[role='button'],
+[role='combobox'],
+[role='menuitem'],
+[role='tab'],
+[role='textbox'],
+[contenteditable='true'] {
+  -webkit-app-region: no-drag;
+}
+
 /* Prevent drag region bleed-through on Windows: all fixed overlays must be no-drag */
 
 .fixed {

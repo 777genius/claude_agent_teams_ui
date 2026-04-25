@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   formatCodexCreditsValue,
@@ -561,6 +561,7 @@ export const ProviderRuntimeSettingsDialog = ({
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [pendingConnectionAction, setPendingConnectionAction] =
     useState<PendingConnectionAction>(null);
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
 
   const apiKeys = useStore((s) => s.apiKeys);
   const apiKeysLoading = useStore((s) => s.apiKeysLoading);
@@ -799,6 +800,19 @@ export const ProviderRuntimeSettingsDialog = ({
     configuredAuthMode !== 'api_key' &&
     selectedProvider.statusMessage !== 'Checking...' &&
     (!selectedProvider?.authenticated || hasSubscriptionSession || configuredAuthMode === 'oauth');
+
+  useEffect(() => {
+    if (!showApiKeyForm) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      apiKeyInputRef.current?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedProvider?.providerId, showApiKeyForm]);
+
   let connectionStatusLabel: string | null = null;
   if (selectedProvider) {
     if (!hideConnectionMethodMeta && selectedProvider.authenticated) {
@@ -1733,6 +1747,7 @@ export const ProviderRuntimeSettingsDialog = ({
                             {apiKeyConfig.name}
                           </Label>
                           <Input
+                            ref={apiKeyInputRef}
                             id={`${selectedProvider.providerId}-api-key`}
                             type="password"
                             value={apiKeyValue}
