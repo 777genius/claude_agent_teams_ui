@@ -1070,7 +1070,7 @@ export const ProviderRuntimeSettingsDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[min(96vw,980px)] max-w-[min(96vw,980px)]">
         <DialogHeader>
           <DialogTitle>Provider Settings</DialogTitle>
           <DialogDescription>

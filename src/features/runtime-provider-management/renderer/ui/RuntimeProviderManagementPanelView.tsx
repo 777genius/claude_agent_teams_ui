@@ -113,6 +113,44 @@ function getDirectoryModelsLabel(provider: RuntimeProviderDirectoryEntryDto): st
   return `${provider.modelCount} model${provider.modelCount === 1 ? '' : 's'}`;
 }
 
+function directoryEntryMatchesQuery(
+  provider: RuntimeProviderDirectoryEntryDto,
+  query: string
+): boolean {
+  if (!query) {
+    return true;
+  }
+  return [
+    provider.providerId,
+    provider.displayName,
+    provider.detail ?? '',
+    provider.defaultModelId ?? '',
+    provider.sourceLabel ?? '',
+    provider.providerSource ?? '',
+    getDirectoryModelsLabel(provider),
+    formatDirectorySetupKind(provider),
+    ...provider.authMethods,
+  ]
+    .join(' ')
+    .toLowerCase()
+    .includes(query);
+}
+
+function directorySetupKindClassName(provider: RuntimeProviderDirectoryEntryDto): string {
+  switch (provider.setupKind) {
+    case 'connected':
+      return 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200';
+    case 'connect-api-key':
+    case 'available-readonly':
+      return 'border-sky-400/30 bg-sky-400/10 text-sky-200';
+    case 'configure-manually':
+    case 'requires-environment':
+      return 'border-white/10 bg-white/[0.04] text-[var(--color-text-muted)]';
+    case 'unsupported':
+      return 'border-red-400/25 bg-red-400/10 text-red-200';
+  }
+}
+
 function directoryEntryToProviderConnection(
   provider: RuntimeProviderDirectoryEntryDto
 ): RuntimeProviderConnectionDto {
@@ -593,13 +631,19 @@ function ProviderRow({
 
 function DirectoryProviderRow({
   provider,
+  state,
   active,
+  formOpen,
+  apiKeyValue,
   disabled,
   busy,
   actions,
 }: {
   readonly provider: RuntimeProviderDirectoryEntryDto;
+  readonly state: RuntimeProviderManagementState;
   readonly active: boolean;
+  readonly formOpen: boolean;
+  readonly apiKeyValue: string;
   readonly disabled: boolean;
   readonly busy: boolean;
   readonly actions: RuntimeProviderManagementActions;
@@ -636,11 +680,7 @@ function DirectoryProviderRow({
             </span>
             {provider.recommended ? <Badge variant="secondary">Recommended</Badge> : null}
             <span
-              className={`rounded-md border px-2 py-0.5 text-[11px] ${
-                provider.state === 'connected'
-                  ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200'
-                  : 'border-white/10 bg-white/[0.04] text-[var(--color-text-muted)]'
-              }`}
+              className={`rounded-md border px-2 py-0.5 text-[11px] ${directorySetupKindClassName(provider)}`}
             >
               {formatDirectorySetupKind(provider)}
             </span>
@@ -718,6 +758,59 @@ function DirectoryProviderRow({
           ) : null}
         </div>
       </div>
+
+      {formOpen ? (
+        <div
+          className="mt-3 rounded-md border p-3"
+          style={{ borderColor: 'var(--color-border-subtle)' }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor={`runtime-provider-key-${provider.providerId}`} className="text-xs">
+              {provider.displayName} API key
+            </Label>
+            <Input
+              id={`runtime-provider-key-${provider.providerId}`}
+              type="password"
+              value={apiKeyValue}
+              disabled={disabled || busy}
+              onChange={(event) => actions.setApiKeyValue(event.target.value)}
+              placeholder="Paste API key"
+              className="h-9 text-sm"
+              autoFocus
+            />
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={actions.cancelConnect}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={disabled || busy || !apiKeyValue.trim()}
+              onClick={() => void actions.submitConnect(provider.providerId)}
+            >
+              {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+              Save key
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {active && provider.state === 'connected' && provider.modelCount !== 0 ? (
+        <ProviderModelList
+          state={state}
+          actions={actions}
+          provider={directoryEntryToProviderConnection(provider)}
+          disabled={disabled || busy}
+        />
+      ) : null}
     </div>
   );
 }
@@ -813,21 +906,14 @@ function ProviderDirectoryPanel({
             <div key={provider.providerId}>
               <DirectoryProviderRow
                 provider={provider}
+                state={state}
                 active={active}
+                formOpen={state.activeFormProviderId === provider.providerId}
+                apiKeyValue={state.apiKeyValue}
                 disabled={disabled || state.directoryLoading}
                 busy={state.savingProviderId === provider.providerId}
                 actions={actions}
               />
-              {active && provider.state === 'connected' && provider.modelCount !== 0 ? (
-                <div className="ml-3 border-l border-sky-300/25 pl-3">
-                  <ProviderModelList
-                    state={state}
-                    actions={actions}
-                    provider={directoryEntryToProviderConnection(provider)}
-                    disabled={disabled || state.directoryLoading}
-                  />
-                </div>
-              ) : null}
             </div>
           );
         })}
@@ -1142,8 +1228,17 @@ export function RuntimeProviderManagementPanelView({
           .includes(providerQuery)
       )
     : state.providers;
-  const canSearchDirectory =
-    state.directorySupported && providerQuery.length >= 2 && filteredProviders.length === 0;
+  const useDirectoryRows =
+    state.directorySupported &&
+    (state.directoryLoaded || state.directoryLoading || state.directoryEntries.length > 0);
+  const visibleDirectoryRows = state.directoryEntries.filter((provider) =>
+    directoryEntryMatchesQuery(provider, providerQuery)
+  );
+  const providerCountLabel = state.directoryTotalCount
+    ? `${state.directoryTotalCount} OpenCode providers`
+    : state.directorySupported
+      ? 'OpenCode provider catalog'
+      : 'OpenCode providers';
 
   return (
     <div className="space-y-3">
@@ -1182,32 +1277,32 @@ export function RuntimeProviderManagementPanelView({
         </div>
       ) : null}
 
-      {state.directoryOpen ? (
-        <ProviderDirectoryPanel state={state} actions={actions} disabled={disabled} />
-      ) : null}
-
-      {!state.directoryOpen && state.directorySupported ? (
-        <button
-          type="button"
-          className="w-full rounded-lg border px-3 py-2.5 text-left transition-colors hover:border-sky-300/55 hover:bg-sky-400/[0.07]"
-          style={{
-            borderColor: 'var(--color-border-subtle)',
-            color: 'var(--color-text-secondary)',
-          }}
-          onClick={actions.openDirectory}
-        >
-          <div className="text-sm font-medium text-[var(--color-text)]">
-            Browse all OpenCode providers
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-[var(--color-text)]">Providers</div>
+          <div className="text-xs text-[var(--color-text-muted)]">
+            {providerCountLabel}. Connected and recommended providers are shown first.
           </div>
-          <div className="mt-0.5 text-xs">
-            {state.directoryTotalCount === null
-              ? 'Load the dynamic provider catalog from OpenCode'
-              : `${state.directoryTotalCount} providers available from OpenCode`}
-          </div>
-        </button>
-      ) : null}
+        </div>
+        {state.directorySupported ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={disabled || state.directoryLoading || state.directoryRefreshing}
+            onClick={() => void actions.refreshDirectory()}
+          >
+            {state.directoryRefreshing ? (
+              <Loader2 className="mr-1 size-3.5 animate-spin" />
+            ) : (
+              <RefreshCcw className="mr-1 size-3.5" />
+            )}
+            Refresh catalog
+          </Button>
+        ) : null}
+      </div>
 
-      {!state.directoryOpen && state.providers.length > 0 ? (
+      {state.providers.length > 0 || state.directorySupported ? (
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
           <Input
@@ -1227,42 +1322,86 @@ export function RuntimeProviderManagementPanelView({
         </div>
       ) : null}
 
-      {!state.directoryOpen && canSearchDirectory ? (
-        <button
-          type="button"
-          className="w-full rounded-md border px-3 py-2 text-left text-sm transition-colors hover:border-sky-300/55 hover:bg-sky-400/[0.07]"
-          style={{
-            borderColor: 'var(--color-border-subtle)',
-            color: 'var(--color-text)',
-          }}
-          onClick={() => actions.searchAllProviders(state.providerQuery.trim())}
-        >
-          Search all OpenCode providers for "{state.providerQuery.trim()}"
-        </button>
-      ) : null}
-
-      {!state.directoryOpen ? (
-        <div className="max-h-[62vh] space-y-2 overflow-y-auto pr-1">
-          {state.loading && state.providers.length === 0 ? (
-            <RuntimeProviderLoadingPlaceholder />
-          ) : null}
-          {filteredProviders.map((provider) => (
-            <ProviderRow
-              key={provider.providerId}
-              provider={provider}
-              state={state}
-              active={provider.providerId === state.selectedProviderId}
-              formOpen={state.activeFormProviderId === provider.providerId}
-              apiKeyValue={state.apiKeyValue}
-              busy={state.savingProviderId === provider.providerId}
-              disabled={disabled || state.loading}
-              actions={actions}
-            />
-          ))}
+      {state.directoryError ? (
+        <div className="rounded-md border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs text-red-200">
+          {state.directoryError}
         </div>
       ) : null}
 
-      {!state.directoryOpen &&
+      <div className="max-h-[min(52vh,640px)] space-y-2 overflow-y-auto pr-1">
+        {useDirectoryRows ? (
+          <>
+            {state.directoryLoading && state.directoryEntries.length === 0 ? (
+              <RuntimeProviderLoadingPlaceholder />
+            ) : null}
+            {visibleDirectoryRows.map((provider) => (
+              <DirectoryProviderRow
+                key={provider.providerId}
+                provider={provider}
+                state={state}
+                active={provider.providerId === state.selectedProviderId}
+                formOpen={state.activeFormProviderId === provider.providerId}
+                apiKeyValue={state.apiKeyValue}
+                busy={state.savingProviderId === provider.providerId}
+                disabled={disabled || state.directoryLoading}
+                actions={actions}
+              />
+            ))}
+            {state.directoryNextCursor ? (
+              <div className="flex justify-center py-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={disabled || state.directoryRefreshing}
+                  onClick={() => void actions.loadMoreDirectory()}
+                >
+                  {state.directoryRefreshing ? (
+                    <Loader2 className="mr-1 size-3.5 animate-spin" />
+                  ) : null}
+                  Load more providers
+                </Button>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {state.loading && state.providers.length === 0 ? (
+              <RuntimeProviderLoadingPlaceholder />
+            ) : null}
+            {filteredProviders.map((provider) => (
+              <ProviderRow
+                key={provider.providerId}
+                provider={provider}
+                state={state}
+                active={provider.providerId === state.selectedProviderId}
+                formOpen={state.activeFormProviderId === provider.providerId}
+                apiKeyValue={state.apiKeyValue}
+                busy={state.savingProviderId === provider.providerId}
+                disabled={disabled || state.loading}
+                actions={actions}
+              />
+            ))}
+          </>
+        )}
+      </div>
+
+      {useDirectoryRows &&
+      !state.directoryLoading &&
+      visibleDirectoryRows.length === 0 &&
+      !state.directoryError ? (
+        <div
+          className="rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: 'var(--color-border-subtle)',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
+          No providers match that search.
+        </div>
+      ) : null}
+
+      {!useDirectoryRows &&
       !state.loading &&
       state.providers.length > 0 &&
       filteredProviders.length === 0 ? (
@@ -1277,7 +1416,7 @@ export function RuntimeProviderManagementPanelView({
         </div>
       ) : null}
 
-      {!state.directoryOpen && !state.loading && state.providers.length === 0 ? (
+      {!useDirectoryRows && !state.loading && state.providers.length === 0 ? (
         <div
           className="rounded-lg border p-3 text-sm"
           style={{

@@ -356,7 +356,7 @@ export function useRuntimeProviderManagement(
   }, [options.enabled, refresh]);
 
   useEffect(() => {
-    if (!options.enabled || !directoryOpen || !directorySupported) {
+    if (!options.enabled || !directorySupported) {
       return;
     }
 
@@ -376,7 +376,6 @@ export function useRuntimeProviderManagement(
   }, [
     directoryFilter,
     directoryLoaded,
-    directoryOpen,
     directoryQuery,
     directorySupported,
     loadDirectoryPage,
@@ -572,6 +571,18 @@ export function useRuntimeProviderManagement(
     setSuccessMessage(null);
   }, []);
 
+  const updateProviderQuery = useCallback(
+    (value: string): void => {
+      setProviderQuery(value);
+      if (!directorySupported) {
+        return;
+      }
+      setDirectoryQuery(value);
+      setDirectoryNextCursor(null);
+    },
+    [directorySupported]
+  );
+
   const cancelConnect = useCallback((): void => {
     setActiveFormProviderId(null);
     setApiKeyValue('');
@@ -612,12 +623,7 @@ export function useRuntimeProviderManagement(
         setApiKeyValue('');
         void Promise.resolve(options.onProviderChanged?.())
           .then(() => refresh())
-          .then(() => {
-            if (directoryOpen) {
-              return loadDirectoryPage({ refresh: true, cursor: null });
-            }
-            return undefined;
-          })
+          .then(() => loadDirectoryPage({ refresh: true, cursor: null }))
           .catch((refreshError) => {
             setError(
               refreshError instanceof Error ? refreshError.message : 'Failed to refresh providers'
@@ -631,7 +637,7 @@ export function useRuntimeProviderManagement(
         setSavingProviderId(null);
       }
     },
-    [apiKeyValue, directoryOpen, loadDirectoryPage, options, refresh]
+    [apiKeyValue, loadDirectoryPage, options, refresh]
   );
 
   const forgetProvider = useCallback(
@@ -659,12 +665,7 @@ export function useRuntimeProviderManagement(
         setSavingProviderId(null);
         void Promise.resolve(options.onProviderChanged?.())
           .then(() => refresh())
-          .then(() => {
-            if (directoryOpen) {
-              return loadDirectoryPage({ refresh: true, cursor: null });
-            }
-            return undefined;
-          })
+          .then(() => loadDirectoryPage({ refresh: true, cursor: null }))
           .catch((refreshError) => {
             setError(
               refreshError instanceof Error ? refreshError.message : 'Failed to refresh providers'
@@ -678,7 +679,7 @@ export function useRuntimeProviderManagement(
         setSavingProviderId(null);
       }
     },
-    [directoryOpen, loadDirectoryPage, options, refresh]
+    [loadDirectoryPage, options, refresh]
   );
 
   const openModelPicker = useCallback(
@@ -882,7 +883,7 @@ export function useRuntimeProviderManagement(
     () => ({
       refresh,
       selectProvider,
-      setProviderQuery,
+      setProviderQuery: updateProviderQuery,
       openDirectory,
       closeDirectory,
       setDirectoryQuery: updateDirectoryQuery,
@@ -923,6 +924,7 @@ export function useRuntimeProviderManagement(
       submitConnect,
       testModel,
       updateDirectoryQuery,
+      updateProviderQuery,
       useModelForNewTeams,
     ]
   );
