@@ -563,6 +563,7 @@ async function runModelGauntlet(input: {
     runtimeTransportFailures,
     modelBehaviorFailures,
     harnessFailures,
+    consistencyScore: scoreStability.consistencyScore,
     stageFailureImpact,
     taskRefPassRates,
     protocolViolationTotals,
@@ -952,9 +953,10 @@ async function runGauntletOnce(input: {
       diagnostics,
     };
   } finally {
-    if (harness) {
-      await harness.svc.stopTeam(teamName).catch(() => undefined);
-      await harness.dispose().catch(() => undefined);
+    const activeHarness = harness as Awaited<ReturnType<typeof createOpenCodeLiveHarness>> | null;
+    if (activeHarness) {
+      await activeHarness.svc.stopTeam(teamName).catch(() => undefined);
+      await activeHarness.dispose().catch(() => undefined);
       await waitForOpenCodeLanesStopped(teamName).catch(() => undefined);
     }
     setClaudeBasePathOverride(null);
