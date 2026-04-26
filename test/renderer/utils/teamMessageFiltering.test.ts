@@ -64,6 +64,32 @@ describe('filterTeamMessages', () => {
     expect(result[0].messageId).toBe('orig-1');
   });
 
+  it('hides same-direction relay bridge copies even when sanitized text differs', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'orig-1',
+        to: 'alice',
+        source: 'system_notification',
+        text: 'Comment on task #abcd1234.\n<agent-block>hidden</agent-block>',
+      }),
+      makeMessage({
+        messageId: 'relay-1',
+        to: 'alice',
+        source: 'lead_process',
+        text: 'Comment on task #abcd1234.',
+        relayOfMessageId: 'orig-1',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['orig-1']);
+  });
+
   it('keeps relay bridge copies when the original message is not visible', () => {
     const messages = [
       makeMessage({
@@ -83,6 +109,139 @@ describe('filterTeamMessages', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].messageId).toBe('relay-1');
+  });
+
+  it('keeps OpenCode visible replies linked to a visible delivery prompt', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'delivery-1',
+        from: 'team-lead',
+        to: 'jack',
+        source: 'runtime_delivery',
+        text: 'Please send a short greeting to the user.',
+      }),
+      makeMessage({
+        messageId: 'reply-1',
+        from: 'jack',
+        to: 'user',
+        source: 'runtime_delivery',
+        text: 'Привет! Я Джек, готов помочь.',
+        relayOfMessageId: 'delivery-1',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['delivery-1', 'reply-1']);
+  });
+
+  it('hides internal lead relay deliveries while keeping member replies', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'user-request-1',
+        from: 'user',
+        to: 'team-lead',
+        source: 'user_sent',
+        text: 'Ask everyone to message me.',
+      }),
+      makeMessage({
+        messageId: 'delivery-1',
+        from: 'team-lead',
+        to: 'jack',
+        source: 'runtime_delivery',
+        text: 'Please message the user directly.',
+        relayOfMessageId: 'user-request-1',
+      }),
+      makeMessage({
+        messageId: 'reply-1',
+        from: 'jack',
+        to: 'user',
+        source: 'runtime_delivery',
+        text: 'Привет! Я Джек, готов помочь.',
+        relayOfMessageId: 'delivery-1',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['user-request-1', 'reply-1']);
+  });
+
+  it('hides internal relay deliveries from custom-named leads', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'user-request-1',
+        from: 'user',
+        to: 'captain',
+        source: 'user_sent',
+        text: 'Ask Alice to check this.',
+      }),
+      makeMessage({
+        messageId: 'delivery-1',
+        from: 'captain',
+        to: 'alice',
+        source: 'lead_process',
+        text: 'Please check this for the user.',
+        relayOfMessageId: 'user-request-1',
+      }),
+      makeMessage({
+        messageId: 'reply-1',
+        from: 'alice',
+        to: 'user',
+        source: 'runtime_delivery',
+        text: 'I checked it.',
+        relayOfMessageId: 'delivery-1',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      leadNames: ['captain'],
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['user-request-1', 'reply-1']);
+  });
+
+  it('keeps member relay messages when the sender is not a configured lead', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'user-request-1',
+        from: 'user',
+        to: 'captain',
+        source: 'user_sent',
+        text: 'Ask Alice to check this.',
+      }),
+      makeMessage({
+        messageId: 'member-relay-1',
+        from: 'captain',
+        to: 'alice',
+        source: 'runtime_delivery',
+        text: 'Alice, can you check this?',
+        relayOfMessageId: 'user-request-1',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      leadNames: ['team-lead'],
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual([
+      'user-request-1',
+      'member-relay-1',
+    ]);
   });
 
   it('still filters noise messages when showNoise is false', () => {

@@ -21,6 +21,7 @@ import { selectTeamMessages } from '@renderer/store/slices/teamSlice';
 import { filterTeamMessages } from '@renderer/utils/teamMessageFiltering';
 import { toMessageKey } from '@renderer/utils/teamMessageKey';
 import { shouldExcludeInboxTextFromReplyCandidates } from '@shared/utils/idleNotificationSemantics';
+import { isLeadMember } from '@shared/utils/leadDetection';
 import {
   CheckCheck,
   ChevronsDownUp,
@@ -408,22 +409,29 @@ export const MessagesPanel = memo(function MessagesPanel({
     };
   }, [position, mountPoint]);
 
+  const leadNames = useMemo(
+    () => members.filter((member) => isLeadMember(member)).map((member) => member.name),
+    [members]
+  );
+
   const filteredMessages = useMemo(() => {
     return filterTeamMessages(effectiveMessages, {
+      leadNames,
       timeWindow,
       filter: messagesFilter,
       searchQuery: messagesSearchQuery,
     });
-  }, [effectiveMessages, messagesFilter, messagesSearchQuery, timeWindow]);
+  }, [effectiveMessages, leadNames, messagesFilter, messagesSearchQuery, timeWindow]);
 
   const activityTimelineMessages = useMemo(() => {
     return filterTeamMessages(effectiveMessages, {
       includePassiveIdlePeerSummariesWhenNoiseHidden: true,
+      leadNames,
       timeWindow,
       filter: messagesFilter,
       searchQuery: messagesSearchQuery,
     });
-  }, [effectiveMessages, messagesFilter, messagesSearchQuery, timeWindow]);
+  }, [effectiveMessages, leadNames, messagesFilter, messagesSearchQuery, timeWindow]);
 
   const replyCandidateMessages = useMemo(
     () =>

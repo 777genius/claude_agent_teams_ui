@@ -4765,33 +4765,62 @@ export class TeamProvisioningService {
     replyRecipient?: string | null;
     from: string;
     relayOfMessageId: string;
+    expectedMessageId?: string | null;
+    allowUserFallbackForLeadRecipient?: boolean;
   }): Promise<OpenCodeVisibleReplyProof | null> {
     const relayOfMessageId = input.relayOfMessageId.trim();
     if (!relayOfMessageId) {
       return null;
     }
+    const expectedMessageId = input.expectedMessageId?.trim() || null;
     const candidates = await this.getOpenCodeVisibleReplyInboxCandidates({
       teamName: input.teamName,
       replyRecipient: input.replyRecipient,
+      includeUserFallbackForLeadRecipient: Boolean(
+        expectedMessageId || input.allowUserFallbackForLeadRecipient
+      ),
     });
+    const explicitRecipient = input.replyRecipient?.trim() || 'user';
     const expectedFrom = input.from.trim().toLowerCase();
     for (const inboxName of candidates) {
       const messages = await this.inboxReader
         .getMessagesFor(input.teamName, inboxName)
         .catch(() => []);
+      const isUserFallbackForNonUserRecipient =
+        inboxName.trim().toLowerCase() === 'user' &&
+        explicitRecipient.trim().toLowerCase() !== 'user';
       const matches = messages.filter(
-        (message): message is InboxMessage & { messageId: string } =>
-          typeof message.messageId === 'string' &&
-          message.messageId.trim().length > 0 &&
-          message.relayOfMessageId === relayOfMessageId &&
-          message.from.trim().toLowerCase() === expectedFrom
+        (message): message is InboxMessage & { messageId: string } => {
+          const messageId = typeof message.messageId === 'string' ? message.messageId.trim() : '';
+          const messageRelayOf =
+            typeof message.relayOfMessageId === 'string' ? message.relayOfMessageId.trim() : '';
+          return (
+            messageId.length > 0 &&
+            (!expectedMessageId || messageId === expectedMessageId) &&
+            messageRelayOf === relayOfMessageId &&
+            message.from.trim().toLowerCase() === expectedFrom
+          );
+        }
+      );
+      const runtimeDeliveryMatches = matches.filter(
+        (message) => message.source === 'runtime_delivery'
       );
       const match =
-        matches.find((message) => message.source === 'runtime_delivery') ?? matches[0] ?? null;
+        isUserFallbackForNonUserRecipient && !expectedMessageId
+          ? runtimeDeliveryMatches.length === 1
+            ? runtimeDeliveryMatches[0]
+            : matches.length === 1
+              ? matches[0]
+              : null
+          : (runtimeDeliveryMatches[0] ?? matches[0] ?? null);
       if (match) {
+        const matchMessageId = typeof match.messageId === 'string' ? match.messageId.trim() : '';
+        if (!matchMessageId) {
+          continue;
+        }
         return {
           inboxName,
-          message: { ...match, messageId: match.messageId! },
+          message: { ...match, messageId: matchMessageId },
           missingRuntimeDeliverySource: match.source !== 'runtime_delivery',
         };
       }
@@ -4802,21 +4831,29 @@ export class TeamProvisioningService {
   private async getOpenCodeVisibleReplyInboxCandidates(input: {
     teamName: string;
     replyRecipient?: string | null;
+    includeUserFallbackForLeadRecipient?: boolean;
   }): Promise<string[]> {
     const explicitRecipient = input.replyRecipient?.trim() || 'user';
     const candidates = [explicitRecipient];
-    if (this.isOpenCodeLeadReplyRecipientAlias(explicitRecipient)) {
-      const configuredLeadName = await this.configReader
-        .getConfig(input.teamName)
-        .then(
-          (config) => config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null
-        )
-        .catch(() => null);
+    const configuredLeadName = await this.configReader
+      .getConfig(input.teamName)
+      .then(
+        (config) => config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null
+      )
+      .catch(() => null);
+    const isConfiguredLeadRecipient =
+      Boolean(configuredLeadName) &&
+      configuredLeadName?.toLowerCase() === explicitRecipient.toLowerCase();
+
+    if (this.isOpenCodeLeadReplyRecipientAlias(explicitRecipient) || isConfiguredLeadRecipient) {
       if (configuredLeadName) {
         candidates.push(configuredLeadName);
       }
       candidates.push('lead');
       candidates.push('team-lead');
+      if (input.includeUserFallbackForLeadRecipient) {
+        candidates.push('user');
+      }
     }
     return candidates
       .filter((value): value is string => Boolean(value && value.trim()))
@@ -4854,6 +4891,12 @@ export class TeamProvisioningService {
       replyRecipient: input.replyRecipient ?? input.ledgerRecord.replyRecipient,
       from: input.memberName,
       relayOfMessageId: input.ledgerRecord.inboxMessageId,
+      expectedMessageId:
+        input.ledgerRecord.visibleReplyCorrelation === 'relayOfMessageId'
+          ? input.ledgerRecord.visibleReplyMessageId
+          : null,
+      allowUserFallbackForLeadRecipient:
+        input.ledgerRecord.visibleReplyCorrelation === 'relayOfMessageId',
     });
     if (!visibleReply) {
       return { ledgerRecord: input.ledgerRecord, visibleReply: null };
@@ -5693,6 +5736,12 @@ export class TeamProvisioningService {
           replyRecipient: input.replyRecipient ?? ledgerRecord.replyRecipient,
           from: canonicalMemberName,
           relayOfMessageId: ledgerRecord.inboxMessageId,
+          expectedMessageId:
+            ledgerRecord.visibleReplyCorrelation === 'relayOfMessageId'
+              ? ledgerRecord.visibleReplyMessageId
+              : null,
+          allowUserFallbackForLeadRecipient:
+            ledgerRecord.visibleReplyCorrelation === 'relayOfMessageId',
         })
       : null;
     const readAllowed = this.isOpenCodeDeliveryResponseReadCommitAllowed({

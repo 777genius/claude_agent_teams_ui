@@ -18,13 +18,14 @@ export function buildMemberActivityEntries({
   tasks: TeamTaskWithKanban[];
   messages: InboxMessage[];
 }): InlineActivityEntry[] {
+  const leadName = members.find((candidate) => isLeadMember(candidate))?.name ?? `${teamName}-lead`;
   const filteredMessages = filterTeamMessages(messages, {
+    leadNames: [leadName],
     timeWindow: null,
     filter: { from: new Set(), to: new Set(), showNoise: true },
     searchQuery: '',
   });
   const leadId = `lead:${teamName}`;
-  const leadName = members.find((candidate) => isLeadMember(candidate))?.name ?? `${teamName}-lead`;
   const ownerNodeId = memberName === leadName ? leadId : `member:${teamName}:${memberName}`;
   const ownerNodeIds = new Set([leadId, ownerNodeId]);
   const entriesByOwner = buildInlineActivityEntries({

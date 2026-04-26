@@ -13,10 +13,88 @@ export interface TeamMessagesFilter {
   showNoise: boolean;
 }
 
+function normalizeMessageText(value: string | undefined): string {
+  return (value ?? '')
+    .trim()
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ');
+}
+
+function normalizeParticipant(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function normalizeLeadNames(values: Iterable<string> | undefined): Set<string> {
+  const normalized = new Set<string>();
+  for (const value of values ?? []) {
+    const name = normalizeParticipant(value);
+    if (name) {
+      normalized.add(name);
+    }
+  }
+  return normalized;
+}
+
+function isLeadAlias(value: string | undefined): boolean {
+  const normalized = normalizeParticipant(value).replace(/[\s_]+/g, '-');
+  return (
+    normalized === 'lead' ||
+    normalized === 'team-lead' ||
+    normalized === 'teamlead' ||
+    normalized === 'team-leader'
+  );
+}
+
+function isLeadParticipant(value: string | undefined, leadNames: Set<string>): boolean {
+  const normalized = normalizeParticipant(value);
+  return isLeadAlias(value) || (normalized.length > 0 && leadNames.has(normalized));
+}
+
+function isRelayDuplicateOfVisibleMessage(
+  message: InboxMessage,
+  original: InboxMessage | undefined,
+  leadNames: Set<string>
+): boolean {
+  if (!original) {
+    return false;
+  }
+
+  if (isInboxNoiseMessage(message.text)) {
+    return true;
+  }
+
+  const isInternalLeadRelayDelivery =
+    (message.source === 'runtime_delivery' || message.source === 'lead_process') &&
+    original.source === 'user_sent' &&
+    normalizeParticipant(original.from) === 'user' &&
+    isLeadParticipant(original.to, leadNames) &&
+    isLeadParticipant(message.from, leadNames) &&
+    normalizeParticipant(message.to) !== 'user';
+
+  if (isInternalLeadRelayDelivery) {
+    return true;
+  }
+
+  const sameDirection =
+    normalizeParticipant(message.from) === normalizeParticipant(original.from) &&
+    normalizeParticipant(message.to) === normalizeParticipant(original.to);
+
+  if (!sameDirection) {
+    return false;
+  }
+
+  if (message.source === 'lead_process' || message.source === 'runtime_delivery') {
+    return true;
+  }
+
+  return normalizeMessageText(message.text) === normalizeMessageText(original.text);
+}
+
 export function filterTeamMessages(
   messages: InboxMessage[],
   options: {
     includePassiveIdlePeerSummariesWhenNoiseHidden?: boolean;
+    leadNames?: Iterable<string>;
     timeWindow?: { start: number; end: number } | null;
     filter: TeamMessagesFilter;
     searchQuery: string;
@@ -24,10 +102,12 @@ export function filterTeamMessages(
 ): InboxMessage[] {
   const {
     includePassiveIdlePeerSummariesWhenNoiseHidden = false,
+    leadNames: rawLeadNames,
     timeWindow,
     filter,
     searchQuery,
   } = options;
+  const leadNames = normalizeLeadNames(rawLeadNames);
 
   let list = messages.filter((m) => m.messageKind !== 'task_comment_notification');
   if (timeWindow) {
@@ -74,10 +154,13 @@ export function filterTeamMessages(
     });
   }
 
-  const visibleMessageIds = new Set(
+  const visibleMessagesById = new Map(
     list
-      .map((m) => (typeof m.messageId === 'string' ? m.messageId.trim() : ''))
-      .filter((id) => id.length > 0)
+      .map((m) => {
+        const id = typeof m.messageId === 'string' ? m.messageId.trim() : '';
+        return id ? ([id, m] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, InboxMessage] => entry !== null)
   );
 
   return list.filter((m) => {
@@ -90,6 +173,10 @@ export function filterTeamMessages(
     if (relayOfMessageId === ownMessageId) {
       return true;
     }
-    return !visibleMessageIds.has(relayOfMessageId);
+    return !isRelayDuplicateOfVisibleMessage(
+      m,
+      visibleMessagesById.get(relayOfMessageId),
+      leadNames
+    );
   });
 }
