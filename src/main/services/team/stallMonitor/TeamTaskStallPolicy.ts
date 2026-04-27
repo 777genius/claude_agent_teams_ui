@@ -1,4 +1,5 @@
 import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
+import { classifyTaskProgressTouch, type TaskProgressSignal } from './TaskProgressSignalClassifier';
 import type {
   ReviewTaskContext,
   TaskStallBranch,
@@ -8,6 +9,7 @@ import type {
   TeamTaskStallSnapshot,
   WorkTaskContext,
 } from './TeamTaskStallTypes';
+import { getOpenCodeWeakStartStallThresholdMs } from './featureGates';
 import type { TaskHistoryEvent, TaskWorkInterval, TeamTask } from '@shared/types';
 
 const WORK_TOUCH_TOOLS = new Set(['task_start', 'task_add_comment', 'task_set_status']);
@@ -286,6 +288,7 @@ function buildAlertEvaluation(args: {
   task: TeamTask;
   branch: TaskStallBranch;
   signal: TaskStallSignal;
+  progressSignal?: TaskProgressSignal;
   touch: BoardTaskActivityRecord;
   reason: string;
 }): TaskStallEvaluation {
@@ -294,9 +297,15 @@ function buildAlertEvaluation(args: {
     taskId: args.task.id,
     branch: args.branch,
     signal: args.signal,
+    ...(args.progressSignal ? { progressSignal: args.progressSignal } : {}),
     epochKey: buildEpochKey(args.task, args.branch, args.signal, args.touch),
     reason: args.reason,
   };
+}
+
+function normalizeMemberNameKey(name: string | undefined): string | null {
+  const normalized = name?.trim().toLowerCase();
+  return normalized ? normalized : null;
 }
 
 export class TeamTaskStallPolicy {
@@ -383,8 +392,18 @@ export class TeamTaskStallPolicy {
       return skip(task.id, 'Post-touch state is ambiguous', 'ambiguous_state');
     }
 
+    const progressClassification = classifyTaskProgressTouch({
+      task,
+      record: workContext.lastMeaningfulTouch,
+    });
+    const ownerProviderId =
+      snapshot.providerByMemberName.get(normalizeMemberNameKey(task.owner) ?? '') ?? null;
+    const isOpenCodeWeakStartOnly =
+      ownerProviderId === 'opencode' && progressClassification.signal === 'weak_start_only';
     const elapsedMs = args.now.getTime() - Date.parse(workContext.lastMeaningfulTouchAt);
-    const thresholdMs = WORK_THRESHOLDS_MS[signal];
+    const thresholdMs = isOpenCodeWeakStartOnly
+      ? getOpenCodeWeakStartStallThresholdMs()
+      : WORK_THRESHOLDS_MS[signal];
     if (elapsedMs < thresholdMs) {
       return skip(
         task.id,
@@ -397,8 +416,11 @@ export class TeamTaskStallPolicy {
       task,
       branch: 'work',
       signal,
+      progressSignal: progressClassification.signal,
       touch: workContext.lastMeaningfulTouch,
-      reason: `Potential work stall after ${signal.replaceAll('_', ' ')}.`,
+      reason: isOpenCodeWeakStartOnly
+        ? 'Potential work stall after weak start-only task comment.'
+        : `Potential work stall after ${signal.replaceAll('_', ' ')}.`,
     });
   }
 

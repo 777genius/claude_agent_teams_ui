@@ -1161,8 +1161,8 @@ export const ActivityItem = memo(
           tabIndex={isHeaderClickable ? 0 : undefined}
           className={[
             useCompactCollapsedHeader
-              ? 'min-w-0 px-3 py-2'
-              : 'flex min-w-0 items-center gap-2 px-3 py-2',
+              ? 'min-w-0 px-2.5 py-1.5'
+              : 'flex min-w-0 items-center gap-2 px-2.5 py-1.5',
             isHeaderClickable ? 'cursor-pointer select-none' : '',
           ].join(' ')}
           onClick={handleHeaderToggle}
@@ -1396,7 +1396,7 @@ export const ActivityItem = memo(
 
         {/* Content — collapsed for system messages, expanded for others */}
         {isExpanded ? (
-          <div className="min-w-0 overflow-hidden px-3 pb-3">
+          <div className="min-w-0 overflow-hidden px-2.5 pb-2.5">
             {structured ? (
               <div className="space-y-2">
                 {autoSummary && autoSummary !== messageType ? (
@@ -1547,6 +1547,7 @@ export const ActivityItem = memo(
                     <MarkdownViewer
                       content={displayText}
                       maxHeight="max-h-none"
+                      className="[&_li]:text-[13px] [&_p]:text-[13px] [&_table]:text-[13px]"
                       bare
                       teamColorByName={teamColorByName}
                       onTeamClick={onTeamClick}

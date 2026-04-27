@@ -97,6 +97,7 @@ function createSnapshot(overrides: Partial<TeamTaskStallSnapshot>): TeamTaskStal
     recordsByTaskId: new Map(),
     freshnessByTaskId: new Map(),
     exactRowsByFilePath: new Map(),
+    providerByMemberName: new Map(),
     ...overrides,
   };
 }
@@ -152,6 +153,265 @@ describe('TeamTaskStallPolicy', () => {
       taskId: 'task-a',
       branch: 'work',
       signal: 'turn_ended_after_touch',
+    });
+  });
+
+  it('alerts OpenCode-owned tasks faster after weak start-only task comments', () => {
+    const task: TeamTask = {
+      id: 'task-open-weak',
+      displayId: 'feed1111',
+      subject: 'OpenCode weak start',
+      owner: 'alice',
+      status: 'in_progress',
+      workIntervals: [{ startedAt: '2026-04-19T11:50:00.000Z' }],
+      comments: [
+        {
+          id: 'comment-weak',
+          author: 'alice',
+          text: 'Начинаю работу.',
+          createdAt: '2026-04-19T12:00:00.000Z',
+          type: 'regular',
+        },
+      ],
+    };
+    const record = createRecord({
+      task: {
+        locator: {
+          ref: 'task-open-weak',
+          refKind: 'canonical',
+          canonicalId: 'task-open-weak',
+        },
+        resolution: 'resolved',
+        taskRef: {
+          taskId: 'task-open-weak',
+          displayId: 'feed1111',
+          teamName: 'demo',
+        },
+      },
+      action: {
+        canonicalToolName: 'task_add_comment',
+        category: 'comment',
+        toolUseId: 'tool-weak',
+        details: { commentId: 'comment-weak' },
+      },
+      source: {
+        messageUuid: 'msg-touch',
+        filePath: '/tmp/session.jsonl',
+        toolUseId: 'tool-weak',
+        sourceOrder: 1,
+      },
+    });
+    const snapshot = createSnapshot({
+      activeTasks: [task],
+      allTasksById: new Map([[task.id, task]]),
+      inProgressTasks: [task],
+      providerByMemberName: new Map([['alice', 'opencode']]),
+      recordsByTaskId: new Map([[task.id, [record]]]),
+      exactRowsByFilePath: new Map([
+        [
+          '/tmp/session.jsonl',
+          [
+            createExactRow({
+              messageUuid: 'msg-touch',
+              toolUseIds: ['tool-weak'],
+            }),
+            createExactRow({
+              sourceOrder: 2,
+              messageUuid: 'msg-turn-end',
+              systemSubtype: 'turn_duration',
+              parsedMessage: createParsedMessage({
+                uuid: 'msg-turn-end',
+                type: 'system',
+              }),
+            }),
+          ],
+        ],
+      ]),
+    });
+
+    const evaluation = policy.evaluateWork({
+      now: new Date('2026-04-19T12:07:00.000Z'),
+      task,
+      snapshot,
+    });
+
+    expect(evaluation).toMatchObject({
+      status: 'alert',
+      taskId: 'task-open-weak',
+      progressSignal: 'weak_start_only',
+      reason: 'Potential work stall after weak start-only task comment.',
+    });
+  });
+
+  it('keeps existing thresholds for weak comments from non-OpenCode owners', () => {
+    const task: TeamTask = {
+      id: 'task-codex-weak',
+      displayId: 'feed2222',
+      subject: 'Codex weak start',
+      owner: 'alice',
+      status: 'in_progress',
+      workIntervals: [{ startedAt: '2026-04-19T11:50:00.000Z' }],
+      comments: [
+        {
+          id: 'comment-weak',
+          author: 'alice',
+          text: 'Will start.',
+          createdAt: '2026-04-19T12:00:00.000Z',
+          type: 'regular',
+        },
+      ],
+    };
+    const record = createRecord({
+      task: {
+        locator: {
+          ref: 'task-codex-weak',
+          refKind: 'canonical',
+          canonicalId: 'task-codex-weak',
+        },
+        resolution: 'resolved',
+        taskRef: {
+          taskId: 'task-codex-weak',
+          displayId: 'feed2222',
+          teamName: 'demo',
+        },
+      },
+      action: {
+        canonicalToolName: 'task_add_comment',
+        category: 'comment',
+        toolUseId: 'tool-weak',
+        details: { commentId: 'comment-weak' },
+      },
+      source: {
+        messageUuid: 'msg-touch',
+        filePath: '/tmp/session.jsonl',
+        toolUseId: 'tool-weak',
+        sourceOrder: 1,
+      },
+    });
+    const snapshot = createSnapshot({
+      activeTasks: [task],
+      allTasksById: new Map([[task.id, task]]),
+      inProgressTasks: [task],
+      providerByMemberName: new Map([['alice', 'codex']]),
+      recordsByTaskId: new Map([[task.id, [record]]]),
+      exactRowsByFilePath: new Map([
+        [
+          '/tmp/session.jsonl',
+          [
+            createExactRow({
+              messageUuid: 'msg-touch',
+              toolUseIds: ['tool-weak'],
+            }),
+            createExactRow({
+              sourceOrder: 2,
+              messageUuid: 'msg-turn-end',
+              systemSubtype: 'turn_duration',
+              parsedMessage: createParsedMessage({
+                uuid: 'msg-turn-end',
+                type: 'system',
+              }),
+            }),
+          ],
+        ],
+      ]),
+    });
+
+    const evaluation = policy.evaluateWork({
+      now: new Date('2026-04-19T12:07:00.000Z'),
+      task,
+      snapshot,
+    });
+
+    expect(evaluation).toMatchObject({
+      status: 'skip',
+      taskId: 'task-codex-weak',
+      skipReason: 'below_threshold',
+    });
+  });
+
+  it('does not apply weak-start threshold to concrete task comments', () => {
+    const task: TeamTask = {
+      id: 'task-open-strong',
+      displayId: 'feed3333',
+      subject: 'OpenCode concrete progress',
+      owner: 'alice',
+      status: 'in_progress',
+      workIntervals: [{ startedAt: '2026-04-19T11:50:00.000Z' }],
+      comments: [
+        {
+          id: 'comment-strong',
+          author: 'alice',
+          text: 'Found the failing test in src/app.ts and reproduced it with pnpm test.',
+          createdAt: '2026-04-19T12:00:00.000Z',
+          type: 'regular',
+        },
+      ],
+    };
+    const record = createRecord({
+      task: {
+        locator: {
+          ref: 'task-open-strong',
+          refKind: 'canonical',
+          canonicalId: 'task-open-strong',
+        },
+        resolution: 'resolved',
+        taskRef: {
+          taskId: 'task-open-strong',
+          displayId: 'feed3333',
+          teamName: 'demo',
+        },
+      },
+      action: {
+        canonicalToolName: 'task_add_comment',
+        category: 'comment',
+        toolUseId: 'tool-strong',
+        details: { commentId: 'comment-strong' },
+      },
+      source: {
+        messageUuid: 'msg-touch',
+        filePath: '/tmp/session.jsonl',
+        toolUseId: 'tool-strong',
+        sourceOrder: 1,
+      },
+    });
+    const snapshot = createSnapshot({
+      activeTasks: [task],
+      allTasksById: new Map([[task.id, task]]),
+      inProgressTasks: [task],
+      providerByMemberName: new Map([['alice', 'opencode']]),
+      recordsByTaskId: new Map([[task.id, [record]]]),
+      exactRowsByFilePath: new Map([
+        [
+          '/tmp/session.jsonl',
+          [
+            createExactRow({
+              messageUuid: 'msg-touch',
+              toolUseIds: ['tool-strong'],
+            }),
+            createExactRow({
+              sourceOrder: 2,
+              messageUuid: 'msg-turn-end',
+              systemSubtype: 'turn_duration',
+              parsedMessage: createParsedMessage({
+                uuid: 'msg-turn-end',
+                type: 'system',
+              }),
+            }),
+          ],
+        ],
+      ]),
+    });
+
+    const evaluation = policy.evaluateWork({
+      now: new Date('2026-04-19T12:07:00.000Z'),
+      task,
+      snapshot,
+    });
+
+    expect(evaluation).toMatchObject({
+      status: 'skip',
+      taskId: 'task-open-strong',
+      skipReason: 'below_threshold',
     });
   });
 

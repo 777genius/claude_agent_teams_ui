@@ -4,19 +4,60 @@ import { TeamTranscriptSourceLocator } from '../taskLogs/discovery/TeamTranscrip
 import { isBoardTaskExactLogsReadEnabled } from '../taskLogs/exact/featureGates';
 import { TeamKanbanManager } from '../TeamKanbanManager';
 import { TeamTaskReader } from '../TeamTaskReader';
+import { TeamMembersMetaStore } from '../TeamMembersMetaStore';
 
 import { BoardTaskActivityBatchIndexer } from './BoardTaskActivityBatchIndexer';
 import { buildResolvedReviewerIndex } from './reviewerResolution';
 import { TeamTaskLogFreshnessReader } from './TeamTaskLogFreshnessReader';
 import { TeamTaskStallExactRowReader } from './TeamTaskStallExactRowReader';
+import {
+  inferTeamProviderIdFromModel,
+  normalizeOptionalTeamProviderId,
+} from '@shared/utils/teamProvider';
 
 import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
 import type { TeamTaskStallSnapshot } from './TeamTaskStallTypes';
-import type { TeamConfig, TeamTask } from '@shared/types';
+import type { TeamConfig, TeamMember, TeamProviderId, TeamTask } from '@shared/types';
 
 function resolveLeadNameFromConfig(config: TeamConfig): string {
   const lead = config.members?.find((member) => member.role?.toLowerCase().includes('lead'));
   return lead?.name ?? config.members?.[0]?.name ?? 'team-lead';
+}
+
+function normalizeMemberNameKey(name: string | undefined): string | null {
+  const normalized = name?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function resolveMemberProvider(member: TeamMember): TeamProviderId | undefined {
+  const legacyProvider = (member as { provider?: unknown }).provider;
+  return (
+    normalizeOptionalTeamProviderId(member.providerId) ??
+    normalizeOptionalTeamProviderId(legacyProvider) ??
+    inferTeamProviderIdFromModel(member.model)
+  );
+}
+
+function buildProviderByMemberName(args: {
+  configMembers: TeamMember[];
+  metaMembers: TeamMember[];
+}): Map<string, TeamProviderId> {
+  const providerByMemberName = new Map<string, TeamProviderId>();
+  for (const member of args.configMembers) {
+    const memberName = normalizeMemberNameKey(member.name);
+    const providerId = resolveMemberProvider(member);
+    if (memberName && providerId) {
+      providerByMemberName.set(memberName, providerId);
+    }
+  }
+  for (const member of args.metaMembers) {
+    const memberName = normalizeMemberNameKey(member.name);
+    const providerId = resolveMemberProvider(member);
+    if (memberName && providerId) {
+      providerByMemberName.set(memberName, providerId);
+    }
+  }
+  return providerByMemberName;
 }
 
 export class TeamTaskStallSnapshotSource {
@@ -27,7 +68,8 @@ export class TeamTaskStallSnapshotSource {
     private readonly transcriptReader: BoardTaskActivityTranscriptReader = new BoardTaskActivityTranscriptReader(),
     private readonly activityBatchIndexer: BoardTaskActivityBatchIndexer = new BoardTaskActivityBatchIndexer(),
     private readonly freshnessReader: TeamTaskLogFreshnessReader = new TeamTaskLogFreshnessReader(),
-    private readonly exactRowReader: TeamTaskStallExactRowReader = new TeamTaskStallExactRowReader()
+    private readonly exactRowReader: TeamTaskStallExactRowReader = new TeamTaskStallExactRowReader(),
+    private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore()
   ) {}
 
   async getSnapshot(teamName: string): Promise<TeamTaskStallSnapshot | null> {
@@ -36,10 +78,11 @@ export class TeamTaskStallSnapshotSource {
       return null;
     }
 
-    const [activeTasks, deletedTasks, kanbanState] = await Promise.all([
+    const [activeTasks, deletedTasks, kanbanState, metaMembers] = await Promise.all([
       this.taskReader.getTasks(teamName),
       this.taskReader.getDeletedTasks(teamName),
       this.kanbanManager.getState(teamName),
+      this.membersMetaStore.getMembers(teamName).catch(() => []),
     ]);
     const allTasks = [...activeTasks, ...deletedTasks];
     const allTasksById = new Map(allTasks.map((task) => [task.id, task] as const));
@@ -50,6 +93,10 @@ export class TeamTaskStallSnapshotSource {
     const resolvedReviewersByTaskId = buildResolvedReviewerIndex(activeTasks, kanbanState);
     const activityReadsEnabled = isBoardTaskActivityReadEnabled();
     const exactReadsEnabled = isBoardTaskExactLogsReadEnabled();
+    const providerByMemberName = buildProviderByMemberName({
+      configMembers: transcriptContext.config.members ?? [],
+      metaMembers,
+    });
 
     let recordsByTaskId = new Map<string, BoardTaskActivityRecord[]>();
     if (
@@ -98,6 +145,7 @@ export class TeamTaskStallSnapshotSource {
       recordsByTaskId,
       freshnessByTaskId,
       exactRowsByFilePath,
+      providerByMemberName,
     };
   }
 

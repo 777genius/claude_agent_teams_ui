@@ -25,6 +25,14 @@ export function isTeamTaskStallMonitorEnabled(): boolean {
   return readEnabledFlag(process.env.CLAUDE_TEAM_TASK_STALL_MONITOR_ENABLED, false);
 }
 
+export function isOpenCodeTaskStallRemediationEnabled(): boolean {
+  return readEnabledFlag(process.env.CLAUDE_TEAM_OPENCODE_TASK_STALL_REMEDIATION_ENABLED, false);
+}
+
+export function isTeamTaskStallScannerEnabled(): boolean {
+  return isTeamTaskStallMonitorEnabled() || isOpenCodeTaskStallRemediationEnabled();
+}
+
 export function isTeamTaskStallAlertsEnabled(): boolean {
   return readEnabledFlag(process.env.CLAUDE_TEAM_TASK_STALL_ALERTS_ENABLED, false);
 }
@@ -39,4 +47,8 @@ export function getTeamTaskStallStartupGraceMs(): number {
 
 export function getTeamTaskStallActivationGraceMs(): number {
   return readInt(process.env.CLAUDE_TEAM_TASK_STALL_ACTIVATION_GRACE_MS, 120_000);
+}
+
+export function getOpenCodeWeakStartStallThresholdMs(): number {
+  return readInt(process.env.CLAUDE_TEAM_OPENCODE_WEAK_START_STALL_THRESHOLD_MS, 6 * 60_000);
 }

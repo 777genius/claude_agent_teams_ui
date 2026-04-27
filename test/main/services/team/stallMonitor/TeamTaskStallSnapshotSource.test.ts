@@ -11,6 +11,7 @@ describe('TeamTaskStallSnapshotSource', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       {} as never
     );
 
@@ -42,7 +43,10 @@ describe('TeamTaskStallSnapshotSource', () => {
       projectDir: '/tmp/project',
       projectId: 'project-id',
       config: {
-        members: [{ name: 'team-lead', role: 'team lead' }],
+        members: [
+          { name: 'team-lead', role: 'team lead', providerId: 'codex' },
+          { name: 'alice', role: 'Developer', model: 'qwen/qwen3-coder' },
+        ],
       } as never,
       sessionIds: ['session-a'],
       transcriptFiles: ['/tmp/project/session-a.jsonl', '/tmp/project/session-b.jsonl'],
@@ -109,6 +113,9 @@ describe('TeamTaskStallSnapshotSource', () => {
     const exactRowReader = {
       parseFiles: vi.fn(async () => exactRowsByFilePath),
     };
+    const membersMetaStore = {
+      getMembers: vi.fn(async () => [{ name: 'alice', providerId: 'opencode' }]),
+    };
 
     const source = new TeamTaskStallSnapshotSource(
       locator as never,
@@ -117,7 +124,8 @@ describe('TeamTaskStallSnapshotSource', () => {
       transcriptReader as never,
       batchIndexer as never,
       freshnessReader as never,
-      exactRowReader as never
+      exactRowReader as never,
+      membersMetaStore as never
     );
 
     const snapshot = await source.getSnapshot('demo');
@@ -133,6 +141,12 @@ describe('TeamTaskStallSnapshotSource', () => {
     expect(snapshot?.inProgressTasks.map((task) => task.id)).toEqual(['task-a']);
     expect(snapshot?.reviewOpenTasks.map((task) => task.id)).toEqual(['task-b']);
     expect(snapshot?.leadName).toBe('team-lead');
+    expect(snapshot?.providerByMemberName).toEqual(
+      new Map([
+        ['team-lead', 'codex'],
+        ['alice', 'opencode'],
+      ])
+    );
     expect(snapshot?.resolvedReviewersByTaskId.get('task-b')).toEqual({
       reviewer: 'alice',
       source: 'kanban_state',

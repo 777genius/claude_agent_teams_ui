@@ -4,6 +4,8 @@ import { createLogger } from '@shared/utils/logger';
 import { getTaskDisplayId } from '@shared/utils/taskIdentity';
 
 import { canonicalizeAgentTeamsToolName } from '../../agentTeamsToolNames';
+import { TeamConfigReader } from '../../TeamConfigReader';
+import { TeamMembersMetaStore } from '../../TeamMembersMetaStore';
 import { TeamTaskReader } from '../../TeamTaskReader';
 import { BoardTaskActivityRecordSource } from '../activity/BoardTaskActivityRecordSource';
 import { TeamTranscriptSourceLocator } from '../discovery/TeamTranscriptSourceLocator';
@@ -57,6 +59,7 @@ interface TimeWindow {
 interface StreamLayout {
   participants: BoardTaskLogParticipant[];
   visibleSlices: StreamSlice[];
+  shouldMergeOpenCodeRuntimeFallback?: boolean;
 }
 
 const logger = createLogger('Service:BoardTaskLogStreamService');
@@ -1421,6 +1424,64 @@ function countSegmentsFromSlices(visibleSlices: StreamSlice[]): number {
   return segmentCount;
 }
 
+function mergeParticipants(
+  primary: BoardTaskLogParticipant[],
+  fallback: BoardTaskLogParticipant[]
+): BoardTaskLogParticipant[] {
+  const participantsByKey = new Map<string, BoardTaskLogParticipant>();
+  for (const participant of [...primary, ...fallback]) {
+    if (!participantsByKey.has(participant.key)) {
+      participantsByKey.set(participant.key, participant);
+    }
+  }
+
+  return Array.from(participantsByKey.values()).sort((left, right) => {
+    if (left.isLead && !right.isLead) return 1;
+    if (!left.isLead && right.isLead) return -1;
+    return 0;
+  });
+}
+
+function mergeSegments(
+  primary: BoardTaskLogSegment[],
+  fallback: BoardTaskLogSegment[]
+): BoardTaskLogSegment[] {
+  const segmentsById = new Map<string, BoardTaskLogSegment>();
+  for (const segment of [...primary, ...fallback]) {
+    if (!segmentsById.has(segment.id)) {
+      segmentsById.set(segment.id, segment);
+    }
+  }
+
+  return Array.from(segmentsById.values()).sort((left, right) => {
+    const leftTs = Date.parse(left.startTimestamp);
+    const rightTs = Date.parse(right.startTimestamp);
+    if (Number.isFinite(leftTs) && Number.isFinite(rightTs) && leftTs !== rightTs) {
+      return leftTs - rightTs;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function chooseDefaultFilter(participants: BoardTaskLogParticipant[]): 'all' | string {
+  const namedParticipants = participants.filter((participant) => !participant.isLead);
+  return namedParticipants.length === 1 ? namedParticipants[0]!.key : 'all';
+}
+
+function mergeRuntimeFallbackResponse(
+  primary: BoardTaskLogStreamResponse,
+  fallback: BoardTaskLogStreamResponse
+): BoardTaskLogStreamResponse {
+  const participants = mergeParticipants(primary.participants, fallback.participants);
+  return {
+    participants,
+    defaultFilter: chooseDefaultFilter(participants),
+    segments: mergeSegments(primary.segments, fallback.segments),
+    source: primary.source,
+    runtimeProjection: fallback.runtimeProjection ?? primary.runtimeProjection,
+  };
+}
+
 export class BoardTaskLogStreamService {
   private readonly layoutCache = new Map<
     string,
@@ -1440,7 +1501,9 @@ export class BoardTaskLogStreamService {
     private readonly chunkBuilder: BoardTaskExactLogChunkBuilder = new BoardTaskExactLogChunkBuilder(),
     private readonly taskReader: TeamTaskReader = new TeamTaskReader(),
     private readonly transcriptSourceLocator: TeamTranscriptSourceLocator = new TeamTranscriptSourceLocator(),
-    private readonly runtimeFallbackSource: OpenCodeTaskLogStreamSource = new OpenCodeTaskLogStreamSource()
+    private readonly runtimeFallbackSource: OpenCodeTaskLogStreamSource = new OpenCodeTaskLogStreamSource(),
+    private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
+    private readonly configReader: TeamConfigReader = new TeamConfigReader()
   ) {}
 
   private buildLayoutCacheKey(teamName: string, taskId: string): string {
@@ -1898,7 +1961,61 @@ export class BoardTaskLogStreamService {
     return {
       participants: buildOrderedParticipants(visibleSlices),
       visibleSlices,
+      shouldMergeOpenCodeRuntimeFallback: await this.shouldMergeOpenCodeRuntimeFallback(
+        teamName,
+        taskId,
+        records
+      ),
     };
+  }
+
+  private async shouldMergeOpenCodeRuntimeFallback(
+    teamName: string,
+    taskId: string,
+    records: BoardTaskActivityRecord[]
+  ): Promise<boolean> {
+    if (records.some((record) => record.linkKind === 'execution')) {
+      return false;
+    }
+
+    try {
+      const [activeTasks, deletedTasks, metaMembers, config] = await Promise.all([
+        this.taskReader.getTasks(teamName).catch(() => []),
+        this.taskReader.getDeletedTasks(teamName).catch(() => []),
+        this.membersMetaStore.getMembers(teamName).catch(() => []),
+        this.configReader.getConfig(teamName).catch(() => null),
+      ]);
+      const task = [...activeTasks, ...deletedTasks].find((candidate) => candidate.id === taskId);
+      const ownerName = task?.owner?.trim();
+      if (!ownerName) {
+        return false;
+      }
+
+      const normalizedOwner = normalizeMemberName(ownerName);
+      const member = [...metaMembers, ...(config?.members ?? [])].find(
+        (candidate) => normalizeMemberName(candidate.name) === normalizedOwner
+      );
+      return member?.providerId === 'opencode';
+    } catch {
+      return false;
+    }
+  }
+
+  private async loadRuntimeFallback(
+    teamName: string,
+    taskId: string
+  ): Promise<BoardTaskLogStreamResponse | null> {
+    const startedAt = Date.now();
+    const fallback = await this.runtimeFallbackSource.getTaskLogStream(teamName, taskId);
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= RUNTIME_FALLBACK_WARN_MS) {
+      logger.warn(
+        `Slow OpenCode task-log runtime fallback: team=${teamName} task=${taskId} hit=${Boolean(
+          fallback
+        )} elapsedMs=${elapsedMs}`
+      );
+    }
+    return fallback;
   }
 
   async getTaskLogStreamSummary(
@@ -1926,16 +2043,7 @@ export class BoardTaskLogStreamService {
 
     const layout = await this.getStreamLayout(teamName, taskId);
     if (layout.visibleSlices.length === 0) {
-      const startedAt = Date.now();
-      const fallback = await this.runtimeFallbackSource.getTaskLogStream(teamName, taskId);
-      const elapsedMs = Date.now() - startedAt;
-      if (elapsedMs >= RUNTIME_FALLBACK_WARN_MS) {
-        logger.warn(
-          `Slow OpenCode task-log runtime fallback: team=${teamName} task=${taskId} hit=${Boolean(
-            fallback
-          )} elapsedMs=${elapsedMs}`
-        );
-      }
+      const fallback = await this.loadRuntimeFallback(teamName, taskId);
       return fallback ?? emptyResponse();
     }
 
@@ -1984,14 +2092,18 @@ export class BoardTaskLogStreamService {
     }
     flushSegment();
 
-    const namedParticipants = layout.participants.filter((participant) => !participant.isLead);
-    const defaultFilter = namedParticipants.length === 1 ? namedParticipants[0].key : 'all';
-
-    return {
+    const primaryResponse: BoardTaskLogStreamResponse = {
       participants: layout.participants,
-      defaultFilter,
+      defaultFilter: chooseDefaultFilter(layout.participants),
       segments,
       source: 'transcript',
     };
+
+    if (!layout.shouldMergeOpenCodeRuntimeFallback) {
+      return primaryResponse;
+    }
+
+    const fallback = await this.loadRuntimeFallback(teamName, taskId);
+    return fallback ? mergeRuntimeFallbackResponse(primaryResponse, fallback) : primaryResponse;
   }
 }

@@ -163,6 +163,170 @@ describe('BoardTaskLogStreamService', () => {
     expect(runtimeFallbackSource.getTaskLogStream).toHaveBeenCalledTimes(1);
   });
 
+  it('merges OpenCode runtime stream when board transcript slices mask member execution', async () => {
+    const lead = {
+      role: 'lead' as const,
+      sessionId: 'session-lead',
+      isSidechain: false,
+    };
+    const candidate = {
+      ...makeCandidate('c1', '2026-04-12T16:00:00.000Z', lead, 'tool-board'),
+      actionCategory: 'comment' as const,
+      canonicalToolName: 'task_add_comment',
+    };
+    const runtimeFallbackSource = {
+      getTaskLogStream: vi.fn(async () => ({
+        participants: [
+          {
+            key: 'member:jack',
+            label: 'jack',
+            role: 'member' as const,
+            isLead: false,
+            isSidechain: true,
+          },
+        ],
+        defaultFilter: 'member:jack',
+        segments: [
+          {
+            id: 'opencode:demo:task-a:jack',
+            participantKey: 'member:jack',
+            actor: {
+              memberName: 'jack',
+              role: 'member' as const,
+              sessionId: 'session-opencode',
+              isSidechain: true,
+            },
+            startTimestamp: '2026-04-12T16:01:00.000Z',
+            endTimestamp: '2026-04-12T16:02:00.000Z',
+            chunks: [{ id: 'chunk-bash' }],
+          },
+        ],
+        source: 'opencode_runtime_fallback' as const,
+        runtimeProjection: {
+          provider: 'opencode' as const,
+          mode: 'heuristic' as const,
+          attributionRecordCount: 0,
+          projectedMessageCount: 2,
+          fallbackReason: 'task_tool_markers' as const,
+        },
+      })),
+    };
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => candidate.records),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => [candidate]),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(() => ({
+        id: 'c1',
+        timestamp: '2026-04-12T16:00:00.000Z',
+        actor: lead,
+        source: candidate.source,
+        records: candidate.records,
+        filteredMessages: [makeMessage('c1', '2026-04-12T16:00:00.000Z', 'board update')],
+      })),
+    };
+    const taskReader = {
+      getTasks: vi.fn(async () => [{ id: 'task-a', owner: 'jack' }]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const membersMetaStore = {
+      getMembers: vi.fn(async () => [{ name: 'jack', providerId: 'opencode' }]),
+    };
+    const configReader = {
+      getConfig: vi.fn(async () => null),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+      taskReader as never,
+      undefined as never,
+      runtimeFallbackSource as never,
+      membersMetaStore as never,
+      configReader as never
+    );
+
+    const response = await service.getTaskLogStream('demo', 'task-a');
+
+    expect(runtimeFallbackSource.getTaskLogStream).toHaveBeenCalledWith('demo', 'task-a');
+    expect(response.defaultFilter).toBe('member:jack');
+    expect(response.participants.map((participant) => participant.key)).toEqual([
+      'member:jack',
+      'lead',
+    ]);
+    expect(response.segments.map((segment) => segment.id)).toEqual([
+      'lead:c1:c1',
+      'opencode:demo:task-a:jack',
+    ]);
+    expect(response.runtimeProjection).toMatchObject({
+      provider: 'opencode',
+      projectedMessageCount: 2,
+    });
+  });
+
+  it('does not probe OpenCode runtime for non-OpenCode task owners', async () => {
+    const lead = {
+      role: 'lead' as const,
+      sessionId: 'session-lead',
+      isSidechain: false,
+    };
+    const candidate = makeCandidate('c1', '2026-04-12T16:00:00.000Z', lead, 'tool-board');
+    const runtimeFallbackSource = {
+      getTaskLogStream: vi.fn(async () => {
+        throw new Error('should not be called');
+      }),
+    };
+    const service = new BoardTaskLogStreamService(
+      {
+        getTaskRecords: vi.fn(async () => candidate.records),
+      } as never,
+      {
+        selectSummaries: vi.fn(() => [candidate]),
+      } as never,
+      {
+        parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+      } as never,
+      {
+        selectDetail: vi.fn(() => ({
+          id: 'c1',
+          timestamp: '2026-04-12T16:00:00.000Z',
+          actor: lead,
+          source: candidate.source,
+          records: candidate.records,
+          filteredMessages: [makeMessage('c1', '2026-04-12T16:00:00.000Z', 'board update')],
+        })),
+      } as never,
+      {
+        buildBundleChunks: vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]),
+      } as never,
+      {
+        getTasks: vi.fn(async () => [{ id: 'task-a', owner: 'alice' }]),
+        getDeletedTasks: vi.fn(async () => []),
+      } as never,
+      undefined as never,
+      runtimeFallbackSource as never,
+      {
+        getMembers: vi.fn(async () => [{ name: 'alice', providerId: 'codex' }]),
+      } as never,
+      {
+        getConfig: vi.fn(async () => null),
+      } as never
+    );
+
+    await service.getTaskLogStream('demo', 'task-a');
+
+    expect(runtimeFallbackSource.getTaskLogStream).not.toHaveBeenCalled();
+  });
+
   it('groups contiguous slices into participant segments and excludes lead slices when member slices exist', async () => {
     const tom = {
       memberName: 'tom',

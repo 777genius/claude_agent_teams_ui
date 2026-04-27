@@ -1,6 +1,7 @@
 import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
+import type { TaskProgressSignal } from './TaskProgressSignalClassifier';
 import type { ParsedMessage } from '@main/types';
-import type { TeamTask } from '@shared/types';
+import type { TeamProviderId, TeamTask } from '@shared/types';
 
 export type TaskStallBranch = 'work' | 'review';
 
@@ -47,6 +48,7 @@ export interface TaskStallEvaluation {
   taskId?: string;
   branch?: TaskStallBranch;
   signal?: TaskStallSignal;
+  progressSignal?: TaskProgressSignal;
   epochKey?: string;
   reason: string;
   skipReason?: TaskStallSkipReason;
@@ -91,6 +93,7 @@ export interface TeamTaskStallSnapshot {
   recordsByTaskId: Map<string, BoardTaskActivityRecord[]>;
   freshnessByTaskId: Map<string, TaskLogFreshnessSignal>;
   exactRowsByFilePath: Map<string, TeamTaskStallExactRow[]>;
+  providerByMemberName: Map<string, TeamProviderId>;
 }
 
 export interface WorkTaskContext {
@@ -114,8 +117,11 @@ export interface TaskStallAlert {
   subject: string;
   branch: TaskStallBranch;
   signal: TaskStallSignal;
+  progressSignal?: TaskProgressSignal;
   reason: string;
   epochKey: string;
+  owner?: string;
+  ownerProviderId?: TeamProviderId;
   taskRef: {
     taskId: string;
     displayId: string;
