@@ -1,5 +1,6 @@
 import { extractToolCalls, extractToolResults } from '@main/utils/toolExtraction';
 import { isLeadMember as isLeadMemberCheck } from '@shared/utils/leadDetection';
+import { createLogger } from '@shared/utils/logger';
 import { getTaskDisplayId } from '@shared/utils/taskIdentity';
 
 import { canonicalizeAgentTeamsToolName } from '../../agentTeamsToolNames';
@@ -58,10 +59,13 @@ interface StreamLayout {
   visibleSlices: StreamSlice[];
 }
 
+const logger = createLogger('Service:BoardTaskLogStreamService');
 const INFERRED_WINDOW_GRACE_BEFORE_MS = 30_000;
 const INFERRED_WINDOW_GRACE_AFTER_MS = 15_000;
 const INFERRED_RECORD_RANGE_BEFORE_MS = 5 * 60_000;
 const INFERRED_RECORD_RANGE_AFTER_MS = 60_000;
+const STREAM_LAYOUT_CACHE_TTL_MS = 1_000;
+const STREAM_LAYOUT_BUILD_WARN_MS = 3_000;
 const HISTORICAL_BOARD_LIFECYCLE_TOOL_NAMES = new Set([
   'task_complete',
   'task_set_status',
@@ -1417,6 +1421,16 @@ function countSegmentsFromSlices(visibleSlices: StreamSlice[]): number {
 }
 
 export class BoardTaskLogStreamService {
+  private readonly layoutCache = new Map<
+    string,
+    {
+      expiresAt: number;
+      layout: StreamLayout;
+    }
+  >();
+
+  private readonly layoutInFlight = new Map<string, Promise<StreamLayout>>();
+
   constructor(
     private readonly recordSource: BoardTaskActivityRecordSource = new BoardTaskActivityRecordSource(),
     private readonly summarySelector: BoardTaskExactLogSummarySelector = new BoardTaskExactLogSummarySelector(),
@@ -1427,6 +1441,46 @@ export class BoardTaskLogStreamService {
     private readonly transcriptSourceLocator: TeamTranscriptSourceLocator = new TeamTranscriptSourceLocator(),
     private readonly runtimeFallbackSource: OpenCodeTaskLogStreamSource = new OpenCodeTaskLogStreamSource()
   ) {}
+
+  private buildLayoutCacheKey(teamName: string, taskId: string): string {
+    return `${teamName}::${taskId}`;
+  }
+
+  private async getStreamLayout(teamName: string, taskId: string): Promise<StreamLayout> {
+    const cacheKey = this.buildLayoutCacheKey(teamName, taskId);
+    const cached = this.layoutCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.layout;
+    }
+
+    const existingPromise = this.layoutInFlight.get(cacheKey);
+    if (existingPromise) {
+      return await existingPromise;
+    }
+
+    const startedAt = Date.now();
+    const promise = this.buildStreamLayout(teamName, taskId)
+      .then((layout) => {
+        this.layoutCache.set(cacheKey, {
+          expiresAt: Date.now() + STREAM_LAYOUT_CACHE_TTL_MS,
+          layout,
+        });
+        return layout;
+      })
+      .finally(() => {
+        this.layoutInFlight.delete(cacheKey);
+      });
+
+    this.layoutInFlight.set(cacheKey, promise);
+    const layout = await promise;
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= STREAM_LAYOUT_BUILD_WARN_MS) {
+      logger.warn(
+        `Slow task-log stream layout: team=${teamName} task=${taskId} participants=${layout.participants.length} slices=${layout.visibleSlices.length} elapsedMs=${elapsedMs}`
+      );
+    }
+    return layout;
+  }
 
   private async buildInferredExecutionSlices(
     teamName: string,
@@ -1854,7 +1908,7 @@ export class BoardTaskLogStreamService {
       return emptySummary();
     }
 
-    const layout = await this.buildStreamLayout(teamName, taskId);
+    const layout = await this.getStreamLayout(teamName, taskId);
     if (layout.visibleSlices.length === 0) {
       return emptySummary();
     }
@@ -1869,7 +1923,7 @@ export class BoardTaskLogStreamService {
       return emptyResponse();
     }
 
-    const layout = await this.buildStreamLayout(teamName, taskId);
+    const layout = await this.getStreamLayout(teamName, taskId);
     if (layout.visibleSlices.length === 0) {
       return (
         (await this.runtimeFallbackSource.getTaskLogStream(teamName, taskId)) ?? emptyResponse()

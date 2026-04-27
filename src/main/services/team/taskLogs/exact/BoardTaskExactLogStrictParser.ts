@@ -10,6 +10,8 @@ import { BoardTaskExactLogsParseCache } from './BoardTaskExactLogsParseCache';
 import type { ParsedMessage } from '@main/types';
 
 const logger = createLogger('Service:BoardTaskExactLogStrictParser');
+const EXACT_LOG_PARSE_CONCURRENCY = process.platform === 'win32' ? 4 : 8;
+const EXACT_LOG_PARSE_WARN_MS = 3_000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
@@ -22,6 +24,28 @@ function hasStrictTimestamp(record: Record<string, unknown>): boolean {
   return Number.isFinite(Date.parse(record.timestamp));
 }
 
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let index = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = new Array(workerCount).fill(0).map(async () => {
+    while (true) {
+      const currentIndex = index;
+      index += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+      results[currentIndex] = await fn(items[currentIndex]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export class BoardTaskExactLogStrictParser {
   constructor(
     private readonly cache: BoardTaskExactLogsParseCache = new BoardTaskExactLogsParseCache()
@@ -31,9 +55,21 @@ export class BoardTaskExactLogStrictParser {
     const uniquePaths = [...new Set(filePaths)].sort();
     this.cache.retainOnly(new Set(uniquePaths));
 
-    const results = await Promise.all(
-      uniquePaths.map(async (filePath) => [filePath, await this.parseFile(filePath)] as const)
+    const startedAt = Date.now();
+    const results = await mapLimit(
+      uniquePaths,
+      EXACT_LOG_PARSE_CONCURRENCY,
+      async (filePath) => [filePath, await this.parseFile(filePath)] as const
     );
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= EXACT_LOG_PARSE_WARN_MS) {
+      logger.warn(
+        `Slow exact-log parse: files=${uniquePaths.length} messages=${results.reduce(
+          (sum, [, messages]) => sum + messages.length,
+          0
+        )} elapsedMs=${elapsedMs}`
+      );
+    }
 
     return new Map(results);
   }

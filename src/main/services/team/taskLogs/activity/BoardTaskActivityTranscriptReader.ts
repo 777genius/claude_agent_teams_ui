@@ -14,6 +14,8 @@ import {
 import { BoardTaskActivityParseCache } from './BoardTaskActivityParseCache';
 
 const logger = createLogger('Service:BoardTaskActivityTranscriptReader');
+const TASK_ACTIVITY_TRANSCRIPT_READ_CONCURRENCY = process.platform === 'win32' ? 4 : 8;
+const TASK_ACTIVITY_TRANSCRIPT_READ_WARN_MS = 3_000;
 
 export interface RawTaskActivityMessage {
   filePath: string;
@@ -28,6 +30,28 @@ export interface RawTaskActivityMessage {
   sourceOrder: number;
 }
 
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let index = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = new Array(workerCount).fill(0).map(async () => {
+    while (true) {
+      const currentIndex = index;
+      index += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+      results[currentIndex] = await fn(items[currentIndex]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
@@ -39,9 +63,21 @@ export class BoardTaskActivityTranscriptReader {
     const uniqueFilePaths = [...new Set(filePaths)].sort();
     this.cache.retainOnly(new Set(uniqueFilePaths));
 
-    const parsedFiles = await Promise.all(
-      uniqueFilePaths.map((filePath) => this.readFile(filePath))
+    const startedAt = Date.now();
+    const parsedFiles = await mapLimit(
+      uniqueFilePaths,
+      TASK_ACTIVITY_TRANSCRIPT_READ_CONCURRENCY,
+      (filePath) => this.readFile(filePath)
     );
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= TASK_ACTIVITY_TRANSCRIPT_READ_WARN_MS) {
+      logger.warn(
+        `Slow task-activity transcript read: files=${uniqueFilePaths.length} records=${parsedFiles.reduce(
+          (sum, rows) => sum + rows.length,
+          0
+        )} elapsedMs=${elapsedMs}`
+      );
+    }
     return parsedFiles.flat();
   }
 
@@ -83,8 +119,10 @@ export class BoardTaskActivityTranscriptReader {
     });
 
     let sourceOrder = 0;
+    let lineCount = 0;
     for await (const line of rl) {
       if (!line.trim()) continue;
+      lineCount += 1;
 
       try {
         const parsed = JSON.parse(line) as unknown;
@@ -116,7 +154,7 @@ export class BoardTaskActivityTranscriptReader {
         logger.debug(`Skipping malformed task-activity line in ${filePath}: ${String(error)}`);
       }
 
-      if (sourceOrder > 0 && sourceOrder % 250 === 0) {
+      if (lineCount % 500 === 0) {
         await yieldToEventLoop();
       }
     }
