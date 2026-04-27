@@ -293,6 +293,62 @@ describe('BoardTaskLogStreamService', () => {
     expect(buildBundleChunks).not.toHaveBeenCalled();
   });
 
+  it('shares concurrent summary and stream layout work', async () => {
+    const tom = {
+      memberName: 'tom',
+      role: 'member' as const,
+      sessionId: 'session-tom',
+      agentId: 'agent-tom',
+      isSidechain: true,
+    };
+    const candidates = [
+      makeCandidate('c1', '2026-04-12T16:00:00.000Z', tom, 'tool-1'),
+      makeCandidate('c2', '2026-04-12T16:01:00.000Z', tom, 'tool-2'),
+    ];
+
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => {
+        await Promise.resolve();
+        return candidates.flatMap((candidate) => candidate.records);
+      }),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => candidates),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(({ candidate }: { candidate: BoardTaskExactLogBundleCandidate }) => ({
+        id: candidate.id,
+        timestamp: candidate.timestamp,
+        actor: candidate.actor,
+        source: candidate.source,
+        records: candidate.records,
+        filteredMessages: [makeMessage(candidate.id, candidate.timestamp, candidate.id)],
+      })),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never
+    );
+
+    const [summary, response] = await Promise.all([
+      service.getTaskLogStreamSummary('demo', 'task-a'),
+      service.getTaskLogStream('demo', 'task-a'),
+    ]);
+
+    expect(summary).toEqual({ segmentCount: 1 });
+    expect(response.segments).toHaveLength(1);
+    expect(recordSource.getTaskRecords).toHaveBeenCalledTimes(1);
+    expect(strictParser.parseFiles).toHaveBeenCalledTimes(1);
+  });
+
   it('merges duplicate message uuids inside one participant segment before chunk building', async () => {
     const tom = {
       memberName: 'tom',
