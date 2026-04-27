@@ -3506,7 +3506,7 @@ function buildLaunchDiagnosticsFromRun(
         memberName,
         severity: 'warning',
         code: 'runtime_not_found',
-        label: `${memberName} - no runtime found`,
+        label: `${memberName} - waiting for runtime`,
         detail: entry.runtimeDiagnostic,
         observedAt,
       });
@@ -15755,7 +15755,7 @@ export class TeamProvisioningService {
         ? `${launchSummary.runtimeCandidatePendingCount} process candidates`
         : '',
       launchSummary.noRuntimePendingCount
-        ? `${launchSummary.noRuntimePendingCount} no runtime found`
+        ? `${launchSummary.noRuntimePendingCount} waiting for runtime`
         : '',
     ].filter(Boolean);
     const diagnosticSuffix = diagnosticParts.length > 0 ? ` - ${diagnosticParts.join(', ')}` : '';

@@ -1964,6 +1964,7 @@ export interface TeamSlice {
   sendMessageWarning: string | null;
   sendMessageDebugDetails: OpenCodeRuntimeDeliveryDebugDetails | null;
   lastSendMessageResult: SendMessageResult | null;
+  clearSendMessageRuntimeDiagnostics: (messageId?: string | null) => void;
   reviewActionError: string | null;
   provisioningRuns: Record<string, TeamProvisioningProgress>;
   /** Synthetic TeamSummary snapshots for teams currently being provisioned (before config.json exists). */
@@ -4021,6 +4022,21 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
       });
       throw error;
     }
+  },
+
+  clearSendMessageRuntimeDiagnostics: (messageId?: string | null) => {
+    set((state) => {
+      if (messageId && state.sendMessageDebugDetails?.messageId !== messageId) {
+        return {};
+      }
+      if (!state.sendMessageWarning && !state.sendMessageDebugDetails) {
+        return {};
+      }
+      return {
+        sendMessageWarning: null,
+        sendMessageDebugDetails: null,
+      };
+    });
   },
 
   fetchCrossTeamTargets: async () => {

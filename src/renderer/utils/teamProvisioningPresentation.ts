@@ -259,7 +259,7 @@ function buildPendingDiagnosticPhrase({
     formatNamedPendingDiagnostic('Waiting for bootstrap', groups.runtimeProcess),
     formatNamedPendingDiagnostic('Process candidates', groups.runtimeCandidate),
     formatNamedPendingDiagnostic('Awaiting permission', groups.permission),
-    formatNamedPendingDiagnostic('No runtime found', groups.noRuntime),
+    formatNamedPendingDiagnostic('Waiting for runtime', groups.noRuntime),
   ].filter(Boolean);
   if (namedParts.length > 0) {
     return namedParts.join(', ');
@@ -272,7 +272,7 @@ function buildPendingDiagnosticPhrase({
     formatCountPendingDiagnostic(summary.runtimeProcessPendingCount, 'waiting for bootstrap'),
     formatCountPendingDiagnostic(summary.runtimeCandidatePendingCount, 'process candidates'),
     formatCountPendingDiagnostic(summary.permissionPendingCount, 'awaiting permission'),
-    formatCountPendingDiagnostic(summary.noRuntimePendingCount, 'no runtime found'),
+    formatCountPendingDiagnostic(summary.noRuntimePendingCount, 'waiting for runtime'),
   ].filter(Boolean);
   return countParts.length > 0 ? countParts.join(', ') : fallbackJoiningPhrase;
 }

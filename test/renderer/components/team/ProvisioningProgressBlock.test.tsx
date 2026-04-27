@@ -102,7 +102,7 @@ describe('ProvisioningProgressBlock', () => {
               memberName: 'tom',
               severity: 'warning',
               code: 'runtime_not_found',
-              label: 'tom - no runtime found',
+              label: 'tom - waiting for runtime',
               detail: 'registered runtime metadata without live process',
               observedAt: '2026-04-24T12:00:01.000Z',
             },
@@ -136,7 +136,7 @@ describe('ProvisioningProgressBlock', () => {
 
     expect(host.textContent).toContain('bob - shell only');
     expect(host.textContent).toContain('tmux pane foreground command is zsh');
-    expect(host.textContent).toContain('tom - no runtime found');
+    expect(host.textContent).toContain('tom - waiting for runtime');
     expect(host.textContent).toContain('registered runtime metadata without live process');
     expect(host.textContent).toContain('jack - process table unavailable');
     expect(host.textContent).toContain(

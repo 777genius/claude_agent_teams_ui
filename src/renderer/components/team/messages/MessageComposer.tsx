@@ -935,18 +935,20 @@ export const MessageComposer = ({
             isCompactLayout ? (
               compactFooterNotice
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col items-end gap-1">
                 {compactFooterNotice}
-                {remaining < 200 ? (
-                  <span
-                    className={`text-[10px] ${remaining < 100 ? 'text-yellow-400' : 'text-[var(--color-text-muted)]'}`}
-                  >
-                    {remaining} chars left
-                  </span>
-                ) : null}
-                {draft.isSaved ? (
-                  <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {remaining < 200 ? (
+                    <span
+                      className={`text-[10px] ${remaining < 100 ? 'text-yellow-400' : 'text-[var(--color-text-muted)]'}`}
+                    >
+                      {remaining} chars left
+                    </span>
+                  ) : null}
+                  {draft.isSaved ? (
+                    <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
+                  ) : null}
+                </div>
               </div>
             )
           }

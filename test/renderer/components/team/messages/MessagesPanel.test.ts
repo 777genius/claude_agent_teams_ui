@@ -2,16 +2,18 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import type { InboxMessage } from '@shared/types';
 
 const storeState = {
   sendTeamMessage: vi.fn().mockResolvedValue(undefined),
   sendCrossTeamMessage: vi.fn().mockResolvedValue(undefined),
   sendingMessage: false,
-  sendMessageError: null,
-  sendMessageWarning: null,
-  sendMessageDebugDetails: null,
-  lastSendMessageResult: null,
+  sendMessageError: null as string | null,
+  sendMessageWarning: null as string | null,
+  sendMessageDebugDetails: null as OpenCodeRuntimeDeliveryDebugDetails | null,
+  lastSendMessageResult: null as unknown,
+  clearSendMessageRuntimeDiagnostics: vi.fn(),
   teams: [],
   openTeamTab: vi.fn(),
   loadOlderTeamMessages: vi.fn().mockResolvedValue(undefined),
@@ -169,6 +171,7 @@ vi.mock('react-modal-sheet', () => ({
 }));
 
 import {
+  hasVisibleReplyForSendMessageDiagnostics,
   MessagesPanel,
   reconcilePendingRepliesByMember,
 } from '@renderer/components/team/messages/MessagesPanel';
@@ -200,8 +203,14 @@ describe('MessagesPanel idle summary invariants', () => {
     storeState.sendTeamMessage.mockClear();
     storeState.sendCrossTeamMessage.mockClear();
     storeState.openTeamTab.mockClear();
+    storeState.clearSendMessageRuntimeDiagnostics.mockClear();
     storeState.loadOlderTeamMessages.mockClear();
     storeState.refreshTeamMessagesHead.mockClear();
+    storeState.sendingMessage = false;
+    storeState.sendMessageError = null;
+    storeState.sendMessageWarning = null;
+    storeState.sendMessageDebugDetails = null;
+    storeState.lastSendMessageResult = null;
     storeState.teamMessagesByName = {};
     sidebarUiState.messagesSearchQuery = '';
     sidebarUiState.messagesFilter = { from: new Set(), to: new Set(), showNoise: false };
@@ -415,6 +424,186 @@ describe('MessagesPanel idle summary invariants', () => {
     ];
 
     expect(reconcilePendingRepliesByMember({ forge: pendingSentAtMs }, messages)).toEqual({});
+  });
+
+  it('clears pending replies when the team lead answers through a visible lead thought', () => {
+    const pendingSentAtMs = Date.parse('2026-04-08T12:00:00.000Z');
+    const messages: InboxMessage[] = [
+      makeMessage({
+        messageId: 'lead-thought-reply',
+        from: 'lead',
+        to: undefined,
+        source: 'lead_session',
+        timestamp: '2026-04-08T12:00:05.000Z',
+        text: 'Да, команда на месте.',
+      }),
+    ];
+
+    expect(reconcilePendingRepliesByMember({ lead: pendingSentAtMs }, messages)).toEqual({});
+  });
+
+  it('keeps pending replies when the lead thought is older than the user message', () => {
+    const pendingSentAtMs = Date.parse('2026-04-08T12:00:00.000Z');
+    const pending = { lead: pendingSentAtMs };
+    const messages: InboxMessage[] = [
+      makeMessage({
+        messageId: 'older-lead-thought',
+        from: 'lead',
+        to: undefined,
+        source: 'lead_session',
+        timestamp: '2026-04-08T11:59:59.000Z',
+        text: 'Предыдущий статус.',
+      }),
+    ];
+
+    expect(reconcilePendingRepliesByMember(pending, messages)).toBe(pending);
+  });
+
+  it('detects a visible OpenCode reply for pending runtime diagnostics', () => {
+    const messages: InboxMessage[] = [
+      makeMessage({
+        messageId: 'user-send',
+        from: 'user',
+        to: 'tom',
+        source: 'user_sent',
+        timestamp: '2026-04-08T12:00:00.000Z',
+        text: 'Тут?',
+      }),
+      makeMessage({
+        messageId: 'tom-reply',
+        from: 'tom',
+        to: 'user',
+        relayOfMessageId: 'user-send',
+        timestamp: '2026-04-08T12:00:05.000Z',
+        text: 'Да, я тут.',
+      }),
+    ];
+
+    expect(
+      hasVisibleReplyForSendMessageDiagnostics(
+        {
+          messageId: 'user-send',
+          providerId: 'opencode',
+          delivered: true,
+          responsePending: true,
+          responseState: 'pending',
+          ledgerStatus: 'accepted',
+          acceptanceUnknown: false,
+          reason: 'assistant_response_pending',
+          diagnostics: ['assistant_response_pending'],
+        },
+        messages
+      )
+    ).toBe(true);
+  });
+
+  it('does not treat older member messages as OpenCode replies for pending diagnostics', () => {
+    const messages: InboxMessage[] = [
+      makeMessage({
+        messageId: 'tom-old-reply',
+        from: 'tom',
+        to: 'user',
+        timestamp: '2026-04-08T11:59:59.000Z',
+        text: 'Предыдущий ответ.',
+      }),
+      makeMessage({
+        messageId: 'user-send',
+        from: 'user',
+        to: 'tom',
+        source: 'user_sent',
+        timestamp: '2026-04-08T12:00:00.000Z',
+        text: 'Тут?',
+      }),
+    ];
+
+    expect(
+      hasVisibleReplyForSendMessageDiagnostics(
+        {
+          messageId: 'user-send',
+          providerId: 'opencode',
+          delivered: true,
+          responsePending: true,
+          responseState: 'pending',
+          ledgerStatus: 'accepted',
+          acceptanceUnknown: false,
+          reason: 'assistant_response_pending',
+          diagnostics: ['assistant_response_pending'],
+        },
+        messages
+      )
+    ).toBe(false);
+  });
+
+  it('clears stale OpenCode runtime diagnostics once the member reply is visible', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const messages: InboxMessage[] = [
+      makeMessage({
+        messageId: 'user-send',
+        from: 'user',
+        to: 'tom',
+        source: 'user_sent',
+        timestamp: '2026-04-08T12:00:00.000Z',
+        text: 'Тут?',
+      }),
+      makeMessage({
+        messageId: 'tom-reply',
+        from: 'tom',
+        to: 'user',
+        timestamp: '2026-04-08T12:00:05.000Z',
+        text: 'Да, я тут.',
+      }),
+    ];
+
+    storeState.sendMessageWarning =
+      'OpenCode runtime delivery is still being checked. Message was saved and will be retried if needed.';
+    storeState.sendMessageDebugDetails = {
+      messageId: 'user-send',
+      providerId: 'opencode',
+      delivered: true,
+      responsePending: true,
+      responseState: 'pending',
+      ledgerStatus: 'accepted',
+      acceptanceUnknown: false,
+      reason: 'assistant_response_pending',
+      diagnostics: ['assistant_response_pending'],
+    };
+
+    await act(async () => {
+      storeState.teamMessagesByName['atlas-hq'] = {
+        canonicalMessages: messages,
+        optimisticMessages: [],
+        feedRevision: 'rev-1',
+        nextCursor: null,
+        hasMore: false,
+        lastFetchedAt: Date.now(),
+        loadingHead: false,
+        loadingOlder: false,
+        headHydrated: true,
+      };
+      root.render(
+        React.createElement(MessagesPanel, {
+          teamName: 'atlas-hq',
+          position: 'sidebar',
+          onPositionChange: vi.fn(),
+          members: [],
+          tasks: [],
+          timeWindow: null,
+          pendingRepliesByMember: {},
+          onPendingReplyChange: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(storeState.clearSendMessageRuntimeDiagnostics).toHaveBeenCalledWith('user-send');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
   });
 
   it('renders the bottom-sheet composer before the status block so input stays pinned near the header', async () => {

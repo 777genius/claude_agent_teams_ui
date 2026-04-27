@@ -545,7 +545,7 @@ export const SendMessageDialog = ({
                   </button>
                 }
                 footerRight={
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-end gap-1">
                     {sendError ? (
                       <span className="inline-flex items-center gap-1 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400">
                         <AlertCircle size={10} className="shrink-0" />
@@ -557,16 +557,18 @@ export const SendMessageDialog = ({
                         debugDetails={sendDebugDetails}
                       />
                     ) : null}
-                    {remaining < 200 ? (
-                      <span
-                        className={`text-[10px] ${remaining < 100 ? 'text-yellow-400' : 'text-[var(--color-text-muted)]'}`}
-                      >
-                        {remaining} chars left
-                      </span>
-                    ) : null}
-                    {textDraft.isSaved ? (
-                      <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {remaining < 200 ? (
+                        <span
+                          className={`text-[10px] ${remaining < 100 ? 'text-yellow-400' : 'text-[var(--color-text-muted)]'}`}
+                        >
+                          {remaining} chars left
+                        </span>
+                      ) : null}
+                      {textDraft.isSaved ? (
+                        <span className="text-[10px] text-[var(--color-text-muted)]">Saved</span>
+                      ) : null}
+                    </div>
                   </div>
                 }
               />

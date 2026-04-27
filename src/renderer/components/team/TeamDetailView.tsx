@@ -138,6 +138,7 @@ import type {
   TeamAgentRuntimeEntry,
   TeamCreateRequest,
   TeamLaunchRequest,
+  TeamProviderId,
   TeamTaskWithKanban,
 } from '@shared/types';
 import type { EditorSelectionAction } from '@shared/types/editor';
@@ -338,7 +339,15 @@ interface LeadContextBridgeProps {
   tabId: string | null;
   projectId: string | null;
   leadSessionId: string | null;
+  leadProviderId?: TeamProviderId;
   fallbackProjectRoot?: string;
+}
+
+// Codex/OpenCode lead sessions do not expose the Claude-style context data this panel expects yet.
+const LEAD_CONTEXT_UNSUPPORTED_PROVIDER_IDS = new Set<TeamProviderId>(['codex', 'opencode']);
+
+function canShowLeadContextUi(providerId: TeamProviderId | undefined): boolean {
+  return providerId === undefined || !LEAD_CONTEXT_UNSUPPORTED_PROVIDER_IDS.has(providerId);
 }
 
 function buildMemberSpawnStatusMap(
@@ -547,6 +556,7 @@ const LeadContextBridge = memo(function LeadContextBridge({
   tabId,
   projectId,
   leadSessionId,
+  leadProviderId,
   fallbackProjectRoot,
 }: LeadContextBridgeProps): React.JSX.Element | null {
   const {
@@ -686,8 +696,15 @@ const LeadContextBridge = memo(function LeadContextBridge({
       contextMetrics.contextUsedPercentOfContextWindow ?? leadContextSnapshot?.contextUsedPercent;
     return percent === null || percent === undefined ? null : `${percent.toFixed(1)}%`;
   }, [contextMetrics.contextUsedPercentOfContextWindow, leadContextSnapshot?.contextUsedPercent]);
+  const shouldShowLeadContextUi = canShowLeadContextUi(leadProviderId);
 
-  if (!leadSessionId) {
+  useEffect(() => {
+    if (!shouldShowLeadContextUi && isContextPanelVisible) {
+      setContextPanelVisible(false);
+    }
+  }, [isContextPanelVisible, setContextPanelVisible, shouldShowLeadContextUi]);
+
+  if (!leadSessionId || !shouldShowLeadContextUi) {
     return null;
   }
 
@@ -1677,6 +1694,14 @@ export const TeamDetailView = ({
     () => activeMembers.filter((m) => !isLeadMember(m)).length,
     [activeMembers]
   );
+  const leadProviderId = useMemo<TeamProviderId | undefined>(() => {
+    const activeLeadProviderId = activeMembers.find(isLeadMember)?.providerId;
+    if (activeLeadProviderId) return activeLeadProviderId;
+    const configuredLeadProviderId = data?.config.members?.find(isLeadMember)?.providerId;
+    if (configuredLeadProviderId) return configuredLeadProviderId;
+    return launchParams?.providerId;
+  }, [activeMembers, data?.config.members, launchParams?.providerId]);
+  const shouldShowLeadContextUi = canShowLeadContextUi(leadProviderId);
 
   const taskMap = useMemo(() => new Map((data?.tasks ?? []).map((t) => [t.id, t])), [data?.tasks]);
   const taskMapRef = useRef(taskMap);
@@ -2068,7 +2093,7 @@ export const TeamDetailView = ({
       isThisTabActive={isThisTabActive}
     />
   );
-  const leadContextWatcher = (
+  const leadContextWatcher = shouldShowLeadContextUi ? (
     <LeadContextWatcher
       teamName={teamName}
       tabId={tabId}
@@ -2080,7 +2105,7 @@ export const TeamDetailView = ({
       sessions={sessions}
       sessionsLoading={sessionsLoading}
     />
-  );
+  ) : null;
 
   const renderBody = (): React.JSX.Element => {
     if ((loading && !data) || (data && data.teamName !== teamName)) {
@@ -2190,6 +2215,7 @@ export const TeamDetailView = ({
             tabId={tabId}
             projectId={projectId}
             leadSessionId={leadSessionId}
+            leadProviderId={leadProviderId}
             fallbackProjectRoot={data.config.projectPath}
           />
 

@@ -18,6 +18,7 @@ import { useTeamMessagesExpanded } from '@renderer/hooks/useTeamMessagesExpanded
 import { useTeamMessagesRead } from '@renderer/hooks/useTeamMessagesRead';
 import { useStore } from '@renderer/store';
 import { selectTeamMessages } from '@renderer/store/slices/teamSlice';
+import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import { filterTeamMessages } from '@renderer/utils/teamMessageFiltering';
 import { toMessageKey } from '@renderer/utils/teamMessageKey';
 import { shouldExcludeInboxTextFromReplyCandidates } from '@shared/utils/idleNotificationSemantics';
@@ -38,7 +39,11 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 
 import { ActivityTimeline, type TimelineViewport } from '../activity/ActivityTimeline';
-import { getThoughtGroupKey, groupTimelineItems } from '../activity/LeadThoughtsGroup';
+import {
+  getThoughtGroupKey,
+  groupTimelineItems,
+  isLeadThought,
+} from '../activity/LeadThoughtsGroup';
 import { MessageExpandDialog } from '../activity/MessageExpandDialog';
 import { CollapsibleTeamSection } from '../CollapsibleTeamSection';
 import {
@@ -140,7 +145,9 @@ export function reconcilePendingRepliesByMember(
       continue;
     }
 
-    if (message.to === 'user') {
+    // Team lead often answers through visible lead thoughts, which do not carry `to: 'user'`.
+    // Count them as replies so the pending-reply badge clears after the lead responds.
+    if (message.to === 'user' || isLeadThought(message)) {
       const previous = latestReplyToUserByMember.get(message.from);
       if (previous == null || ts > previous) {
         latestReplyToUserByMember.set(message.from, ts);
@@ -162,6 +169,51 @@ export function reconcilePendingRepliesByMember(
   }
 
   return changed ? next : pendingRepliesByMember;
+}
+
+function normalizeMessageParticipant(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+export function hasVisibleReplyForSendMessageDiagnostics(
+  debugDetails: OpenCodeRuntimeDeliveryDebugDetails | null | undefined,
+  messages: readonly InboxMessage[]
+): boolean {
+  const messageId = debugDetails?.messageId;
+  if (!messageId) {
+    return false;
+  }
+
+  const sentMessage = messages.find((message) => message.messageId === messageId);
+  if (
+    !sentMessage ||
+    sentMessage.from !== 'user' ||
+    typeof sentMessage.to !== 'string' ||
+    sentMessage.to.length === 0
+  ) {
+    return false;
+  }
+
+  const recipient = normalizeMessageParticipant(sentMessage.to);
+  const sentAt = Date.parse(sentMessage.timestamp);
+  if (!recipient || !Number.isFinite(sentAt)) {
+    return false;
+  }
+
+  return messages.some((message) => {
+    if (message.messageId === sentMessage.messageId) {
+      return false;
+    }
+    if (normalizeMessageParticipant(message.from) !== recipient || message.to !== 'user') {
+      return false;
+    }
+    if (message.relayOfMessageId === messageId) {
+      return true;
+    }
+
+    const replyAt = Date.parse(message.timestamp);
+    return Number.isFinite(replyAt) && replyAt > sentAt;
+  });
 }
 
 export const MessagesPanel = memo(function MessagesPanel({
@@ -194,6 +246,7 @@ export const MessagesPanel = memo(function MessagesPanel({
     sendMessageWarning,
     sendMessageDebugDetails,
     lastSendMessageResult,
+    clearSendMessageRuntimeDiagnostics,
     teams,
     openTeamTab,
     messages,
@@ -209,6 +262,7 @@ export const MessagesPanel = memo(function MessagesPanel({
       sendMessageWarning: s.sendMessageWarning,
       sendMessageDebugDetails: s.sendMessageDebugDetails,
       lastSendMessageResult: s.lastSendMessageResult,
+      clearSendMessageRuntimeDiagnostics: s.clearSendMessageRuntimeDiagnostics,
       teams: s.teams,
       openTeamTab: s.openTeamTab,
       messages: selectTeamMessages(s, teamName),
@@ -442,6 +496,14 @@ export const MessagesPanel = memo(function MessagesPanel({
       ),
     [effectiveMessages]
   );
+  const sendMessageRuntimeReplyVisible = useMemo(
+    () => hasVisibleReplyForSendMessageDiagnostics(sendMessageDebugDetails, effectiveMessages),
+    [effectiveMessages, sendMessageDebugDetails]
+  );
+  const effectiveSendMessageWarning = sendMessageRuntimeReplyVisible ? null : sendMessageWarning;
+  const effectiveSendMessageDebugDetails = sendMessageRuntimeReplyVisible
+    ? null
+    : sendMessageDebugDetails;
 
   // Resolve the expanded item from filtered messages
   const expandedItem = useMemo<TimelineItem | null>(() => {
@@ -506,6 +568,15 @@ export const MessagesPanel = memo(function MessagesPanel({
     const next = reconcilePendingRepliesByMember(pendingRepliesByMember, replyCandidateMessages);
     if (next !== pendingRepliesByMember) onPendingReplyChange(() => next);
   }, [onPendingReplyChange, pendingRepliesByMember, replyCandidateMessages]);
+
+  useEffect(() => {
+    if (!sendMessageRuntimeReplyVisible || !sendMessageDebugDetails?.messageId) return;
+    clearSendMessageRuntimeDiagnostics(sendMessageDebugDetails.messageId);
+  }, [
+    clearSendMessageRuntimeDiagnostics,
+    sendMessageDebugDetails?.messageId,
+    sendMessageRuntimeReplyVisible,
+  ]);
 
   const handleSend = useCallback(
     (
@@ -696,8 +767,8 @@ export const MessagesPanel = memo(function MessagesPanel({
         isTeamAlive={isTeamAlive}
         sending={sendingMessage}
         sendError={sendMessageError}
-        sendWarning={sendMessageWarning}
-        sendDebugDetails={sendMessageDebugDetails}
+        sendWarning={effectiveSendMessageWarning}
+        sendDebugDetails={effectiveSendMessageDebugDetails}
         lastResult={lastSendMessageResult}
         textareaRef={composerTextareaRef}
         onSend={handleSend}
@@ -883,8 +954,8 @@ export const MessagesPanel = memo(function MessagesPanel({
               isTeamAlive={isTeamAlive}
               sending={sendingMessage}
               sendError={sendMessageError}
-              sendWarning={sendMessageWarning}
-              sendDebugDetails={sendMessageDebugDetails}
+              sendWarning={effectiveSendMessageWarning}
+              sendDebugDetails={effectiveSendMessageDebugDetails}
               lastResult={lastSendMessageResult}
               textareaRef={composerTextareaRef}
               onSend={handleSend}
@@ -1169,8 +1240,8 @@ export const MessagesPanel = memo(function MessagesPanel({
                     isTeamAlive={isTeamAlive}
                     sending={sendingMessage}
                     sendError={sendMessageError}
-                    sendWarning={sendMessageWarning}
-                    sendDebugDetails={sendMessageDebugDetails}
+                    sendWarning={effectiveSendMessageWarning}
+                    sendDebugDetails={effectiveSendMessageDebugDetails}
                     lastResult={lastSendMessageResult}
                     textareaRef={composerTextareaRef}
                     onSend={handleSend}

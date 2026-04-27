@@ -893,8 +893,8 @@ describe('buildTeamProvisioningPresentation', () => {
     });
 
     expect(presentation?.compactTitle).toBe('Finishing launch');
-    expect(presentation?.compactDetail).toBe('No runtime found: alice, bob');
-    expect(presentation?.panelMessage).toBe('No runtime found: alice, bob');
+    expect(presentation?.compactDetail).toBe('Waiting for runtime: alice, bob');
+    expect(presentation?.panelMessage).toBe('Waiting for runtime: alice, bob');
   });
 
   it('names live pending diagnostics without duplicating permission-blocked teammates', () => {

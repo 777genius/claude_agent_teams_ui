@@ -2691,7 +2691,7 @@ describe('TeamProvisioningService', () => {
       });
       expect(
         (svc as any).buildPendingBootstrapStatusMessage('Finishing launch', run, launchSummary)
-      ).toContain('1 no runtime found');
+      ).toContain('1 waiting for runtime');
     });
 
     it('trusts persisted snapshot permission state for pure teams when live run statuses are absent', () => {

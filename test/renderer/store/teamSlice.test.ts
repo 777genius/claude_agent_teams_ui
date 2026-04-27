@@ -328,6 +328,40 @@ describe('teamSlice actions', () => {
     });
   });
 
+  it('clears OpenCode runtime diagnostics only for the matching message id', async () => {
+    const store = createSliceStore();
+    hoisted.sendMessage.mockResolvedValue({
+      deliveredToInbox: true,
+      messageId: 'm-opencode-pending',
+      runtimeDelivery: {
+        providerId: 'opencode',
+        attempted: true,
+        delivered: true,
+        responsePending: true,
+        responseState: 'pending',
+        ledgerStatus: 'accepted',
+        acceptanceUnknown: false,
+        reason: 'assistant_response_pending',
+        diagnostics: ['assistant_response_pending'],
+      },
+    });
+
+    await store.getState().sendTeamMessage('my-team', {
+      member: 'bob',
+      text: 'hello',
+    });
+
+    store.getState().clearSendMessageRuntimeDiagnostics('other-message');
+    expect(store.getState().sendMessageWarning).toBe(
+      'OpenCode runtime delivery is still being checked. Message was saved and will be retried if needed.'
+    );
+    expect(store.getState().sendMessageDebugDetails?.messageId).toBe('m-opencode-pending');
+
+    store.getState().clearSendMessageRuntimeDiagnostics('m-opencode-pending');
+    expect(store.getState().sendMessageWarning).toBeNull();
+    expect(store.getState().sendMessageDebugDetails).toBeNull();
+  });
+
   it('clears OpenCode runtime diagnostics after normal success or send failure', async () => {
     const store = createSliceStore();
     hoisted.sendMessage
