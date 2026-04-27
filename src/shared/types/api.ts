@@ -85,6 +85,7 @@ import type {
   TeamTaskStatus,
   TeamUpdateConfigRequest,
   TeamViewSnapshot,
+  TeamWorktreeGitStatus,
   ToolApprovalEvent,
   ToolApprovalFileContent,
   ToolApprovalSettings,
@@ -450,6 +451,9 @@ export interface TeamsAPI {
     limitContext?: boolean,
     modelVerificationMode?: TeamProvisioningModelVerificationMode
   ) => Promise<TeamProvisioningPrepareResult>;
+  getWorktreeGitStatus: (projectPath: string) => Promise<TeamWorktreeGitStatus>;
+  initializeGitRepository: (projectPath: string) => Promise<TeamWorktreeGitStatus>;
+  createInitialGitCommit: (projectPath: string) => Promise<TeamWorktreeGitStatus>;
   createTeam: (request: TeamCreateRequest) => Promise<TeamCreateResponse>;
   getProvisioningStatus: (runId: string) => Promise<TeamProvisioningProgress>;
   cancelProvisioning: (runId: string) => Promise<void>;

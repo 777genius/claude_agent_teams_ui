@@ -118,6 +118,7 @@ import {
   TEAM_CANCEL_PROVISIONING,
   TEAM_CHANGE,
   TEAM_CREATE,
+  TEAM_CREATE_INITIAL_GIT_COMMIT,
   TEAM_CREATE_CONFIG,
   TEAM_CREATE_TASK,
   TEAM_DELETE_DRAFT,
@@ -144,6 +145,8 @@ import {
   TEAM_GET_TASK_EXACT_LOG_SUMMARIES,
   TEAM_GET_TASK_LOG_STREAM,
   TEAM_GET_TASK_LOG_STREAM_SUMMARY,
+  TEAM_GET_WORKTREE_GIT_STATUS,
+  TEAM_INITIALIZE_GIT_REPOSITORY,
   TEAM_KILL_PROCESS,
   TEAM_LAUNCH,
   TEAM_LEAD_ACTIVITY,
@@ -315,6 +318,7 @@ import type {
   TeamTaskStatus,
   TeamUpdateConfigRequest,
   TeamViewSnapshot,
+  TeamWorktreeGitStatus,
   ToolApprovalEvent,
   ToolApprovalFileContent,
   ToolApprovalSettings,
@@ -890,6 +894,21 @@ const electronAPI: ElectronAPI = {
         selectedModels,
         limitContext,
         modelVerificationMode
+      );
+    },
+    getWorktreeGitStatus: async (projectPath: string) => {
+      return invokeIpcWithResult<TeamWorktreeGitStatus>(TEAM_GET_WORKTREE_GIT_STATUS, projectPath);
+    },
+    initializeGitRepository: async (projectPath: string) => {
+      return invokeIpcWithResult<TeamWorktreeGitStatus>(
+        TEAM_INITIALIZE_GIT_REPOSITORY,
+        projectPath
+      );
+    },
+    createInitialGitCommit: async (projectPath: string) => {
+      return invokeIpcWithResult<TeamWorktreeGitStatus>(
+        TEAM_CREATE_INITIAL_GIT_COMMIT,
+        projectPath
       );
     },
     createTeam: async (request: TeamCreateRequest) => {

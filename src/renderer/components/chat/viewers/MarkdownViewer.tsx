@@ -324,6 +324,10 @@ function hastToText(node: HastNode): string {
   return '';
 }
 
+function extractLanguageFromClassName(className?: string): string {
+  return /(?:^|\s)language-([^\s]+)/.exec(className ?? '')?.[1] ?? '';
+}
+
 // =============================================================================
 // Component factories
 // =============================================================================
@@ -583,8 +587,8 @@ function createViewerMarkdownComponents(
       const isBlock = (hasLanguage ?? false) || isMultiLine;
 
       if (isBlock) {
-        const lang = codeClassName?.replace('language-', '') ?? '';
-        const raw = typeof children === 'string' ? children : '';
+        const lang = extractLanguageFromClassName(codeClassName);
+        const raw = typeof children === 'string' ? children : extractTextFromReactNode(children);
         const text = raw.replace(/\n$/, '');
         const lines = text.split('\n');
         return (

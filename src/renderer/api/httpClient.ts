@@ -67,6 +67,7 @@ import type {
   TeamProvisioningModelVerificationMode,
   TeamProvisioningPrepareResult,
   TeamProvisioningProgress,
+  TeamWorktreeGitStatus,
   TeamsAPI,
   TeamSummary,
   TeamTask,
@@ -754,6 +755,22 @@ export class HttpAPIClient implements ElectronAPI {
       _modelVerificationMode?: TeamProvisioningModelVerificationMode
     ): Promise<TeamProvisioningPrepareResult> => {
       throw new Error('Team provisioning is not available in browser mode');
+    },
+    getWorktreeGitStatus: async (projectPath: string): Promise<TeamWorktreeGitStatus> => {
+      return {
+        projectPath,
+        isGitRepo: false,
+        hasHead: false,
+        canUseWorktrees: false,
+        reason: 'git_error',
+        message: 'Worktree Git setup is not available in browser mode',
+      };
+    },
+    initializeGitRepository: async (_projectPath: string): Promise<TeamWorktreeGitStatus> => {
+      throw new Error('Git repository initialization is not available in browser mode');
+    },
+    createInitialGitCommit: async (_projectPath: string): Promise<TeamWorktreeGitStatus> => {
+      throw new Error('Initial Git commit is not available in browser mode');
     },
     createTeam: async (_request: TeamCreateRequest): Promise<TeamCreateResponse> => {
       throw new Error('Team provisioning is not available in browser mode');

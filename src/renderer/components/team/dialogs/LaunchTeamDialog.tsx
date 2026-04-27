@@ -140,6 +140,12 @@ import {
   OPENCODE_TEAM_LEAD_DISABLED_REASON,
   TeamModelSelector,
 } from './TeamModelSelector';
+import {
+  getWorktreeGitBlockingMessage,
+  getWorktreeGitControlDisabledReason,
+  useWorktreeGitReadiness,
+  WorktreeGitReadinessBanner,
+} from './WorktreeGitReadinessBanner';
 
 import type { ActiveTeamRef } from './CreateTeamDialog';
 import type { MemberDraft } from '@renderer/components/team/members/membersEditorTypes';
@@ -1282,6 +1288,17 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
     ? ''
     : selectedProjectPath.trim();
   const effectiveCwd = cwdMode === 'project' ? selectedProjectCwd : customCwd.trim();
+  const hasSelectedWorktreeIsolation =
+    isLaunchMode &&
+    effectiveMemberDrafts.some((member) => !member.removedAt && member.isolation === 'worktree');
+  const worktreeGitReadiness = useWorktreeGitReadiness(effectiveCwd || null, open && isLaunchMode);
+  const worktreeIsolationDisabledReason = isLaunchMode
+    ? getWorktreeGitControlDisabledReason(worktreeGitReadiness)
+    : null;
+  const worktreeGitBlockingMessage = getWorktreeGitBlockingMessage(
+    worktreeGitReadiness,
+    hasSelectedWorktreeIsolation
+  );
   const prepareRuntimeStatusSignature = useMemo(
     () =>
       buildProviderPrepareRuntimeStatusSignature(
@@ -1726,13 +1743,21 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     if (!effectiveCwd) errors.push('Working directory is required');
+    if (worktreeGitBlockingMessage) errors.push(worktreeGitBlockingMessage);
     if (isSchedule) {
       if (!effectiveTeamName) errors.push('Team is required');
       if (!promptDraft.value.trim()) errors.push('Prompt is required');
       if (!cronExpression.trim()) errors.push('Cron expression is required');
     }
     return errors;
-  }, [effectiveCwd, isSchedule, effectiveTeamName, promptDraft.value, cronExpression]);
+  }, [
+    effectiveCwd,
+    worktreeGitBlockingMessage,
+    isSchedule,
+    effectiveTeamName,
+    promptDraft.value,
+    cronExpression,
+  ]);
   const modelValidationError = useMemo(() => {
     const leadError = getTeamModelSelectionError(
       selectedProviderId,
@@ -2422,6 +2447,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   onSyncModelsWithTeammatesChange={setSyncModelsWithLead}
                   showWorktreeIsolationControls
                   teammateWorktreeDefault={teammateWorktreeDefault}
+                  worktreeIsolationDisabledReason={worktreeIsolationDisabledReason}
                   onTeammateWorktreeDefaultChange={setTeammateWorktreeDefault}
                   leadWarningText={leadRuntimeWarningText}
                   memberWarningById={combinedMemberRuntimeWarningById}
@@ -2429,6 +2455,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   memberModelIssueById={memberModelIssueById}
                   softDeleteMembers
                   disableGeminiOption={isGeminiUiFrozen()}
+                  headerBottom={<WorktreeGitReadinessBanner state={worktreeGitReadiness} />}
                 />
 
                 <div className="space-y-1.5">

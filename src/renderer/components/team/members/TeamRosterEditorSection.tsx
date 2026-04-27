@@ -48,6 +48,7 @@ interface TeamRosterEditorSectionProps {
   memberModelIssueById?: Record<string, string | null | undefined>;
   showWorktreeIsolationControls?: boolean;
   teammateWorktreeDefault?: boolean;
+  worktreeIsolationDisabledReason?: string | null;
   onTeammateWorktreeDefaultChange?: (enabled: boolean) => void;
 }
 
@@ -92,6 +93,7 @@ export const TeamRosterEditorSection = ({
   memberModelIssueById,
   showWorktreeIsolationControls = false,
   teammateWorktreeDefault = false,
+  worktreeIsolationDisabledReason,
   onTeammateWorktreeDefaultChange,
 }: TeamRosterEditorSectionProps): React.JSX.Element => {
   return (
@@ -122,6 +124,7 @@ export const TeamRosterEditorSection = ({
       memberModelIssueById={memberModelIssueById}
       showWorktreeIsolationControls={showWorktreeIsolationControls}
       teammateWorktreeDefault={teammateWorktreeDefault}
+      worktreeIsolationDisabledReason={worktreeIsolationDisabledReason}
       onTeammateWorktreeDefaultChange={onTeammateWorktreeDefaultChange}
       headerExtra={
         <div className="space-y-3">

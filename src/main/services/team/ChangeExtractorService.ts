@@ -209,9 +209,7 @@ export class ChangeExtractorService {
       return ledgerResult;
     }
 
-    if (!includeDetails) {
-      this.enqueueOpenCodeLedgerBackfill(resolvedInput);
-    } else if (await this.tryBackfillOpenCodeLedger(resolvedInput)) {
+    if (await this.tryBackfillOpenCodeLedger(resolvedInput)) {
       const backfilledLedgerResult = await this.readLedgerTaskChanges(resolvedInput);
       if (backfilledLedgerResult) {
         await this.recordTaskChangePresence(
@@ -435,6 +433,28 @@ export class ChangeExtractorService {
     }
     this.openCodeBackfillCache.delete(cacheKey);
 
+    if (deliveryContextRecords.length === 0) {
+      this.openCodeBackfillCache.set(cacheKey, {
+        backfilledAt: 0,
+        expiresAt: Date.now() + this.openCodeBackfillCacheTtl,
+      });
+      void appendOpenCodeTaskChangeDiag({
+        event: 'backfill_skipped',
+        reason: 'no-delivery-context',
+        teamName: input.teamName,
+        taskId: input.taskId,
+        displayId: input.taskMeta?.displayId ?? null,
+        memberName: input.effectiveOptions.owner ?? null,
+        projectDir,
+        workspaceRoot,
+        sourceGeneration,
+        deliveryRecordCount: 0,
+        deliveryContextFingerprint,
+        attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
+      }).catch(() => undefined);
+      return false;
+    }
+
     const existing = this.openCodeBackfillInFlight.get(cacheKey);
     if (existing) {
       return existing;
@@ -452,14 +472,6 @@ export class ChangeExtractorService {
     });
     this.openCodeBackfillInFlight.set(cacheKey, promise);
     return promise;
-  }
-
-  private enqueueOpenCodeLedgerBackfill(input: ResolvedTaskChangeComputeInput): void {
-    void this.tryBackfillOpenCodeLedger(input).catch((error) => {
-      logger.debug(
-        `Background OpenCode ledger backfill failed for ${input.teamName}/${input.taskId}: ${error instanceof Error ? error.message : String(error)}`
-      );
-    });
   }
 
   private async runOpenCodeBackfill(

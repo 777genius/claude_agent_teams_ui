@@ -1504,6 +1504,20 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+export function isOpenCodePromptDeliveryRetryAttemptDue(input: {
+  attemptDue: boolean;
+  ledgerRecord: Pick<OpenCodePromptDeliveryLedgerRecord, 'status' | 'responseState'>;
+}): boolean {
+  if (!input.attemptDue) {
+    return false;
+  }
+  return (
+    input.ledgerRecord.status === 'retry_scheduled' ||
+    input.ledgerRecord.status === 'failed_retryable' ||
+    isOpenCodePromptDeliveryRetryableResponseState(input.ledgerRecord.responseState)
+  );
+}
+
 function createInitialMemberSpawnStatusEntry(): MemberSpawnStatusEntry {
   const updatedAt = nowIso();
   return {
@@ -5573,9 +5587,10 @@ export class TeamProvisioningService {
         };
       }
 
-      const retryDueBeforeObserve =
-        attemptDue &&
-        (ledgerRecord.status === 'retry_scheduled' || ledgerRecord.status === 'failed_retryable');
+      const retryDueBeforeObserve = isOpenCodePromptDeliveryRetryAttemptDue({
+        attemptDue,
+        ledgerRecord,
+      });
       if (ledgerRecord.status !== 'pending' && adapter.observeMessageDelivery) {
         const observed = await adapter.observeMessageDelivery({
           ...(runtimeRunId ? { runId: runtimeRunId } : {}),

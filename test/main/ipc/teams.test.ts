@@ -1,4 +1,6 @@
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BoardTaskActivityDetailResult,
@@ -130,6 +132,7 @@ import {
   removeTeamHandlers,
 } from '../../../src/main/ipc/teams';
 import { ConfigManager } from '../../../src/main/services/infrastructure/ConfigManager';
+import { getAppDataPath } from '../../../src/main/utils/pathDecoder';
 
 describe('ipc teams handlers', () => {
   const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
@@ -406,6 +409,43 @@ describe('ipc teams handlers', () => {
 
     expect(result).toEqual({ success: true, data: { 'task-1': 'has_changes' } });
     expect(service.getTaskChangePresence).toHaveBeenCalledWith('my-team');
+  });
+
+  it('returns stored task attachments with source-code MIME types', async () => {
+    const handler = handlers.get(TEAM_GET_TASK_ATTACHMENT);
+    expect(handler).toBeDefined();
+
+    const taskId = 'task-js';
+    const attachmentId = 'att-js';
+    const attachmentDir = path.join(
+      getAppDataPath(),
+      'task-attachments',
+      'my-team',
+      taskId
+    );
+    await fs.promises.rm(attachmentDir, { recursive: true, force: true });
+    await fs.promises.mkdir(attachmentDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(attachmentDir, `${attachmentId}--script.js`),
+      'const calculator = 1;\n'
+    );
+
+    try {
+      const result = (await handler!(
+        {} as never,
+        'my-team',
+        taskId,
+        attachmentId,
+        'text/javascript'
+      )) as { success: boolean; data?: string; error?: string };
+
+      expect(result.success).toBe(true);
+      expect(Buffer.from(result.data ?? '', 'base64').toString('utf8')).toBe(
+        'const calculator = 1;\n'
+      );
+    } finally {
+      await fs.promises.rm(attachmentDir, { recursive: true, force: true });
+    }
   });
 
   it('returns explicit exact task-log summaries for a task', async () => {

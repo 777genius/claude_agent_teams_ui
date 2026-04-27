@@ -255,6 +255,15 @@ export const TEAM_LAUNCH = 'team:launch';
 /** Warm up provisioning runtime before create */
 export const TEAM_PREPARE_PROVISIONING = 'team:prepareProvisioning';
 
+/** Inspect whether a project can support git worktree isolation */
+export const TEAM_GET_WORKTREE_GIT_STATUS = 'team:getWorktreeGitStatus';
+
+/** Initialize a git repository for worktree isolation */
+export const TEAM_INITIALIZE_GIT_REPOSITORY = 'team:initializeGitRepository';
+
+/** Create the first commit required by git worktrees */
+export const TEAM_CREATE_INITIAL_GIT_COMMIT = 'team:createInitialGitCommit';
+
 /** Get provisioning status by runId */
 export const TEAM_PROVISIONING_STATUS = 'team:provisioningStatus';
 

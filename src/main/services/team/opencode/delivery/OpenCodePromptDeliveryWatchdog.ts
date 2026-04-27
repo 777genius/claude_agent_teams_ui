@@ -91,7 +91,8 @@ export function isOpenCodePromptDeliveryRetryableResponseState(
     state === 'empty_assistant_turn' ||
     state === 'tool_error' ||
     state === 'reconcile_failed' ||
-    state === 'not_observed'
+    state === 'not_observed' ||
+    state === 'session_stale'
   );
 }
 

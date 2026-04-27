@@ -117,6 +117,7 @@ export interface MembersEditorSectionProps {
   addMemberLockReason?: string;
   showWorktreeIsolationControls?: boolean;
   teammateWorktreeDefault?: boolean;
+  worktreeIsolationDisabledReason?: string | null;
   onTeammateWorktreeDefaultChange?: (enabled: boolean) => void;
 }
 
@@ -154,6 +155,7 @@ export const MembersEditorSection = ({
   addMemberLockReason,
   showWorktreeIsolationControls = false,
   teammateWorktreeDefault = false,
+  worktreeIsolationDisabledReason,
   onTeammateWorktreeDefaultChange,
 }: MembersEditorSectionProps): React.JSX.Element => {
   const [jsonEditorOpen, setJsonEditorOpen] = useState(false);
@@ -247,6 +249,9 @@ export const MembersEditorSection = ({
   };
 
   const updateMemberIsolation = (memberId: string, enabled: boolean): void => {
+    if (enabled && worktreeIsolationDisabledReason) {
+      return;
+    }
     onChange(
       members.map((c) =>
         c.id === memberId ? { ...c, isolation: enabled ? 'worktree' : undefined } : c
@@ -255,6 +260,9 @@ export const MembersEditorSection = ({
   };
 
   const updateTeammateWorktreeDefault = (enabled: boolean): void => {
+    if (enabled && worktreeIsolationDisabledReason) {
+      return;
+    }
     onTeammateWorktreeDefaultChange?.(enabled);
     onChange(
       members.map((member) =>
@@ -348,10 +356,14 @@ export const MembersEditorSection = ({
       {!hideContent && (
         <>
           {showWorktreeIsolationControls ? (
-            <div className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2">
+            <div
+              className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2"
+              title={worktreeIsolationDisabledReason ?? undefined}
+            >
               <Checkbox
                 id={worktreeDefaultControlId}
                 checked={teammateWorktreeDefault}
+                disabled={Boolean(worktreeIsolationDisabledReason && !teammateWorktreeDefault)}
                 onCheckedChange={(checked) => updateTeammateWorktreeDefault(checked === true)}
               />
               <Label
@@ -386,6 +398,7 @@ export const MembersEditorSection = ({
                 onModelChange={updateMemberModel}
                 onEffortChange={updateMemberEffort}
                 showWorktreeIsolationControls={showWorktreeIsolationControls}
+                worktreeIsolationDisabledReason={worktreeIsolationDisabledReason}
                 onWorktreeIsolationChange={updateMemberIsolation}
                 inheritedProviderId={inheritedProviderId}
                 inheritedModel={inheritedModel}

@@ -11,6 +11,7 @@ import {
   TEAM_ALIVE_LIST,
   TEAM_CANCEL_PROVISIONING,
   TEAM_CREATE,
+  TEAM_CREATE_INITIAL_GIT_COMMIT,
   TEAM_CREATE_CONFIG,
   TEAM_CREATE_TASK,
   TEAM_DELETE_DRAFT,
@@ -37,6 +38,8 @@ import {
   TEAM_GET_TASK_EXACT_LOG_SUMMARIES,
   TEAM_GET_TASK_LOG_STREAM,
   TEAM_GET_TASK_LOG_STREAM_SUMMARY,
+  TEAM_GET_WORKTREE_GIT_STATUS,
+  TEAM_INITIALIZE_GIT_REPOSITORY,
   TEAM_KILL_PROCESS,
   TEAM_LAUNCH,
   TEAM_LEAD_ACTIVITY,
@@ -130,6 +133,7 @@ import { TeamMembersMetaStore } from '../services/team/TeamMembersMetaStore';
 import { TeamMetaStore } from '../services/team/TeamMetaStore';
 import { buildAddMemberSpawnMessage } from '../services/team/TeamProvisioningService';
 import { TeamTaskAttachmentStore } from '../services/team/TeamTaskAttachmentStore';
+import { TeamWorktreeGitService } from '../services/team/TeamWorktreeGitService';
 
 import {
   validateFromField,
@@ -205,6 +209,7 @@ import type {
   TeamTask,
   TeamTaskStatus,
   TeamUpdateConfigRequest,
+  TeamWorktreeGitStatus,
   TeamViewSnapshot,
   ToolApprovalFileContent,
   ToolApprovalSettings,
@@ -514,6 +519,7 @@ let boardTaskExactLogDetailService: BoardTaskExactLogDetailService | null = null
 const attachmentStore = new TeamAttachmentStore();
 const taskAttachmentStore = new TeamTaskAttachmentStore();
 const teamMetaStore = new TeamMetaStore();
+const worktreeGitService = new TeamWorktreeGitService();
 
 const ALLOWED_ATTACHMENT_TYPES = new Set([
   'image/png',
@@ -524,6 +530,16 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   'text/plain',
 ]);
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB per file
+
+function isValidStoredAttachmentMimeType(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const v = value.trim();
+  if (!v) return false;
+  if (v.length > 200) return false;
+  if (v.includes('\0') || /[\r\n]/.test(v)) return false;
+  const slash = v.indexOf('/');
+  return slash > 0 && slash < v.length - 1;
+}
 
 /**
  * Prevents GC from collecting Notification objects in the deprecated showTeamNativeNotification.
@@ -574,6 +590,9 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_SET_TOOL_ACTIVITY_TRACKING, handleSetToolActivityTracking);
   ipcMain.handle(TEAM_GET_CLAUDE_LOGS, handleGetClaudeLogs);
   ipcMain.handle(TEAM_PREPARE_PROVISIONING, handlePrepareProvisioning);
+  ipcMain.handle(TEAM_GET_WORKTREE_GIT_STATUS, handleGetWorktreeGitStatus);
+  ipcMain.handle(TEAM_INITIALIZE_GIT_REPOSITORY, handleInitializeGitRepository);
+  ipcMain.handle(TEAM_CREATE_INITIAL_GIT_COMMIT, handleCreateInitialGitCommit);
   ipcMain.handle(TEAM_CREATE, handleCreateTeam);
   ipcMain.handle(TEAM_LAUNCH, handleLaunchTeam);
   ipcMain.handle(TEAM_PROVISIONING_STATUS, handleProvisioningStatus);
@@ -652,6 +671,9 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_SET_TOOL_ACTIVITY_TRACKING);
   ipcMain.removeHandler(TEAM_GET_CLAUDE_LOGS);
   ipcMain.removeHandler(TEAM_PREPARE_PROVISIONING);
+  ipcMain.removeHandler(TEAM_GET_WORKTREE_GIT_STATUS);
+  ipcMain.removeHandler(TEAM_INITIALIZE_GIT_REPOSITORY);
+  ipcMain.removeHandler(TEAM_CREATE_INITIAL_GIT_COMMIT);
   ipcMain.removeHandler(TEAM_CREATE);
   ipcMain.removeHandler(TEAM_LAUNCH);
   ipcMain.removeHandler(TEAM_PROVISIONING_STATUS);
@@ -818,6 +840,54 @@ async function handleGetProjectBranch(
     logger.error(`[teams:getProjectBranch] ${message}`);
     return { success: false, error: message };
   }
+}
+
+function validateProjectPathInput(
+  projectPath: unknown
+): { valid: true; value: string } | { valid: false; error: string } {
+  if (typeof projectPath !== 'string' || projectPath.trim().length === 0) {
+    return { valid: false, error: 'projectPath must be a non-empty string' };
+  }
+  return { valid: true, value: path.normalize(projectPath.trim()) };
+}
+
+async function handleGetWorktreeGitStatus(
+  _event: IpcMainInvokeEvent,
+  projectPath: unknown
+): Promise<IpcResult<TeamWorktreeGitStatus>> {
+  const validated = validateProjectPathInput(projectPath);
+  if (!validated.valid) {
+    return { success: false, error: validated.error };
+  }
+  return wrapTeamHandler('getWorktreeGitStatus', () =>
+    worktreeGitService.getStatus(validated.value)
+  );
+}
+
+async function handleInitializeGitRepository(
+  _event: IpcMainInvokeEvent,
+  projectPath: unknown
+): Promise<IpcResult<TeamWorktreeGitStatus>> {
+  const validated = validateProjectPathInput(projectPath);
+  if (!validated.valid) {
+    return { success: false, error: validated.error };
+  }
+  return wrapTeamHandler('initializeGitRepository', () =>
+    worktreeGitService.initializeRepository(validated.value)
+  );
+}
+
+async function handleCreateInitialGitCommit(
+  _event: IpcMainInvokeEvent,
+  projectPath: unknown
+): Promise<IpcResult<TeamWorktreeGitStatus>> {
+  const validated = validateProjectPathInput(projectPath);
+  if (!validated.valid) {
+    return { success: false, error: validated.error };
+  }
+  return wrapTeamHandler('createInitialGitCommit', () =>
+    worktreeGitService.createInitialCommit(validated.value)
+  );
 }
 
 async function handleListTeams(_event: IpcMainInvokeEvent): Promise<IpcResult<TeamSummary[]>> {
@@ -4267,10 +4337,9 @@ async function handleAddTaskComment(
         if (
           typeof a.id !== 'string' ||
           typeof a.filename !== 'string' ||
-          typeof a.mimeType !== 'string' ||
+          !isValidStoredAttachmentMimeType(a.mimeType) ||
           typeof a.base64Data !== 'string' ||
-          a.base64Data.length === 0 ||
-          !ALLOWED_ATTACHMENT_TYPES.has(a.mimeType)
+          a.base64Data.length === 0
         ) {
           throw new Error('Invalid attachment data');
         }
@@ -4283,7 +4352,7 @@ async function handleAddTaskComment(
           vTask.value!,
           safeId,
           a.filename,
-          a.mimeType,
+          a.mimeType.trim(),
           a.base64Data
         );
         savedAttachments.push(meta);
@@ -4386,11 +4455,8 @@ async function handleSaveTaskAttachment(
   if (typeof filename !== 'string' || filename.trim().length === 0) {
     return { success: false, error: 'filename must be a non-empty string' };
   }
-  if (typeof mimeType !== 'string' || !ALLOWED_ATTACHMENT_TYPES.has(mimeType)) {
-    return {
-      success: false,
-      error: `mimeType must be one of: ${[...ALLOWED_ATTACHMENT_TYPES].join(', ')}`,
-    };
+  if (!isValidStoredAttachmentMimeType(mimeType)) {
+    return { success: false, error: 'Invalid mimeType' };
   }
   if (typeof base64Data !== 'string' || base64Data.length === 0) {
     return { success: false, error: 'base64Data must be a non-empty string' };
@@ -4407,7 +4473,7 @@ async function handleSaveTaskAttachment(
       vTask.value!,
       safeAttId,
       filename,
-      mimeType,
+      mimeType.trim(),
       base64Data
     );
     // Write metadata into the task JSON
@@ -4430,7 +4496,7 @@ async function handleGetTaskAttachment(
   if (typeof attachmentId !== 'string' || attachmentId.trim().length === 0) {
     return { success: false, error: 'attachmentId must be a non-empty string' };
   }
-  if (typeof mimeType !== 'string' || !ALLOWED_ATTACHMENT_TYPES.has(mimeType)) {
+  if (!isValidStoredAttachmentMimeType(mimeType)) {
     return { success: false, error: 'Invalid mimeType' };
   }
   const safeAttId = attachmentId.trim();
@@ -4439,7 +4505,7 @@ async function handleGetTaskAttachment(
   }
 
   return wrapTeamHandler('getTaskAttachment', () =>
-    taskAttachmentStore.getAttachment(vTeam.value!, vTask.value!, safeAttId, mimeType)
+    taskAttachmentStore.getAttachment(vTeam.value!, vTask.value!, safeAttId, mimeType.trim())
   );
 }
 
@@ -4457,7 +4523,7 @@ async function handleDeleteTaskAttachment(
   if (typeof attachmentId !== 'string' || attachmentId.trim().length === 0) {
     return { success: false, error: 'attachmentId must be a non-empty string' };
   }
-  if (typeof mimeType !== 'string' || !ALLOWED_ATTACHMENT_TYPES.has(mimeType)) {
+  if (!isValidStoredAttachmentMimeType(mimeType)) {
     return { success: false, error: 'Invalid mimeType' };
   }
   const safeAttId = attachmentId.trim();
@@ -4466,7 +4532,12 @@ async function handleDeleteTaskAttachment(
   }
 
   return wrapTeamHandler('deleteTaskAttachment', async () => {
-    await taskAttachmentStore.deleteAttachment(vTeam.value!, vTask.value!, safeAttId, mimeType);
+    await taskAttachmentStore.deleteAttachment(
+      vTeam.value!,
+      vTask.value!,
+      safeAttId,
+      mimeType.trim()
+    );
     // Remove metadata from task JSON
     await getTeamDataService().removeTaskAttachment(vTeam.value!, vTask.value!, safeAttId);
   });

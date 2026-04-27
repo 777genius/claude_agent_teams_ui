@@ -67,6 +67,65 @@ async function writeTaskFile(
   return taskPath;
 }
 
+async function writeOpenCodeDeliveryLedger(
+  baseDir: string,
+  overrides?: Partial<{
+    memberName: string;
+    laneId: string;
+    runtimeSessionId: string;
+    inboxMessageId: string;
+    deliveredUserMessageId: string;
+    observedAssistantMessageId: string | null;
+    taskId: string;
+    displayId: string;
+    teamName: string;
+  }>
+): Promise<string> {
+  const memberName = overrides?.memberName ?? 'bob';
+  const laneId = overrides?.laneId ?? `secondary:opencode:${memberName}`;
+  const filePath = path.join(
+    baseDir,
+    'teams',
+    overrides?.teamName ?? TEAM_NAME,
+    '.opencode-runtime',
+    'lanes',
+    encodeURIComponent(laneId),
+    'opencode-prompt-delivery-ledger.json'
+  );
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(
+    filePath,
+    JSON.stringify(
+      {
+        data: [
+          {
+            teamName: overrides?.teamName ?? TEAM_NAME,
+            memberName,
+            laneId,
+            runtimeSessionId: overrides?.runtimeSessionId ?? 'session-1',
+            inboxMessageId: overrides?.inboxMessageId ?? 'user-1',
+            deliveredUserMessageId: overrides?.deliveredUserMessageId ?? 'user-1',
+            observedAssistantMessageId: overrides?.observedAssistantMessageId ?? null,
+            prePromptCursor: null,
+            postPromptCursor: null,
+            taskRefs: [
+              {
+                taskId: overrides?.taskId ?? TASK_ID,
+                displayId: overrides?.displayId ?? 'abc12345',
+                teamName: overrides?.teamName ?? TEAM_NAME,
+              },
+            ],
+          },
+        ],
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+  return filePath;
+}
+
 function persistedEntryPath(baseDir: string): string {
   return path.join(baseDir, 'task-change-summaries', encodeURIComponent(TEAM_NAME), `${TASK_ID}.json`);
 }
@@ -873,6 +932,7 @@ describe('ChangeExtractorService', () => {
     const projectPath = path.join(tmpDir, 'repo');
     await fs.mkdir(projectDir, { recursive: true });
     await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenCodeDeliveryLedger(tmpDir);
 
     const backfillOpenCodeTaskLedger = vi.fn(async (input: any) => {
       const bundleDir = path.join(input.projectDir, '.board-task-changes', 'bundles');
@@ -1063,7 +1123,7 @@ describe('ChangeExtractorService', () => {
     expect(backfillOpenCodeTaskLedger).not.toHaveBeenCalled();
   });
 
-  it('queues OpenCode backfill for summary-only requests without blocking board rendering', async () => {
+  it('awaits OpenCode backfill for summary-only requests with delivery context before falling back', async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'change-extractor-service-'));
     setClaudeBasePathOverride(tmpDir);
     await writeTaskFile(tmpDir, { displayId: 'abc12345', owner: 'bob' });
@@ -1071,6 +1131,7 @@ describe('ChangeExtractorService', () => {
     const projectPath = path.join(tmpDir, 'repo');
     await fs.mkdir(projectDir, { recursive: true });
     await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenCodeDeliveryLedger(tmpDir);
     const pendingBackfill = deferred<any>();
     const backfillOpenCodeTaskLedger = vi.fn(() => pendingBackfill.promise);
     const workerClient = {
@@ -1105,10 +1166,13 @@ describe('ChangeExtractorService', () => {
       { getMeta: vi.fn(async () => ({ providerId: 'opencode' })) } as any
     );
 
-    const result = await service.getTaskChanges(TEAM_NAME, TASK_ID, SUMMARY_OPTIONS);
+    let settled = false;
+    const request = service
+      .getTaskChanges(TEAM_NAME, TASK_ID, { ...SUMMARY_OPTIONS, owner: 'bob' })
+      .finally(() => {
+        settled = true;
+      });
 
-    expect(result.files).toHaveLength(0);
-    expect(workerClient.computeTaskChanges).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => {
       expect(backfillOpenCodeTaskLedger).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1116,10 +1180,14 @@ describe('ChangeExtractorService', () => {
           taskId: TASK_ID,
           projectDir,
           workspaceRoot: projectPath,
+          deliveryContextPath: expect.stringContaining('delivery-context.json'),
           attributionMode: 'strict-delivery',
         })
       );
     });
+
+    expect(settled).toBe(false);
+    expect(workerClient.computeTaskChanges).not.toHaveBeenCalled();
     pendingBackfill.resolve({
       schemaVersion: 1,
       providerId: 'opencode',
@@ -1137,6 +1205,10 @@ describe('ChangeExtractorService', () => {
       notices: [],
       diagnostics: [],
     });
+
+    const result = await request;
+    expect(result.files).toHaveLength(0);
+    expect(workerClient.computeTaskChanges).toHaveBeenCalledTimes(1);
   });
 
   it('does not reuse a negative OpenCode backfill cache entry after delivery context appears', async () => {
@@ -1202,51 +1274,17 @@ describe('ChangeExtractorService', () => {
       owner: 'bob',
       status: 'completed',
     });
-    expect(backfillOpenCodeTaskLedger).toHaveBeenCalledTimes(1);
-    expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]?.deliveryContextPath).toBeUndefined();
+    expect(backfillOpenCodeTaskLedger).not.toHaveBeenCalled();
 
-    const deliveryLedgerPath = path.join(
-      tmpDir,
-      'teams',
-      TEAM_NAME,
-      '.opencode-runtime',
-      'lanes',
-      encodeURIComponent('secondary:opencode:bob'),
-      'opencode-prompt-delivery-ledger.json'
-    );
-    await fs.mkdir(path.dirname(deliveryLedgerPath), { recursive: true });
-    await fs.writeFile(
-      deliveryLedgerPath,
-      JSON.stringify(
-        {
-          data: [
-            {
-              teamName: TEAM_NAME,
-              memberName: 'bob',
-              laneId: 'secondary:opencode:bob',
-              runtimeSessionId: 'session-1',
-              inboxMessageId: 'user-1',
-              deliveredUserMessageId: 'user-1',
-              observedAssistantMessageId: null,
-              prePromptCursor: null,
-              postPromptCursor: null,
-              taskRefs: [{ taskId: TASK_ID, displayId: 'abc12345', teamName: TEAM_NAME }],
-            },
-          ],
-        },
-        null,
-        2
-      ),
-      'utf8'
-    );
+    await writeOpenCodeDeliveryLedger(tmpDir);
 
     await service.getTaskChanges(TEAM_NAME, TASK_ID, {
       owner: 'bob',
       status: 'completed',
     });
 
-    expect(backfillOpenCodeTaskLedger).toHaveBeenCalledTimes(2);
-    expect(backfillOpenCodeTaskLedger.mock.calls[1]?.[0]?.deliveryContextPath).toEqual(
+    expect(backfillOpenCodeTaskLedger).toHaveBeenCalledTimes(1);
+    expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]?.deliveryContextPath).toEqual(
       expect.stringContaining('delivery-context.json')
     );
   });

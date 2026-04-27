@@ -131,6 +131,12 @@ import {
 import { TeammateRuntimeCompatibilityNotice } from './TeammateRuntimeCompatibilityNotice';
 import { computeEffectiveTeamModel } from './TeamModelSelector';
 import { getNextSuggestedTeamName } from './teamNameSets';
+import {
+  getWorktreeGitBlockingMessage,
+  getWorktreeGitControlDisabledReason,
+  useWorktreeGitReadiness,
+  WorktreeGitReadinessBanner,
+} from './WorktreeGitReadinessBanner';
 
 import type { MemberDraft } from '@renderer/components/team/members/MembersEditorSection';
 
@@ -549,6 +555,20 @@ export const CreateTeamDialog = ({
     () => (syncModelsWithLead ? members.map(clearMemberModelOverrides) : members),
     [members, syncModelsWithLead]
   );
+  const hasSelectedWorktreeIsolation =
+    !soloTeam &&
+    effectiveMemberDrafts.some((member) => !member.removedAt && member.isolation === 'worktree');
+  const worktreeGitReadiness = useWorktreeGitReadiness(
+    effectiveCwd || null,
+    open && canCreate && !soloTeam
+  );
+  const worktreeIsolationDisabledReason =
+    !soloTeam && canCreate ? getWorktreeGitControlDisabledReason(worktreeGitReadiness) : null;
+  const worktreeGitBlockingMessage = getWorktreeGitBlockingMessage(
+    worktreeGitReadiness,
+    hasSelectedWorktreeIsolation
+  );
+  const worktreeGitBlocksSubmission = Boolean(worktreeGitBlockingMessage);
   const tmuxRuntime = useTmuxRuntimeReadiness(open && canCreate);
 
   const selectedMemberProviders = useMemo<TeamProviderId[]>(() => {
@@ -1425,7 +1445,8 @@ export const CreateTeamDialog = ({
     isNameProvisioning ||
     !requestValidation.valid ||
     !!modelValidationError ||
-    teammateRuntimeCompatibility.blocksSubmission;
+    teammateRuntimeCompatibility.blocksSubmission ||
+    worktreeGitBlocksSubmission;
 
   const internalArgs = useMemo(() => {
     const args: string[] = [];
@@ -1567,6 +1588,10 @@ export const CreateTeamDialog = ({
     }
     if (teammateRuntimeCompatibility.blocksSubmission) {
       setLocalError(teammateRuntimeCompatibility.message);
+      return;
+    }
+    if (worktreeGitBlockingMessage) {
+      setLocalError(worktreeGitBlockingMessage);
       return;
     }
     setFieldErrors({});
@@ -1781,6 +1806,7 @@ export const CreateTeamDialog = ({
               onSyncModelsWithTeammatesChange={handleSyncModelsWithLeadChange}
               showWorktreeIsolationControls={!soloTeam}
               teammateWorktreeDefault={teammateWorktreeDefault}
+              worktreeIsolationDisabledReason={worktreeIsolationDisabledReason}
               onTeammateWorktreeDefaultChange={setTeammateWorktreeDefault}
               disableGeminiOption={isGeminiUiFrozen()}
               leadModelIssueText={leadModelIssueText}
@@ -1802,17 +1828,22 @@ export const CreateTeamDialog = ({
                 </div>
               }
               headerBottom={
-                soloTeam ? (
-                  <div className="flex items-start gap-2 rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2">
-                    <Info className="mt-0.5 size-3.5 shrink-0 text-sky-400" />
-                    <p className="text-[11px] leading-relaxed text-sky-300">
-                      Only the team lead (main process) will be started &mdash; no teammates will be
-                      spawned. Works like a regular Claude session but with access to the task board
-                      for planning. Saves tokens by avoiding teammate coordination overhead. You can
-                      add members later from the team settings.
-                    </p>
-                  </div>
-                ) : null
+                <div className="space-y-2">
+                  {soloTeam ? (
+                    <div className="flex items-start gap-2 rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2">
+                      <Info className="mt-0.5 size-3.5 shrink-0 text-sky-400" />
+                      <p className="text-[11px] leading-relaxed text-sky-300">
+                        Only the team lead (main process) will be started &mdash; no teammates will
+                        be spawned. Works like a regular Claude session but with access to the task
+                        board for planning. Saves tokens by avoiding teammate coordination overhead.
+                        You can add members later from the team settings.
+                      </p>
+                    </div>
+                  ) : null}
+                  {!soloTeam && canCreate ? (
+                    <WorktreeGitReadinessBanner state={worktreeGitReadiness} />
+                  ) : null}
+                </div>
               }
             />
           </div>

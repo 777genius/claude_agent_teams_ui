@@ -43,6 +43,25 @@ vi.mock('@renderer/api', () => ({
       getSavedRequest: vi.fn(async () => null),
       replaceMembers: vi.fn(async () => {}),
       prepareProvisioning: vi.fn(async () => ({})),
+      getWorktreeGitStatus: vi.fn(async (projectPath: string) => ({
+        projectPath,
+        isGitRepo: true,
+        hasHead: true,
+        canUseWorktrees: true,
+      })),
+      initializeGitRepository: vi.fn(async (projectPath: string) => ({
+        projectPath,
+        isGitRepo: true,
+        hasHead: false,
+        canUseWorktrees: false,
+        reason: 'missing_head',
+      })),
+      createInitialGitCommit: vi.fn(async (projectPath: string) => ({
+        projectPath,
+        isGitRepo: true,
+        hasHead: true,
+        canUseWorktrees: true,
+      })),
     },
     tmux: {
       getStatus: vi.fn(() =>
