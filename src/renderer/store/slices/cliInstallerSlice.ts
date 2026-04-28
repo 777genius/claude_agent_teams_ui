@@ -125,6 +125,24 @@ export function getModelOnlyFallbackProviderIds(
     .map((provider) => provider.providerId);
 }
 
+export function reconcileMultimodelProviderLoading(
+  status: CliInstallationStatus | null,
+  currentLoading: Partial<Record<CliProviderId, boolean>>
+): Partial<Record<CliProviderId, boolean>> {
+  if (status?.flavor !== 'agent_teams_orchestrator' || !status.installed) {
+    return {};
+  }
+
+  const incompleteProviderIds = new Set(getIncompleteMultimodelProviderIds(status));
+  return status.providers.reduce<Partial<Record<CliProviderId, boolean>>>(
+    (nextLoading, provider) => ({
+      ...nextLoading,
+      [provider.providerId]: incompleteProviderIds.has(provider.providerId),
+    }),
+    { ...currentLoading }
+  );
+}
+
 export function mergeCliStatusPreservingHydratedProviders(
   current: CliInstallationStatus | null,
   incoming: CliInstallationStatus

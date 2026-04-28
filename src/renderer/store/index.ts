@@ -19,9 +19,9 @@ import { create } from 'zustand';
 import { createChangeReviewSlice } from './slices/changeReviewSlice';
 import {
   createCliInstallerSlice,
-  getIncompleteMultimodelProviderIds,
   getModelOnlyFallbackProviderIds,
   mergeCliStatusPreservingHydratedProviders,
+  reconcileMultimodelProviderLoading,
 } from './slices/cliInstallerSlice';
 import { createConfigSlice } from './slices/configSlice';
 import { createConnectionSlice } from './slices/connectionSlice';
@@ -1485,20 +1485,14 @@ export function initializeNotificationListeners(): () => void {
                 state.cliStatus,
                 progress.status!
               );
-              const incompleteProviderIds = getIncompleteMultimodelProviderIds(nextStatus);
               modelOnlyFallbackProviderIds = getModelOnlyFallbackProviderIds(nextStatus);
 
               return {
                 cliStatus: nextStatus,
-                cliProviderStatusLoading:
-                  incompleteProviderIds.length > 0
-                    ? {
-                        ...state.cliProviderStatusLoading,
-                        ...Object.fromEntries(
-                          incompleteProviderIds.map((providerId) => [providerId, true])
-                        ),
-                      }
-                    : state.cliProviderStatusLoading,
+                cliProviderStatusLoading: reconcileMultimodelProviderLoading(
+                  nextStatus,
+                  state.cliProviderStatusLoading
+                ),
               };
             });
             for (const providerId of modelOnlyFallbackProviderIds) {
