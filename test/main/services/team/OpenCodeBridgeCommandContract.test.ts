@@ -6,6 +6,7 @@ import {
   createOpenCodeBridgeHandshakeIdentityHash,
   createOpenCodeBridgeIdempotencyKey,
   isOpenCodeBridgeCommandName,
+  OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION,
   parseSingleBridgeJsonResult,
   stableHash,
   validateBridgeResultEnvelope,
@@ -199,6 +200,42 @@ describe('OpenCodeBridgeCommandContract', () => {
     ).toEqual({
       ok: false,
       reason: 'Bridge handshake identity hash mismatch',
+    });
+  });
+
+  it('accepts handshake evidence contract version and rejects invalid values', () => {
+    const client = peerIdentity('claude_team');
+    const server = peerIdentity('agent_teams_orchestrator');
+    server.bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion =
+      OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION;
+    const validHandshake = buildHandshake({ client, server });
+
+    expect(
+      validateOpenCodeBridgeHandshake({
+        handshake: validHandshake,
+        expectedClient: client,
+        requiredCommand: 'opencode.launchTeam',
+        expectedCapabilitySnapshotId: 'cap-1',
+        expectedManifestHighWatermark: 10,
+        expectedRunId: 'run-1',
+      })
+    ).toEqual({ ok: true });
+
+    server.bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion = 0;
+    const invalidHandshake = buildHandshake({ client, server });
+
+    expect(
+      validateOpenCodeBridgeHandshake({
+        handshake: invalidHandshake,
+        expectedClient: client,
+        requiredCommand: 'opencode.launchTeam',
+        expectedCapabilitySnapshotId: 'cap-1',
+        expectedManifestHighWatermark: 10,
+        expectedRunId: 'run-1',
+      })
+    ).toEqual({
+      ok: false,
+      reason: 'Bridge handshake peer identity is invalid',
     });
   });
 
