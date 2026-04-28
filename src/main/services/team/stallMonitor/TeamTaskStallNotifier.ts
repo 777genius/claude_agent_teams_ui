@@ -44,11 +44,11 @@ function isOpenCodeDeliveryAccepted(delivery: OpenCodeTaskStallDelivery): boolea
   if (delivery.queuedBehindMessageId) {
     return false;
   }
-  if (delivery.responsePending === true) {
-    return false;
-  }
   if (delivery.accepted === true) {
     return true;
+  }
+  if (delivery.responsePending === true) {
+    return false;
   }
   if (delivery.delivered === true) {
     return true;

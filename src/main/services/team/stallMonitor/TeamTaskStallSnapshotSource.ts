@@ -7,6 +7,7 @@ import { TeamTaskReader } from '../TeamTaskReader';
 import { TeamMembersMetaStore } from '../TeamMembersMetaStore';
 
 import { BoardTaskActivityBatchIndexer } from './BoardTaskActivityBatchIndexer';
+import { OpenCodeTaskStallEvidenceSource } from './OpenCodeTaskStallEvidenceSource';
 import { buildResolvedReviewerIndex } from './reviewerResolution';
 import { TeamTaskLogFreshnessReader } from './TeamTaskLogFreshnessReader';
 import { TeamTaskStallExactRowReader } from './TeamTaskStallExactRowReader';
@@ -16,7 +17,7 @@ import {
 } from '@shared/utils/teamProvider';
 
 import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
-import type { TeamTaskStallSnapshot } from './TeamTaskStallTypes';
+import type { TeamTaskStallExactRow, TeamTaskStallSnapshot } from './TeamTaskStallTypes';
 import type { TeamConfig, TeamMember, TeamProviderId, TeamTask } from '@shared/types';
 
 function resolveLeadNameFromConfig(config: TeamConfig): string {
@@ -69,7 +70,8 @@ export class TeamTaskStallSnapshotSource {
     private readonly activityBatchIndexer: BoardTaskActivityBatchIndexer = new BoardTaskActivityBatchIndexer(),
     private readonly freshnessReader: TeamTaskLogFreshnessReader = new TeamTaskLogFreshnessReader(),
     private readonly exactRowReader: TeamTaskStallExactRowReader = new TeamTaskStallExactRowReader(),
-    private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore()
+    private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
+    private readonly openCodeEvidenceSource: OpenCodeTaskStallEvidenceSource = new OpenCodeTaskStallEvidenceSource()
   ) {}
 
   async getSnapshot(teamName: string): Promise<TeamTaskStallSnapshot | null> {
@@ -117,7 +119,7 @@ export class TeamTaskStallSnapshotSource {
       relevantMonitorTasks,
       recordsByTaskId
     );
-    const [freshnessByTaskId, exactRowsByFilePath] = await Promise.all([
+    const [freshnessByTaskId, exactRowsByFilePath, openCodeEvidence] = await Promise.all([
       this.freshnessReader.readSignals(
         transcriptContext.projectDir,
         relevantMonitorTasks.map((task) => task.id)
@@ -125,7 +127,25 @@ export class TeamTaskStallSnapshotSource {
       exactReadsEnabled
         ? this.exactRowReader.parseFiles(relevantExactFiles)
         : Promise.resolve(new Map()),
+      activityReadsEnabled && exactReadsEnabled
+        ? this.openCodeEvidenceSource.readEvidence({
+            teamName,
+            tasks: relevantMonitorTasks,
+            providerByMemberName,
+          })
+        : Promise.resolve({
+            recordsByTaskId: new Map(),
+            exactRowsByFilePath: new Map(),
+          }),
     ]);
+    const mergedRecordsByTaskId = this.mergeActivityRecords(
+      recordsByTaskId,
+      openCodeEvidence.recordsByTaskId
+    );
+    const mergedExactRowsByFilePath = this.mergeExactRows(
+      exactRowsByFilePath,
+      openCodeEvidence.exactRowsByFilePath
+    );
 
     return {
       teamName,
@@ -142,11 +162,70 @@ export class TeamTaskStallSnapshotSource {
       inProgressTasks,
       reviewOpenTasks,
       resolvedReviewersByTaskId,
-      recordsByTaskId,
+      recordsByTaskId: mergedRecordsByTaskId,
       freshnessByTaskId,
-      exactRowsByFilePath,
+      exactRowsByFilePath: mergedExactRowsByFilePath,
       providerByMemberName,
     };
+  }
+
+  private mergeActivityRecords(
+    base: Map<string, BoardTaskActivityRecord[]>,
+    extra: Map<string, BoardTaskActivityRecord[]>
+  ): Map<string, BoardTaskActivityRecord[]> {
+    if (extra.size === 0) {
+      return base;
+    }
+
+    const merged = new Map(base);
+    for (const [taskId, records] of extra.entries()) {
+      const existing = merged.get(taskId) ?? [];
+      const seen = new Set(existing.map((record) => record.id));
+      const next = [...existing];
+      for (const record of records) {
+        if (!seen.has(record.id)) {
+          next.push(record);
+          seen.add(record.id);
+        }
+      }
+      next.sort((left, right) => {
+        const timeDiff = Date.parse(left.timestamp) - Date.parse(right.timestamp);
+        return timeDiff !== 0 ? timeDiff : left.source.sourceOrder - right.source.sourceOrder;
+      });
+      merged.set(taskId, next);
+    }
+    return merged;
+  }
+
+  private mergeExactRows(
+    base: Map<string, TeamTaskStallExactRow[]>,
+    extra: Map<string, TeamTaskStallExactRow[]>
+  ): Map<string, TeamTaskStallExactRow[]> {
+    if (extra.size === 0) {
+      return base;
+    }
+
+    const merged = new Map(base);
+    for (const [filePath, rows] of extra.entries()) {
+      const existing = merged.get(filePath) ?? [];
+      const seen = new Set(existing.map((row) => `${row.messageUuid}:${row.sourceOrder}`));
+      const next = [...existing];
+      for (const row of rows) {
+        const key = `${row.messageUuid}:${row.sourceOrder}`;
+        if (!seen.has(key)) {
+          next.push(row);
+          seen.add(key);
+        }
+      }
+      next.sort((left, right) => {
+        const orderDiff = left.sourceOrder - right.sourceOrder;
+        return orderDiff !== 0
+          ? orderDiff
+          : Date.parse(left.timestamp) - Date.parse(right.timestamp);
+      });
+      merged.set(filePath, next);
+    }
+    return merged;
   }
 
   private collectRelevantExactFiles(

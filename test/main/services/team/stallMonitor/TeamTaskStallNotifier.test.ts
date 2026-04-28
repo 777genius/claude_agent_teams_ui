@@ -170,7 +170,7 @@ describe('TeamTaskStallNotifier', () => {
     await expect(notifier.notifyOpenCodeOwners('demo', [createAlert()])).resolves.toEqual([]);
   });
 
-  it('does not mark response-pending delivery as remediated even after runtime acceptance', async () => {
+  it('marks accepted response-pending delivery as remediated and leaves follow-up to the delivery ledger', async () => {
     const relay = vi.fn(async () => ({
       relayed: 1,
       attempted: 1,
@@ -191,7 +191,8 @@ describe('TeamTaskStallNotifier', () => {
       { sendMessage: vi.fn(async () => ({ deliveredToInbox: true, messageId: 'msg' })) } as never
     );
 
-    await expect(notifier.notifyOpenCodeOwners('demo', [createAlert()])).resolves.toEqual([]);
+    const alert = createAlert();
+    await expect(notifier.notifyOpenCodeOwners('demo', [alert])).resolves.toEqual([alert]);
     expect(relay).toHaveBeenCalledTimes(1);
   });
 

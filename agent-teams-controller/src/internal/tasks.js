@@ -229,14 +229,16 @@ function maybeNotifyTaskOwnerOnComment(context, task, comment, options = {}) {
     }
 
     const leadName = runtimeHelpers.inferLeadName(context.paths);
-    if (isSameTaskMember(owner, comment.author, leadName)) {
+    const rawAuthor = normalizeActorName(comment.author);
+    const sender = rawAuthor.toLowerCase() === 'system' ? leadName : rawAuthor || leadName;
+    if (isSameTaskMember(owner, sender, leadName)) {
         return;
     }
 
     const leadSessionId = runtimeHelpers.resolveLeadSessionId(context.paths);
     messages.sendMessage(context, {
         member: owner,
-        from: normalizeActorName(comment.author) || leadName,
+        from: sender,
         text: buildCommentNotificationMessage(context, task, comment),
         taskRefs: Array.isArray(comment.taskRefs) ? comment.taskRefs : undefined,
         summary: `Comment on #${task.displayId || task.id}`,
@@ -410,11 +412,16 @@ function notifyUnblockedOwners(context, completedTask) {
             // Stable comment ID prevents duplicates when completeTask is called
             // multiple times for the same task (e.g. agent retry). addTaskComment
             // in taskStore.js deduplicates by id (line 485).
-            addTaskComment(context, blockedTask.id, {
-                id: `dep-resolved-${completedTask.id}-${blockedTask.id}`,
-                text: lines.join('\n'),
-                from: 'system',
-            });
+            addTaskCommentWithOptions(
+                context,
+                blockedTask.id,
+                {
+                    id: `dep-resolved-${completedTask.id}-${blockedTask.id}`,
+                    text: lines.join('\n'),
+                    from: 'system',
+                },
+                { trustedInternalWrite: true }
+            );
         } catch {
             // Best-effort per blocked task: skip on failure
         }
@@ -497,23 +504,37 @@ function updateTaskFields(context, taskId, fields) {
     );
 }
 
-function addTaskComment(context, taskId, flags) {
+function addTaskCommentWithOptions(context, taskId, flags, options = {}) {
+    const commentFlags = flags || {};
+    const fromRequiredForAgentTool =
+        context.allowUserMessageSender === false && options.trustedInternalWrite !== true;
+    if (
+        fromRequiredForAgentTool &&
+        !(typeof commentFlags.from === 'string' && commentFlags.from.trim())
+    ) {
+        throw new Error('task_add_comment requires from to be your configured teammate name.');
+    }
+    const author = runtimeHelpers.resolveTaskCommentAuthorName(
+        context.paths,
+        commentFlags.from,
+        'task comment author',
+        { allowReservedAuthors: !fromRequiredForAgentTool }
+    );
     const result = withTeamBoardLock(context.paths, () =>
-        taskStore.addTaskComment(context.paths, taskId, flags.text, {
-            author: typeof flags.from === 'string' && flags.from.trim() ?
-                flags.from.trim() : runtimeHelpers.inferLeadName(context.paths),
-            ...(flags.id ? { id: flags.id } : {}),
-            ...(flags.createdAt ? { createdAt: flags.createdAt } : {}),
-            ...(flags.type ? { type: flags.type } : {}),
-            ...(Array.isArray(flags.taskRefs) ? { taskRefs: flags.taskRefs } : {}),
-            ...(Array.isArray(flags.attachments) ? { attachments: flags.attachments } : {}),
+        taskStore.addTaskComment(context.paths, taskId, commentFlags.text, {
+            author,
+            ...(commentFlags.id ? { id: commentFlags.id } : {}),
+            ...(commentFlags.createdAt ? { createdAt: commentFlags.createdAt } : {}),
+            ...(commentFlags.type ? { type: commentFlags.type } : {}),
+            ...(Array.isArray(commentFlags.taskRefs) ? { taskRefs: commentFlags.taskRefs } : {}),
+            ...(Array.isArray(commentFlags.attachments) ? { attachments: commentFlags.attachments } : {}),
         })
     );
 
     try {
         maybeNotifyTaskOwnerOnComment(context, result.task, result.comment, {
             inserted: result.inserted,
-            notifyOwner: flags.notifyOwner,
+            notifyOwner: commentFlags.notifyOwner,
         });
     } catch (notifyError) {
         warnNonCritical(`[tasks] owner notification failed for task ${taskId}`, notifyError);
@@ -527,6 +548,10 @@ function addTaskComment(context, taskId, flags) {
         task: result.task,
         comment: result.comment,
     };
+}
+
+function addTaskComment(context, taskId, flags) {
+    return addTaskCommentWithOptions(context, taskId, flags);
 }
 
 function attachTaskFile(context, taskId, flags) {

@@ -1340,7 +1340,10 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   const hasSelectedWorktreeIsolation =
     isLaunchMode &&
     effectiveMemberDrafts.some((member) => !member.removedAt && member.isolation === 'worktree');
-  const worktreeGitReadiness = useWorktreeGitReadiness(effectiveCwd || null, open && isLaunchMode);
+  const worktreeGitReadiness = useWorktreeGitReadiness(
+    effectiveCwd || null,
+    open && hasSelectedWorktreeIsolation
+  );
   const worktreeIsolationDisabledReason = isLaunchMode
     ? getWorktreeGitControlDisabledReason(worktreeGitReadiness)
     : null;
@@ -2505,7 +2508,11 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   memberModelIssueById={memberModelIssueById}
                   softDeleteMembers
                   disableGeminiOption={isGeminiUiFrozen()}
-                  headerBottom={<WorktreeGitReadinessBanner state={worktreeGitReadiness} />}
+                  headerBottom={
+                    hasSelectedWorktreeIsolation ? (
+                      <WorktreeGitReadinessBanner state={worktreeGitReadiness} />
+                    ) : null
+                  }
                 />
 
                 <div className="space-y-1.5">

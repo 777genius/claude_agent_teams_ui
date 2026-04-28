@@ -436,12 +436,13 @@ export function registerTaskTools(server: Pick<FastMCP, 'addTool'>) {
 
   server.addTool({
     name: 'task_add_comment',
-    description: 'Add task comment',
+    description:
+      'Add task comment. from is required and must be your configured teammate name; user/system are reserved for app-owned writes.',
     parameters: z.object({
       ...toolContextSchema,
       taskId: z.string().min(1),
       text: z.string().min(1),
-      from: z.string().optional(),
+      from: z.string().min(1),
     }),
     execute: async ({ teamName, claudeDir, taskId, text, from }) => {
       assertConfiguredTeam(teamName, claudeDir);

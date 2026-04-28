@@ -23,5 +23,6 @@ export function getController(teamName: string, claudeDir?: string) {
   return createController({
     teamName,
     ...(resolvedClaudeDir ? { claudeDir: resolvedClaudeDir } : {}),
+    allowUserMessageSender: false,
   });
 }

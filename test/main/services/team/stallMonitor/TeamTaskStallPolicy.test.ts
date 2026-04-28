@@ -415,6 +415,104 @@ describe('TeamTaskStallPolicy', () => {
     });
   });
 
+  it('alerts OpenCode-owned tasks with no instrumented owner progress after threshold', () => {
+    const task: TeamTask = {
+      id: 'task-open-no-progress',
+      displayId: 'feed4444',
+      subject: 'OpenCode no progress',
+      owner: 'alice',
+      status: 'in_progress',
+      workIntervals: [{ startedAt: '2026-04-19T12:00:00.000Z' }],
+    };
+    const snapshot = createSnapshot({
+      activeTasks: [task],
+      allTasksById: new Map([[task.id, task]]),
+      inProgressTasks: [task],
+      providerByMemberName: new Map([['alice', 'opencode']]),
+    });
+
+    const evaluation = policy.evaluateWork({
+      now: new Date('2026-04-19T12:07:00.000Z'),
+      task,
+      snapshot,
+    });
+
+    expect(evaluation).toMatchObject({
+      status: 'alert',
+      taskId: 'task-open-no-progress',
+      branch: 'work',
+      signal: 'mid_turn_after_touch',
+      progressSignal: 'unknown',
+      reason: 'Potential OpenCode task stall without owner progress evidence.',
+    });
+    expect(evaluation.epochKey).toContain('opencode_no_owner_progress');
+  });
+
+  it('keeps non-OpenCode no-progress tasks on the existing non-instrumented skip path', () => {
+    const task: TeamTask = {
+      id: 'task-codex-no-progress',
+      displayId: 'feed5555',
+      subject: 'Codex no progress',
+      owner: 'alice',
+      status: 'in_progress',
+      workIntervals: [{ startedAt: '2026-04-19T12:00:00.000Z' }],
+    };
+
+    const evaluation = policy.evaluateWork({
+      now: new Date('2026-04-19T12:30:00.000Z'),
+      task,
+      snapshot: createSnapshot({
+        activeTasks: [task],
+        allTasksById: new Map([[task.id, task]]),
+        inProgressTasks: [task],
+        providerByMemberName: new Map([['alice', 'codex']]),
+      }),
+    });
+
+    expect(evaluation).toMatchObject({
+      status: 'skip',
+      taskId: 'task-codex-no-progress',
+      skipReason: 'non_instrumented_run',
+    });
+  });
+
+  it('alerts OpenCode-owned tasks with records but no owner work touch after threshold', () => {
+    const task: TeamTask = {
+      id: 'task-open-no-touch',
+      displayId: 'feed6666',
+      subject: 'OpenCode no owner touch',
+      owner: 'alice',
+      status: 'in_progress',
+      workIntervals: [{ startedAt: '2026-04-19T12:00:00.000Z' }],
+    };
+    const record = createRecord({
+      actor: {
+        memberName: 'bob',
+        role: 'member',
+        sessionId: 'session-b',
+        isSidechain: true,
+      },
+    });
+
+    const evaluation = policy.evaluateWork({
+      now: new Date('2026-04-19T12:07:00.000Z'),
+      task,
+      snapshot: createSnapshot({
+        activeTasks: [task],
+        allTasksById: new Map([[task.id, task]]),
+        inProgressTasks: [task],
+        providerByMemberName: new Map([['alice', 'opencode']]),
+        recordsByTaskId: new Map([[task.id, [record]]]),
+      }),
+    });
+
+    expect(evaluation).toMatchObject({
+      status: 'alert',
+      taskId: 'task-open-no-touch',
+      reason: 'Potential OpenCode task stall without owner work touch.',
+    });
+  });
+
   it('fails closed on review branch when review has not started yet', () => {
     const task: TeamTask = {
       id: 'task-b',

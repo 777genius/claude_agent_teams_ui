@@ -107,6 +107,7 @@ import * as path from 'path';
 import pidusage from 'pidusage';
 import * as readline from 'readline';
 
+import { mergeJsonSettingsArgs } from '../runtime/cliSettingsArgs';
 import {
   type GeminiRuntimeAuthState,
   resolveGeminiRuntimeAuth,
@@ -121,7 +122,6 @@ import {
 } from '../runtime/providerModelProbe';
 import { resolveTeamProviderId } from '../runtime/providerRuntimeEnv';
 
-import { createRuntimeDeliveryJournalStore } from './opencode/delivery/RuntimeDeliveryJournal';
 import {
   createOpenCodePromptDeliveryLedgerStore,
   hashOpenCodePromptDeliveryPayload,
@@ -133,16 +133,17 @@ import {
 } from './opencode/delivery/OpenCodePromptDeliveryLedger';
 import {
   isOpenCodePromptDeliveryObserveLaterResponseState,
-  isOpenCodePromptDeliveryRetryAttemptDue,
   isOpenCodePromptDeliveryRetryableResponseState,
-  isOpenCodeVisibleReplySemanticallySufficient,
+  isOpenCodePromptDeliveryRetryAttemptDue,
   isOpenCodeVisibleReplyReadCommitAllowed,
+  isOpenCodeVisibleReplySemanticallySufficient,
   OPENCODE_PROMPT_DELIVERY_OBSERVE_DELAY_MS,
   OPENCODE_PROMPT_DELIVERY_RETRY_DELAY_MS,
   OPENCODE_PROMPT_WATCHDOG_GLOBAL_CONCURRENCY,
   OPENCODE_PROMPT_WATCHDOG_PER_TEAM_CONCURRENCY,
   type OpenCodeVisibleReplyProof,
 } from './opencode/delivery/OpenCodePromptDeliveryWatchdog';
+import { createRuntimeDeliveryJournalStore } from './opencode/delivery/RuntimeDeliveryJournal';
 import {
   type RuntimeDeliveryDestinationPort,
   RuntimeDeliveryDestinationRegistry,
@@ -206,8 +207,8 @@ import {
 import { TeamLaunchStateStore } from './TeamLaunchStateStore';
 import { TeamMcpConfigBuilder } from './TeamMcpConfigBuilder';
 import { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
-import { TeamMemberWorktreeManager } from './TeamMemberWorktreeManager';
 import { TeamMembersMetaStore } from './TeamMembersMetaStore';
+import { TeamMemberWorktreeManager } from './TeamMemberWorktreeManager';
 import { TeamMetaStore } from './TeamMetaStore';
 import {
   commandArgEquals,
@@ -703,7 +704,7 @@ function getPreflightTimeoutMs(providerId: TeamProviderId | undefined): number {
 }
 
 function buildProviderCliCommandArgs(providerArgs: string[], args: string[]): string[] {
-  return [...providerArgs, ...args];
+  return mergeJsonSettingsArgs([...providerArgs, ...args]);
 }
 
 interface ProviderModelListCommandResponse {
@@ -11827,7 +11828,7 @@ export class TeamProvisioningService {
       );
       const resolvedProviderId = resolveTeamProviderId(request.providerId);
       const providerFastModeArgs = buildProviderFastModeArgs(resolvedProviderId, launchIdentity);
-      const spawnArgs = [
+      const spawnArgs = mergeJsonSettingsArgs([
         '--input-format',
         'stream-json',
         '--output-format',
@@ -11855,7 +11856,7 @@ export class TeamProvisioningService {
         ...(request.worktree ? ['--worktree', request.worktree] : []),
         ...parseCliArgs(request.extraCliArgs),
         ...providerArgs,
-      ];
+      ]);
       const runtimeWarning = buildRuntimeLaunchWarning(request, shellEnv, {
         geminiRuntimeAuth,
         promptSize,
@@ -12946,12 +12947,13 @@ export class TeamProvisioningService {
       }
       launchArgs.push(...parseCliArgs(request.extraCliArgs));
       launchArgs.push(...providerArgs);
+      const finalLaunchArgs = mergeJsonSettingsArgs(launchArgs);
       const runtimeWarning = buildRuntimeLaunchWarning(request, shellEnv, {
         geminiRuntimeAuth,
         promptSize,
         expectedMembersCount: effectiveMemberSpecs.length,
       });
-      logRuntimeLaunchSnapshot(request.teamName, claudePath, launchArgs, request, shellEnv, {
+      logRuntimeLaunchSnapshot(request.teamName, claudePath, finalLaunchArgs, request, shellEnv, {
         geminiRuntimeAuth,
         promptSize,
         expectedMembersCount: effectiveMemberSpecs.length,
@@ -12996,7 +12998,7 @@ export class TeamProvisioningService {
         if (request.skipPermissions === false) {
           await this.seedLeadBootstrapPermissionRules(request.teamName, request.cwd);
         }
-        child = spawnCli(claudePath, launchArgs, {
+        child = spawnCli(claudePath, finalLaunchArgs, {
           cwd: request.cwd,
           env: { ...shellEnv },
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -13027,7 +13029,7 @@ export class TeamProvisioningService {
       run.child = child;
       run.spawnContext = {
         claudePath,
-        args: launchArgs,
+        args: finalLaunchArgs,
         cwd: request.cwd,
         env: { ...shellEnv },
         prompt,

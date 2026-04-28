@@ -1080,6 +1080,52 @@ describe('agent-teams-controller API', () => {
     ).toThrow('message_send cannot target cross_team_send. Use cross_team_send with toTeam.');
   });
 
+  it('prevents agent-facing message_send from impersonating the human user', () => {
+    const claudeDir = makeClaudeDir();
+    const appController = createController({ teamName: 'my-team', claudeDir });
+    const agentController = createController({
+      teamName: 'my-team',
+      claudeDir,
+      allowUserMessageSender: false,
+    });
+
+    const appMessage = appController.messages.sendMessage({
+      to: 'team-lead',
+      from: 'user',
+      text: 'Real user question.',
+      summary: 'User question',
+    });
+    expect(appMessage.deliveredToInbox).toBe(true);
+
+    expect(() =>
+      agentController.messages.sendMessage({
+        to: 'team-lead',
+        from: 'user',
+        text: 'Forged user message.',
+        summary: 'Forged',
+      })
+    ).toThrow('message_send from user is reserved for the human user');
+
+    expect(() =>
+      agentController.messages.sendMessage({
+        to: 'team-lead',
+        text: 'Missing sender should not default to user.',
+      })
+    ).toThrow('message_send requires from to be your configured teammate name');
+
+    const agentMessage = agentController.messages.sendMessage({
+      to: 'team-lead',
+      from: 'bob',
+      text: 'Legitimate teammate message.',
+      summary: 'Teammate update',
+    });
+    expect(agentMessage.deliveredToInbox).toBe(true);
+
+    const leadInboxPath = path.join(claudeDir, 'teams', 'my-team', 'inboxes', 'alice.json');
+    const leadRows = JSON.parse(fs.readFileSync(leadInboxPath, 'utf8'));
+    expect(leadRows.map((row) => row.from)).toEqual(['user', 'bob']);
+  });
+
   it('wakes task owner on regular comment from another member', () => {
     const claudeDir = makeClaudeDir();
     const controller = createController({ teamName: 'my-team', claudeDir });
@@ -1097,6 +1143,181 @@ describe('agent-teams-controller API', () => {
     expect(rows[0].summary).toContain(`#${task.displayId}`);
     expect(rows[0].text).toContain('I found the root cause.');
     expect(rows[0].leadSessionId).toBe('lead-session-1');
+  });
+
+  it('normalizes task comment authors at the write boundary', () => {
+    const claudeDir = makeClaudeDir();
+    fs.writeFileSync(
+      path.join(claudeDir, 'teams', 'my-team', 'config.json'),
+      JSON.stringify(
+        {
+          name: 'my-team',
+          leadSessionId: 'lead-session-1',
+          members: [
+            { name: 'team-lead', role: 'team-lead', providerId: 'codex', provider: 'codex' },
+            { name: 'bob', role: 'developer' },
+          ],
+        },
+        null,
+        2
+      )
+    );
+
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const task = controller.tasks.createTask({ subject: 'Review result', notifyOwner: false });
+
+    const fromProvider = controller.tasks.addTaskComment(task.id, {
+      from: 'codex',
+      text: 'Lead runtime finished review.',
+    });
+    const fromAlias = controller.tasks.addTaskComment(task.id, {
+      from: 'lead',
+      text: 'Lead alias finished review.',
+    });
+    const fromUser = controller.tasks.addTaskComment(task.id, {
+      from: 'User',
+      text: 'User follow-up.',
+    });
+    const fromSystem = controller.tasks.addTaskComment(task.id, {
+      from: 'System',
+      text: 'System note.',
+    });
+
+    expect(fromProvider.comment.author).toBe('team-lead');
+    expect(fromAlias.comment.author).toBe('team-lead');
+    expect(fromUser.comment.author).toBe('user');
+    expect(fromSystem.comment.author).toBe('system');
+  });
+
+  it('does not map a real teammate named like the lead provider id to the lead', () => {
+    const claudeDir = makeClaudeDir();
+    fs.writeFileSync(
+      path.join(claudeDir, 'teams', 'my-team', 'config.json'),
+      JSON.stringify(
+        {
+          name: 'my-team',
+          leadSessionId: 'lead-session-1',
+          members: [
+            { name: 'team-lead', role: 'team-lead', providerId: 'codex', provider: 'codex' },
+            { name: 'codex', role: 'developer' },
+          ],
+        },
+        null,
+        2
+      )
+    );
+
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const task = controller.tasks.createTask({ subject: 'Member named codex', notifyOwner: false });
+
+    const commented = controller.tasks.addTaskComment(task.id, {
+      from: 'codex',
+      text: 'Real teammate comment.',
+    });
+
+    expect(commented.comment.author).toBe('codex');
+  });
+
+  it('rejects task comments from unknown authors', () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const task = controller.tasks.createTask({ subject: 'Reject unknown author', notifyOwner: false });
+
+    expect(() =>
+      controller.tasks.addTaskComment(task.id, {
+        from: 'ghost',
+        text: 'This should not be persisted.',
+      })
+    ).toThrow('Unknown task comment author: ghost');
+
+    expect(controller.tasks.getTask(task.id).comments || []).toEqual([]);
+  });
+
+  it('prevents agent-facing task_add_comment from impersonating app-owned authors', () => {
+    const claudeDir = makeClaudeDir();
+    const appController = createController({ teamName: 'my-team', claudeDir });
+    const agentController = createController({
+      teamName: 'my-team',
+      claudeDir,
+      allowUserMessageSender: false,
+    });
+    const task = appController.tasks.createTask({ subject: 'Reserved comment authors', notifyOwner: false });
+
+    const appComment = appController.tasks.addTaskComment(task.id, {
+      from: 'user',
+      text: 'Real user comment.',
+    });
+    expect(appComment.comment.author).toBe('user');
+
+    expect(() =>
+      agentController.tasks.addTaskComment(task.id, {
+        from: 'user',
+        text: 'Forged user comment.',
+      })
+    ).toThrow('task comment author "user" is reserved for app-owned writes');
+
+    expect(() =>
+      agentController.tasks.addTaskComment(task.id, {
+        text: 'Missing sender should not default to lead.',
+      })
+    ).toThrow('task_add_comment requires from to be your configured teammate name');
+
+    let unknownAuthorError;
+    try {
+      agentController.tasks.addTaskComment(task.id, {
+        from: 'ghost',
+        text: 'Unknown teammate should get a useful recovery error.',
+      });
+    } catch (error) {
+      unknownAuthorError = error;
+    }
+    expect(unknownAuthorError.message).toContain('Unknown task comment author: ghost');
+    expect(unknownAuthorError.message).not.toContain('user');
+    expect(unknownAuthorError.message).not.toContain('system');
+
+    const agentComment = agentController.tasks.addTaskComment(task.id, {
+      from: 'bob',
+      text: 'Legitimate teammate comment.',
+    });
+    expect(agentComment.comment.author).toBe('bob');
+
+    const comments = agentController.tasks.getTask(task.id).comments || [];
+    expect(comments.map((comment) => comment.author)).toEqual(['user', 'bob']);
+  });
+
+  it('keeps internal dependency comments when agent-facing task_complete unblocks a task', () => {
+    const claudeDir = makeClaudeDir();
+    const appController = createController({ teamName: 'my-team', claudeDir });
+    const agentController = createController({
+      teamName: 'my-team',
+      claudeDir,
+      allowUserMessageSender: false,
+    });
+    const dependency = appController.tasks.createTask({
+      subject: 'Prepare calculator API',
+      owner: 'bob',
+      notifyOwner: false,
+    });
+    const blocked = appController.tasks.createTask({
+      subject: 'Build calculator UI',
+      owner: 'bob',
+      'blocked-by': dependency.displayId,
+      notifyOwner: false,
+    });
+
+    expect(() => agentController.tasks.completeTask(dependency.id, 'bob')).not.toThrow();
+
+    const comments = appController.tasks.getTask(blocked.id).comments || [];
+    expect(comments).toHaveLength(1);
+    expect(comments[0].author).toBe('system');
+    expect(comments[0].id).toBe(`dep-resolved-${dependency.id}-${blocked.id}`);
+    expect(comments[0].text).toContain('Dependency resolved');
+
+    const inboxPath = path.join(claudeDir, 'teams', 'my-team', 'inboxes', 'bob.json');
+    const rows = JSON.parse(fs.readFileSync(inboxPath, 'utf8'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].from).toBe('alice');
+    expect(rows[0].text).toContain('Dependency resolved');
   });
 
   it('includes the assigned task ref in owner assignment notifications', () => {

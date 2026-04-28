@@ -560,7 +560,7 @@ export const CreateTeamDialog = ({
     effectiveMemberDrafts.some((member) => !member.removedAt && member.isolation === 'worktree');
   const worktreeGitReadiness = useWorktreeGitReadiness(
     effectiveCwd || null,
-    open && canCreate && !soloTeam
+    open && canCreate && hasSelectedWorktreeIsolation
   );
   const worktreeIsolationDisabledReason =
     !soloTeam && canCreate ? getWorktreeGitControlDisabledReason(worktreeGitReadiness) : null;
@@ -1840,7 +1840,7 @@ export const CreateTeamDialog = ({
                       </p>
                     </div>
                   ) : null}
-                  {!soloTeam && canCreate ? (
+                  {canCreate && hasSelectedWorktreeIsolation ? (
                     <WorktreeGitReadinessBanner state={worktreeGitReadiness} />
                   ) : null}
                 </div>

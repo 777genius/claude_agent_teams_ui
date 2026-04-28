@@ -2,6 +2,7 @@ declare module 'agent-teams-controller' {
   export interface ControllerContextOptions {
     teamName: string;
     claudeDir?: string;
+    allowUserMessageSender?: boolean;
   }
 
   export interface ControllerTaskApi {
