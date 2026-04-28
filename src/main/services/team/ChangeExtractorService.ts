@@ -70,6 +70,11 @@ interface OpenCodeBackfillCacheEntry {
   expiresAt: number;
 }
 
+interface OpenCodeBackfillAttempt {
+  attempted: boolean;
+  backfilled: boolean;
+}
+
 interface OpenCodeDeliveryContextTempFile {
   filePath: string | null;
   cleanup: () => Promise<void>;
@@ -81,7 +86,7 @@ export class ChangeExtractorService {
   private taskChangeSummaryInFlight = new Map<string, Promise<TaskChangeSetV2>>();
   private taskChangeSummaryVersionByTask = new Map<string, number>();
   private taskChangeSummaryValidationInFlight = new Set<string>();
-  private openCodeBackfillInFlight = new Map<string, Promise<boolean>>();
+  private openCodeBackfillInFlight = new Map<string, Promise<OpenCodeBackfillAttempt>>();
   private openCodeBackfillCache = new Map<string, OpenCodeBackfillCacheEntry>();
   private openCodeTeamEligibilityCache = new Map<string, { value: boolean; expiresAt: number }>();
   private readonly cacheTtl = 30 * 1000; // 30 сек — shorter TTL to reduce stale data risk
@@ -209,7 +214,8 @@ export class ChangeExtractorService {
       return ledgerResult;
     }
 
-    if (await this.tryBackfillOpenCodeLedger(resolvedInput)) {
+    const openCodeBackfill = await this.tryBackfillOpenCodeLedger(resolvedInput);
+    if (openCodeBackfill.backfilled || openCodeBackfill.attempted) {
       const backfilledLedgerResult = await this.readLedgerTaskChanges(resolvedInput);
       if (backfilledLedgerResult) {
         await this.recordTaskChangePresence(
@@ -378,15 +384,17 @@ export class ChangeExtractorService {
     }
   }
 
-  private async tryBackfillOpenCodeLedger(input: ResolvedTaskChangeComputeInput): Promise<boolean> {
+  private async tryBackfillOpenCodeLedger(
+    input: ResolvedTaskChangeComputeInput
+  ): Promise<OpenCodeBackfillAttempt> {
     if (!this.openCodeLedgerBackfillPort) {
-      return false;
+      return { attempted: false, backfilled: false };
     }
     if (!(await this.isOpenCodeTeamCandidate(input.teamName))) {
-      return false;
+      return { attempted: false, backfilled: false };
     }
     if (typeof this.logsFinder.getLogSourceWatchContext !== 'function') {
-      return false;
+      return { attempted: false, backfilled: false };
     }
 
     const context = await this.logsFinder
@@ -400,7 +408,7 @@ export class ChangeExtractorService {
       !path.isAbsolute(projectDir) ||
       !path.isAbsolute(workspaceRoot)
     ) {
-      return false;
+      return { attempted: false, backfilled: false };
     }
 
     const sourceGeneration = this.teamLogSourceTracker
@@ -433,7 +441,7 @@ export class ChangeExtractorService {
     const now = Date.now();
     const cached = this.openCodeBackfillCache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
-      return cached.backfilledAt > 0;
+      return { attempted: false, backfilled: cached.backfilledAt > 0 };
     }
     this.openCodeBackfillCache.delete(cacheKey);
 
@@ -456,7 +464,7 @@ export class ChangeExtractorService {
         deliveryContextFingerprint,
         attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
       }).catch(() => undefined);
-      return false;
+      return { attempted: false, backfilled: false };
     }
 
     const existing = this.openCodeBackfillInFlight.get(cacheKey);
@@ -489,7 +497,7 @@ export class ChangeExtractorService {
     >,
     sourceGeneration: string | null,
     backfillMemberName?: string
-  ): Promise<boolean> {
+  ): Promise<OpenCodeBackfillAttempt> {
     const deliveryContext = await this.createOpenCodeDeliveryContextTempFile(
       input.teamName,
       input.taskId,
@@ -557,7 +565,7 @@ export class ChangeExtractorService {
           `OpenCode ledger backfill for ${input.teamName}/${input.taskId}: ${result.outcome}; ${result.diagnostics.join('; ')}`
         );
       }
-      return backfilled;
+      return { attempted: true, backfilled };
     } catch (error) {
       logger.warn(
         `OpenCode ledger backfill failed for ${input.teamName}/${input.taskId}: ${error instanceof Error ? error.message : String(error)}`
@@ -583,7 +591,7 @@ export class ChangeExtractorService {
       } else {
         this.openCodeBackfillCache.delete(cacheKey);
       }
-      return false;
+      return { attempted: true, backfilled: false };
     } finally {
       await deliveryContext.cleanup();
     }
