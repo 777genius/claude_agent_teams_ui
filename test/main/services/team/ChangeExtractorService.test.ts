@@ -1058,7 +1058,6 @@ describe('ChangeExtractorService', () => {
         projectDir,
         workspaceRoot: projectPath,
         attributionMode: 'strict-delivery',
-        evidenceMode: 'chain-only',
       })
     );
     expect(workerClient.computeTaskChanges).not.toHaveBeenCalled();
@@ -1183,7 +1182,6 @@ describe('ChangeExtractorService', () => {
           workspaceRoot: projectPath,
           deliveryContextPath: expect.stringContaining('delivery-context.json'),
           attributionMode: 'strict-delivery',
-          evidenceMode: 'chain-only',
         })
       );
     });

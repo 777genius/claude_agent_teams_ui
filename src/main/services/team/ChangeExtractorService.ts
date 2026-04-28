@@ -46,7 +46,6 @@ import type { AgentChangeSet, ChangeStats, TaskChangeSetV2 } from '@shared/types
 
 const logger = createLogger('Service:ChangeExtractorService');
 const OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE = 'strict-delivery' as const;
-const OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE = 'chain-only' as const;
 const OPEN_CODE_MAX_DISCOVERED_LANES = 500;
 
 /** Кеш-запись: данные + mtime файла + время протухания */
@@ -426,7 +425,6 @@ export class ChangeExtractorService {
       sourceGeneration,
       deliveryContextFingerprint,
       attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
-      evidenceMode: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE,
     });
     const now = Date.now();
     const cached = this.openCodeBackfillCache.get(cacheKey);
@@ -501,7 +499,6 @@ export class ChangeExtractorService {
         projectDir,
         workspaceRoot,
         attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
-        evidenceMode: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE,
         ...(deliveryContext.filePath ? { deliveryContextPath: deliveryContext.filePath } : {}),
       });
       void appendOpenCodeTaskChangeDiag({
@@ -841,7 +838,6 @@ export class ChangeExtractorService {
     sourceGeneration?: string | null;
     deliveryContextFingerprint: string;
     attributionMode: typeof OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE;
-    evidenceMode: typeof OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE;
   }): string {
     return JSON.stringify({
       teamName: input.teamName,
@@ -852,7 +848,6 @@ export class ChangeExtractorService {
       sourceGeneration: input.sourceGeneration ?? '',
       deliveryContextFingerprint: input.deliveryContextFingerprint,
       attributionMode: input.attributionMode,
-      evidenceMode: input.evidenceMode,
     });
   }
 
