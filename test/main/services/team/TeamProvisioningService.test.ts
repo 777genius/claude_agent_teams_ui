@@ -5549,30 +5549,33 @@ describe('TeamProvisioningService', () => {
       );
 
       await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-      await vi.waitFor(async () => {
-        expect(adapterLaunch).toHaveBeenCalledTimes(1);
-        const launchInput = adapterLaunch.mock.calls[0]?.[0] as { runId?: string } | undefined;
-        expect(launchInput?.runId).toEqual(expect.any(String));
-        await expect(
-          new OpenCodeRuntimeManifestEvidenceReader({ teamsBasePath: tempTeamsBase }).read(
-            teamName,
-            'secondary:opencode:bob'
-          )
-        ).resolves.toMatchObject({
-          activeRunId: launchInput?.runId,
-          highWatermark: 0,
-        });
-        await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
-          lanes: {
-            'secondary:opencode:bob': {
-              state: 'degraded',
-              diagnostics: expect.arrayContaining([
-                'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
-              ]),
+      await vi.waitFor(
+        async () => {
+          expect(adapterLaunch).toHaveBeenCalledTimes(1);
+          const launchInput = adapterLaunch.mock.calls[0]?.[0] as { runId?: string } | undefined;
+          expect(launchInput?.runId).toEqual(expect.any(String));
+          await expect(
+            new OpenCodeRuntimeManifestEvidenceReader({ teamsBasePath: tempTeamsBase }).read(
+              teamName,
+              'secondary:opencode:bob'
+            )
+          ).resolves.toMatchObject({
+            activeRunId: launchInput?.runId,
+            highWatermark: 0,
+          });
+          await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
+            lanes: {
+              'secondary:opencode:bob': {
+                state: 'degraded',
+                diagnostics: expect.arrayContaining([
+                  'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+                ]),
+              },
             },
-          },
-        });
-      });
+          });
+        },
+        { timeout: 5000 }
+      );
     });
 
     it('starts all queued OpenCode secondary lanes without letting the first in-flight lane block its siblings', async () => {
