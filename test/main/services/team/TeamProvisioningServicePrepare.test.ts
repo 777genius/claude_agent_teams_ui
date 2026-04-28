@@ -1736,6 +1736,97 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     expect(getCodexModelCatalog).toHaveBeenCalledWith({ cwd: tempRoot });
   });
 
+  it('uses the orchestrator Codex catalog before falling back to the direct app-server catalog', async () => {
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
+      env: {
+        PATH: '/usr/bin',
+        SHELL: '/bin/zsh',
+      },
+      authSource: 'codex_runtime',
+      geminiRuntimeAuth: null,
+      providerArgs: ['--settings', '{"codex":{"forced_login_method":"chatgpt"}}'],
+    });
+    const getCodexModelCatalog = vi
+      .spyOn(ProviderConnectionService.getInstance(), 'getCodexModelCatalog')
+      .mockResolvedValue(null);
+
+    execCliMock.mockImplementation(async (_binaryPath: string | null, args: string[]) => {
+      if (args.includes('model') && args.includes('list')) {
+        return {
+          stdout: JSON.stringify({
+            schemaVersion: 1,
+            providers: {
+              codex: {
+                defaultModel: 'gpt-5.4',
+                models: [{ id: 'gpt-5.4', label: 'GPT-5.4' }],
+              },
+            },
+          }),
+          stderr: '',
+          exitCode: 0,
+        };
+      }
+      if (args.includes('runtime') && args.includes('status')) {
+        return {
+          stdout: JSON.stringify({
+            providers: {
+              codex: {
+                runtimeCapabilities: {
+                  modelCatalog: { dynamic: true, source: 'app-server' },
+                },
+                modelCatalog: {
+                  schemaVersion: 1,
+                  providerId: 'codex',
+                  source: 'app-server',
+                  status: 'ready',
+                  fetchedAt: '2026-04-28T00:00:00.000Z',
+                  staleAt: '2026-04-28T00:10:00.000Z',
+                  defaultModelId: 'gpt-5.4',
+                  defaultLaunchModel: 'gpt-5.4',
+                  models: [
+                    {
+                      id: 'gpt-5.5',
+                      launchModel: 'gpt-5.5',
+                      displayName: 'GPT-5.5',
+                      hidden: false,
+                      supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+                      defaultReasoningEffort: 'high',
+                      inputModalities: ['text', 'image'],
+                      supportsPersonality: false,
+                      isDefault: false,
+                      upgrade: false,
+                      source: 'app-server',
+                    },
+                  ],
+                  diagnostics: {
+                    configReadState: 'skipped',
+                    appServerState: 'healthy',
+                  },
+                },
+              },
+            },
+          }),
+          stderr: '',
+          exitCode: 0,
+        };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+
+    const result = await (svc as any).verifySelectedProviderModels({
+      claudePath: '/fake/claude',
+      cwd: tempRoot,
+      providerId: 'codex',
+      modelIds: ['gpt-5.5'],
+      limitContext: false,
+    });
+
+    expect(result.details).toEqual(['Selected model gpt-5.5 is available for launch.']);
+    expect(result.blockingMessages).toEqual([]);
+    expect(getCodexModelCatalog).not.toHaveBeenCalled();
+  });
+
   it('passes provider launch args before model-list catalog subcommands', async () => {
     execCliMock.mockImplementation(async (_binaryPath: string | null, args: string[]) => {
       if (args.includes('model')) {

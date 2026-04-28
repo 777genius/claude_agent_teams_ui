@@ -67,6 +67,7 @@ import { getMemberColorByName } from '@shared/constants/memberColors';
 import { DEFAULT_TOOL_APPROVAL_SETTINGS } from '@shared/types/team';
 import { resolveLanguageName } from '@shared/utils/agentLanguage';
 import { resolveAnthropicLaunchModel } from '@shared/utils/anthropicLaunchModel';
+import { isUsableCodexModelCatalog } from '@shared/utils/codexModelCatalog';
 import { getAnthropicDefaultTeamModel } from '@shared/utils/anthropicModelDefaults';
 import { parseCliArgs } from '@shared/utils/cliArgsParser';
 import { deriveContextMetrics, inferContextWindowTokens } from '@shared/utils/contextMetrics';
@@ -920,6 +921,22 @@ function normalizeProviderModelListModels(
     }
   }
   return models;
+}
+
+function addModelCatalogLaunchModels(
+  modelIds: Set<string>,
+  catalog: CliProviderModelCatalog
+): void {
+  for (const model of catalog.models ?? []) {
+    const launchModel = model.launchModel?.trim();
+    if (launchModel) {
+      modelIds.add(launchModel);
+    }
+    const catalogId = model.id?.trim();
+    if (catalogId) {
+      modelIds.add(catalogId);
+    }
+  }
 }
 
 function isLegacySafeEffort(effort: EffortLevel): boolean {
@@ -4466,38 +4483,22 @@ export class TeamProvisioningService {
     }
 
     if (modelCatalog) {
-      for (const model of modelCatalog.models ?? []) {
-        const launchModel = model.launchModel?.trim();
-        if (launchModel) {
-          modelIds.add(launchModel);
-        }
-        const catalogId = model.id?.trim();
-        if (catalogId) {
-          modelIds.add(catalogId);
-        }
-      }
+      addModelCatalogLaunchModels(modelIds, modelCatalog);
       defaultModel = modelCatalog.defaultLaunchModel?.trim() || defaultModel;
     }
 
-    if (params.providerId === 'codex' && runtimeCapabilities?.modelCatalog?.dynamic === true) {
+    if (
+      params.providerId === 'codex' &&
+      !isUsableCodexModelCatalog(modelCatalog) &&
+      runtimeCapabilities?.modelCatalog?.dynamic === true
+    ) {
       const codexCatalog = await this.providerConnectionService.getCodexModelCatalog({
         cwd: params.cwd,
       });
-      if (codexCatalog?.providerId === 'codex' && codexCatalog.status === 'ready') {
-        for (const model of codexCatalog.models ?? []) {
-          const launchModel = model.launchModel?.trim();
-          if (launchModel) {
-            modelIds.add(launchModel);
-          }
-          const catalogId = model.id?.trim();
-          if (catalogId) {
-            modelIds.add(catalogId);
-          }
-        }
+      if (isUsableCodexModelCatalog(codexCatalog)) {
+        addModelCatalogLaunchModels(modelIds, codexCatalog);
 
-        if (!modelCatalog) {
-          modelCatalog = codexCatalog;
-        }
+        modelCatalog = codexCatalog;
         defaultModel = codexCatalog.defaultLaunchModel?.trim() || defaultModel;
       }
     }

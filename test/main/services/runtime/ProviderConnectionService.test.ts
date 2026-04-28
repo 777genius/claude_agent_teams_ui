@@ -790,4 +790,108 @@ describe('ProviderConnectionService', () => {
 
     expect(args).toEqual(['-c', 'forced_login_method="api"']);
   });
+
+  it('prefers the orchestrator Codex model catalog over the legacy direct app-server fallback', async () => {
+    const { ProviderConnectionService } =
+      await import('@main/services/runtime/ProviderConnectionService');
+    const directCatalog = vi.fn().mockResolvedValue({
+      schemaVersion: 1,
+      providerId: 'codex',
+      source: 'app-server',
+      status: 'ready',
+      fetchedAt: '2026-04-28T00:00:00.000Z',
+      staleAt: '2026-04-28T00:10:00.000Z',
+      defaultModelId: 'gpt-5.4-mini',
+      defaultLaunchModel: 'gpt-5.4-mini',
+      models: [],
+      diagnostics: {
+        configReadState: 'ready',
+        appServerState: 'healthy',
+      },
+    });
+
+    const service = new ProviderConnectionService(
+      {
+        lookupPreferred: vi.fn().mockResolvedValue(null),
+      } as never,
+      {
+        getConfig: () => createConfig('auto'),
+      } as never
+    );
+    service.setCodexModelCatalogFeature({ getCatalog: directCatalog } as never);
+
+    const enriched = await service.enrichProviderStatus({
+      providerId: 'codex',
+      displayName: 'Codex',
+      supported: true,
+      authenticated: true,
+      authMethod: 'chatgpt',
+      verificationState: 'verified',
+      models: ['gpt-5.4'],
+      modelCatalog: {
+        schemaVersion: 1,
+        providerId: 'codex',
+        source: 'app-server',
+        status: 'ready',
+        fetchedAt: '2026-04-28T00:00:00.000Z',
+        staleAt: '2026-04-28T00:10:00.000Z',
+        defaultModelId: 'gpt-5.4',
+        defaultLaunchModel: 'gpt-5.4',
+        models: [
+          {
+            id: 'gpt-5.4',
+            launchModel: 'gpt-5.4',
+            displayName: 'GPT-5.4',
+            hidden: false,
+            supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+            defaultReasoningEffort: 'medium',
+            inputModalities: ['text', 'image'],
+            supportsPersonality: false,
+            isDefault: true,
+            upgrade: false,
+            source: 'app-server',
+          },
+          {
+            id: 'gpt-5.5',
+            launchModel: 'gpt-5.5',
+            displayName: 'GPT-5.5',
+            hidden: false,
+            supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+            defaultReasoningEffort: 'high',
+            inputModalities: ['text', 'image'],
+            supportsPersonality: false,
+            isDefault: false,
+            upgrade: false,
+            source: 'app-server',
+          },
+        ],
+        diagnostics: {
+          configReadState: 'skipped',
+          appServerState: 'healthy',
+        },
+      },
+      runtimeCapabilities: {
+        modelCatalog: { dynamic: true, source: 'app-server' },
+      },
+      canLoginFromUi: false,
+      capabilities: {
+        teamLaunch: true,
+        oneShot: true,
+        extensions: {
+          plugins: { status: 'unsupported', ownership: 'shared' },
+          mcp: { status: 'supported', ownership: 'shared' },
+          skills: { status: 'supported', ownership: 'shared' },
+          apiKeys: { status: 'supported', ownership: 'shared' },
+        },
+      },
+    });
+
+    expect(directCatalog).not.toHaveBeenCalled();
+    expect(enriched.models).toEqual(['gpt-5.4', 'gpt-5.5']);
+    expect(enriched.modelCatalog?.defaultLaunchModel).toBe('gpt-5.4');
+    expect(enriched.runtimeCapabilities?.modelCatalog).toEqual({
+      dynamic: true,
+      source: 'app-server',
+    });
+  });
 });

@@ -37,6 +37,11 @@ export function createStaticCodexModelCatalogModels(): CliProviderModelCatalogIt
       isDefault: true,
     }),
     createFallbackModel({
+      id: 'gpt-5.5',
+      displayName: 'GPT-5.5',
+      badgeLabel: '5.5',
+    }),
+    createFallbackModel({
       id: 'gpt-5.4-mini',
       displayName: 'GPT-5.4 Mini',
       badgeLabel: '5.4-mini',
