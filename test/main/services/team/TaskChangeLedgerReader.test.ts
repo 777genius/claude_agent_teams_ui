@@ -614,6 +614,91 @@ describe('TaskChangeLedgerReader', () => {
     );
   });
 
+  it('keeps v2 provenance fingerprint stable when only raw journal metadata changes', async () => {
+    tmpDir = await makeSummaryLedgerBundleV2({
+      bundle: {
+        journalStamp: { events: { bytes: 10, mtimeMs: 1, tailSha256: 'raw-a' } },
+        eventCount: 1,
+        noticeCount: 0,
+        warningCount: 0,
+        warnings: [],
+      },
+      file: {
+        eventCount: 1,
+        firstTimestamp: '2026-03-01T10:00:00.000Z',
+        lastTimestamp: '2026-03-01T10:00:00.000Z',
+        agentIds: ['alice@team'],
+      },
+    });
+    const reader = new TaskChangeLedgerReader();
+    const first = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: '/repo',
+      includeDetails: false,
+    });
+
+    tmpDir = await makeSummaryLedgerBundleV2({
+      bundle: {
+        generatedAt: '2026-03-01T11:00:00.000Z',
+        journalStamp: { events: { bytes: 999, mtimeMs: 99, tailSha256: 'raw-b' } },
+        eventCount: 7,
+        noticeCount: 3,
+        warningCount: 1,
+        warnings: ['raw journal had a recovered warning'],
+      },
+      file: {
+        eventCount: 7,
+        firstTimestamp: '2026-03-01T09:00:00.000Z',
+        lastTimestamp: '2026-03-01T11:00:00.000Z',
+        agentIds: ['alice@team', 'bob@team'],
+      },
+    });
+    const second = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: '/repo',
+      includeDetails: false,
+    });
+
+    expect(first?.provenance?.sourceFingerprint).toBe(second?.provenance?.sourceFingerprint);
+  });
+
+  it('changes v2 provenance fingerprint when projected file evidence changes', async () => {
+    tmpDir = await makeSummaryLedgerBundleV2({
+      file: {
+        latestAfterHash: sha('after-v1'),
+        latestAfterState: { exists: true, sha256: sha('after-v1'), sizeBytes: 8 },
+      },
+    });
+    const reader = new TaskChangeLedgerReader();
+    const first = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: '/repo',
+      includeDetails: false,
+    });
+
+    tmpDir = await makeSummaryLedgerBundleV2({
+      file: {
+        latestAfterHash: sha('after-v2'),
+        latestAfterState: { exists: true, sha256: sha('after-v2'), sizeBytes: 8 },
+      },
+    });
+    const second = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: '/repo',
+      includeDetails: false,
+    });
+
+    expect(first?.provenance?.sourceFingerprint).not.toBe(second?.provenance?.sourceFingerprint);
+  });
+
   it('keeps identical relative rename relations isolated by worktree path', async () => {
     tmpDir = await fsTempDir();
     const bundleDir = path.join(tmpDir, '.board-task-changes', 'bundles');
@@ -963,6 +1048,74 @@ async function makeLedgerBundle(params: {
       warnings: [],
       events: params.events,
       ...(params.notices ? { notices: params.notices } : {}),
+    }),
+    'utf8'
+  );
+  return dir;
+}
+
+async function makeSummaryLedgerBundleV2(params: {
+  bundle?: Record<string, unknown>;
+  file?: Record<string, unknown>;
+} = {}): Promise<string> {
+  const dir = await fsTempDir();
+  const bundleDir = path.join(dir, '.board-task-changes', 'bundles');
+  await mkdir(bundleDir, { recursive: true });
+  const file = {
+    changeKey: 'path:/repo/src/file.ts',
+    filePath: '/repo/src/file.ts',
+    relativePath: 'src/file.ts',
+    linesAdded: 1,
+    linesRemoved: 1,
+    diffStatKnown: true,
+    eventCount: 1,
+    firstTimestamp: '2026-03-01T10:00:00.000Z',
+    lastTimestamp: '2026-03-01T10:00:00.000Z',
+    latestOperation: 'modify',
+    createdInTask: false,
+    deletedInTask: false,
+    latestBeforeHash: sha('before'),
+    latestAfterHash: sha('after'),
+    latestBeforeState: { exists: true, sha256: sha('before'), sizeBytes: 6 },
+    latestAfterState: { exists: true, sha256: sha('after'), sizeBytes: 5 },
+    contentAvailability: 'full-text',
+    reviewability: 'full-text',
+    agentIds: ['alice@team'],
+    ...params.file,
+  };
+  await writeFile(
+    path.join(bundleDir, `${encodeURIComponent(TASK_ID)}.json`),
+    JSON.stringify({
+      schemaVersion: 2,
+      source: 'task-change-ledger',
+      bundleKind: 'summary',
+      taskId: TASK_ID,
+      generatedAt: '2026-03-01T10:00:00.000Z',
+      journalStamp: { events: { bytes: 10, mtimeMs: 1, tailSha256: 'raw' } },
+      integrity: 'ok',
+      eventCount: 1,
+      noticeCount: 0,
+      scope: {
+        confidence: { tier: 1, label: 'high', reason: 'bundle' },
+        memberName: 'alice',
+        agentIds: ['alice@team'],
+        startTimestamp: '2026-03-01T10:00:00.000Z',
+        endTimestamp: '2026-03-01T10:00:00.000Z',
+        toolUseIds: ['tool-1'],
+        toolUseCount: 1,
+        phaseSet: ['work'],
+        visibleFileCount: 1,
+        contributors: [],
+      },
+      files: [file],
+      totalLinesAdded: 1,
+      totalLinesRemoved: 1,
+      diffStatCompleteness: 'complete',
+      totalFiles: 1,
+      confidence: 'high',
+      warningCount: 0,
+      warnings: [],
+      ...params.bundle,
     }),
     'utf8'
   );

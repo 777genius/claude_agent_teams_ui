@@ -428,11 +428,7 @@ export class TaskChangeLedgerReader {
       return null;
     }
 
-    const provenance = this.buildLedgerProvenance(
-      bundle.journalStamp,
-      bundle.integrity,
-      bundle.schemaVersion
-    );
+    const provenance = this.buildLedgerProvenanceFromSummaryBundle(bundle);
 
     if (
       freshness &&
@@ -450,11 +446,7 @@ export class TaskChangeLedgerReader {
     ) {
       return {
         bundle,
-        provenance: this.buildLedgerProvenance(
-          journalStamp,
-          bundle.integrity,
-          bundle.schemaVersion
-        ),
+        provenance: this.buildLedgerProvenanceFromSummaryBundle(bundle, journalStamp),
         mode: 'validated',
       };
     }
@@ -692,6 +684,86 @@ export class TaskChangeLedgerReader {
     integrity: 'ok' | 'recovered' | 'partial' = 'ok'
   ): TaskChangeProvenance {
     return this.buildLedgerProvenance(journalStamp, integrity, bundleSchemaVersion);
+  }
+
+  private buildLedgerProvenanceFromSummaryBundle(
+    bundle: LedgerSummaryBundleV2,
+    journalStamp: TaskChangeJournalStamp = bundle.journalStamp
+  ): TaskChangeProvenance {
+    return {
+      sourceKind: 'ledger',
+      sourceFingerprint: this.hashFingerprintPayload(this.buildProjectedSummaryIdentity(bundle)),
+      journalStamp,
+      bundleSchemaVersion: bundle.schemaVersion,
+      integrity: bundle.integrity,
+    };
+  }
+
+  private buildProjectedSummaryIdentity(bundle: LedgerSummaryBundleV2): unknown {
+    return {
+      kind: 'ledger-summary-v2-projected-identity',
+      schemaVersion: bundle.schemaVersion,
+      bundleKind: bundle.bundleKind,
+      taskId: bundle.taskId,
+      integrity: bundle.integrity,
+      totalFiles: bundle.totalFiles,
+      totalLinesAdded: bundle.totalLinesAdded,
+      totalLinesRemoved: bundle.totalLinesRemoved,
+      diffStatCompleteness: bundle.diffStatCompleteness,
+      confidence: bundle.confidence,
+      files: [...bundle.files]
+        .map((file) => ({
+          changeKey: this.normalizeSummaryChangeKey(file),
+          filePath: normalizePathForComparison(file.filePath),
+          relativePath: normalizePathForComparison(file.relativePath),
+          displayPath: file.displayPath ? normalizePathForComparison(file.displayPath) : undefined,
+          linesAdded: file.linesAdded,
+          linesRemoved: file.linesRemoved,
+          diffStatKnown: file.diffStatKnown,
+          latestOperation: file.latestOperation,
+          createdInTask: file.createdInTask,
+          deletedInTask: file.deletedInTask,
+          baselineExists: file.baselineExists,
+          finalExists: file.finalExists,
+          latestBeforeHash: file.latestBeforeHash,
+          latestAfterHash: file.latestAfterHash,
+          latestBeforeState: this.contentStateFingerprint(file.latestBeforeState),
+          latestAfterState: this.contentStateFingerprint(file.latestAfterState),
+          contentAvailability: file.contentAvailability,
+          reviewability: file.reviewability,
+          relation: file.relation
+            ? {
+                kind: file.relation.kind,
+                oldPath: normalizePathForComparison(file.relation.oldPath),
+                newPath: normalizePathForComparison(file.relation.newPath),
+              }
+            : undefined,
+          worktreePath: file.worktreePath
+            ? normalizePathForComparison(file.worktreePath)
+            : undefined,
+          worktreeBranch: file.worktreeBranch,
+          baseWorkspaceRoot: file.baseWorkspaceRoot
+            ? normalizePathForComparison(file.baseWorkspaceRoot)
+            : undefined,
+        }))
+        .sort(
+          (left, right) =>
+            left.changeKey.localeCompare(right.changeKey) ||
+            left.filePath.localeCompare(right.filePath)
+        ),
+    };
+  }
+
+  private contentStateFingerprint(state: LedgerContentState | undefined): unknown {
+    if (!state) {
+      return undefined;
+    }
+    return {
+      exists: state.exists,
+      sha256: state.sha256,
+      sizeBytes: state.sizeBytes,
+      unavailableReason: state.unavailableReason,
+    };
   }
 
   private hashFingerprintPayload(payload: unknown): string {
