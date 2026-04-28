@@ -21447,7 +21447,11 @@ export class TeamProvisioningService {
         if (env.providerArgs) {
           args.push(...env.providerArgs);
         }
-      } catch {
+      } catch (error) {
+        console.error(
+          `[TeamProvisioningService] Failed to build cross-provider args for provider "${providerId}"`,
+          error
+        );
         // Best-effort: don't block launch if cross-provider env resolution fails
       }
     }
