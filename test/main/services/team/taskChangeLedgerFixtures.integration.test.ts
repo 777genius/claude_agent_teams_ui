@@ -315,6 +315,50 @@ describe('task change ledger golden fixtures', () => {
     expect(resolved.contentSource).toBe('ledger-snapshot');
   });
 
+  it('reads OpenCode snapshot upgrade fixtures as one full-text ledger row', async () => {
+    const fixture = await materializeTaskChangeLedgerFixture('opencode-snapshot-upgrade');
+    cleanups.push(fixture.cleanup);
+    const reader = new TaskChangeLedgerReader();
+    const changeSet = await reader.readTaskChanges({
+      teamName: TEAM_NAME,
+      taskId: fixture.manifest.taskId,
+      projectDir: fixture.projectDir,
+      projectPath: fixture.projectDir,
+      includeDetails: true,
+    });
+
+    expect(changeSet?.files).toHaveLength(1);
+    const file = changeSet!.files[0]!;
+    expect(file.relativePath).toBe('src/snapshot-only.js');
+    expect(file.ledgerSummary).toMatchObject({
+      reviewability: 'full-text',
+      contentAvailability: 'full-text',
+    });
+    expect(file.snippets).toHaveLength(1);
+    const snippet = file.snippets[0]!;
+    expect(snippet.toolName).toBe('Edit');
+    expect(snippet.type).toBe('edit');
+    expect(snippet.ledger).toMatchObject({
+      source: 'ledger-snapshot',
+      confidence: 'high',
+      textAvailability: 'full-text',
+      operation: 'modify',
+    });
+    expect(snippet.ledger?.originalFullContent).toBe('export const snapshot = 1;\n');
+    expect(snippet.ledger?.modifiedFullContent).toBe('export const snapshot = 2;\n');
+
+    const resolver = new FileContentResolver({ findMemberLogPaths: vi.fn(async () => []) } as any);
+    const resolved = await resolver.getFileContent(
+      TEAM_NAME,
+      'bob',
+      file.filePath,
+      file.snippets
+    );
+    expect(resolved.originalFullContent).toBe('export const snapshot = 1;\n');
+    expect(resolved.modifiedFullContent).toBe('export const snapshot = 2;\n');
+    expect(resolved.contentSource).toBe('ledger-snapshot');
+  });
+
   it('rejects grouped copy fixtures by deleting only the copied path', async () => {
     const fixture = await materializeTaskChangeLedgerFixture('copy');
     cleanups.push(fixture.cleanup);

@@ -129,6 +129,13 @@ interface LedgerEvent {
   linesRemoved?: number;
   replaceAll?: boolean;
   warnings?: string[];
+  sourceRuntime?: 'opencode';
+  sourceProvider?: 'opencode';
+  sourceImportKey?: string;
+  evidenceProof?: string;
+  supersedesEventId?: string;
+  snapshotId?: string;
+  snapshotSource?: string;
 }
 
 interface LedgerNotice {
@@ -196,7 +203,7 @@ interface LedgerSummaryScopeV2 {
   primaryAgentId?: string;
   primaryMemberName?: string;
   memberName: string;
-  agentIds: string[];
+  agentIds?: string[];
   memberNames?: string[];
   startTimestamp: string;
   endTimestamp: string;
@@ -865,9 +872,10 @@ export class TaskChangeLedgerReader {
     bundle?: LedgerSummaryBundleV2;
     provenance: TaskChangeProvenance;
   }): Promise<TaskChangeSetV2> {
-    const snippets = await this.buildSnippets(params.projectDir, params.journal.events);
+    const projectedEvents = this.projectJournalEventsForUi(params.journal.events);
+    const snippets = await this.buildSnippets(params.projectDir, projectedEvents);
     const groupedSnippets = this.groupSnippets(snippets);
-    const warnings = this.collectWarnings(params.journal.events, params.journal.notices, {
+    const warnings = this.collectWarnings(projectedEvents, params.journal.notices, {
       recovered: params.journal.recovered,
     });
 
@@ -908,15 +916,15 @@ export class TaskChangeLedgerReader {
       totalLinesAdded = fallback.totalLinesAdded;
       totalLinesRemoved = fallback.totalLinesRemoved;
       totalFiles = fallback.files.length;
-      confidence = params.journal.events.some((event) => event.confidence === 'low')
+      confidence = projectedEvents.some((event) => event.confidence === 'low')
         ? 'low'
-        : params.journal.events.some((event) => event.confidence === 'medium')
+        : projectedEvents.some((event) => event.confidence === 'medium')
           ? 'medium'
           : 'high';
       scope = this.buildFallbackScope(
         params.taskId,
         files,
-        params.journal.events,
+        projectedEvents,
         params.journal.notices
       );
       diffStatCompleteness = fallback.files.every((file) => file.diffStatKnown !== false)
@@ -955,7 +963,8 @@ export class TaskChangeLedgerReader {
       undefined,
       params.journal.recovered ? 'recovered' : 'ok'
     );
-    const snippets = params.journal.events.map((event) => this.eventToSnippet(event, null, null));
+    const projectedEvents = this.projectJournalEventsForUi(params.journal.events);
+    const snippets = projectedEvents.map((event) => this.eventToSnippet(event, null, null));
     const grouped = this.groupSnippets(snippets);
     const fallback = this.buildFallbackFilesFromGroupedSnippets(grouped, params.projectPath);
     return {
@@ -965,20 +974,20 @@ export class TaskChangeLedgerReader {
       totalLinesAdded: fallback.totalLinesAdded,
       totalLinesRemoved: fallback.totalLinesRemoved,
       totalFiles: fallback.files.length,
-      confidence: params.journal.events.some((event) => event.confidence === 'low')
+      confidence: projectedEvents.some((event) => event.confidence === 'low')
         ? 'low'
-        : params.journal.events.some((event) => event.confidence === 'medium')
+        : projectedEvents.some((event) => event.confidence === 'medium')
           ? 'medium'
           : 'high',
       computedAt: new Date().toISOString(),
       scope: this.buildFallbackScope(
         params.taskId,
         fallback.files,
-        params.journal.events,
+        projectedEvents,
         params.journal.notices
       ),
       warnings: [
-        ...this.collectWarnings(params.journal.events, params.journal.notices, {
+        ...this.collectWarnings(projectedEvents, params.journal.notices, {
           recovered: params.journal.recovered,
         }),
         'Task change summary fell back to journal reconstruction.',
@@ -1044,6 +1053,7 @@ export class TaskChangeLedgerReader {
   private mapV2SummaryFile(file: LedgerSummaryFileV2, projectPath?: string): FileChangeSummary {
     const displayPath = file.displayPath ?? file.filePath;
     const filePath = this.normalizeLedgerFilePath(file.filePath);
+    const agentIds = Array.isArray(file.agentIds) ? file.agentIds : [];
     return {
       filePath,
       relativePath: this.relativePath(displayPath, projectPath, file.relativePath),
@@ -1065,7 +1075,7 @@ export class TaskChangeLedgerReader {
         ...(file.latestBeforeState ? { beforeState: file.latestBeforeState } : {}),
         ...(file.latestAfterState ? { afterState: file.latestAfterState } : {}),
         ...(file.primaryActorKey ? { primaryActorKey: file.primaryActorKey } : {}),
-        ...(file.agentIds.length > 0 ? { agentIds: file.agentIds } : {}),
+        ...(agentIds.length > 0 ? { agentIds } : {}),
         ...(file.memberNames ? { memberNames: file.memberNames } : {}),
         ...(file.executionSeqRange ? { executionSeqRange: file.executionSeqRange } : {}),
         ...(file.worktreePath ? { worktreePath: file.worktreePath } : {}),
@@ -1093,6 +1103,7 @@ export class TaskChangeLedgerReader {
     scope: LedgerSummaryScopeV2,
     files: LedgerSummaryFileV2[]
   ): TaskChangeScope {
+    const agentIds = Array.isArray(scope.agentIds) ? scope.agentIds : [];
     return {
       taskId,
       memberName:
@@ -1111,7 +1122,7 @@ export class TaskChangeLedgerReader {
       ...(scope.primaryActorKey ? { primaryActorKey: scope.primaryActorKey } : {}),
       ...(scope.primaryAgentId ? { primaryAgentId: scope.primaryAgentId } : {}),
       ...(scope.primaryMemberName ? { primaryMemberName: scope.primaryMemberName } : {}),
-      ...(scope.agentIds.length > 0 ? { agentIds: scope.agentIds } : {}),
+      ...(agentIds.length > 0 ? { agentIds } : {}),
       ...(scope.memberNames ? { memberNames: scope.memberNames } : {}),
       ...(scope.toolUseCount !== undefined ? { toolUseCount: scope.toolUseCount } : {}),
       ...(scope.toolUseIdsTruncated ? { toolUseIdsTruncated: true } : {}),
@@ -1134,6 +1145,73 @@ export class TaskChangeLedgerReader {
         return this.eventToSnippet(event, beforeContent, afterContent);
       })
     );
+  }
+
+  private projectJournalEventsForUi(events: LedgerEvent[]): LedgerEvent[] {
+    const selectedBySourceImportKey = new Map<
+      string,
+      { event: LedgerEvent; index: number; rank: number }
+    >();
+    const passthrough: Array<{ event: LedgerEvent; index: number }> = [];
+
+    events.forEach((event, index) => {
+      const sourceImportKey = this.sourceImportKeyForEvent(event);
+      if (!sourceImportKey) {
+        passthrough.push({ event, index });
+        return;
+      }
+      const rank = this.evidenceRankForEvent(event);
+      const existing = selectedBySourceImportKey.get(sourceImportKey);
+      if (!existing || rank >= existing.rank) {
+        selectedBySourceImportKey.set(sourceImportKey, { event, index, rank });
+      }
+    });
+
+    return [
+      ...passthrough,
+      ...[...selectedBySourceImportKey.values()].map(({ event, index }) => ({ event, index })),
+    ]
+      .sort((left, right) => left.index - right.index)
+      .map(({ event }) => event);
+  }
+
+  private sourceImportKeyForEvent(event: LedgerEvent): string | null {
+    if (
+      event.sourceImportKey &&
+      (event.sourceRuntime === 'opencode' ||
+        event.sourceProvider === 'opencode' ||
+        event.source === 'opencode_toolpart_write' ||
+        event.source === 'opencode_toolpart_edit' ||
+        event.source === 'opencode_toolpart_apply_patch')
+    ) {
+      return event.sourceImportKey;
+    }
+    return null;
+  }
+
+  private evidenceRankForEvent(event: LedgerEvent): number {
+    const hasFullText =
+      event.before !== null ||
+      event.after !== null ||
+      (event.operation === 'create' &&
+        event.afterState?.exists === true &&
+        !event.afterState.unavailableReason) ||
+      (event.operation === 'delete' &&
+        event.beforeState?.exists === true &&
+        !event.beforeState.unavailableReason);
+
+    switch (event.evidenceProof) {
+      case 'opencode-snapshot':
+        return hasFullText ? 50 : 35;
+      case 'inverse-apply-patch-chain':
+      case 'inverse-edit-chain':
+      case 'toolpart-chain':
+        return hasFullText ? 40 : 25;
+      case 'metadata-only-fallback':
+        return 10;
+      default:
+        return hasFullText ? 30 : 5;
+    }
   }
 
   private async readContentRef(
