@@ -54,10 +54,6 @@ async function flushReact(): Promise<void> {
   await Promise.resolve();
 }
 
-function withoutNumberGroupSeparators(value: string | null | undefined): string {
-  return (value ?? '').replace(/[\s,\u00a0\u202f]/g, '');
-}
-
 describe('TokenUsageDisplay', () => {
   afterEach(() => {
     document.body.innerHTML = '';
@@ -93,8 +89,9 @@ describe('TokenUsageDisplay', () => {
     });
 
     const popover = document.querySelector('[role="tooltip"]');
+    const expectedTotalTokens = new Intl.NumberFormat().format(2250);
     expect(popover).toBeTruthy();
-    expect(withoutNumberGroupSeparators(popover?.textContent)).toContain('2250');
+    expect(popover?.textContent).toContain(expectedTotalTokens);
     expect(popover?.textContent).toContain('500 (25.0% of prompt input)');
     expect(popover?.textContent).not.toContain('of context');
 
