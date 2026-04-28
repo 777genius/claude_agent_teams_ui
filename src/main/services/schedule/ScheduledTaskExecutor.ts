@@ -14,6 +14,7 @@ import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import { createLogger } from '@shared/utils/logger';
 import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 
+import { mergeJsonSettingsArgs } from '../runtime/cliSettingsArgs';
 import { buildProviderAwareCliEnv } from '../runtime/providerAwareCliEnv';
 import { ClaudeBinaryResolver } from '../team/ClaudeBinaryResolver';
 
@@ -149,8 +150,6 @@ export class ScheduledTaskExecutor {
 
     const args = this.buildArgs(request);
 
-    logger.info(`[${request.runId}] Spawning: ${binaryPath} ${args.join(' ')}`);
-
     const providerId =
       request.config.providerId === 'codex' || request.config.providerId === 'gemini'
         ? request.config.providerId
@@ -171,8 +170,11 @@ export class ScheduledTaskExecutor {
     }
 
     args.push(...providerArgs);
+    const launchArgs = mergeJsonSettingsArgs(args);
 
-    const child = spawnCli(binaryPath, args, {
+    logger.info(`[${request.runId}] Spawning: ${binaryPath} ${launchArgs.join(' ')}`);
+
+    const child = spawnCli(binaryPath, launchArgs, {
       cwd: request.config.cwd,
       // shellEnv spread after buildEnrichedEnv ensures freshly-resolved values
       // take precedence over the cached snapshot inside buildEnrichedEnv.

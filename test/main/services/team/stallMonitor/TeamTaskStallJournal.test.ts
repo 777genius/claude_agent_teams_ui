@@ -48,4 +48,57 @@ describe('TeamTaskStallJournal', () => {
     expect(firstReady).toEqual([]);
     expect(secondReady).toEqual([evaluation]);
   });
+
+  it('does not prune journal entries outside an explicit task scope', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'stall-journal-'));
+    setClaudeBasePathOverride(tmpDir);
+    const teamDir = path.join(tmpDir, 'teams', 'demo');
+    await fs.mkdir(teamDir, { recursive: true });
+    const journalPath = path.join(teamDir, 'stall-monitor-journal.json');
+    await fs.writeFile(
+      journalPath,
+      JSON.stringify(
+        [
+          {
+            epochKey: 'task-codex:epoch-1',
+            teamName: 'demo',
+            taskId: 'task-codex',
+            branch: 'work',
+            signal: 'turn_ended_after_touch',
+            state: 'suspected',
+            consecutiveScans: 1,
+            createdAt: '2026-04-19T12:00:00.000Z',
+            updatedAt: '2026-04-19T12:00:00.000Z',
+          },
+          {
+            epochKey: 'task-opencode:epoch-1',
+            teamName: 'demo',
+            taskId: 'task-opencode',
+            branch: 'work',
+            signal: 'turn_ended_after_touch',
+            state: 'suspected',
+            consecutiveScans: 1,
+            createdAt: '2026-04-19T12:00:00.000Z',
+            updatedAt: '2026-04-19T12:00:00.000Z',
+          },
+        ],
+        null,
+        2
+      )
+    );
+
+    const journal = new TeamTaskStallJournal();
+    await journal.reconcileScan({
+      teamName: 'demo',
+      evaluations: [],
+      activeTaskIds: ['task-codex', 'task-opencode'],
+      scopeTaskIds: ['task-opencode'],
+      now: '2026-04-19T12:10:00.000Z',
+    });
+
+    const saved = JSON.parse(await fs.readFile(journalPath, 'utf8')) as Array<{
+      epochKey: string;
+    }>;
+    expect(saved.map((entry) => entry.epochKey)).toEqual(['task-codex:epoch-1']);
+  });
 });

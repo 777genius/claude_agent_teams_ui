@@ -51,6 +51,36 @@ interface ContentBlock {
   input?: Record<string, unknown>;
 }
 
+interface CodexNativeJsonEvent {
+  type?: string;
+  thread_id?: string;
+  item?: {
+    id?: string;
+    type?: string;
+    text?: string;
+    server?: string;
+    tool?: string;
+    arguments?: unknown;
+    result?: unknown;
+    error?: unknown;
+    status?: string;
+  };
+  usage?: {
+    input_tokens?: number;
+    cached_input_tokens?: number;
+    output_tokens?: number;
+  };
+}
+
+interface CodexNativeProjectedSystemEvent {
+  type?: string;
+  subtype?: string;
+  content?: string;
+  level?: string;
+  codexNativeThreadStatus?: string;
+  codexNativeThreadId?: string;
+}
+
 /**
  * Content-based hash for deterministic fallback IDs that survive
  * line reordering and pagination changes.
@@ -93,6 +123,170 @@ function extractContentBlocks(parsed: unknown): ContentBlock[] | null {
   }
 
   return null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function extractCodexToolResultText(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  const record = asRecord(value);
+  const content = record?.content;
+  if (Array.isArray(content)) {
+    const text = content
+      .map((block) => asRecord(block))
+      .map((block) => (block?.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+      .filter((entry) => entry.trim().length > 0)
+      .join('\n')
+      .trim();
+    if (text) return text;
+  }
+
+  if (record?.structured_content != null) {
+    return JSON.stringify(record.structured_content);
+  }
+
+  return null;
+}
+
+function extractCodexToolErrorText(value: unknown): string | null {
+  const record = asRecord(value);
+  const message = record?.message;
+  return typeof message === 'string' && message.trim() ? message.trim() : null;
+}
+
+function getCodexToolDisplayName(serverName: string, toolName: string): string {
+  return serverName === 'agent-teams' ? `agent-teams_${toolName}` : `${serverName}_${toolName}`;
+}
+
+function createCodexToolItem(
+  event: CodexNativeJsonEvent,
+  timestamp: Date,
+  lineIndex: number
+): AIGroupDisplayItem | null {
+  const item = event.item;
+  if (
+    (event.type !== 'item.started' && event.type !== 'item.completed') ||
+    item?.type !== 'mcp_tool_call' ||
+    typeof item.server !== 'string' ||
+    typeof item.tool !== 'string'
+  ) {
+    return null;
+  }
+
+  const input = asRecord(item.arguments) ?? {};
+  const status = typeof item.status === 'string' && item.status.trim() ? item.status : 'unknown';
+  const errorText = extractCodexToolErrorText(item.error);
+  const resultText = extractCodexToolResultText(item.result);
+  const isCompleted = event.type === 'item.completed';
+  const toolName = getCodexToolDisplayName(item.server, item.tool);
+  const linkedTool: LinkedToolItem = {
+    id: item.id ?? `codex-tool-L${lineIndex}`,
+    name: toolName,
+    input,
+    inputPreview: getToolSummary(toolName, input),
+    startTime: timestamp,
+    isOrphaned: !isCompleted,
+  };
+
+  if (isCompleted) {
+    linkedTool.endTime = timestamp;
+    linkedTool.isOrphaned = false;
+    if (resultText || errorText) {
+      linkedTool.result = {
+        content: resultText ?? errorText ?? '',
+        isError: status === 'failed' || errorText !== null,
+      };
+      linkedTool.outputPreview = resultText ?? errorText ?? undefined;
+    }
+  }
+
+  return { type: 'tool', tool: linkedTool };
+}
+
+function codexNativeEventToDisplayItems(
+  parsed: unknown,
+  timestamp: Date,
+  lineIndex: number
+): AIGroupDisplayItem[] | null {
+  const event = asRecord(parsed) as CodexNativeJsonEvent | null;
+  if (!event || typeof event.type !== 'string') {
+    return null;
+  }
+
+  if (event.type === 'thread.started') {
+    const threadId =
+      typeof event.thread_id === 'string' && event.thread_id.trim()
+        ? `: ${event.thread_id.trim()}`
+        : '';
+    return [{ type: 'output', content: `Codex native thread started${threadId}.`, timestamp }];
+  }
+
+  if (event.type === 'turn.started') {
+    return [{ type: 'output', content: 'Codex turn started.', timestamp }];
+  }
+
+  if (event.type === 'turn.completed') {
+    const usage = event.usage;
+    const usageParts = [
+      typeof usage?.input_tokens === 'number' ? `${usage.input_tokens} input` : null,
+      typeof usage?.cached_input_tokens === 'number' ? `${usage.cached_input_tokens} cached` : null,
+      typeof usage?.output_tokens === 'number' ? `${usage.output_tokens} output` : null,
+    ].filter((part): part is string => Boolean(part));
+    const suffix = usageParts.length > 0 ? ` (${usageParts.join(', ')} tokens)` : '';
+    return [{ type: 'output', content: `Codex turn completed${suffix}.`, timestamp }];
+  }
+
+  if (
+    event.type === 'item.completed' &&
+    event.item?.type === 'agent_message' &&
+    typeof event.item.text === 'string' &&
+    event.item.text.trim()
+  ) {
+    return [{ type: 'output', content: event.item.text.trim(), timestamp }];
+  }
+
+  const toolItem = createCodexToolItem(event, timestamp, lineIndex);
+  if (toolItem) {
+    return [toolItem];
+  }
+
+  return null;
+}
+
+function codexNativeProjectedSystemToDisplayItems(
+  parsed: unknown,
+  timestamp: Date
+): AIGroupDisplayItem[] | null {
+  const event = asRecord(parsed) as CodexNativeProjectedSystemEvent | null;
+  if (event?.type !== 'system' || typeof event.subtype !== 'string') {
+    return null;
+  }
+
+  if (
+    event.subtype !== 'codex_native_thread_status' &&
+    event.subtype !== 'codex_native_warning' &&
+    event.subtype !== 'codex_native_execution_summary'
+  ) {
+    return null;
+  }
+
+  const content =
+    typeof event.content === 'string' && event.content.trim()
+      ? event.content.trim()
+      : event.subtype === 'codex_native_thread_status'
+        ? `Codex native thread ${event.codexNativeThreadStatus ?? 'status'}${
+            event.codexNativeThreadId ? `: ${event.codexNativeThreadId}` : ''
+          }.`
+        : null;
+
+  return content ? [{ type: 'output', content, timestamp }] : null;
 }
 
 /**
@@ -220,6 +414,64 @@ export function parseStreamJsonToGroups(cliLogsTail: string): StreamJsonGroup[] 
   const msgIdOccurrences = new Map<string, number>();
   const hashOccurrences = new Map<string, number>();
 
+  const ensureCurrentTimestamp = (line: string): Date => {
+    if (currentTimestamp) return currentTimestamp;
+    // Use stable cached timestamp keyed by line content to survive re-parses
+    let ts = lineTimestampCache.get(line);
+    if (!ts) {
+      ts = new Date();
+      if (lineTimestampCache.size >= MAX_TIMESTAMP_CACHE_SIZE) {
+        // Evict oldest entry (first inserted)
+        const firstKey = lineTimestampCache.keys().next().value!;
+        lineTimestampCache.delete(firstKey);
+      }
+      lineTimestampCache.set(line, ts);
+    }
+    currentTimestamp = ts;
+    return ts;
+  };
+
+  const ensureCurrentGroupId = (
+    line: string,
+    parsed: unknown,
+    lineAgentId: string | undefined
+  ): void => {
+    if (currentGroupId) return;
+    currentAgentId = lineAgentId;
+    const msgId = extractAssistantMessageId(parsed);
+    if (msgId) {
+      const occurrence = msgIdOccurrences.get(msgId) ?? 0;
+      msgIdOccurrences.set(msgId, occurrence + 1);
+      currentGroupId =
+        occurrence === 0 ? `stream-group-${msgId}` : `stream-group-${msgId}-${occurrence}`;
+      return;
+    }
+
+    // Content-hash fallback: deterministic and survives line reordering
+    const h = stableHash(line);
+    const occ = hashOccurrences.get(h) ?? 0;
+    hashOccurrences.set(h, occ + 1);
+    currentGroupId = occ === 0 ? `stream-group-H${h}` : `stream-group-H${h}-${occ}`;
+  };
+
+  const pushItems = (items: AIGroupDisplayItem[]): void => {
+    for (const item of items) {
+      if (item.type !== 'tool') {
+        currentItems.push(item);
+        continue;
+      }
+
+      const existingIndex = currentItems.findIndex(
+        (entry) => entry.type === 'tool' && entry.tool.id === item.tool.id
+      );
+      if (existingIndex === -1) {
+        currentItems.push(item);
+      } else {
+        currentItems[existingIndex] = item;
+      }
+    }
+  };
+
   const flushGroup = (): void => {
     if (currentItems.length > 0 && currentTimestamp) {
       const id = currentGroupId ?? `stream-group-fallback-${groups.length}`;
@@ -268,7 +520,17 @@ export function parseStreamJsonToGroups(cliLogsTail: string): StreamJsonGroup[] 
 
     const blocks = extractContentBlocks(parsed);
     if (!blocks) {
-      // Valid JSON but not an assistant message — flush and skip
+      const timestamp = ensureCurrentTimestamp(trimmed);
+      const codexItems =
+        codexNativeEventToDisplayItems(parsed, timestamp, lineIndex) ??
+        codexNativeProjectedSystemToDisplayItems(parsed, timestamp);
+      if (codexItems && codexItems.length > 0) {
+        ensureCurrentGroupId(trimmed, parsed, undefined);
+        pushItems(codexItems);
+        continue;
+      }
+
+      // Valid JSON but not a displayable log event — flush and skip
       flushGroup();
       continue;
     }
@@ -279,39 +541,11 @@ export function parseStreamJsonToGroups(cliLogsTail: string): StreamJsonGroup[] 
         ? ((parsed as Record<string, unknown>).agentId as string)
         : undefined;
 
-    if (!currentTimestamp) {
-      // Use stable cached timestamp keyed by line content to survive re-parses
-      let ts = lineTimestampCache.get(trimmed);
-      if (!ts) {
-        ts = new Date();
-        if (lineTimestampCache.size >= MAX_TIMESTAMP_CACHE_SIZE) {
-          // Evict oldest entry (first inserted)
-          const firstKey = lineTimestampCache.keys().next().value!;
-          lineTimestampCache.delete(firstKey);
-        }
-        lineTimestampCache.set(trimmed, ts);
-      }
-      currentTimestamp = ts;
-    }
-    if (!currentGroupId) {
-      currentAgentId = lineAgentId;
-      const msgId = extractAssistantMessageId(parsed);
-      if (msgId) {
-        const occurrence = msgIdOccurrences.get(msgId) ?? 0;
-        msgIdOccurrences.set(msgId, occurrence + 1);
-        currentGroupId =
-          occurrence === 0 ? `stream-group-${msgId}` : `stream-group-${msgId}-${occurrence}`;
-      } else {
-        // Content-hash fallback: deterministic and survives line reordering
-        const h = stableHash(trimmed);
-        const occ = hashOccurrences.get(h) ?? 0;
-        hashOccurrences.set(h, occ + 1);
-        currentGroupId = occ === 0 ? `stream-group-H${h}` : `stream-group-H${h}-${occ}`;
-      }
-    }
+    const timestamp = ensureCurrentTimestamp(trimmed);
+    ensureCurrentGroupId(trimmed, parsed, lineAgentId);
 
-    const items = contentBlocksToDisplayItems(blocks, currentTimestamp, lineIndex);
-    currentItems.push(...items);
+    const items = contentBlocksToDisplayItems(blocks, timestamp, lineIndex);
+    pushItems(items);
   }
 
   // Flush remaining items

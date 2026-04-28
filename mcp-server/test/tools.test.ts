@@ -1353,6 +1353,7 @@ describe('agent-teams-mcp tools', () => {
       members: [
         { name: 'lead', role: 'team-lead' },
         { name: 'alice', role: 'developer' },
+        { name: 'bob', role: 'reviewer' },
       ],
     });
 

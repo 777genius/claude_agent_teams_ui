@@ -19,7 +19,6 @@ import { isTeamProvisioningActive } from '@renderer/store/slices/teamSlice';
 import { serializeChipsWithText } from '@renderer/types/inlineChip';
 import { formatAgentRole } from '@renderer/utils/formatAgentRole';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
-import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import { nameColorSet } from '@renderer/utils/projectColor';
 import { getSuggestedSlashCommandsForProvider } from '@renderer/utils/providerSlashCommands';
 import { buildSlashCommandSuggestions } from '@renderer/utils/skillCommandSuggestions';
@@ -39,6 +38,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import type { ActionMode } from '@renderer/components/team/messages/ActionModeSelector';
 import type { MentionSuggestion } from '@renderer/types/mention';
+import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import type {
   AttachmentPayload,
   ResolvedTeamMember,

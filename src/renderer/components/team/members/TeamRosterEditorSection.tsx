@@ -43,6 +43,7 @@ interface TeamRosterEditorSectionProps {
   softDeleteMembers?: boolean;
   leadWarningText?: string | null;
   memberWarningById?: Record<string, string | null | undefined>;
+  memberInfoById?: Record<string, string | null | undefined>;
   disableGeminiOption?: boolean;
   leadModelIssueText?: string | null;
   memberModelIssueById?: Record<string, string | null | undefined>;
@@ -88,6 +89,7 @@ export const TeamRosterEditorSection = ({
   softDeleteMembers = false,
   leadWarningText,
   memberWarningById,
+  memberInfoById,
   disableGeminiOption = false,
   leadModelIssueText,
   memberModelIssueById,
@@ -148,6 +150,7 @@ export const TeamRosterEditorSection = ({
         </div>
       }
       memberWarningById={memberWarningById}
+      memberInfoById={memberInfoById}
     />
   );
 };

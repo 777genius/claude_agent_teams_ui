@@ -8,10 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const hoisted = vi.hoisted(() => ({
   claudeRoot: '',
+  appDataRoot: '',
 }));
 
 vi.mock('@main/utils/pathDecoder', () => ({
   getClaudeBasePath: () => hoisted.claudeRoot,
+  getAppDataPath: () => hoisted.appDataRoot,
 }));
 
 import { TeamMemberWorktreeManager } from '../../../../src/main/services/team/TeamMemberWorktreeManager';
@@ -43,6 +45,26 @@ function shortHash(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 10);
 }
 
+function expectedWorktreePath(repoPath: string, teamName = 'Atlas HQ', memberName = 'Bob'): string {
+  return path.join(
+    hoisted.appDataRoot,
+    'team-worktrees',
+    `${slugify(path.basename(repoPath))}-${shortHash(repoPath)}`,
+    slugify(teamName),
+    slugify(memberName)
+  );
+}
+
+function legacyWorktreePath(repoPath: string, teamName = 'Atlas HQ', memberName = 'Bob'): string {
+  return path.join(
+    hoisted.claudeRoot,
+    'team-worktrees',
+    shortHash(repoPath),
+    slugify(teamName),
+    slugify(memberName)
+  );
+}
+
 async function createGitRepo(root: string): Promise<string> {
   const repoPath = path.join(root, 'repo');
   await fs.mkdir(repoPath, { recursive: true });
@@ -59,7 +81,9 @@ describe('TeamMemberWorktreeManager', () => {
   beforeEach(async () => {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'team-member-worktree-'));
     hoisted.claudeRoot = path.join(tempRoot, 'claude');
+    hoisted.appDataRoot = path.join(tempRoot, 'app-data');
     await fs.mkdir(hoisted.claudeRoot, { recursive: true });
+    await fs.mkdir(hoisted.appDataRoot, { recursive: true });
   });
 
   afterEach(async () => {
@@ -78,23 +102,37 @@ describe('TeamMemberWorktreeManager', () => {
 
     expect(resolution.baseRepoPath).toBe(repoPath);
     expect(resolution.branchName).toBe(`agent-teams/atlas-hq/bob-${shortHash(repoPath)}`);
-    expect(resolution.worktreePath).toBe(
-      path.join(hoisted.claudeRoot, 'team-worktrees', shortHash(repoPath), 'atlas-hq', 'bob')
-    );
+    expect(resolution.worktreePath).toBe(expectedWorktreePath(repoPath));
+    expect(resolution.worktreePath.startsWith(hoisted.appDataRoot)).toBe(true);
+    expect(resolution.worktreePath.startsWith(hoisted.claudeRoot)).toBe(false);
     await expect(execGit(['rev-parse', '--abbrev-ref', 'HEAD'], resolution.worktreePath)).resolves.toBe(
       resolution.branchName
     );
   });
 
+  it('reuses legacy deterministic worktree paths for existing teammates', async () => {
+    const repoPath = await createGitRepo(tempRoot);
+    const manager = new TeamMemberWorktreeManager();
+    const branchName = `agent-teams/atlas-hq/bob-${shortHash(repoPath)}`;
+    const legacyPath = legacyWorktreePath(repoPath);
+    await fs.mkdir(path.dirname(legacyPath), { recursive: true });
+    await execGit(['worktree', 'add', '-b', branchName, legacyPath, 'HEAD'], repoPath);
+
+    const resolution = await manager.ensureMemberWorktree({
+      teamName: 'Atlas HQ',
+      memberName: 'Bob',
+      baseCwd: repoPath,
+    });
+
+    expect(resolution.worktreePath).toBe(legacyPath);
+    await expect(execGit(['rev-parse', '--abbrev-ref', 'HEAD'], resolution.worktreePath)).resolves.toBe(
+      branchName
+    );
+  });
+
   it('rejects an existing deterministic path checked out on the wrong branch', async () => {
     const repoPath = await createGitRepo(tempRoot);
-    const wrongPath = path.join(
-      hoisted.claudeRoot,
-      'team-worktrees',
-      shortHash(repoPath),
-      slugify('Atlas HQ'),
-      slugify('Bob')
-    );
+    const wrongPath = expectedWorktreePath(repoPath);
     await fs.mkdir(path.dirname(wrongPath), { recursive: true });
     await execGit(['worktree', 'add', '-b', 'some-other-branch', wrongPath, 'HEAD'], repoPath);
 

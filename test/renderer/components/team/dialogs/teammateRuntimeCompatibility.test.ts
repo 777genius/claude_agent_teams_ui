@@ -55,7 +55,7 @@ describe('analyzeTeammateRuntimeCompatibility', () => {
     expect(result.memberWarningById).toEqual({});
   });
 
-  it('blocks mixed-provider teammates when tmux is unavailable', () => {
+  it('allows mixed-provider teammates through native process transport when tmux is unavailable', () => {
     const result = analyzeTeammateRuntimeCompatibility({
       leadProviderId: 'anthropic',
       members: [{ id: 'bob', name: 'bob', providerId: 'codex' }],
@@ -64,9 +64,9 @@ describe('analyzeTeammateRuntimeCompatibility', () => {
       tmuxStatusError: null,
     });
 
-    expect(result.blocksSubmission).toBe(true);
-    expect(result.details.join('\n')).toContain('Mixed providers');
-    expect(result.memberWarningById.bob).toContain('same provider as the Anthropic lead');
+    expect(result.blocksSubmission).toBe(false);
+    expect(result.visible).toBe(false);
+    expect(result.memberWarningById).toEqual({});
   });
 
   it('allows OpenCode secondary-lane teammates without tmux under a non-OpenCode lead', () => {
@@ -98,7 +98,7 @@ describe('analyzeTeammateRuntimeCompatibility', () => {
     expect(result.memberWarningById.bob).toContain('OpenCode cannot be the team lead');
   });
 
-  it('blocks same-provider Codex native teammates when tmux is unavailable', () => {
+  it('allows same-provider Codex native teammates through native process transport when tmux is unavailable', () => {
     const result = analyzeTeammateRuntimeCompatibility({
       leadProviderId: 'codex',
       leadProviderBackendId: 'codex-native',
@@ -108,11 +108,9 @@ describe('analyzeTeammateRuntimeCompatibility', () => {
       tmuxStatusError: null,
     });
 
-    expect(result.blocksSubmission).toBe(true);
-    expect(result.title).toBe('Codex teammates need tmux before they can run');
-    expect(result.message).toContain('The Codex lead can run without tmux');
-    expect(result.details.join('\n')).toContain('Codex native teammates');
-    expect(result.memberWarningById.jack).toContain('Codex native teammates require');
+    expect(result.blocksSubmission).toBe(false);
+    expect(result.visible).toBe(false);
+    expect(result.memberWarningById).toEqual({});
   });
 
   it('allows separate-process teammate requirements when tmux is ready', () => {
@@ -155,5 +153,23 @@ describe('analyzeTeammateRuntimeCompatibility', () => {
 
     expect(result.blocksSubmission).toBe(true);
     expect(result.details).toContain('Custom CLI args force --teammate-mode tmux.');
+    expect(result.message).toContain('native process transport');
+  });
+
+  it('blocks explicit in-process mode when a teammate requires a separate process', () => {
+    const result = analyzeTeammateRuntimeCompatibility({
+      leadProviderId: 'anthropic',
+      members: [{ id: 'bob', name: 'bob', providerId: 'codex' }],
+      extraCliArgs: '--teammate-mode=in-process',
+      tmuxStatus: buildTmuxStatus(true),
+      tmuxStatusLoading: false,
+      tmuxStatusError: null,
+    });
+
+    expect(result.blocksSubmission).toBe(true);
+    expect(result.title).toBe('This team cannot use in-process teammates');
+    expect(result.details).toContain('Custom CLI args force --teammate-mode in-process.');
+    expect(result.message).toContain('native process transport');
+    expect(result.memberWarningById.bob).toContain('requires a separate process');
   });
 });

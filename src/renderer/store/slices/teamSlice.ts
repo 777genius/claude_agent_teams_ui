@@ -1,5 +1,6 @@
 import { api } from '@renderer/api';
 import { mergeTeamMessages } from '@renderer/utils/mergeTeamMessages';
+import { buildOpenCodeRuntimeDeliveryDiagnostics } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import { normalizePath } from '@renderer/utils/pathNormalize';
 import {
   buildTaskChangePresenceKey,
@@ -10,7 +11,6 @@ import {
 import { toMessageKey } from '@renderer/utils/teamMessageKey';
 import { extractProviderScopedBaseModel } from '@renderer/utils/teamModelContext';
 import { IpcError, unwrapIpc } from '@renderer/utils/unwrapIpc';
-import { buildOpenCodeRuntimeDeliveryDiagnostics } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { DEFAULT_TOOL_APPROVAL_SETTINGS } from '@shared/types/team';
 import { isLeadMember } from '@shared/utils/leadDetection';
@@ -25,8 +25,8 @@ import { getWorktreeNavigationState } from '../utils/stateResetHelpers';
 import type { AppState } from '../types';
 import type { GraphLayoutMode, GraphOwnerSlotAssignment } from '@claude-teams/agent-graph';
 import type { AppConfig } from '@renderer/types/data';
-import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import type { TeamMessagesPanelMode } from '@renderer/types/teamMessagesPanelMode';
+import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import type {
   ActiveToolCall,
   AddMemberRequest,

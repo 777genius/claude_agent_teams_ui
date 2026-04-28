@@ -7,6 +7,7 @@ const openTeamTab = vi.fn();
 const fetchCliStatus = vi.fn();
 const createSchedule = vi.fn();
 const updateSchedule = vi.fn();
+const teamRosterEditorSectionMock = vi.hoisted(() => ({ lastProps: null as any }));
 
 const storeState = {
   appConfig: { general: { multimodelEnabled: true } },
@@ -144,6 +145,7 @@ vi.mock('@renderer/components/team/members/MembersEditorSection', () => ({
       providerId?: string;
       model?: string;
       effort?: string;
+      isolation?: 'worktree';
     }>
   ) =>
     members.map((member, index) => ({
@@ -153,6 +155,7 @@ vi.mock('@renderer/components/team/members/MembersEditorSection', () => ({
       roleSelection: '',
       customRole: member.role ?? '',
       workflow: member.workflow ?? '',
+      isolation: member.isolation,
       providerId: member.providerId,
       model: member.model ?? '',
       effort: member.effort,
@@ -166,7 +169,10 @@ vi.mock('@renderer/components/team/members/MembersEditorSection', () => ({
 }));
 
 vi.mock('@renderer/components/team/members/TeamRosterEditorSection', () => ({
-  TeamRosterEditorSection: () => React.createElement('div', null, 'team-roster-editor'),
+  TeamRosterEditorSection: (props: any) => {
+    teamRosterEditorSectionMock.lastProps = props;
+    return React.createElement('div', null, 'team-roster-editor');
+  },
 }));
 
 vi.mock('@renderer/components/team/dialogs/SkipPermissionsCheckbox', () => ({
@@ -444,6 +450,7 @@ describe('LaunchTeamDialog', () => {
     vi.clearAllMocks();
     storeState.cliStatus = { providers: [] };
     storeState.launchParamsByTeam = {};
+    teamRosterEditorSectionMock.lastProps = null;
   });
 
   it('renders relaunch-specific title, warning and submit label', async () => {
@@ -478,6 +485,101 @@ describe('LaunchTeamDialog', () => {
         (button) => button.textContent === 'Relaunch team'
       )
     ).toBe(true);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('passes existing teammate worktree path info to the roster editor', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(LaunchTeamDialog, {
+          mode: 'launch',
+          open: true,
+          teamName: 'team-alpha',
+          members: [
+            {
+              name: 'jack',
+              role: 'developer',
+              isolation: 'worktree',
+              cwd: '/tmp/project/.worktrees/jack',
+            },
+          ] as any,
+          defaultProjectPath: '/tmp/project',
+          provisioningError: null,
+          clearProvisioningError: vi.fn(),
+          activeTeams: [],
+          onClose: vi.fn(),
+          onLaunch: vi.fn(async () => {}),
+        })
+      );
+      await flush();
+    });
+
+    expect(teamRosterEditorSectionMock.lastProps?.memberInfoById).toEqual({
+      'draft-0':
+        'This teammate will continue from its existing worktree: /tmp/project/.worktrees/jack',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('preserves existing teammate worktree path info from saved launch request fallback', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.mocked(api.teams.getSavedRequest).mockResolvedValueOnce({
+      teamName: 'team-alpha',
+      cwd: '/tmp/project',
+      providerId: 'codex',
+      model: 'gpt-5.5',
+      members: [
+        {
+          name: 'jack',
+          role: 'developer',
+          isolation: 'worktree',
+          cwd: '/tmp/project/.worktrees/jack',
+          providerId: 'opencode',
+          model: 'openrouter/qwen/qwen3-coder',
+        },
+      ],
+    } as any);
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(LaunchTeamDialog, {
+          mode: 'launch',
+          open: true,
+          teamName: 'team-alpha',
+          members: [],
+          defaultProjectPath: '/tmp/project',
+          provisioningError: null,
+          clearProvisioningError: vi.fn(),
+          activeTeams: [],
+          onClose: vi.fn(),
+          onLaunch: vi.fn(async () => {}),
+        })
+      );
+      await flush();
+    });
+
+    expect(teamRosterEditorSectionMock.lastProps?.memberInfoById).toEqual({
+      'draft-0':
+        'This teammate will continue from its existing worktree: /tmp/project/.worktrees/jack',
+    });
 
     await act(async () => {
       root.unmount();

@@ -353,6 +353,26 @@ function createDefaultProviderStatus(providerId: CliProviderId): CliProviderStat
   };
 }
 
+function createPendingProviderStatus(providerId: CliProviderId): CliProviderStatus {
+  return {
+    ...createDefaultProviderStatus(providerId),
+    statusMessage: 'Checking...',
+  };
+}
+
+function createRuntimeStatusErrorProviderStatus(
+  providerId: CliProviderId,
+  error: unknown
+): CliProviderStatus {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    ...createDefaultProviderStatus(providerId),
+    verificationState: 'error',
+    statusMessage: 'Provider status unavailable',
+    detailMessage: message,
+  };
+}
+
 function mapRuntimeExtensionCapabilities(
   providerId: CliProviderId,
   capabilities?: RuntimeExtensionCapabilitiesResponse
@@ -668,6 +688,97 @@ export class ClaudeMultimodelBridgeService {
     return providers.map((provider) => this.applyConnectionIssue(provider, connectionIssues));
   }
 
+  private buildProviderStatusesSnapshot(
+    providers: Map<CliProviderId, CliProviderStatus>
+  ): CliProviderStatus[] {
+    return ORDERED_PROVIDER_IDS.map(
+      (providerId) => providers.get(providerId) ?? createPendingProviderStatus(providerId)
+    );
+  }
+
+  private async getProviderStatusFromRuntimeStatusCommand(
+    binaryPath: string,
+    providerId: CliProviderId,
+    env: NodeJS.ProcessEnv,
+    connectionIssues: Partial<Record<CliProviderId, string>>
+  ): Promise<CliProviderStatus> {
+    const { stdout } = await execCli(
+      binaryPath,
+      ['runtime', 'status', '--json', '--provider', providerId],
+      {
+        timeout: PROVIDER_STATUS_TIMEOUT_MS,
+        env,
+      }
+    );
+    const parsed = extractJsonObject<UnifiedRuntimeStatusResponse>(stdout);
+    return providerConnectionService.enrichProviderStatus(
+      this.applyConnectionIssue(
+        this.mapRuntimeProviderStatus(providerId, parsed.providers?.[providerId]),
+        connectionIssues
+      )
+    );
+  }
+
+  private async getProviderStatusFromScopedRuntimeStatus(
+    binaryPath: string,
+    providerId: CliProviderId
+  ): Promise<CliProviderStatus> {
+    const { env, connectionIssues } = await this.buildProviderCliEnv(binaryPath, providerId);
+    return this.getProviderStatusFromRuntimeStatusCommand(
+      binaryPath,
+      providerId,
+      env,
+      connectionIssues
+    );
+  }
+
+  private async getProviderStatusesFromScopedRuntimeStatus(
+    binaryPath: string,
+    onUpdate?: (providers: CliProviderStatus[]) => void
+  ): Promise<CliProviderStatus[] | null> {
+    const providers = new Map<CliProviderId, CliProviderStatus>(
+      ORDERED_PROVIDER_IDS.map((providerId) => [
+        providerId,
+        createPendingProviderStatus(providerId),
+      ])
+    );
+    const failures: { providerId: CliProviderId; error: unknown }[] = [];
+
+    await Promise.all(
+      ORDERED_PROVIDER_IDS.map(async (providerId) => {
+        try {
+          providers.set(
+            providerId,
+            await this.getProviderStatusFromScopedRuntimeStatus(binaryPath, providerId)
+          );
+          onUpdate?.(this.buildProviderStatusesSnapshot(providers));
+        } catch (error) {
+          failures.push({ providerId, error });
+        }
+      })
+    );
+
+    if (failures.length === 0) {
+      return this.buildProviderStatusesSnapshot(providers);
+    }
+
+    if (failures.length === ORDERED_PROVIDER_IDS.length) {
+      return null;
+    }
+
+    logger.warn(
+      `Provider-scoped runtime status failed for ${failures
+        .map(({ providerId }) => providerId)
+        .join(', ')}; using partial provider statuses`
+    );
+
+    for (const { providerId, error } of failures) {
+      providers.set(providerId, createRuntimeStatusErrorProviderStatus(providerId, error));
+    }
+    onUpdate?.(this.buildProviderStatusesSnapshot(providers));
+    return this.buildProviderStatusesSnapshot(providers);
+  }
+
   private async getOpenCodeVerifySnapshot(
     binaryPath: string
   ): Promise<OpenCodeRuntimeVerifyResponse['snapshot'] | null> {
@@ -761,24 +872,9 @@ export class ClaudeMultimodelBridgeService {
     providerId: CliProviderId
   ): Promise<CliProviderStatus> {
     await resolveInteractiveShellEnv();
-    const { env, connectionIssues } = await this.buildCliEnv(binaryPath);
 
     try {
-      const { stdout } = await execCli(
-        binaryPath,
-        ['runtime', 'status', '--json', '--provider', providerId],
-        {
-          timeout: PROVIDER_STATUS_TIMEOUT_MS,
-          env,
-        }
-      );
-      const parsed = extractJsonObject<UnifiedRuntimeStatusResponse>(stdout);
-      return providerConnectionService.enrichProviderStatus(
-        this.applyConnectionIssue(
-          this.mapRuntimeProviderStatus(providerId, parsed.providers?.[providerId]),
-          connectionIssues
-        )
-      );
+      return await this.getProviderStatusFromScopedRuntimeStatus(binaryPath, providerId);
     } catch (error) {
       if (!this.isUnifiedRuntimeUnsupported(error)) {
         logger.warn(
@@ -937,6 +1033,20 @@ export class ClaudeMultimodelBridgeService {
     onUpdate?: (providers: CliProviderStatus[]) => void
   ): Promise<CliProviderStatus[]> {
     await resolveInteractiveShellEnv();
+
+    try {
+      const providers = await this.getProviderStatusesFromScopedRuntimeStatus(binaryPath, onUpdate);
+      if (providers) {
+        return providers;
+      }
+    } catch (error) {
+      logger.warn(
+        `Provider-scoped runtime status unavailable, falling back to full probe: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+
     const { env, connectionIssues } = await this.buildCliEnv(binaryPath);
 
     try {

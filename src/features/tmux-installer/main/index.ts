@@ -12,6 +12,7 @@ export {
   listRuntimeProcessesForCurrentTmuxPlatform,
   listTmuxPanePidsForCurrentPlatform,
   listTmuxPaneRuntimeInfoForCurrentPlatform,
+  sendKeysToTmuxPaneForCurrentPlatform,
 } from './composition/runtimeSupport';
 export type {
   RuntimeProcessTableRow,

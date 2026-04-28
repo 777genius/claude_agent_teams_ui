@@ -23,6 +23,7 @@ import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors'
 import { useFileListCacheWarmer } from '@renderer/hooks/useFileListCacheWarmer';
 import { useTheme } from '@renderer/hooks/useTheme';
 import { cn } from '@renderer/lib/utils';
+import { isGeminiUiFrozen } from '@renderer/utils/geminiUiFreeze';
 import {
   agentAvatarUrl,
   buildMemberColorMap,
@@ -579,6 +580,7 @@ export const EditTeamDialog = ({
               disableAddMember={isTeamAlive}
               addMemberLockReason="Use the dedicated Add member dialog to add new teammates while the team is live."
               memberWarningById={memberWarningById}
+              disableGeminiOption={isGeminiUiFrozen()}
             />
           </div>
           {isTeamProvisioning ? (

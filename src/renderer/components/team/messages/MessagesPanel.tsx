@@ -18,7 +18,6 @@ import { useTeamMessagesExpanded } from '@renderer/hooks/useTeamMessagesExpanded
 import { useTeamMessagesRead } from '@renderer/hooks/useTeamMessagesRead';
 import { useStore } from '@renderer/store';
 import { selectTeamMessages } from '@renderer/store/slices/teamSlice';
-import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import { filterTeamMessages } from '@renderer/utils/teamMessageFiltering';
 import { toMessageKey } from '@renderer/utils/teamMessageKey';
 import { shouldExcludeInboxTextFromReplyCandidates } from '@shared/utils/idleNotificationSemantics';
@@ -59,6 +58,7 @@ import type { TimelineItem } from '../activity/LeadThoughtsGroup';
 import type { ActionMode } from './ActionModeSelector';
 import type { MessagesFilterState } from './MessagesFilterPopover';
 import type { TeamMessagesPanelMode } from '@renderer/types/teamMessagesPanelMode';
+import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import type { InboxMessage, ResolvedTeamMember, TaskRef, TeamTaskWithKanban } from '@shared/types';
 
 interface TimeWindow {
@@ -186,8 +186,7 @@ export function hasVisibleReplyForSendMessageDiagnostics(
 
   const sentMessage = messages.find((message) => message.messageId === messageId);
   if (
-    !sentMessage ||
-    sentMessage.from !== 'user' ||
+    sentMessage?.from !== 'user' ||
     typeof sentMessage.to !== 'string' ||
     sentMessage.to.length === 0
   ) {

@@ -1,4 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { buildEnrichedEnv } from '@main/utils/cliEnv';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
@@ -19,6 +22,7 @@ export interface TmuxPaneRuntimeInfo {
   currentPath?: string;
   sessionName?: string;
   windowName?: string;
+  socketName?: string;
 }
 
 export interface RuntimeProcessTableRow {
@@ -61,16 +65,17 @@ export class TmuxPlatformCommandExecutor {
     this.#packageManagerResolver = packageManagerResolver;
   }
 
-  async execTmux(args: string[], timeout = 5_000): Promise<ExecResult> {
+  async execTmux(args: string[], timeout = 5_000, socketName?: string): Promise<ExecResult> {
+    const effectiveArgs = socketName ? ['-L', socketName, ...args] : args;
     if (process.platform === 'win32') {
-      return this.#wslService.execTmux(args, null, timeout);
+      return this.#wslService.execTmux(effectiveArgs, null, timeout);
     }
 
     await resolveInteractiveShellEnv();
     const env = buildEnrichedEnv();
     const executable = await this.#resolveNativeTmuxExecutable(env);
     return new Promise((resolve) => {
-      execFile(executable, args, { env, timeout }, (error, stdout, stderr) => {
+      execFile(executable, effectiveArgs, { env, timeout }, (error, stdout, stderr) => {
         const errorCode =
           typeof error === 'object' && error !== null && 'code' in error
             ? (error as NodeJS.ErrnoException).code
@@ -85,10 +90,16 @@ export class TmuxPlatformCommandExecutor {
   }
 
   async killPane(paneId: string): Promise<void> {
-    const result = await this.execTmux(['kill-pane', '-t', paneId], 3_000);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || `Failed to kill tmux pane ${paneId}`);
+    const candidates = await this.#getTmuxSocketCandidates();
+    let lastError = '';
+    for (const socketName of candidates) {
+      const result = await this.execTmux(['kill-pane', '-t', paneId], 3_000, socketName);
+      if (result.exitCode === 0) {
+        return;
+      }
+      lastError = result.stderr || `Failed to kill tmux pane ${paneId}`;
     }
+    throw new Error(lastError || `Failed to kill tmux pane ${paneId}`);
   }
 
   async listPaneRuntimeInfo(paneIds: readonly string[]): Promise<Map<string, TmuxPaneRuntimeInfo>> {
@@ -106,37 +117,48 @@ export class TmuxPlatformCommandExecutor {
       '#{window_name}',
     ].join('\t');
 
-    const result = await this.execTmux(['list-panes', '-a', '-F', format], 3_000);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || 'Failed to list tmux panes');
-    }
-
     const wanted = new Set(normalizedPaneIds);
     const paneInfoById = new Map<string, TmuxPaneRuntimeInfo>();
-    for (const line of result.stdout.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const [
-        paneId = '',
-        rawPid = '',
-        currentCommand = '',
-        currentPath = '',
-        sessionName = '',
-        windowName = '',
-      ] = trimmed.split('\t');
-      const normalizedPaneId = paneId.trim();
-      if (!wanted.has(normalizedPaneId)) continue;
-      const pid = Number.parseInt(rawPid.trim(), 10);
-      if (Number.isFinite(pid) && pid > 0) {
-        paneInfoById.set(normalizedPaneId, {
-          paneId: normalizedPaneId,
-          panePid: pid,
-          currentCommand: currentCommand.trim() || undefined,
-          currentPath: currentPath.trim() || undefined,
-          sessionName: sessionName.trim() || undefined,
-          windowName: windowName.trim() || undefined,
-        });
+    const candidates = await this.#getTmuxSocketCandidates();
+    let sawSuccessfulList = false;
+    let lastError = '';
+
+    for (const socketName of candidates) {
+      const result = await this.execTmux(['list-panes', '-a', '-F', format], 3_000, socketName);
+      if (result.exitCode !== 0) {
+        lastError = result.stderr || 'Failed to list tmux panes';
+        continue;
       }
+      sawSuccessfulList = true;
+      for (const line of result.stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const [
+          paneId = '',
+          rawPid = '',
+          currentCommand = '',
+          currentPath = '',
+          sessionName = '',
+          windowName = '',
+        ] = trimmed.split('\t');
+        const normalizedPaneId = paneId.trim();
+        if (!wanted.has(normalizedPaneId) || paneInfoById.has(normalizedPaneId)) continue;
+        const pid = Number.parseInt(rawPid.trim(), 10);
+        if (Number.isFinite(pid) && pid > 0) {
+          paneInfoById.set(normalizedPaneId, {
+            paneId: normalizedPaneId,
+            panePid: pid,
+            currentCommand: currentCommand.trim() || undefined,
+            currentPath: currentPath.trim() || undefined,
+            sessionName: sessionName.trim() || undefined,
+            windowName: windowName.trim() || undefined,
+            ...(socketName ? { socketName } : {}),
+          });
+        }
+      }
+    }
+    if (!sawSuccessfulList) {
+      throw new Error(lastError || 'Failed to list tmux panes');
     }
     return paneInfoById;
   }
@@ -155,6 +177,19 @@ export class TmuxPlatformCommandExecutor {
       throw new Error(result.stderr || 'Failed to list runtime processes');
     }
     return parseRuntimeProcessTable(result.stdout);
+  }
+
+  async sendKeysToPane(paneId: string, command: string): Promise<void> {
+    const paneInfo = await this.listPaneRuntimeInfo([paneId]);
+    const socketName = paneInfo.get(paneId)?.socketName;
+    const result = await this.execTmux(
+      ['send-keys', '-t', paneId, command, 'Enter'],
+      3_000,
+      socketName
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || `Failed to send command to tmux pane ${paneId}`);
+    }
   }
 
   killPaneSync(paneId: string): void {
@@ -183,8 +218,24 @@ export class TmuxPlatformCommandExecutor {
       throw lastError ?? new Error(`Failed to kill tmux pane ${paneId}`);
     }
 
-    // eslint-disable-next-line sonarjs/no-os-command-from-path -- tmux is resolved during runtime readiness checks before this sync cleanup path is used
-    execFileSync('tmux', ['kill-pane', '-t', paneId], { stdio: 'ignore' });
+    const candidates = this.#getTmuxSocketCandidatesSync();
+    let lastError: Error | null = null;
+    for (const socketName of candidates) {
+      try {
+        execFileSync(
+          // eslint-disable-next-line sonarjs/no-os-command-from-path -- tmux is resolved during runtime readiness checks before this sync cleanup path is used
+          'tmux',
+          [...(socketName ? ['-L', socketName] : []), 'kill-pane', '-t', paneId],
+          {
+            stdio: 'ignore',
+          }
+        );
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    throw lastError ?? new Error(`Failed to kill tmux pane ${paneId}`);
   }
 
   #getWslExecutableCandidates(): string[] {
@@ -219,6 +270,69 @@ export class TmuxPlatformCommandExecutor {
         }
       );
     });
+  }
+
+  async #getTmuxSocketCandidates(): Promise<(string | undefined)[]> {
+    if (process.platform === 'win32') {
+      return [undefined];
+    }
+    return [...(await this.#listNativeSwarmSocketNames()), undefined];
+  }
+
+  #getTmuxSocketCandidatesSync(): (string | undefined)[] {
+    if (process.platform === 'win32') {
+      return [undefined];
+    }
+    return [...this.#listNativeSwarmSocketNamesSync(), undefined];
+  }
+
+  async #listNativeSwarmSocketNames(): Promise<string[]> {
+    const dirs = this.#getNativeTmuxSocketDirs();
+    const names = new Set<string>();
+    await Promise.all(
+      dirs.map(async (dir) => {
+        let entries: string[];
+        try {
+          entries = await fs.promises.readdir(dir);
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (entry.startsWith('claude-swarm-')) {
+            names.add(entry);
+          }
+        }
+      })
+    );
+    return [...names].sort((left, right) => left.localeCompare(right));
+  }
+
+  #listNativeSwarmSocketNamesSync(): string[] {
+    const names = new Set<string>();
+    for (const dir of this.#getNativeTmuxSocketDirs()) {
+      let entries: string[];
+      try {
+        entries = fs.readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (entry.startsWith('claude-swarm-')) {
+          names.add(entry);
+        }
+      }
+    }
+    return [...names].sort((left, right) => left.localeCompare(right));
+  }
+
+  #getNativeTmuxSocketDirs(): string[] {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : os.userInfo().uid;
+    const candidates = [
+      path.join('/tmp', `tmux-${uid}`),
+      path.join('/private/tmp', `tmux-${uid}`),
+      path.join(os.tmpdir(), `tmux-${uid}`),
+    ];
+    return [...new Set(candidates)];
   }
 
   async #resolveNativeTmuxExecutable(env: NodeJS.ProcessEnv): Promise<string> {

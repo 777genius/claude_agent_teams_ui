@@ -947,6 +947,153 @@ describe('BoardTaskLogStreamService integration', () => {
     });
   });
 
+  it('unwraps Agent Teams response envelopes before rendering task comment output', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'task-log-stream-agent-teams-envelope-'));
+    tempDirs.push(dir);
+    const transcriptPath = path.join(dir, 'session.jsonl');
+    const task = createTask({
+      owner: 'bob',
+      workIntervals: [
+        {
+          startedAt: '2026-04-27T20:05:00.000Z',
+          completedAt: '2026-04-27T20:10:00.000Z',
+        },
+      ],
+    });
+    const payload = {
+      agent_teams_task_add_comment_response: {
+        comment: {
+          attachments: [],
+          author: 'bob',
+          createdAt: '2026-04-27T20:05:44.248Z',
+          id: '40203f1f-44e2-45e0-b6a8-2b812fb7ac12',
+          text: 'Создана папка `944` и файл `calculator.js`.',
+        },
+        taskId: TASK_ID,
+        teamName: TEAM_NAME,
+      },
+    };
+
+    const lines = [
+      createAssistantEntry({
+        uuid: 'a-comment',
+        timestamp: '2026-04-27T20:05:44.000Z',
+        requestId: 'req-comment',
+        agentName: 'bob',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call-comment',
+            name: 'agent-teams_task_add_comment',
+            input: {
+              teamName: TEAM_NAME,
+              taskId: TASK_ID,
+              from: 'bob',
+              text: 'Создана папка `944` и файл `calculator.js`.',
+            },
+          },
+        ],
+      }),
+      createUserEntry({
+        uuid: 'u-comment',
+        timestamp: '2026-04-27T20:05:44.248Z',
+        sourceToolAssistantUUID: 'a-comment',
+        agentName: 'bob',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-comment',
+            content: JSON.stringify(payload),
+          },
+        ],
+        boardTaskLinks: [
+          {
+            schemaVersion: 1,
+            toolUseId: 'call-comment',
+            task: {
+              ref: TASK_ID,
+              refKind: 'canonical',
+              canonicalId: TASK_ID,
+            },
+            targetRole: 'subject',
+            linkKind: 'board_action',
+            taskArgumentSlot: 'taskId',
+            actorContext: {
+              relation: 'owner',
+            },
+          },
+        ],
+        boardTaskToolActions: [
+          {
+            schemaVersion: 1,
+            toolUseId: 'call-comment',
+            canonicalToolName: 'task_add_comment',
+          },
+        ],
+        toolUseResult: {
+          toolUseId: 'call-comment',
+          content: JSON.stringify(payload),
+        },
+      }),
+    ];
+
+    await writeFile(
+      transcriptPath,
+      `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`,
+      'utf8',
+    );
+
+    const recordSource = {
+      getTaskRecords: async () => buildRecordsFromTranscript(transcriptPath, task),
+    };
+    const taskReader = {
+      getTasks: async () => [task],
+      getDeletedTasks: async () => [] as TeamTask[],
+    };
+    const transcriptSourceLocator = {
+      getContext: async () =>
+        ({
+          transcriptFiles: [transcriptPath],
+          config: {
+            members: [{ name: 'bob', agentType: 'developer' }],
+          },
+        }) as never,
+    };
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      taskReader as never,
+      transcriptSourceLocator as never,
+    );
+    const response = await service.getTaskLogStream(TEAM_NAME, task.id);
+    const rawMessages = flattenRawMessages(response);
+    const commentResult = rawMessages.find((message) => message.uuid === 'u-comment');
+    const semanticToolResult = response.segments
+      .flatMap((segment) => segment.chunks)
+      .flatMap((chunk) => ('semanticSteps' in chunk ? (chunk.semanticSteps ?? []) : []))
+      .find((step) => step.type === 'tool_result' && step.id === 'call-comment');
+
+    expect(commentResult?.toolResults).toEqual([
+      {
+        toolUseId: 'call-comment',
+        content: 'Создана папка `944` и файл `calculator.js`.',
+        isError: false,
+      },
+    ]);
+    expect(semanticToolResult).toMatchObject({
+      id: 'call-comment',
+      type: 'tool_result',
+      content: expect.objectContaining({
+        toolResultContent: 'Создана папка `944` и файл `calculator.js`.',
+      }),
+    });
+    expect(JSON.stringify(response)).not.toContain('agent_teams_task_add_comment_response');
+  });
+
   it('reads a real-format transcript fixture and surfaces fallback worker logs for the task owner only', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'task-log-stream-real-fixture-'));
     tempDirs.push(dir);

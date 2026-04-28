@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 
 import type { CSSProperties, JSX } from 'react';
 
-type ProviderBrand = {
+interface ProviderBrand {
   providerId: string;
   displayName: string;
-};
+}
 
 interface SvgPath {
   d: string;

@@ -15,15 +15,27 @@ function truncate(str: string, maxLength: number): string {
   return str.slice(0, maxLength) + '...';
 }
 
+function readString(input: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Generates a human-readable summary for a tool call.
  */
 export function getToolSummary(toolName: string, input: Record<string, unknown>): string {
-  switch (toolName) {
-    case 'Edit': {
-      const filePath = input.file_path as string | undefined;
-      const oldString = input.old_string as string | undefined;
-      const newString = input.new_string as string | undefined;
+  const normalizedToolName = toolName.toLowerCase();
+
+  switch (normalizedToolName) {
+    case 'edit': {
+      const filePath = readString(input, ['file_path', 'filePath', 'path']);
+      const oldString = readString(input, ['old_string', 'oldString']);
+      const newString = readString(input, ['new_string', 'newString']);
 
       if (!filePath) return 'Edit';
 
@@ -42,8 +54,8 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return fileName;
     }
 
-    case 'Read': {
-      const filePath = input.file_path as string | undefined;
+    case 'read': {
+      const filePath = readString(input, ['file_path', 'filePath', 'path']);
       const limit = input.limit as number | undefined;
       const offset = input.offset as number | undefined;
 
@@ -59,11 +71,15 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return fileName;
     }
 
-    case 'Write': {
-      const filePath = input.file_path as string | undefined;
-      const content = input.content as string | undefined;
+    case 'write': {
+      const filePath = readString(input, ['file_path', 'filePath', 'path']);
+      const content = readString(input, ['content', 'text']);
 
-      if (!filePath) return 'Write';
+      if (!filePath) {
+        return content
+          ? `content - ${content.split('\n').length} lines`
+          : 'Write input unavailable';
+      }
 
       const fileName = getBaseName(filePath);
 
@@ -75,9 +91,9 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return fileName;
     }
 
-    case 'Bash': {
-      const command = input.command as string | undefined;
-      const description = input.description as string | undefined;
+    case 'bash': {
+      const command = readString(input, ['command']);
+      const description = readString(input, ['description']);
 
       // Prefer description if available
       if (description) {
@@ -91,10 +107,10 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return 'Bash';
     }
 
-    case 'Grep': {
-      const pattern = input.pattern as string | undefined;
-      const path = input.path as string | undefined;
-      const glob = input.glob as string | undefined;
+    case 'grep': {
+      const pattern = readString(input, ['pattern']);
+      const path = readString(input, ['path']);
+      const glob = readString(input, ['glob']);
 
       if (!pattern) return 'Grep';
 
@@ -110,9 +126,9 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return patternStr;
     }
 
-    case 'Glob': {
-      const pattern = input.pattern as string | undefined;
-      const path = input.path as string | undefined;
+    case 'glob': {
+      const pattern = readString(input, ['pattern']);
+      const path = readString(input, ['path']);
 
       if (!pattern) return 'Glob';
 
@@ -125,7 +141,7 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return patternStr;
     }
 
-    case 'Task': {
+    case 'task': {
       const prompt = input.prompt as string | undefined;
       const subagentType = input.subagentType as string | undefined;
       const description = input.description as string | undefined;
@@ -140,7 +156,7 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return subagentType ?? 'Task';
     }
 
-    case 'LSP': {
+    case 'lsp': {
       const operation = input.operation as string | undefined;
       const filePath = input.filePath as string | undefined;
 
@@ -153,7 +169,7 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return operation;
     }
 
-    case 'WebFetch': {
+    case 'webfetch': {
       const url = input.url as string | undefined;
 
       if (url) {
@@ -168,7 +184,7 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return 'WebFetch';
     }
 
-    case 'WebSearch': {
+    case 'websearch': {
       const query = input.query as string | undefined;
 
       if (query) {
@@ -178,7 +194,7 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return 'WebSearch';
     }
 
-    case 'TodoWrite': {
+    case 'todowrite': {
       const todos = input.todos as unknown[] | undefined;
 
       if (todos && Array.isArray(todos)) {
@@ -188,7 +204,7 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return 'TodoWrite';
     }
 
-    case 'NotebookEdit': {
+    case 'notebookedit': {
       const notebookPath = input.notebook_path as string | undefined;
       const editMode = input.edit_mode as string | undefined;
 
@@ -204,19 +220,19 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
     // Team Tools
     // =========================================================================
 
-    case 'TeamCreate': {
+    case 'teamcreate': {
       const teamName = input.team_name as string | undefined;
       const desc = input.description as string | undefined;
       if (teamName) return `${teamName}${desc ? ' - ' + truncate(desc, 30) : ''}`;
       return 'Create team';
     }
 
-    case 'TaskCreate': {
+    case 'taskcreate': {
       const subject = input.subject as string | undefined;
       return subject ? truncate(subject, 50) : 'Create task';
     }
 
-    case 'TaskUpdate': {
+    case 'taskupdate': {
       const taskId = input.taskId as string | undefined;
       const status = input.status as string | undefined;
       const owner = input.owner as string | undefined;
@@ -227,15 +243,15 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return parts.length > 0 ? parts.join(' ') : 'Update task';
     }
 
-    case 'TaskList':
+    case 'tasklist':
       return 'List tasks';
 
-    case 'TaskGet': {
+    case 'taskget': {
       const taskId = input.taskId as string | undefined;
       return taskId ? `Get task #${taskId}` : 'Get task';
     }
 
-    case 'SendMessage': {
+    case 'sendmessage': {
       const msgType = input.type as string | undefined;
       const recipient = input.recipient as string | undefined;
       const summary = input.summary as string | undefined;
@@ -246,10 +262,10 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return 'Send message';
     }
 
-    case 'TeamDelete':
+    case 'teamdelete':
       return 'Delete team';
 
-    case 'Agent': {
+    case 'agent': {
       return summarizeAgentToolInput(input, 60);
     }
 

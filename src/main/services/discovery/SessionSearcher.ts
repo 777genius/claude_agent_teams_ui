@@ -19,9 +19,9 @@ import * as path from 'path';
 
 import { startMainSpan } from '../../sentry';
 
+import { resolveProjectStorageDir } from './projectStorageDir';
 import { SearchTextCache } from './SearchTextCache';
 import { extractSearchableEntries } from './SearchTextExtractor';
-import { resolveProjectStorageDir } from './projectStorageDir';
 import { subprojectRegistry } from './SubprojectRegistry';
 
 import type { SearchableEntry } from './SearchTextExtractor';

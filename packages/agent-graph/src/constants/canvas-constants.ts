@@ -58,9 +58,9 @@ export const FORCE = {
 
 export const NODE = {
   /** Lead agent radius */
-  radiusLead: 32,
+  radiusLead: 38,
   /** Team member radius */
-  radiusMember: 24,
+  radiusMember: 30,
   /** Process node radius */
   radiusProcess: 14,
   /** Cross-team ghost node radius */
@@ -110,6 +110,7 @@ export const AGENT_DRAW = {
   sparkScale: 0.45,
   sparkViewBox: 256,
   subIconScale: 0.45,
+  avatarRadiusScale: 0.74,
 } as const;
 
 // ─── Context ring (lead node only) ─────────────────────────────────────────

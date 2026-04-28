@@ -183,7 +183,7 @@ function extractBoardToolOutputText(
     return null;
   }
 
-  const payload = parsedPayload as Record<string, unknown>;
+  const payload = unwrapAgentTeamsResponsePayload(parsedPayload as Record<string, unknown>);
   if (toolName === 'task_add_comment' || toolName === 'task_get_comment') {
     const comment = payload.comment as Record<string, unknown> | undefined;
     if (typeof comment?.text === 'string' && comment.text.trim().length > 0) {
@@ -192,6 +192,22 @@ function extractBoardToolOutputText(
   }
 
   return null;
+}
+
+function unwrapAgentTeamsResponsePayload(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const wrapperKey = Object.keys(payload).find(
+    (key) => key.startsWith('agent_teams_') && key.endsWith('_response')
+  );
+  if (!wrapperKey) {
+    return payload;
+  }
+
+  const nested = payload[wrapperKey];
+  return typeof nested === 'object' && nested !== null && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>)
+    : payload;
 }
 
 function collectTextBlockText(value: unknown): string {
@@ -252,9 +268,10 @@ function sanitizeToolResultContent(
     const parsedPayload = parseJsonLikeString(content.content);
     const extractedText = extractBoardToolOutputText(canonicalToolName, parsedPayload);
     if (typeof extractedText === 'string') {
+      const { is_error: _isError, ...rest } = content;
       return {
-        ...content,
-        content: [{ type: 'text', text: extractedText }],
+        ...rest,
+        content: extractedText,
       };
     }
     return parsedPayload ? { ...content, content: '' } : cloneBlock(content);

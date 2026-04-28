@@ -1,5 +1,5 @@
+import { SyncedLoader2 } from '@renderer/components/ui/SyncedLoader2';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
-import { Loader2 } from 'lucide-react';
 
 import type { TeamTaskWithKanban } from '@shared/types';
 
@@ -31,7 +31,7 @@ export const CurrentTaskIndicator = ({
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5">
-      <Loader2 className="size-3 shrink-0 animate-spin" style={{ color: borderColor }} />
+      <SyncedLoader2 className="size-3 shrink-0" style={{ color: borderColor }} />
       <span className="shrink-0 text-[10px] text-[var(--color-text-muted)]">{activityLabel}</span>
       <button
         type="button"

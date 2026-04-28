@@ -1083,7 +1083,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
       {/* Markdown content with scroll */}
       <div className={`min-w-0 overflow-auto ${maxHeight}`}>
-        <div className="min-w-0 break-words p-4">
+        <div className="min-w-0 break-words p-2">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={disableHighlight ? REHYPE_PLUGINS_NO_HIGHLIGHT : REHYPE_PLUGINS}

@@ -353,6 +353,8 @@ export interface BoardTaskLogStreamRuntimeProjection {
   mode: 'attribution' | 'heuristic';
   attributionRecordCount: number;
   projectedMessageCount: number;
+  boardMcpToolCount?: number;
+  nativeToolCount?: number;
   fallbackReason?:
     | 'no_attribution_records'
     | 'attribution_no_projected_messages'
@@ -1312,7 +1314,7 @@ export interface TeamProvisioningProgress {
   warnings?: string[];
   /** Provisioning CLI logs shown in the launch progress UI. */
   cliLogsTail?: string;
-  /** Accumulated assistant text output during provisioning (for live preview). */
+  /** Bounded launch trace plus assistant/runtime text output for the live preview. */
   assistantOutput?: string;
   /** True once provisioning has written a readable config.json for this team. */
   configReady?: boolean;

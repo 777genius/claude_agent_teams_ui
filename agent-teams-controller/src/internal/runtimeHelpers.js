@@ -225,6 +225,85 @@ function resolveExplicitTeamMemberName(paths, candidate, options = {}) {
   return null;
 }
 
+function getLeadProviderKeys(paths, explicitMembers) {
+  const leadName = inferLeadName(paths);
+  const leadKey = normalizeMemberKey(leadName);
+  const leadMember =
+    (leadKey ? explicitMembers.membersByKey.get(leadKey) : null) ||
+    Array.from(explicitMembers.membersByKey.values()).find((member) => isCanonicalLeadMember(member));
+  if (!leadMember) return { leadName: '', keys: new Set() };
+
+  const keys = new Set();
+  for (const field of ['providerId', 'provider', 'providerBackendId']) {
+    const key = normalizeMemberKey(leadMember[field]);
+    if (key) keys.add(key);
+  }
+  return { leadName: leadMember.name, keys };
+}
+
+function formatAllowedTaskCommentAuthors(paths, explicitMembers, options = {}) {
+  const allowed = new Set();
+  if (options.allowReservedAuthors !== false) {
+    allowed.add('user');
+    allowed.add('system');
+  }
+  for (const member of explicitMembers.membersByKey.values()) {
+    if (member && typeof member.name === 'string' && member.name.trim()) {
+      allowed.add(member.name.trim());
+    }
+  }
+
+  const leadName = inferLeadName(paths);
+  const leadKey = normalizeMemberKey(leadName);
+  if (leadKey && explicitMembers.membersByKey.has(leadKey)) {
+    allowed.add('lead');
+    allowed.add('team-lead');
+  }
+
+  return Array.from(allowed).sort((a, b) => a.localeCompare(b)).join(', ');
+}
+
+function resolveTaskCommentAuthorName(paths, candidate, label = 'task comment author', options = {}) {
+  const normalized = typeof candidate === 'string' && candidate.trim() ? candidate.trim() : '';
+  if (!normalized) {
+    return inferLeadName(paths);
+  }
+
+  const key = normalizeMemberKey(normalized);
+  if (key === 'user' || key === 'system') {
+    if (options.allowReservedAuthors === false) {
+      throw new Error(
+        `${label} "${key}" is reserved for app-owned writes. Set from to your configured teammate name.`
+      );
+    }
+    return key;
+  }
+
+  const explicit = collectExplicitTeamMembers(paths);
+  const directMember = explicit.membersByKey.get(key);
+  if (directMember && !explicit.removedNames.has(key)) {
+    return directMember.name;
+  }
+
+  const leadAlias = resolveExplicitTeamMemberName(paths, normalized, { allowLeadAliases: true });
+  if (leadAlias) {
+    return leadAlias;
+  }
+
+  const { leadName, keys } = getLeadProviderKeys(paths, explicit);
+  if (leadName && keys.has(key)) {
+    return leadName;
+  }
+
+  throw new Error(
+    `Unknown ${label}: ${normalized}. Use one of: ${formatAllowedTaskCommentAuthors(
+      paths,
+      explicit,
+      options
+    )}.`
+  );
+}
+
 function assertExplicitTeamMemberName(paths, candidate, label = 'member', options = {}) {
   const resolved = resolveExplicitTeamMemberName(paths, candidate, options);
   if (!resolved) {
@@ -626,6 +705,7 @@ module.exports = {
   readMembersMeta,
   readTeamConfig,
   resolveExplicitTeamMemberName,
+  resolveTaskCommentAuthorName,
   resolveTeamMembers,
   getCurrentRuntimeMemberIdentity,
   resolveCanonicalLeadSessionId,

@@ -11,6 +11,7 @@ vi.mock('node:child_process', async () => {
 });
 
 import * as childProcess from 'node:child_process';
+import * as fs from 'node:fs';
 
 import { TmuxPlatformCommandExecutor } from '../TmuxPlatformCommandExecutor';
 
@@ -28,6 +29,7 @@ const originalWindir = process.env.WINDIR;
 describe('TmuxPlatformCommandExecutor', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(fs.promises, 'readdir').mockRejectedValue(new Error('ENOENT'));
   });
 
   afterEach(() => {
@@ -76,7 +78,7 @@ describe('TmuxPlatformCommandExecutor', () => {
       } as never,
       {} as never
     );
-    vi.spyOn(executor, 'execTmux').mockResolvedValue({
+    const execTmux = vi.spyOn(executor, 'execTmux').mockResolvedValue({
       exitCode: 0,
       stdout:
         '%1\t111\tzsh\t/tmp\tteam\tmain\n%2\t222\tnode\t/project\tteam\tworker\n%3\tnot-a-pid\tzsh\t/tmp\tteam\tmain\n',
@@ -86,14 +88,15 @@ describe('TmuxPlatformCommandExecutor', () => {
     await expect(executor.listPanePids(['%2', '%3', '%2'])).resolves.toEqual(
       new Map([['%2', 222]])
     );
-    expect(executor.execTmux).toHaveBeenCalledWith(
+    expect(execTmux).toHaveBeenCalledWith(
       [
         'list-panes',
         '-a',
         '-F',
         '#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{session_name}\t#{window_name}',
       ],
-      3_000
+      3_000,
+      undefined
     );
   });
 

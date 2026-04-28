@@ -45,3 +45,25 @@ describe('contentSanitizer task notifications', () => {
     expect(parseTaskNotifications('normal user content')).toEqual([]);
   });
 });
+
+describe('contentSanitizer OpenCode delivery envelopes', () => {
+  it('hides OpenCode delivery instructions and retry metadata while keeping inbound content', () => {
+    const content = [
+      '<opencode_app_message_delivery>',
+      'To make your reply visible in the app Messages UI, call MCP tool agent-teams_message_send.',
+      '</opencode_app_message_delivery>',
+      '',
+      '<opencode_inbound_app_message>',
+      '<opencode_delivery_retry>',
+      'This is retry attempt 3/3 for inbound app messageId "message-1".',
+      '</opencode_delivery_retry>',
+      '',
+      'New task assigned to you: #task-a Investigate failing command',
+      '</opencode_inbound_app_message>',
+    ].join('\n');
+
+    expect(sanitizeDisplayContent(content)).toBe(
+      'New task assigned to you: #task-a Investigate failing command'
+    );
+  });
+});

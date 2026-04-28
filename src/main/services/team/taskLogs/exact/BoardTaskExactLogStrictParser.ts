@@ -5,6 +5,8 @@ import { createReadStream } from 'fs';
 import * as fs from 'fs/promises';
 import * as readline from 'readline';
 
+import { TranscriptSessionActorContextTracker } from '../TranscriptSessionActorContext';
+
 import { BoardTaskExactLogsParseCache } from './BoardTaskExactLogsParseCache';
 
 import type { ParsedMessage } from '@main/types';
@@ -40,7 +42,7 @@ async function mapLimit<T, R>(
       if (currentIndex >= items.length) {
         return;
       }
-      results[currentIndex] = await fn(items[currentIndex]!);
+      results[currentIndex] = await fn(items[currentIndex]);
     }
   });
   await Promise.all(workers);
@@ -106,6 +108,7 @@ export class BoardTaskExactLogStrictParser {
 
   private async readStrictFile(filePath: string): Promise<ParsedMessage[]> {
     const results: ParsedMessage[] = [];
+    const actorContextTracker = new TranscriptSessionActorContextTracker();
     const stream = createReadStream(filePath, { encoding: 'utf8' });
     const rl = readline.createInterface({
       input: stream,
@@ -124,7 +127,9 @@ export class BoardTaskExactLogStrictParser {
           continue;
         }
 
-        const parsed = parseJsonlEntry(record as unknown as ChatHistoryEntry);
+        actorContextTracker.remember(record);
+        const contextRecord = actorContextTracker.apply(record);
+        const parsed = parseJsonlEntry(contextRecord as unknown as ChatHistoryEntry);
         if (parsed) {
           results.push(parsed);
         }

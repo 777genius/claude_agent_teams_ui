@@ -26,7 +26,7 @@ export function buildOpenCodeRuntimeDeliveryDiagnostics(
   result: SendMessageResult
 ): OpenCodeRuntimeDeliveryDiagnostics {
   const runtimeDelivery = result.runtimeDelivery;
-  if (!runtimeDelivery || runtimeDelivery.attempted !== true) {
+  if (runtimeDelivery?.attempted !== true) {
     return { warning: null, debugDetails: null };
   }
 

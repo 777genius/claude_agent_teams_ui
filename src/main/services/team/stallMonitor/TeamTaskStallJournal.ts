@@ -24,6 +24,7 @@ export class TeamTaskStallJournal {
     teamName: string;
     evaluations: TaskStallEvaluation[];
     activeTaskIds: string[];
+    scopeTaskIds?: string[];
     now: string;
   }): Promise<TaskStallEvaluation[]> {
     const filePath = this.getFilePath(args.teamName);
@@ -48,8 +49,12 @@ export class TeamTaskStallJournal {
       );
 
       const activeTaskIdSet = new Set(args.activeTaskIds);
+      const scopeTaskIdSet = args.scopeTaskIds ? new Set(args.scopeTaskIds) : null;
       for (let i = entries.length - 1; i >= 0; i -= 1) {
         const entry = entries[i];
+        if (scopeTaskIdSet && !scopeTaskIdSet.has(entry.taskId)) {
+          continue;
+        }
         if (!activeTaskIdSet.has(entry.taskId) || !candidateByEpoch.has(entry.epochKey)) {
           entries.splice(i, 1);
         }

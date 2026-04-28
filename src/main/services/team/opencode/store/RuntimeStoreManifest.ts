@@ -274,6 +274,57 @@ export class RuntimeStoreManifestStore {
     return readStoreDataOrThrow(this.store);
   }
 
+  async setActiveRun(input: {
+    runId: string | null;
+    capabilitySnapshotId?: string | null;
+    behaviorFingerprint?: string | null;
+  }): Promise<RuntimeStoreManifest> {
+    const normalizedRunId = input.runId?.trim() || null;
+    const result = await this.store.updateLocked((manifest) => {
+      const normalizedCapabilitySnapshotId =
+        input.capabilitySnapshotId === undefined
+          ? manifest.activeCapabilitySnapshotId
+          : input.capabilitySnapshotId?.trim() || null;
+      const normalizedBehaviorFingerprint =
+        input.behaviorFingerprint === undefined
+          ? manifest.activeBehaviorFingerprint
+          : input.behaviorFingerprint?.trim() || null;
+      const changed =
+        manifest.activeRunId !== normalizedRunId ||
+        manifest.activeCapabilitySnapshotId !== normalizedCapabilitySnapshotId ||
+        manifest.activeBehaviorFingerprint !== normalizedBehaviorFingerprint ||
+        this.isActiveRunOnlyWatermark(manifest);
+      if (!changed) {
+        return manifest;
+      }
+
+      return {
+        ...manifest,
+        activeRunId: normalizedRunId,
+        activeCapabilitySnapshotId: normalizedCapabilitySnapshotId,
+        activeBehaviorFingerprint: normalizedBehaviorFingerprint,
+        highWatermark: this.resolveActiveRunWatermark(manifest),
+        updatedAt: this.clock().toISOString(),
+      };
+    });
+    return result.data;
+  }
+
+  private isActiveRunOnlyWatermark(manifest: RuntimeStoreManifest): boolean {
+    return (
+      manifest.highWatermark > 0 &&
+      manifest.entries.length === 0 &&
+      manifest.lastCommittedBatchId === null
+    );
+  }
+
+  private resolveActiveRunWatermark(manifest: RuntimeStoreManifest): number {
+    if (this.isActiveRunOnlyWatermark(manifest)) {
+      return 0;
+    }
+    return manifest.highWatermark;
+  }
+
   async markBatchPreparing(batch: RuntimeStoreWriteBatch): Promise<void> {
     await this.store.updateLocked((manifest) => ({
       ...manifest,

@@ -1,7 +1,6 @@
+import { createLogger } from '@shared/utils/logger';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-
-import { createLogger } from '@shared/utils/logger';
 
 import { TeamTranscriptProjectResolver } from '../../TeamTranscriptProjectResolver';
 
@@ -35,7 +34,7 @@ async function mapLimit<T, R>(
       if (currentIndex >= items.length) {
         return;
       }
-      results[currentIndex] = await fn(items[currentIndex]!);
+      results[currentIndex] = await fn(items[currentIndex]);
     }
   });
   await Promise.all(workers);

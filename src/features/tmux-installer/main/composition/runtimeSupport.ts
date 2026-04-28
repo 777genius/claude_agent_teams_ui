@@ -40,6 +40,13 @@ export async function listRuntimeProcessesForCurrentTmuxPlatform(): Promise<
   return runtimeCommandExecutor.listRuntimeProcesses();
 }
 
+export async function sendKeysToTmuxPaneForCurrentPlatform(
+  paneId: string,
+  command: string
+): Promise<void> {
+  await runtimeCommandExecutor.sendKeysToPane(paneId, command);
+}
+
 export function killTmuxPaneForCurrentPlatformSync(paneId: string): void {
   runtimeCommandExecutor.killPaneSync(paneId);
   invalidateTmuxRuntimeStatusCache();

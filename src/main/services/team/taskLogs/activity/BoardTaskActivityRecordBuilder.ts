@@ -51,6 +51,11 @@ function normalizeDisplayRef(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function isConventionalLeadName(value: string): boolean {
+  const normalized = normalizeDisplayRef(value);
+  return normalized === 'team-lead' || normalized === 'lead';
+}
+
 function looksLikeCanonicalTaskId(value: string): boolean {
   return CANONICAL_TASK_ID_PATTERN.test(value.trim());
 }
@@ -245,16 +250,17 @@ function resolveActivityActor(message: RawTaskActivityMessage): BoardTaskActivit
     typeof message.agentName === 'string' && message.agentName.trim().length > 0
       ? message.agentName.trim()
       : undefined;
+  const role: BoardTaskActivityActor['role'] = memberName
+    ? isConventionalLeadName(memberName)
+      ? 'lead'
+      : 'member'
+    : message.isSidechain
+      ? 'member'
+      : 'unknown';
 
   return {
     ...(memberName ? { memberName } : {}),
-    role: memberName
-      ? message.isSidechain
-        ? 'member'
-        : 'lead'
-      : message.isSidechain
-        ? 'member'
-        : 'unknown',
+    role,
     sessionId: message.sessionId,
     ...(message.agentId ? { agentId: message.agentId } : {}),
     isSidechain: message.isSidechain,

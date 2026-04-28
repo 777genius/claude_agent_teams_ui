@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { withFileLock } from '@main/services/team/fileLock';
 
@@ -65,6 +65,29 @@ describe('withFileLock', () => {
 
     const result = await withFileLock(testFile, async () => 'ok');
     expect(result).toBe('ok');
+  });
+
+  it('removes a fresh abandoned lock when the owner process is gone', async () => {
+    const lockPath = `${testFile}.lock`;
+    const abandonedPid = 424_242;
+    fs.writeFileSync(lockPath, `${abandonedPid}\n${Date.now()}\n`, 'utf8');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(((pid: number | string) => {
+      if (pid === abandonedPid) {
+        const error = new Error('process is gone') as NodeJS.ErrnoException;
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return true;
+    }) as typeof process.kill);
+
+    try {
+      const result = await withFileLock(testFile, async () => 'ok');
+
+      expect(result).toBe('ok');
+      expect(fs.existsSync(lockPath)).toBe(false);
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 
   it('creates parent directories for lock file', async () => {

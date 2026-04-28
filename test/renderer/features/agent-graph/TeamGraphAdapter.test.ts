@@ -1433,6 +1433,77 @@ describe('TeamGraphAdapter particles', () => {
     });
   });
 
+  it('uses one offline visual state for lead and members when the team is stopped', () => {
+    const adapter = TeamGraphAdapter.create();
+    const graph = adapter.adapt(
+      createBaseTeamData({
+        isAlive: false,
+        config: {
+          name: 'My Team',
+          color: '#22d3ee',
+          members: [{ name: 'team-lead' }, { name: 'alice' }, { name: 'bob' }],
+          projectPath: '/repo',
+        },
+        members: [
+          {
+            name: 'team-lead',
+            status: 'active',
+            currentTaskId: null,
+            taskCount: 0,
+            lastActiveAt: null,
+            messageCount: 0,
+            agentType: 'team-lead',
+          },
+          {
+            name: 'alice',
+            status: 'active',
+            color: '#0000ff',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+          {
+            name: 'bob',
+            status: 'idle',
+            color: '#ffcc00',
+            currentTaskId: null,
+            taskCount: 1,
+            lastActiveAt: null,
+            messageCount: 0,
+          },
+        ],
+      }),
+      'my-team',
+      {
+        alice: {
+          status: 'waiting',
+          launchState: 'starting',
+          updatedAt: '2026-04-08T20:00:00.000Z',
+        },
+      },
+      'active'
+    );
+
+    expect(findNode(graph, 'lead:my-team')).toMatchObject({
+      state: 'terminated',
+      color: undefined,
+      exceptionTone: 'error',
+      exceptionLabel: 'offline',
+    });
+    expect(findNode(graph, 'member:my-team:alice')).toMatchObject({
+      state: 'terminated',
+      color: undefined,
+      spawnStatus: undefined,
+      launchVisualState: undefined,
+      launchStatusLabel: undefined,
+    });
+    expect(findNode(graph, 'member:my-team:bob')).toMatchObject({
+      state: 'terminated',
+      color: undefined,
+    });
+  });
+
   it('treats literal lead approval sources as lead-node pending approvals', () => {
     const adapter = TeamGraphAdapter.create();
     const graph = adapter.adapt(

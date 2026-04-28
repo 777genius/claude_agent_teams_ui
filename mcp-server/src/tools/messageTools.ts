@@ -14,12 +14,12 @@ export function registerMessageTools(server: Pick<FastMCP, 'addTool'>) {
   server.addTool({
     name: 'message_send',
     description:
-      'Send a visible team/user message into team inbox. OpenCode teammates should use this for normal replies to the human user, lead, or same-team teammates. When replying to an app-delivered OpenCode runtime message, include source="runtime_delivery" and relayOfMessageId with the inbound app messageId. When to is "user", from is required and must be your configured teammate name. Do not invent placeholder task refs. If the message is not about a real board task, omit # task labels; never use #00000000.',
+      'Send a visible team/user message into team inbox. OpenCode teammates should use this for normal replies to the human user, lead, or same-team teammates. from is required and must be your configured teammate name; user is reserved for app-owned writes. When replying to an app-delivered OpenCode runtime message, include source="runtime_delivery" and relayOfMessageId with the inbound app messageId. Do not invent placeholder task refs. If the message is not about a real board task, omit # task labels; never use #00000000.',
     parameters: z.object({
       ...toolContextSchema,
       to: z.string().min(1),
       text: z.string().min(1),
-      from: z.string().optional(),
+      from: z.string().min(1),
       summary: z.string().optional(),
       source: z.string().optional(),
       relayOfMessageId: z.string().optional(),

@@ -163,6 +163,170 @@ describe('BoardTaskLogStreamService', () => {
     expect(runtimeFallbackSource.getTaskLogStream).toHaveBeenCalledTimes(1);
   });
 
+  it('merges OpenCode runtime stream when board transcript slices mask member execution', async () => {
+    const lead = {
+      role: 'lead' as const,
+      sessionId: 'session-lead',
+      isSidechain: false,
+    };
+    const candidate = {
+      ...makeCandidate('c1', '2026-04-12T16:00:00.000Z', lead, 'tool-board'),
+      actionCategory: 'comment' as const,
+      canonicalToolName: 'task_add_comment',
+    };
+    const runtimeFallbackSource = {
+      getTaskLogStream: vi.fn(async () => ({
+        participants: [
+          {
+            key: 'member:jack',
+            label: 'jack',
+            role: 'member' as const,
+            isLead: false,
+            isSidechain: true,
+          },
+        ],
+        defaultFilter: 'member:jack',
+        segments: [
+          {
+            id: 'opencode:demo:task-a:jack',
+            participantKey: 'member:jack',
+            actor: {
+              memberName: 'jack',
+              role: 'member' as const,
+              sessionId: 'session-opencode',
+              isSidechain: true,
+            },
+            startTimestamp: '2026-04-12T16:01:00.000Z',
+            endTimestamp: '2026-04-12T16:02:00.000Z',
+            chunks: [{ id: 'chunk-bash' }],
+          },
+        ],
+        source: 'opencode_runtime_fallback' as const,
+        runtimeProjection: {
+          provider: 'opencode' as const,
+          mode: 'heuristic' as const,
+          attributionRecordCount: 0,
+          projectedMessageCount: 2,
+          fallbackReason: 'task_tool_markers' as const,
+        },
+      })),
+    };
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => candidate.records),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => [candidate]),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(() => ({
+        id: 'c1',
+        timestamp: '2026-04-12T16:00:00.000Z',
+        actor: lead,
+        source: candidate.source,
+        records: candidate.records,
+        filteredMessages: [makeMessage('c1', '2026-04-12T16:00:00.000Z', 'board update')],
+      })),
+    };
+    const taskReader = {
+      getTasks: vi.fn(async () => [{ id: 'task-a', owner: 'jack' }]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const membersMetaStore = {
+      getMembers: vi.fn(async () => [{ name: 'jack', providerId: 'opencode' }]),
+    };
+    const configReader = {
+      getConfig: vi.fn(async () => null),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+      taskReader as never,
+      undefined as never,
+      runtimeFallbackSource as never,
+      membersMetaStore as never,
+      configReader as never
+    );
+
+    const response = await service.getTaskLogStream('demo', 'task-a');
+
+    expect(runtimeFallbackSource.getTaskLogStream).toHaveBeenCalledWith('demo', 'task-a');
+    expect(response.defaultFilter).toBe('member:jack');
+    expect(response.participants.map((participant) => participant.key)).toEqual([
+      'member:jack',
+      'lead',
+    ]);
+    expect(response.segments.map((segment) => segment.id)).toEqual([
+      'lead:c1:c1',
+      'opencode:demo:task-a:jack',
+    ]);
+    expect(response.runtimeProjection).toMatchObject({
+      provider: 'opencode',
+      projectedMessageCount: 2,
+    });
+  });
+
+  it('does not probe OpenCode runtime for non-OpenCode task owners', async () => {
+    const lead = {
+      role: 'lead' as const,
+      sessionId: 'session-lead',
+      isSidechain: false,
+    };
+    const candidate = makeCandidate('c1', '2026-04-12T16:00:00.000Z', lead, 'tool-board');
+    const runtimeFallbackSource = {
+      getTaskLogStream: vi.fn(async () => {
+        throw new Error('should not be called');
+      }),
+    };
+    const service = new BoardTaskLogStreamService(
+      {
+        getTaskRecords: vi.fn(async () => candidate.records),
+      } as never,
+      {
+        selectSummaries: vi.fn(() => [candidate]),
+      } as never,
+      {
+        parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+      } as never,
+      {
+        selectDetail: vi.fn(() => ({
+          id: 'c1',
+          timestamp: '2026-04-12T16:00:00.000Z',
+          actor: lead,
+          source: candidate.source,
+          records: candidate.records,
+          filteredMessages: [makeMessage('c1', '2026-04-12T16:00:00.000Z', 'board update')],
+        })),
+      } as never,
+      {
+        buildBundleChunks: vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]),
+      } as never,
+      {
+        getTasks: vi.fn(async () => [{ id: 'task-a', owner: 'alice' }]),
+        getDeletedTasks: vi.fn(async () => []),
+      } as never,
+      undefined as never,
+      runtimeFallbackSource as never,
+      {
+        getMembers: vi.fn(async () => [{ name: 'alice', providerId: 'codex' }]),
+      } as never,
+      {
+        getConfig: vi.fn(async () => null),
+      } as never
+    );
+
+    await service.getTaskLogStream('demo', 'task-a');
+
+    expect(runtimeFallbackSource.getTaskLogStream).not.toHaveBeenCalled();
+  });
+
   it('groups contiguous slices into participant segments and excludes lead slices when member slices exist', async () => {
     const tom = {
       memberName: 'tom',
@@ -708,6 +872,259 @@ describe('BoardTaskLogStreamService', () => {
     expect(mergedMessages.map((message) => message.uuid)).toEqual(['c2']);
   });
 
+  it('does not use read-only task readers as inferred execution participants', async () => {
+    const alice = {
+      memberName: 'alice',
+      role: 'member' as const,
+      sessionId: 'session-alice',
+      isSidechain: false,
+    };
+    const readRecord = {
+      ...makeRecord('alice-read', '2026-04-12T16:00:00.000Z', alice, 'tool-read'),
+      action: {
+        canonicalToolName: 'task_get',
+        toolUseId: 'tool-read',
+        category: 'read' as const,
+      },
+    };
+    const readCandidate: BoardTaskExactLogBundleCandidate = {
+      ...makeCandidate('alice-read', '2026-04-12T16:00:00.000Z', alice, 'tool-read'),
+      records: [readRecord],
+      actionCategory: 'read',
+      canonicalToolName: 'task_get',
+    };
+    const aliceRuntimeMessage: ParsedMessage = {
+      uuid: 'alice-bash',
+      parentUuid: null,
+      type: 'assistant',
+      timestamp: new Date('2026-04-12T16:02:00.000Z'),
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'tool-bash',
+          name: 'Bash',
+          input: { command: 'git diff' },
+        } as never,
+      ],
+      toolCalls: [
+        {
+          id: 'tool-bash',
+          name: 'Bash',
+          input: { command: 'git diff' },
+          isTask: false,
+        },
+      ],
+      toolResults: [],
+      sessionId: 'session-alice',
+      agentName: 'alice',
+      isSidechain: false,
+      isMeta: false,
+      isCompactSummary: false,
+    };
+
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => [readRecord]),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => [readCandidate]),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async (filePaths: string[]) =>
+        new Map(
+          filePaths.map((filePath) => [
+            filePath,
+            filePath === '/tmp/alice.jsonl' ? [aliceRuntimeMessage] : [],
+          ])
+        )
+      ),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(() => ({
+        id: 'alice-read',
+        timestamp: '2026-04-12T16:00:00.000Z',
+        actor: alice,
+        source: readCandidate.source,
+        records: [readRecord],
+        filteredMessages: [makeMessage('alice-read-detail', '2026-04-12T16:00:00.000Z', 'read')],
+      })),
+    };
+    const taskReader = {
+      getTasks: vi.fn(async () => [
+        {
+          id: 'task-a',
+          displayId: 'abcd1234',
+          owner: 'tom',
+          status: 'in_progress',
+          createdAt: '2026-04-12T15:59:00.000Z',
+          updatedAt: '2026-04-12T16:05:00.000Z',
+        },
+      ]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const transcriptSourceLocator = {
+      getContext: vi.fn(async () => ({
+        transcriptFiles: ['/tmp/task.jsonl', '/tmp/alice.jsonl'],
+        config: { members: [{ name: 'team-lead', agentType: 'team-lead' }] },
+      })),
+    };
+    const runtimeFallbackSource = {
+      getTaskLogStream: vi.fn(async () => null),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+      taskReader as never,
+      transcriptSourceLocator as never,
+      runtimeFallbackSource as never,
+      { getMembers: vi.fn(async () => [{ name: 'tom', providerId: 'codex' }]) } as never,
+      { getConfig: vi.fn(async () => null) } as never
+    );
+
+    const response = await service.getTaskLogStream('demo', 'task-a');
+
+    expect(response.segments).toHaveLength(1);
+    expect(response.segments[0]?.participantKey).toBe('member:alice');
+    const mergedMessages = buildBundleChunks.mock.calls[0]?.[0] as ParsedMessage[];
+    expect(mergedMessages.map((message) => message.uuid)).toEqual(['alice-read-detail']);
+  });
+
+  it('does not recover task_get logs from nested task refs in result payloads', async () => {
+    const taskReader = {
+      getTasks: vi.fn(async () => [
+        {
+          id: 'task-a',
+          displayId: 'abcd1234',
+          owner: 'tom',
+          status: 'completed',
+          createdAt: '2026-04-12T16:00:00.000Z',
+          updatedAt: '2026-04-12T16:05:00.000Z',
+        },
+      ]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const transcriptSourceLocator = {
+      getContext: vi.fn(async () => ({
+        transcriptFiles: ['/tmp/lead.jsonl'],
+        config: {
+          members: [{ name: 'team-lead', agentType: 'team-lead' }],
+        },
+      })),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () =>
+        new Map<string, ParsedMessage[]>([
+          [
+            '/tmp/lead.jsonl',
+            [
+              {
+                uuid: 'assistant-task-get',
+                parentUuid: null,
+                type: 'assistant' as const,
+                timestamp: new Date('2026-04-12T16:01:00.000Z'),
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'tool_use',
+                    id: 'tool-task-get',
+                    name: 'task_get',
+                    input: { teamName: 'demo', taskId: 'parent-task' },
+                  } as never,
+                ],
+                toolCalls: [
+                  {
+                    id: 'tool-task-get',
+                    name: 'task_get',
+                    input: { teamName: 'demo', taskId: 'parent-task' },
+                    isTask: false,
+                  },
+                ],
+                toolResults: [],
+                isSidechain: false,
+                isMeta: false,
+                isCompactSummary: false,
+              },
+              {
+                uuid: 'user-task-get-result',
+                parentUuid: 'assistant-task-get',
+                type: 'user' as const,
+                timestamp: new Date('2026-04-12T16:01:01.000Z'),
+                role: 'user',
+                content: [
+                  {
+                    type: 'tool_result',
+                    tool_use_id: 'tool-task-get',
+                    content: JSON.stringify({
+                      id: 'parent-task',
+                      displayId: 'parent',
+                      blockedBy: ['task-a'],
+                    }),
+                  } as never,
+                ],
+                toolCalls: [],
+                toolResults: [
+                  {
+                    toolUseId: 'tool-task-get',
+                    content: JSON.stringify({
+                      id: 'parent-task',
+                      displayId: 'parent',
+                      blockedBy: ['task-a'],
+                    }),
+                    isError: false,
+                  },
+                ],
+                sourceToolUseID: 'tool-task-get',
+                sourceToolAssistantUUID: 'assistant-task-get',
+                toolUseResult: {
+                  toolUseId: 'tool-task-get',
+                  content: JSON.stringify({
+                    id: 'parent-task',
+                    displayId: 'parent',
+                    blockedBy: ['task-a'],
+                  }),
+                },
+                isSidechain: false,
+                isMeta: false,
+                isCompactSummary: false,
+              },
+            ],
+          ],
+        ])
+      ),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => {
+        throw new Error('task_get result payload should not create recovered records');
+      }),
+    };
+    const runtimeFallbackSource = {
+      getTaskLogStream: vi.fn(async () => null),
+    };
+
+    const service = new BoardTaskLogStreamService(
+      { getTaskRecords: vi.fn(async () => []) } as never,
+      summarySelector as never,
+      strictParser as never,
+      undefined as never,
+      undefined as never,
+      taskReader as never,
+      transcriptSourceLocator as never,
+      runtimeFallbackSource as never
+    );
+
+    await expect(service.getTaskLogStream('demo', 'task-a')).resolves.toEqual({
+      participants: [],
+      defaultFilter: 'all',
+      segments: [],
+    });
+    expect(summarySelector.selectSummaries).not.toHaveBeenCalled();
+  });
+
   it('extracts task_add_comment text from json-like tool result payload', async () => {
     const tom = {
       memberName: 'tom',
@@ -944,6 +1361,139 @@ describe('BoardTaskLogStreamService', () => {
       {
         toolUseId: 'tool-send',
         content: "Message sent to team-lead's inbox - #abc done",
+        isError: false,
+      },
+    ]);
+  });
+
+  it('sanitizes MCP task_complete and message_send json payloads into readable results', async () => {
+    const tom = {
+      memberName: 'tom',
+      role: 'member' as const,
+      sessionId: 'session-tom',
+      isSidechain: false,
+    };
+    const completeCandidate = {
+      ...makeCandidate('c-complete', '2026-04-12T16:00:00.000Z', tom, 'tool-complete'),
+      actionCategory: 'status' as const,
+      canonicalToolName: 'task_complete',
+    };
+    const sendCandidate = {
+      ...makeCandidate('c-send', '2026-04-12T16:00:01.000Z', tom, 'tool-send'),
+      actionCategory: 'other' as const,
+      canonicalToolName: 'mcp__agent-teams__message_send',
+    };
+
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => [
+        ...completeCandidate.records,
+        ...sendCandidate.records,
+      ]),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => [completeCandidate, sendCandidate]),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(({ candidate }: { candidate: BoardTaskExactLogBundleCandidate }) => {
+        const isComplete = candidate.id === 'c-complete';
+        const toolUseId = isComplete ? 'tool-complete' : 'tool-send';
+        const toolName = isComplete ? 'task_complete' : 'mcp__agent-teams__message_send';
+        const payload = isComplete
+          ? { id: 'task-a', displayId: 'abcd1234', status: 'completed' }
+          : {
+              deliveredToInbox: true,
+              message: {
+                from: 'tom',
+                to: 'team-lead',
+                text: 'Detailed body',
+                summary: '#abcd1234 done',
+              },
+            };
+
+        return {
+          id: candidate.id,
+          timestamp: candidate.timestamp,
+          actor: tom,
+          source: candidate.source,
+          records: candidate.records,
+          filteredMessages: [
+            {
+              uuid: `${candidate.id}-assistant`,
+              parentUuid: null,
+              type: 'assistant' as const,
+              timestamp: new Date(candidate.timestamp),
+              role: 'assistant',
+              content: [{ type: 'tool_use', id: toolUseId, name: toolName, input: {} } as never],
+              toolCalls: [],
+              toolResults: [],
+              isSidechain: false,
+              isMeta: false,
+              isCompactSummary: false,
+            },
+            {
+              uuid: `${candidate.id}-result`,
+              parentUuid: `${candidate.id}-assistant`,
+              type: 'user' as const,
+              timestamp: new Date(candidate.timestamp),
+              role: 'user',
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_use_id: toolUseId,
+                  content: [{ type: 'text', text: JSON.stringify(payload) } as never],
+                } as never,
+              ],
+              toolCalls: [],
+              toolResults: [
+                {
+                  toolUseId,
+                  content: [{ type: 'text', text: JSON.stringify(payload) }],
+                  isError: false,
+                },
+              ],
+              sourceToolUseID: toolUseId,
+              sourceToolAssistantUUID: `${candidate.id}-assistant`,
+              toolUseResult: {
+                toolUseId,
+                content: JSON.stringify(payload),
+              },
+              isSidechain: false,
+              isMeta: false,
+              isCompactSummary: false,
+            },
+          ],
+        };
+      }),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+    );
+
+    await service.getTaskLogStream('demo', 'task-a');
+
+    const mergedMessages = buildBundleChunks.mock.calls[0]?.[0] as ParsedMessage[];
+    const completeResult = mergedMessages.find((message) => message.uuid === 'c-complete-result');
+    const sendResult = mergedMessages.find((message) => message.uuid === 'c-send-result');
+    expect(completeResult?.toolResults).toEqual([
+      {
+        toolUseId: 'tool-complete',
+        content: 'Task abcd1234 completed',
+        isError: false,
+      },
+    ]);
+    expect(sendResult?.toolResults).toEqual([
+      {
+        toolUseId: 'tool-send',
+        content: 'Message sent to team-lead - #abcd1234 done',
         isError: false,
       },
     ]);

@@ -19,11 +19,12 @@ import { getAgentToolDisplayDetails } from '@shared/utils/toolSummary';
  * Renders the input section based on tool type with theme-aware styling.
  */
 export function renderInput(toolName: string, input: Record<string, unknown>): React.ReactElement {
+  const normalizedToolName = toolName.toLowerCase();
   // Special rendering for Edit tool - show diff-like format
-  if (toolName === 'Edit') {
-    const filePath = input.file_path as string | undefined;
-    const oldString = input.old_string as string | undefined;
-    const newString = input.new_string as string | undefined;
+  if (normalizedToolName === 'edit') {
+    const filePath = readInputString(input, ['file_path', 'filePath', 'path']);
+    const oldString = readInputString(input, ['old_string', 'oldString']);
+    const newString = readInputString(input, ['new_string', 'newString']);
     const replaceAll = input.replace_all as boolean | undefined;
 
     return (
@@ -57,9 +58,9 @@ export function renderInput(toolName: string, input: Record<string, unknown>): R
   }
 
   // Special rendering for Bash tool
-  if (toolName === 'Bash') {
-    const command = input.command as string | undefined;
-    const description = input.description as string | undefined;
+  if (normalizedToolName === 'bash') {
+    const command = readInputString(input, ['command']);
+    const description = readInputString(input, ['description']);
     const highlighted = command ? highlightLines(command, 'command.sh') : null;
 
     return (
@@ -81,8 +82,8 @@ export function renderInput(toolName: string, input: Record<string, unknown>): R
   }
 
   // Special rendering for Read tool
-  if (toolName === 'Read') {
-    const filePath = input.file_path as string | undefined;
+  if (normalizedToolName === 'read') {
+    const filePath = readInputString(input, ['file_path', 'filePath', 'path']);
     const offset = input.offset as number | undefined;
     const limit = input.limit as number | undefined;
 
@@ -168,16 +169,32 @@ export function renderInput(toolName: string, input: Record<string, unknown>): R
   // Default: key-value format with readable string values
   return (
     <div className="space-y-2" style={{ color: COLOR_TEXT }}>
-      {Object.entries(input).map(([key, value]) => (
-        <div key={key}>
-          <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
-            {key}
+      {Object.entries(input).length > 0 ? (
+        Object.entries(input).map(([key, value]) => (
+          <div key={key}>
+            <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+              {key}
+            </div>
+            <pre className="whitespace-pre-wrap break-all">{formatInputValue(value)}</pre>
           </div>
-          <pre className="whitespace-pre-wrap break-all">{formatInputValue(value)}</pre>
+        ))
+      ) : (
+        <div className="italic" style={{ color: COLOR_TEXT_MUTED }}>
+          No input recorded for this tool call.
         </div>
-      ))}
+      )}
     </div>
   );
+}
+
+function readInputString(input: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function formatInputValue(value: unknown): string {
@@ -238,6 +255,150 @@ export function extractOutputText(content: string | unknown[]): string {
   }
 
   return displayText;
+}
+
+export function formatToolOutputForDisplay(
+  toolName: string,
+  content: string | unknown[]
+): string | unknown[] {
+  if (!isAgentTeamsToolName(toolName)) {
+    return content;
+  }
+
+  const parsed = parseJsonObject(extractOutputText(content));
+  if (!parsed) {
+    return content;
+  }
+
+  const unwrapped = unwrapAgentTeamsResponse(parsed);
+  if (!unwrapped) {
+    return content;
+  }
+
+  const lines = formatAgentTeamsResponse(toolName, unwrapped.wrapperKey, unwrapped.payload);
+  return lines.length > 0 ? lines.join('\n') : content;
+}
+
+function isAgentTeamsToolName(toolName: string): boolean {
+  return (
+    toolName.startsWith('agent-teams_') ||
+    toolName.startsWith('agent_teams_') ||
+    toolName.startsWith('mcp__agent-teams__') ||
+    toolName.startsWith('mcp__agent_teams__')
+  );
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return asRecord(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function unwrapAgentTeamsResponse(
+  parsed: Record<string, unknown>
+): { wrapperKey: string | null; payload: Record<string, unknown> } | null {
+  const wrapperKey =
+    Object.keys(parsed).find(
+      (key) => key.startsWith('agent_teams_') && key.endsWith('_response')
+    ) ?? null;
+  const payload = wrapperKey ? asRecord(parsed[wrapperKey]) : parsed;
+  return payload ? { wrapperKey, payload } : null;
+}
+
+function formatAgentTeamsResponse(
+  toolName: string,
+  wrapperKey: string | null,
+  payload: Record<string, unknown>
+): string[] {
+  if (hasErrorPayload(payload)) {
+    return [];
+  }
+
+  const lines: string[] = [getAgentTeamsResponseTitle(toolName, wrapperKey)];
+  appendField(lines, 'Team', readString(payload.teamName));
+  appendField(lines, 'Task ID', readString(payload.taskId));
+  appendField(lines, 'Message ID', readString(payload.messageId));
+
+  const comment = asRecord(payload.comment);
+  if (comment) {
+    appendField(lines, 'Comment ID', readString(comment.id));
+    appendField(lines, 'Author', readString(comment.author));
+    appendField(lines, 'Created', readString(comment.createdAt));
+    appendBody(lines, readString(comment.text));
+    return lines;
+  }
+
+  const message = asRecord(payload.message);
+  if (message) {
+    appendField(lines, 'From', readString(message.from));
+    appendField(lines, 'To', readString(message.to));
+    appendField(lines, 'Created', readString(message.createdAt));
+    appendBody(lines, readString(message.text) ?? readString(message.summary));
+    return lines;
+  }
+
+  const task = asRecord(payload.task);
+  if (task) {
+    appendField(lines, 'Task', readString(task.title) ?? readString(task.name));
+    appendField(lines, 'Status', readString(task.status));
+    appendField(lines, 'Owner', readString(task.owner));
+    appendBody(lines, readString(task.description));
+    return lines;
+  }
+
+  appendField(lines, 'Status', readString(payload.status));
+  appendBody(lines, readString(payload.text) ?? readString(payload.summary));
+  return lines.length > 1 ? lines : [];
+}
+
+function hasErrorPayload(payload: Record<string, unknown>): boolean {
+  return (
+    typeof payload.error === 'string' ||
+    typeof payload.errorMessage === 'string' ||
+    payload.ok === false ||
+    payload.success === false
+  );
+}
+
+function getAgentTeamsResponseTitle(toolName: string, wrapperKey: string | null): string {
+  const key = `${toolName} ${wrapperKey ?? ''}`;
+  if (key.includes('task_add_comment')) return 'Task comment added';
+  if (key.includes('task_complete')) return 'Task completed';
+  if (key.includes('task_start')) return 'Task started';
+  if (key.includes('task_set_owner')) return 'Task owner updated';
+  if (key.includes('task_set_clarification')) return 'Task clarification updated';
+  if (key.includes('task_attach_comment_file')) return 'Task comment file attached';
+  if (key.includes('message_send')) return 'Message sent';
+  if (key.includes('task_get')) return 'Task loaded';
+  return 'Agent Teams tool result';
+}
+
+function appendField(lines: string[], label: string, value: string | null | undefined): void {
+  if (!value || value.trim().length === 0) {
+    return;
+  }
+  lines.push(`${label}: ${value.trim()}`);
+}
+
+function appendBody(lines: string[], value: string | null | undefined): void {
+  if (!value || value.trim().length === 0) {
+    return;
+  }
+  lines.push('');
+  lines.push(value.trim());
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function isContentBlock(value: unknown): boolean {

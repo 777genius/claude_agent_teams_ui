@@ -49,7 +49,13 @@ export function hasEditContent(linkedTool: LinkedToolItem): boolean {
  * Checks if a Write tool has content to display.
  */
 export function hasWriteContent(linkedTool: LinkedToolItem): boolean {
-  if (linkedTool.input.content != null || linkedTool.input.file_path != null) return true;
+  if (
+    linkedTool.input.content != null ||
+    linkedTool.input.file_path != null ||
+    linkedTool.input.filePath != null ||
+    linkedTool.input.path != null
+  )
+    return true;
 
   const toolUseResult = linkedTool.result?.toolUseResult as Record<string, unknown> | undefined;
   if (toolUseResult?.content != null || toolUseResult?.filePath != null) return true;

@@ -27,7 +27,6 @@ import { buildReplyBlock } from '@renderer/utils/agentMessageFormatting';
 import { removeChipTokenFromText } from '@renderer/utils/chipUtils';
 import { formatAgentRole } from '@renderer/utils/formatAgentRole';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
-import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import {
   extractTaskRefsFromText,
   stripEncodedTaskReferenceMetadata,
@@ -41,6 +40,7 @@ import { MemberBadge } from '../MemberBadge';
 import type { ActionMode } from '@renderer/components/team/messages/ActionModeSelector';
 import type { InlineChip } from '@renderer/types/inlineChip';
 import type { MentionSuggestion } from '@renderer/types/mention';
+import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import type {
   AttachmentPayload,
   ResolvedTeamMember,

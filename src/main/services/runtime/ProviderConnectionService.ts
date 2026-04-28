@@ -2,6 +2,10 @@ import path from 'node:path';
 
 import { evaluateCodexLaunchReadiness } from '@features/codex-account';
 import { getCachedShellEnv } from '@main/utils/shellEnv';
+import {
+  isDynamicCodexModelCatalog,
+  isUsableCodexModelCatalog,
+} from '@shared/utils/codexModelCatalog';
 
 import { ApiKeyService } from '../extensions/apikeys/ApiKeyService';
 import { ConfigManager } from '../infrastructure/ConfigManager';
@@ -62,6 +66,8 @@ const PROVIDER_API_KEY_ENV_VARS: Partial<Record<CliProviderId, string>> = {
 };
 
 const CODEX_NATIVE_API_KEY_ENV_VAR = 'CODEX_API_KEY';
+const CODEX_CLI_PATH_ENV_VAR = 'CODEX_CLI_PATH';
+const CODEX_HOME_ENV_VAR = 'CODEX_HOME';
 const CODEX_NATIVE_BACKEND_ID = 'codex-native';
 
 function isCodexExecBinary(binaryPath?: string | null): boolean {
@@ -83,6 +89,21 @@ function buildCodexForcedLoginLaunchArgs(
   }
 
   return ['--settings', JSON.stringify({ codex: { forced_login_method: loginMethod } })];
+}
+
+function applyCodexRuntimeContextEnv(
+  env: NodeJS.ProcessEnv,
+  snapshot: CodexAccountSnapshotDto
+): void {
+  const binaryPath = snapshot.runtimeContext?.binaryPath?.trim();
+  if (binaryPath) {
+    env[CODEX_CLI_PATH_ENV_VAR] = binaryPath;
+  }
+
+  const codexHome = snapshot.runtimeContext?.codexHome?.trim();
+  if (codexHome) {
+    env[CODEX_HOME_ENV_VAR] = codexHome;
+  }
 }
 
 export class ProviderConnectionService {
@@ -179,6 +200,7 @@ export class ProviderConnectionService {
     }
 
     const snapshot = this.mergeCodexApiKeyAvailability(await this.getCodexAccountSnapshot(), env);
+    applyCodexRuntimeContextEnv(env, snapshot);
     const readiness = evaluateCodexLaunchReadiness({
       preferredAuthMode: snapshot.preferredAuthMode,
       managedAccount: snapshot.managedAccount,
@@ -239,6 +261,7 @@ export class ProviderConnectionService {
     }
 
     const snapshot = this.mergeCodexApiKeyAvailability(await this.getCodexAccountSnapshot(), env);
+    applyCodexRuntimeContextEnv(env, snapshot);
     const readiness = evaluateCodexLaunchReadiness({
       preferredAuthMode: snapshot.preferredAuthMode,
       managedAccount: snapshot.managedAccount,
@@ -400,12 +423,21 @@ export class ProviderConnectionService {
       connection: await this.getConnectionInfo(provider.providerId),
     };
 
-    if (provider.providerId !== 'codex' || !this.codexModelCatalogFeature) {
+    if (provider.providerId !== 'codex') {
       return withConnection;
     }
 
     try {
-      const catalog = await this.codexModelCatalogFeature.getCatalog();
+      const orchestratorCatalog = isUsableCodexModelCatalog(withConnection.modelCatalog)
+        ? withConnection.modelCatalog
+        : null;
+      const catalog =
+        orchestratorCatalog ??
+        (this.codexModelCatalogFeature ? await this.codexModelCatalogFeature.getCatalog() : null);
+      if (!isUsableCodexModelCatalog(catalog)) {
+        return withConnection;
+      }
+
       const models = catalog.models
         .filter((model) => !model.hidden)
         .map((model) => model.launchModel.trim())
@@ -419,16 +451,20 @@ export class ProviderConnectionService {
       );
       const runtimeReasoningCapability = withConnection.runtimeCapabilities?.reasoningEffort;
       const runtimeModelCatalogCapability = withConnection.runtimeCapabilities?.modelCatalog;
+      const modelCatalogCapability =
+        orchestratorCatalog && runtimeModelCatalogCapability
+          ? runtimeModelCatalogCapability
+          : {
+              dynamic: isDynamicCodexModelCatalog(catalog),
+              source: catalog.source,
+            };
       return {
         ...withConnection,
         models: models.length > 0 ? models : withConnection.models,
         modelCatalog: catalog,
         runtimeCapabilities: {
           ...withConnection.runtimeCapabilities,
-          modelCatalog: {
-            dynamic: runtimeModelCatalogCapability?.dynamic === true,
-            source: catalog.source,
-          },
+          modelCatalog: modelCatalogCapability,
           reasoningEffort: {
             supported: runtimeReasoningCapability?.supported ?? reasoningEfforts.length > 0,
             values:
@@ -566,6 +602,10 @@ export class ProviderConnectionService {
       requiresOpenaiAuth: null,
       localAccountArtifactsPresent: false,
       localActiveChatgptAccountPresent: false,
+      runtimeContext: {
+        binaryPath: null,
+        codexHome: null,
+      },
       login: {
         status: 'idle',
         error: null,

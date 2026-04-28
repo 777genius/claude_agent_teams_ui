@@ -55,7 +55,7 @@ function boundedNumber(value: number | undefined): number | undefined {
 }
 
 function uniqueDiagnostics(
-  ...groups: Array<readonly (string | undefined)[] | undefined>
+  ...groups: (readonly (string | undefined)[] | undefined)[]
 ): string[] | undefined {
   const seen = new Set<string>();
   const diagnostics: string[] = [];

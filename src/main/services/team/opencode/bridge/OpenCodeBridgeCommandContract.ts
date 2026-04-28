@@ -131,7 +131,7 @@ export interface OpenCodeCleanupHostsCommandBody {
 export interface OpenCodeCleanupHostsCommandData {
   cleaned: number;
   remaining: number;
-  hosts: Array<{
+  hosts: {
     hostKey: string;
     projectPath: string;
     pid: number;
@@ -146,7 +146,7 @@ export interface OpenCodeCleanupHostsCommandData {
       | 'failed';
     reason: string;
     leaseCount: number;
-  }>;
+  }[];
   diagnostics: string[];
 }
 
@@ -240,10 +240,17 @@ export interface OpenCodeBackfillTaskLedgerCommandBody {
   workspaceRoot?: string;
   deliveryContextPath?: string;
   attributionMode?: OpenCodeBackfillTaskLedgerAttributionMode;
+  evidenceMode?: OpenCodeBackfillTaskLedgerEvidenceMode;
   dryRun?: boolean;
 }
 
 export type OpenCodeBackfillTaskLedgerAttributionMode = 'strict-delivery' | 'compatible';
+export type OpenCodeBackfillTaskLedgerEvidenceMode =
+  | 'off'
+  | 'metadata-only'
+  | 'chain-only'
+  | 'snapshot-probe'
+  | 'snapshot-auto';
 
 export type OpenCodeBackfillTaskLedgerOutcome =
   | 'imported'
@@ -264,13 +271,19 @@ export interface OpenCodeBackfillTaskLedgerCommandData {
   workspaceRoot?: string;
   dryRun: boolean;
   attributionMode?: OpenCodeBackfillTaskLedgerAttributionMode;
+  evidenceMode?: OpenCodeBackfillTaskLedgerEvidenceMode;
+  strictWindowCandidateCount?: number;
+  openCodeDbFingerprint?: string;
+  deliveryLedgerFingerprint?: string;
+  snapshotShapeFingerprint?: string;
+  retryAfterReason?: string;
   scannedSessions: number;
   scannedToolparts: number;
   candidateEvents: number;
   importedEvents: number;
   skippedEvents: number;
   outcome: OpenCodeBackfillTaskLedgerOutcome;
-  notices: Array<{ severity: 'warning'; message: string; code: string }>;
+  notices: { severity: 'warning'; message: string; code: string }[];
   diagnostics: string[];
 }
 

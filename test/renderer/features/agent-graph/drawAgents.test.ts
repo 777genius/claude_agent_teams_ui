@@ -19,12 +19,17 @@ interface FillTextCall {
   text: string;
   x: number;
   y: number;
+  fillStyle: string;
+  globalAlpha: number;
 }
 
 function createMockContext() {
   const fillTextCalls: FillTextCall[] = [];
+  const strokeTextCalls: FillTextCall[] = [];
   const roundRectCalls: Array<{ x: number; y: number; width: number; height: number }> = [];
   const gradient = { addColorStop: vi.fn() };
+  let fillStyle = '';
+  let globalAlpha = 1;
 
   const ctx = {
     save: vi.fn(),
@@ -51,22 +56,35 @@ function createMockContext() {
     createLinearGradient: vi.fn(() => gradient),
     measureText: vi.fn((text: string) => ({ width: text.length * 4.5 })),
     fillText: vi.fn((text: string, x: number, y: number) => {
-      fillTextCalls.push({ text, x, y });
+      fillTextCalls.push({ text, x, y, fillStyle, globalAlpha });
+    }),
+    strokeText: vi.fn((text: string, x: number, y: number) => {
+      strokeTextCalls.push({ text, x, y, fillStyle, globalAlpha });
     }),
     shadowColor: '',
     shadowBlur: 0,
     shadowOffsetX: 0,
     shadowOffsetY: 0,
-    fillStyle: '',
+    get fillStyle() {
+      return fillStyle;
+    },
+    set fillStyle(value: string) {
+      fillStyle = value;
+    },
     strokeStyle: '',
     lineWidth: 1,
     font: '',
     textAlign: 'left' as CanvasTextAlign,
     textBaseline: 'alphabetic' as CanvasTextBaseline,
-    globalAlpha: 1,
+    get globalAlpha() {
+      return globalAlpha;
+    },
+    set globalAlpha(value: number) {
+      globalAlpha = value;
+    },
   } as unknown as CanvasRenderingContext2D;
 
-  return { ctx, fillTextCalls, roundRectCalls };
+  return { ctx, fillTextCalls, strokeTextCalls, roundRectCalls };
 }
 
 describe('drawAgents', () => {
@@ -139,5 +157,62 @@ describe('drawAgents', () => {
     expect(launchCall!.y).toBeGreaterThan(runtimeCall!.y);
     expect(fillTextCalls.some((call) => call.text === 'waiting...')).toBe(false);
     expect(fillTextCalls.some((call) => call.text === 'connecting...')).toBe(false);
+  });
+
+  it('draws member labels with fixed high-contrast text and backdrops', () => {
+    const { ctx, fillTextCalls, strokeTextCalls, roundRectCalls } = createMockContext();
+    const node: GraphNode = {
+      id: 'member:demo:alice',
+      kind: 'member',
+      label: 'alice',
+      role: 'reviewer',
+      state: 'idle',
+      color: '#0000ff',
+      runtimeLabel: 'Anthropic · Opus 4.6',
+      domainRef: { kind: 'member', teamName: 'demo', memberName: 'alice' },
+      x: 320,
+      y: 240,
+    };
+
+    drawAgents(ctx, [node], 0, null, null, null, 1);
+
+    const labelCall = fillTextCalls.find((call) => call.text === 'alice · reviewer');
+    const runtimeCall = fillTextCalls.find((call) => call.text.includes('Anthropic'));
+
+    expect(labelCall).toBeDefined();
+    expect(runtimeCall).toBeDefined();
+    expect(labelCall?.fillStyle).toBe('#e8f8ff');
+    expect(runtimeCall?.fillStyle).toBe('#b9d7f2');
+    expect(roundRectCalls.filter((call) => call.height === 12 || call.height === 10)).toHaveLength(
+      2
+    );
+    expect(strokeTextCalls.some((call) => call.text === 'alice · reviewer')).toBe(true);
+    expect(strokeTextCalls.some((call) => call.text.includes('Anthropic'))).toBe(true);
+  });
+
+  it('keeps lead labels readable when the lead node is visually dimmed', () => {
+    const { ctx, fillTextCalls, roundRectCalls } = createMockContext();
+    const node: GraphNode = {
+      id: 'lead:demo',
+      kind: 'lead',
+      label: 'signal-ops-12',
+      state: 'terminated',
+      color: '#0000ff',
+      runtimeLabel: 'GPT-5.4',
+      domainRef: { kind: 'lead', teamName: 'demo', memberName: 'signal-ops-12' },
+      x: 320,
+      y: 240,
+    };
+
+    drawAgents(ctx, [node], 0, null, null, null, 1);
+
+    const labelCall = fillTextCalls.find((call) => call.text === 'signal-ops-12');
+    const runtimeCall = fillTextCalls.find((call) => call.text === 'GPT-5.4');
+
+    expect(labelCall).toMatchObject({ fillStyle: '#e8f8ff', globalAlpha: 0.88 });
+    expect(runtimeCall).toMatchObject({ fillStyle: '#b9d7f2', globalAlpha: 0.88 });
+    expect(roundRectCalls.filter((call) => call.height === 12 || call.height === 10)).toHaveLength(
+      2
+    );
   });
 });

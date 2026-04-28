@@ -471,6 +471,15 @@ export class ReviewApplierService {
     );
     const relation = this.resolveLedgerRelation(ledgerSnippets);
 
+    if (hasUnavailableState) {
+      return {
+        handled: true,
+        status: 'error',
+        code: 'manual-review-required',
+        error: 'Ledger content metadata is unavailable; manual review is required.',
+      };
+    }
+
     if (!fullReject) {
       if (relation?.kind === 'rename' || relation?.kind === 'copy') {
         return {

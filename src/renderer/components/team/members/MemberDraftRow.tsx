@@ -73,6 +73,7 @@ interface MemberDraftRowProps {
   onRestore?: (id: string) => void;
   hideActionButton?: boolean;
   warningText?: string | null;
+  infoText?: string | null;
   disableGeminiOption?: boolean;
   modelIssueText?: string | null;
   showWorktreeIsolationControls?: boolean;
@@ -122,6 +123,7 @@ export const MemberDraftRow = ({
   onRestore,
   hideActionButton = false,
   warningText,
+  infoText,
   disableGeminiOption = false,
   modelIssueText,
   showWorktreeIsolationControls = false,
@@ -416,6 +418,14 @@ export const MemberDraftRow = ({
           <div className="bg-amber-500/8 ml-3 flex items-start gap-2 rounded-md border border-amber-500/25 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
             <Info className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
             <p>{warningText}</p>
+          </div>
+        </div>
+      ) : null}
+      {!isRemoved && infoText ? (
+        <div className="md:col-span-3">
+          <div className="ml-3 flex items-start gap-2 rounded-md border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-[11px] leading-relaxed text-sky-100">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-sky-300" />
+            <p className="min-w-0 whitespace-pre-wrap break-words">{infoText}</p>
           </div>
         </div>
       ) : null}

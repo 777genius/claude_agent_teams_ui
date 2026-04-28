@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { constants as fsConstants } from 'node:fs';
-import type { PathLike } from 'node:fs';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { PathLike } from 'node:fs';
 
 const accessMock = vi.fn<(filePath: PathLike, mode?: number) => Promise<void>>();
 

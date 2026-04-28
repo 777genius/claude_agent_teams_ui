@@ -166,6 +166,134 @@ describe('BoardTaskExactLogDetailSelector', () => {
     expect(detail?.filteredMessages[2]?.sourceToolUseID).toBe('tool-1');
   });
 
+  it('scopes repeated tool use ids to the explicit tool-result parent assistant', () => {
+    const record = {
+      ...makeRecord(),
+      id: 'record-reused-tool-id',
+      action: {
+        canonicalToolName: 'task_add_comment',
+        toolUseId: 'item_24',
+        category: 'comment' as const,
+      },
+      source: {
+        filePath: '/tmp/task.jsonl',
+        messageUuid: 'user-target',
+        toolUseId: 'item_24',
+        sourceOrder: 1,
+      },
+    } satisfies BoardTaskActivityRecord;
+    const candidate: BoardTaskExactLogBundleCandidate = {
+      id: 'tool:/tmp/task.jsonl:item_24',
+      timestamp: '2026-04-12T16:00:00.000Z',
+      actor: record.actor,
+      source: {
+        filePath: '/tmp/task.jsonl',
+        messageUuid: 'user-target',
+        toolUseId: 'item_24',
+        sourceOrder: 1,
+      },
+      records: [record],
+      anchor: {
+        kind: 'tool',
+        filePath: '/tmp/task.jsonl',
+        messageUuid: 'user-target',
+        toolUseId: 'item_24',
+      },
+      actionLabel: 'Added a comment',
+      actionCategory: 'comment',
+      canonicalToolName: 'task_add_comment',
+      linkKinds: ['board_action'],
+      targetRoles: ['subject'],
+      canLoadDetail: true,
+      sourceGeneration: 'gen-reused-tool-id',
+    };
+    const parsedMessagesByFile = new Map<string, ParsedMessage[]>([
+      [
+        '/tmp/task.jsonl',
+        [
+          {
+            uuid: 'assistant-target',
+            parentUuid: null,
+            type: 'assistant',
+            timestamp: new Date('2026-04-12T16:00:00.000Z'),
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'item_24', name: 'task_add_comment', input: { taskId: 'task-a' } } as never,
+            ],
+            toolCalls: [],
+            toolResults: [],
+            isSidechain: true,
+            isMeta: false,
+            isCompactSummary: false,
+          },
+          {
+            uuid: 'user-target',
+            parentUuid: 'assistant-target',
+            type: 'user',
+            timestamp: new Date('2026-04-12T16:00:01.000Z'),
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'item_24', content: 'target result' } as never,
+            ],
+            toolCalls: [],
+            toolResults: [],
+            sourceToolUseID: 'item_24',
+            sourceToolAssistantUUID: 'assistant-target',
+            toolUseResult: { toolUseId: 'item_24', content: 'target result' },
+            isSidechain: true,
+            isMeta: false,
+            isCompactSummary: false,
+          },
+          {
+            uuid: 'assistant-other',
+            parentUuid: null,
+            type: 'assistant',
+            timestamp: new Date('2026-04-12T16:10:00.000Z'),
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'item_24', name: 'task_complete', input: { taskId: 'other-task' } } as never,
+            ],
+            toolCalls: [],
+            toolResults: [],
+            isSidechain: true,
+            isMeta: false,
+            isCompactSummary: false,
+          },
+          {
+            uuid: 'user-other',
+            parentUuid: 'assistant-other',
+            type: 'user',
+            timestamp: new Date('2026-04-12T16:10:01.000Z'),
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'item_24', content: 'other result' } as never,
+            ],
+            toolCalls: [],
+            toolResults: [],
+            sourceToolUseID: 'item_24',
+            sourceToolAssistantUUID: 'assistant-other',
+            toolUseResult: { toolUseId: 'item_24', content: 'other result' },
+            isSidechain: true,
+            isMeta: false,
+            isCompactSummary: false,
+          },
+        ],
+      ],
+    ]);
+
+    const detail = new BoardTaskExactLogDetailSelector().selectDetail({
+      candidate,
+      records: [record],
+      parsedMessagesByFile,
+    });
+
+    expect(detail).not.toBeNull();
+    expect(detail?.filteredMessages.map((message) => message.uuid)).toEqual([
+      'assistant-target',
+      'user-target',
+    ]);
+  });
+
   it('drops stale derived tool metadata when a message-linked row survives filtering', () => {
     const record = {
       ...makeRecord(),

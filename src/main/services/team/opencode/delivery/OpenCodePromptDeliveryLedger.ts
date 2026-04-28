@@ -1,12 +1,12 @@
 import { stableHash } from '../bridge/OpenCodeBridgeCommandContract';
 import { VersionedJsonStore, VersionedJsonStoreError } from '../store/VersionedJsonStore';
 
-import type { AgentActionMode, TaskRef } from '@shared/types/team';
 import type {
   OpenCodeDeliveryResponseObservation,
   OpenCodeDeliveryResponseState,
   OpenCodeDeliveryVisibleReplyCorrelation,
 } from '../bridge/OpenCodeBridgeCommandContract';
+import type { AgentActionMode, TaskRef } from '@shared/types/team';
 
 export const OPENCODE_PROMPT_DELIVERY_LEDGER_SCHEMA_VERSION = 1;
 export const OPENCODE_PROMPT_DELIVERY_RESPONDED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -603,7 +603,7 @@ export function hashOpenCodePromptDeliveryPayload(input: {
   replyRecipient: string;
   actionMode?: AgentActionMode | null;
   taskRefs?: TaskRef[];
-  attachments?: Array<{ id?: string; filename?: string; mimeType?: string; size?: number }>;
+  attachments?: { id?: string; filename?: string; mimeType?: string; size?: number }[];
   source?: string;
 }): string {
   return `sha256:${stableHash({

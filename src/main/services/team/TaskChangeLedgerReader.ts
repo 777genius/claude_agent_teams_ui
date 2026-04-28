@@ -105,7 +105,8 @@ interface LedgerEvent {
     | 'powershell_snapshot'
     | 'post_tool_hook_snapshot'
     | 'opencode_toolpart_write'
-    | 'opencode_toolpart_edit';
+    | 'opencode_toolpart_edit'
+    | 'opencode_toolpart_apply_patch';
   operation: 'create' | 'modify' | 'delete';
   confidence: LedgerConfidence;
   workspaceRoot: string;
@@ -1135,6 +1136,7 @@ export class TaskChangeLedgerReader {
       case 'notebook_edit':
         return 'NotebookEdit';
       case 'opencode_toolpart_edit':
+      case 'opencode_toolpart_apply_patch':
         return 'Edit';
       case 'bash_simulated_sed':
       case 'shell_snapshot':

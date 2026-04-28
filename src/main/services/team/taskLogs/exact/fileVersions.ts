@@ -19,7 +19,7 @@ async function mapLimit<T, R>(
       if (currentIndex >= items.length) {
         return;
       }
-      results[currentIndex] = await fn(items[currentIndex]!);
+      results[currentIndex] = await fn(items[currentIndex]);
     }
   });
   await Promise.all(workers);

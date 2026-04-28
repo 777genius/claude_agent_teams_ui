@@ -5,8 +5,10 @@ import {
   getTeamTaskStallActivationGraceMs,
   getTeamTaskStallScanIntervalMs,
   getTeamTaskStallStartupGraceMs,
+  isOpenCodeTaskStallRemediationEnabled,
   isTeamTaskStallAlertsEnabled,
   isTeamTaskStallMonitorEnabled,
+  isTeamTaskStallScannerEnabled,
 } from './featureGates';
 
 import type { ActiveTeamRegistry } from './ActiveTeamRegistry';
@@ -22,6 +24,11 @@ const logger = createLogger('Service:TeamTaskStallMonitor');
 interface TeamObservationState {
   firstSeenAtMs: number;
   lastActivationAtMs: number;
+}
+
+function unrefBackgroundTimer(timer: ReturnType<typeof setTimeout>): void {
+  const maybeTimer = timer as { unref?: () => void };
+  maybeTimer.unref?.();
 }
 
 export class TeamTaskStallMonitor {
@@ -40,7 +47,7 @@ export class TeamTaskStallMonitor {
   ) {}
 
   start(): void {
-    if (!isTeamTaskStallMonitorEnabled()) {
+    if (!isTeamTaskStallScannerEnabled()) {
       logger.debug('Task stall monitor disabled by feature gate');
       return;
     }
@@ -66,10 +73,10 @@ export class TeamTaskStallMonitor {
   }
 
   noteTeamChange(event: TeamChangeEvent): void {
-    this.registry.noteTeamChange(event);
-    if (!isTeamTaskStallMonitorEnabled()) {
+    if (!isTeamTaskStallScannerEnabled()) {
       return;
     }
+    this.registry.noteTeamChange(event);
 
     if (
       event.type === 'member-spawn' ||
@@ -101,6 +108,7 @@ export class TeamTaskStallMonitor {
       this.scanTimer = null;
       void this.runScan();
     }, delayMs);
+    unrefBackgroundTimer(this.scanTimer);
   }
 
   private scheduleNudgedScan(): void {
@@ -111,6 +119,7 @@ export class TeamTaskStallMonitor {
       this.nudgeTimer = null;
       void this.runScan();
     }, 5_000);
+    unrefBackgroundTimer(this.nudgeTimer);
   }
 
   private async runScan(): Promise<void> {
@@ -177,13 +186,21 @@ export class TeamTaskStallMonitor {
       evaluations.push(this.policy.evaluateReview({ now, task, snapshot }));
     }
 
+    const fullMonitorEnabled = isTeamTaskStallMonitorEnabled();
+    const openCodeRemediationEnabled = isOpenCodeTaskStallRemediationEnabled();
+    const openCodeOnlyMode = openCodeRemediationEnabled && !fullMonitorEnabled;
+    const scopedTaskIds = openCodeOnlyMode ? this.getOpenCodeOwnedTaskIds(snapshot) : undefined;
+    const journalEvaluations = openCodeOnlyMode
+      ? evaluations.filter((evaluation) => this.isOpenCodeOwnerWorkEvaluation(snapshot, evaluation))
+      : evaluations;
     const activeTaskIds = [
       ...new Set([...snapshot.inProgressTasks, ...snapshot.reviewOpenTasks].map((task) => task.id)),
     ];
     const readyEvaluations = await this.journal.reconcileScan({
       teamName,
-      evaluations,
+      evaluations: journalEvaluations,
       activeTaskIds,
+      ...(scopedTaskIds ? { scopeTaskIds: scopedTaskIds } : {}),
       now: now.toISOString(),
     });
 
@@ -195,14 +212,31 @@ export class TeamTaskStallMonitor {
       return;
     }
 
-    if (!isTeamTaskStallAlertsEnabled()) {
+    const alertedEpochKeys = new Set<string>();
+    if (openCodeRemediationEnabled) {
+      const remediatedAlerts = await this.notifier.notifyOpenCodeOwners(teamName, alerts);
+      for (const alert of remediatedAlerts) {
+        alertedEpochKeys.add(alert.epochKey);
+      }
+    }
+
+    const leadFallbackAlerts = alerts.filter((alert) => !alertedEpochKeys.has(alert.epochKey));
+    if (leadFallbackAlerts.length > 0 && isTeamTaskStallAlertsEnabled()) {
+      await this.notifier.notifyLead(teamName, leadFallbackAlerts);
+      for (const alert of leadFallbackAlerts) {
+        alertedEpochKeys.add(alert.epochKey);
+      }
+    }
+
+    if (alertedEpochKeys.size === 0) {
       logger.debug(`Task stall monitor shadow-ready alerts for ${teamName}: ${alerts.length}`);
       return;
     }
 
-    await this.notifier.notifyLead(teamName, alerts);
     await Promise.all(
-      alerts.map((alert) => this.journal.markAlerted(teamName, alert.epochKey, now.toISOString()))
+      alerts
+        .filter((alert) => alertedEpochKeys.has(alert.epochKey))
+        .map((alert) => this.journal.markAlerted(teamName, alert.epochKey, now.toISOString()))
     );
   }
 
@@ -227,6 +261,9 @@ export class TeamTaskStallMonitor {
     }
 
     const displayId = getTaskDisplayId(task);
+    const ownerProviderId = task.owner
+      ? snapshot.providerByMemberName.get(task.owner.trim().toLowerCase())
+      : undefined;
     return {
       teamName: snapshot.teamName,
       taskId: task.id,
@@ -234,13 +271,49 @@ export class TeamTaskStallMonitor {
       subject: task.subject,
       branch: evaluation.branch,
       signal: evaluation.signal,
+      ...(evaluation.progressSignal ? { progressSignal: evaluation.progressSignal } : {}),
       reason: evaluation.reason,
       epochKey: evaluation.epochKey,
+      ...(task.owner ? { owner: task.owner } : {}),
+      ...(ownerProviderId ? { ownerProviderId } : {}),
       taskRef: {
         taskId: task.id,
         displayId,
         teamName: snapshot.teamName,
       },
     };
+  }
+
+  private isOpenCodeOwnerWorkEvaluation(
+    snapshot: Awaited<ReturnType<TeamTaskStallSnapshotSource['getSnapshot']>>,
+    evaluation: TaskStallEvaluation
+  ): boolean {
+    if (
+      !snapshot ||
+      evaluation.status !== 'alert' ||
+      evaluation.branch !== 'work' ||
+      !evaluation.taskId
+    ) {
+      return false;
+    }
+
+    const task = snapshot.allTasksById.get(evaluation.taskId);
+    const ownerProviderId = task?.owner
+      ? snapshot.providerByMemberName.get(task.owner.trim().toLowerCase())
+      : undefined;
+    return ownerProviderId === 'opencode';
+  }
+
+  private getOpenCodeOwnedTaskIds(
+    snapshot: NonNullable<Awaited<ReturnType<TeamTaskStallSnapshotSource['getSnapshot']>>>
+  ): string[] {
+    return [...snapshot.allTasksById.values()]
+      .filter((task) => {
+        const ownerProviderId = task.owner
+          ? snapshot.providerByMemberName.get(task.owner.trim().toLowerCase())
+          : undefined;
+        return ownerProviderId === 'opencode';
+      })
+      .map((task) => task.id);
   }
 }

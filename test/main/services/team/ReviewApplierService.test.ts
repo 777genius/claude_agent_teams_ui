@@ -189,6 +189,72 @@ describe('ReviewApplierService', () => {
     expect(unlink).toHaveBeenCalledWith(filePath);
   });
 
+  it('ledger create reject blocks metadata-only create even when final hash is known', async () => {
+    const fsPromises = await import('fs/promises');
+    const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
+    const unlink = fsPromises.unlink as unknown as ReturnType<typeof vi.fn>;
+
+    const { ReviewApplierService } = await import('@main/services/team/ReviewApplierService');
+    const svc = new ReviewApplierService();
+    const filePath = '/tmp/metadata-only-created.txt';
+    const content = 'created\n';
+
+    const res = await svc.applyReviewDecisions(
+      {
+        teamName: 'team',
+        decisions: [{ filePath, fileDecision: 'rejected', hunkDecisions: { 0: 'rejected' } }],
+      },
+      new Map([
+        [
+          filePath,
+          {
+            filePath,
+            relativePath: 'metadata-only-created.txt',
+            snippets: [
+              {
+                toolUseId: 'ledger-1',
+                filePath,
+                toolName: 'Edit',
+                type: 'edit',
+                oldString: '',
+                newString: '',
+                replaceAll: false,
+                timestamp: '2026-03-01T10:00:00.000Z',
+                isError: false,
+                ledger: {
+                  eventId: 'event-1',
+                  source: 'ledger-snapshot',
+                  confidence: 'medium',
+                  originalFullContent: null,
+                  modifiedFullContent: null,
+                  beforeHash: null,
+                  afterHash: sha(content),
+                  operation: 'create',
+                  beforeState: {
+                    exists: false,
+                    unavailableReason: 'gitless-before-content-unavailable',
+                  },
+                  afterState: { exists: true, sha256: sha(content), sizeBytes: content.length },
+                },
+              },
+            ],
+            linesAdded: 0,
+            linesRemoved: 0,
+            isNewFile: true,
+            originalFullContent: null,
+            modifiedFullContent: null,
+            contentSource: 'ledger-snapshot',
+          },
+        ],
+      ])
+    );
+
+    expect(res.applied).toBe(0);
+    expect(res.errors[0]?.code).toBe('manual-review-required');
+    expect(readFile).not.toHaveBeenCalled();
+    expect(unlink).not.toHaveBeenCalled();
+  });
+
   it('ledger create reject blocks when current hash changed', async () => {
     const fsPromises = await import('fs/promises');
     const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;

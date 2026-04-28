@@ -16,11 +16,150 @@ interface TentativeFilteredMessage {
   matchedToolUseId?: string;
 }
 
-function isToolAnchoredOutputMessage(
-  message: ParsedMessage,
-  toolUseId: string | undefined
-): boolean {
-  return Boolean(toolUseId && message.sourceToolUseID === toolUseId);
+interface ToolAnchorScope {
+  toolUseId?: string;
+  assistantUuids: Set<string>;
+  outputMessageUuids: Set<string>;
+}
+
+function messageHasToolUse(message: ParsedMessage, toolUseId: string | undefined): boolean {
+  if (!toolUseId || message.type !== 'assistant' || typeof message.content === 'string') {
+    return false;
+  }
+  return message.content.some((block) => block.type === 'tool_use' && block.id === toolUseId);
+}
+
+function messageHasToolResult(message: ParsedMessage, toolUseId: string | undefined): boolean {
+  if (!toolUseId || typeof message.content === 'string') {
+    return false;
+  }
+  return message.content.some(
+    (block) => block.type === 'tool_result' && block.tool_use_id === toolUseId
+  );
+}
+
+function buildToolAnchorScope(args: {
+  candidate: BoardTaskExactLogBundleCandidate;
+  parsedMessages: ParsedMessage[];
+  explicitMessageIds: Set<string>;
+}): ToolAnchorScope {
+  const toolUseId =
+    args.candidate.anchor.kind === 'tool' ? args.candidate.anchor.toolUseId : undefined;
+  const assistantUuids = new Set<string>();
+  const outputMessageUuids = new Set<string>();
+  if (!toolUseId) {
+    return { assistantUuids, outputMessageUuids };
+  }
+
+  const messagesByUuid = new Map(args.parsedMessages.map((message) => [message.uuid, message]));
+  const messageIndexByUuid = new Map(
+    args.parsedMessages.map((message, index) => [message.uuid, index])
+  );
+
+  const addMatchingAssistant = (uuid: string | null | undefined): void => {
+    if (!uuid) {
+      return;
+    }
+    const message = messagesByUuid.get(uuid);
+    if (message && messageHasToolUse(message, toolUseId)) {
+      assistantUuids.add(message.uuid);
+    }
+  };
+
+  const addNearestPreviousMatchingAssistant = (message: ParsedMessage): void => {
+    const startIndex = messageIndexByUuid.get(message.uuid);
+    if (startIndex === undefined) {
+      return;
+    }
+
+    for (let index = startIndex - 1; index >= 0; index -= 1) {
+      const candidate = args.parsedMessages[index];
+      if (!candidate) {
+        continue;
+      }
+      if (candidate.type !== 'assistant') {
+        continue;
+      }
+      if (messageHasToolUse(candidate, toolUseId)) {
+        assistantUuids.add(candidate.uuid);
+      }
+      return;
+    }
+  };
+
+  addMatchingAssistant(args.candidate.anchor.messageUuid);
+  for (const explicitMessageId of args.explicitMessageIds) {
+    const message = messagesByUuid.get(explicitMessageId);
+    if (!message) {
+      continue;
+    }
+    addMatchingAssistant(message.uuid);
+    addMatchingAssistant(message.sourceToolAssistantUUID);
+    addMatchingAssistant(message.parentUuid);
+    if (message.type === 'user' && messageHasToolResult(message, toolUseId)) {
+      addNearestPreviousMatchingAssistant(message);
+    }
+  }
+
+  let previousAssistantUuid: string | undefined;
+  for (const message of args.parsedMessages) {
+    const referencesTool =
+      message.sourceToolUseID === toolUseId || messageHasToolResult(message, toolUseId);
+    if (
+      referencesTool &&
+      ((message.sourceToolAssistantUUID !== undefined &&
+        assistantUuids.has(message.sourceToolAssistantUUID)) ||
+        (message.parentUuid !== null &&
+          message.parentUuid !== undefined &&
+          assistantUuids.has(message.parentUuid)) ||
+        (message.sourceToolAssistantUUID === undefined &&
+          (message.parentUuid === null || message.parentUuid === undefined) &&
+          previousAssistantUuid !== undefined &&
+          assistantUuids.has(previousAssistantUuid)))
+    ) {
+      outputMessageUuids.add(message.uuid);
+    }
+
+    if (message.type === 'assistant') {
+      previousAssistantUuid = message.uuid;
+    }
+  }
+
+  return { toolUseId, assistantUuids, outputMessageUuids };
+}
+
+function isToolLinkedMessage(message: ParsedMessage, scope: ToolAnchorScope): boolean {
+  const { toolUseId } = scope;
+  if (!toolUseId) {
+    return false;
+  }
+
+  const hasScopedAssistant = scope.assistantUuids.size > 0;
+  if (scope.outputMessageUuids.has(message.uuid)) {
+    return true;
+  }
+
+  if (message.type === 'assistant' && messageHasToolUse(message, toolUseId)) {
+    return !hasScopedAssistant || scope.assistantUuids.has(message.uuid);
+  }
+
+  const referencesTool =
+    message.sourceToolUseID === toolUseId || messageHasToolResult(message, toolUseId);
+  if (!referencesTool) {
+    return false;
+  }
+
+  if (!hasScopedAssistant) {
+    return true;
+  }
+
+  return (
+    (message.sourceToolAssistantUUID !== undefined &&
+      scope.assistantUuids.has(message.sourceToolAssistantUUID)) ||
+    (message.parentUuid !== null &&
+      message.parentUuid !== undefined &&
+      scope.assistantUuids.has(message.parentUuid))
+  );
 }
 
 function noteExactDiagnostic(
@@ -120,16 +259,18 @@ function filterMessageForCandidate(args: {
   message: ParsedMessage;
   candidate: BoardTaskExactLogBundleCandidate;
   explicitMessageIds: Set<string>;
+  toolAnchorScope: ToolAnchorScope;
 }): TentativeFilteredMessage | null {
-  const { message, candidate, explicitMessageIds } = args;
+  const { message, candidate, explicitMessageIds, toolAnchorScope } = args;
   const explicitMessageLinked = explicitMessageIds.has(message.uuid);
   const toolUseId = candidate.anchor.kind === 'tool' ? candidate.anchor.toolUseId : undefined;
-  const anchoredOutputLinked = isToolAnchoredOutputMessage(message, toolUseId);
+  const toolLinked = isToolLinkedMessage(message, toolAnchorScope);
+
+  if (!explicitMessageLinked && !toolLinked) {
+    return null;
+  }
 
   if (typeof message.content === 'string') {
-    if (!explicitMessageLinked && !anchoredOutputLinked) {
-      return null;
-    }
     return {
       original: message,
       filteredContent: message.content,
@@ -142,7 +283,7 @@ function filterMessageForCandidate(args: {
     filteredBlocks = filterAssistantContent(
       message.content,
       toolUseId,
-      explicitMessageLinked || anchoredOutputLinked
+      explicitMessageLinked || toolLinked
     );
   } else if (message.type === 'user') {
     filteredBlocks = filterUserArrayContent(message.content, toolUseId, explicitMessageLinked);
@@ -309,6 +450,11 @@ export class BoardTaskExactLogDetailSelector {
     }
 
     const explicitMessageIds = new Set(relevantRecords.map((record) => record.source.messageUuid));
+    const toolAnchorScope = buildToolAnchorScope({
+      candidate,
+      parsedMessages,
+      explicitMessageIds,
+    });
     const tentative: TentativeFilteredMessage[] = [];
 
     for (const message of parsedMessages) {
@@ -316,6 +462,7 @@ export class BoardTaskExactLogDetailSelector {
         message,
         candidate,
         explicitMessageIds,
+        toolAnchorScope,
       });
       if (filtered) {
         tentative.push(filtered);

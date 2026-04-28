@@ -1,3 +1,6 @@
+import { getOpenCodeWeakStartStallThresholdMs } from './featureGates';
+import { classifyTaskProgressTouch, type TaskProgressSignal } from './TaskProgressSignalClassifier';
+
 import type { BoardTaskActivityRecord } from '../taskLogs/activity/BoardTaskActivityRecord';
 import type {
   ReviewTaskContext,
@@ -282,10 +285,26 @@ function buildEpochKey(
   ].join(':');
 }
 
+function buildOpenCodeNoProgressEpochKey(args: {
+  task: TeamTask;
+  intervalStartedAt: string;
+  owner: string;
+}): string {
+  return [
+    args.task.id,
+    'work',
+    'opencode_no_owner_progress',
+    args.owner,
+    args.intervalStartedAt,
+    args.task.updatedAt ?? args.task.createdAt ?? 'unknown',
+  ].join(':');
+}
+
 function buildAlertEvaluation(args: {
   task: TeamTask;
   branch: TaskStallBranch;
   signal: TaskStallSignal;
+  progressSignal?: TaskProgressSignal;
   touch: BoardTaskActivityRecord;
   reason: string;
 }): TaskStallEvaluation {
@@ -294,9 +313,39 @@ function buildAlertEvaluation(args: {
     taskId: args.task.id,
     branch: args.branch,
     signal: args.signal,
+    ...(args.progressSignal ? { progressSignal: args.progressSignal } : {}),
     epochKey: buildEpochKey(args.task, args.branch, args.signal, args.touch),
     reason: args.reason,
   };
+}
+
+function buildOpenCodeNoProgressAlertEvaluation(args: {
+  task: TeamTask;
+  owner: string;
+  intervalStartedAt: string;
+  reason: string;
+}): TaskStallEvaluation {
+  return {
+    status: 'alert',
+    taskId: args.task.id,
+    branch: 'work',
+    signal: 'mid_turn_after_touch',
+    progressSignal: 'unknown',
+    epochKey: buildOpenCodeNoProgressEpochKey(args),
+    reason: args.reason,
+  };
+}
+
+function normalizeMemberNameKey(name: string | undefined): string | null {
+  const normalized = name?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function resolveOwnerProviderId(
+  snapshot: TeamTaskStallSnapshot,
+  owner: string | undefined
+): string | null {
+  return snapshot.providerByMemberName.get(normalizeMemberNameKey(owner) ?? '') ?? null;
 }
 
 export class TeamTaskStallPolicy {
@@ -338,7 +387,25 @@ export class TeamTaskStallPolicy {
     }
 
     const records = snapshot.recordsByTaskId.get(task.id) ?? [];
+    const ownerProviderId = resolveOwnerProviderId(snapshot, task.owner);
+    const isOpenCodeOwner = ownerProviderId === 'opencode';
     if (records.length === 0 && !snapshot.freshnessByTaskId.has(task.id)) {
+      if (isOpenCodeOwner) {
+        const elapsedMs = args.now.getTime() - Date.parse(openWorkInterval.startedAt);
+        if (elapsedMs >= getOpenCodeWeakStartStallThresholdMs()) {
+          return buildOpenCodeNoProgressAlertEvaluation({
+            task,
+            owner: task.owner,
+            intervalStartedAt: openWorkInterval.startedAt,
+            reason: 'Potential OpenCode task stall without owner progress evidence.',
+          });
+        }
+        return skip(
+          task.id,
+          'OpenCode task has no owner progress evidence yet but is below the stall threshold',
+          'below_threshold'
+        );
+      }
       return skip(
         task.id,
         'Task run is not instrumented enough for stall evaluation',
@@ -360,6 +427,22 @@ export class TeamTaskStallPolicy {
     })();
 
     if (!workContext) {
+      if (isOpenCodeOwner) {
+        const elapsedMs = args.now.getTime() - Date.parse(openWorkInterval.startedAt);
+        if (elapsedMs >= getOpenCodeWeakStartStallThresholdMs()) {
+          return buildOpenCodeNoProgressAlertEvaluation({
+            task,
+            owner: task.owner,
+            intervalStartedAt: openWorkInterval.startedAt,
+            reason: 'Potential OpenCode task stall without owner work touch.',
+          });
+        }
+        return skip(
+          task.id,
+          'OpenCode task has no owner work touch yet but is below the stall threshold',
+          'below_threshold'
+        );
+      }
       return skip(
         task.id,
         'No positive work touch found in current work interval',
@@ -383,8 +466,16 @@ export class TeamTaskStallPolicy {
       return skip(task.id, 'Post-touch state is ambiguous', 'ambiguous_state');
     }
 
+    const progressClassification = classifyTaskProgressTouch({
+      task,
+      record: workContext.lastMeaningfulTouch,
+    });
+    const isOpenCodeWeakStartOnly =
+      ownerProviderId === 'opencode' && progressClassification.signal === 'weak_start_only';
     const elapsedMs = args.now.getTime() - Date.parse(workContext.lastMeaningfulTouchAt);
-    const thresholdMs = WORK_THRESHOLDS_MS[signal];
+    const thresholdMs = isOpenCodeWeakStartOnly
+      ? getOpenCodeWeakStartStallThresholdMs()
+      : WORK_THRESHOLDS_MS[signal];
     if (elapsedMs < thresholdMs) {
       return skip(
         task.id,
@@ -397,8 +488,11 @@ export class TeamTaskStallPolicy {
       task,
       branch: 'work',
       signal,
+      progressSignal: progressClassification.signal,
       touch: workContext.lastMeaningfulTouch,
-      reason: `Potential work stall after ${signal.replaceAll('_', ' ')}.`,
+      reason: isOpenCodeWeakStartOnly
+        ? 'Potential work stall after weak start-only task comment.'
+        : `Potential work stall after ${signal.replaceAll('_', ' ')}.`,
     });
   }
 

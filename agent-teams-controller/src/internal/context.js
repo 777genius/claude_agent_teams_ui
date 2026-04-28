@@ -16,6 +16,7 @@ function createControllerContext(options = {}) {
     teamName,
     claudeDir: paths.claudeDir,
     paths,
+    allowUserMessageSender: options.allowUserMessageSender !== false,
   };
 }
 

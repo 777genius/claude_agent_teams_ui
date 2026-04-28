@@ -14,11 +14,11 @@ interface OpenCodeDeliveryWarningProps {
   pendingDelayMs?: number;
 }
 
-export function OpenCodeDeliveryWarning({
+export const OpenCodeDeliveryWarning = ({
   warning,
   debugDetails,
   pendingDelayMs = 10_000,
-}: OpenCodeDeliveryWarningProps): JSX.Element | null {
+}: OpenCodeDeliveryWarningProps): JSX.Element | null => {
   const detailsKey = `${warning ?? ''}:${debugDetails?.messageId ?? ''}`;
   const delayPendingWarning =
     debugDetails?.responsePending === true && debugDetails.delivered !== false;
@@ -148,4 +148,4 @@ export function OpenCodeDeliveryWarning({
       ) : null}
     </span>
   );
-}
+};

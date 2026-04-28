@@ -12,6 +12,7 @@ type TeammateRuntimeIssueReason =
   | 'mixed-provider'
   | 'codex-native-runtime'
   | 'explicit-tmux-mode'
+  | 'explicit-in-process-mode'
   | 'opencode-led-mixed-unsupported';
 
 interface RuntimeMemberInput {
@@ -176,6 +177,13 @@ export function analyzeTeammateRuntimeCompatibility({
     }
   }
 
+  const requiresSeparateProcess = issues.some(
+    (issue) => issue.reason === 'mixed-provider' || issue.reason === 'codex-native-runtime'
+  );
+  if (explicitTeammateMode === 'in-process' && requiresSeparateProcess) {
+    issues.push({ reason: 'explicit-in-process-mode' });
+  }
+
   if (issues.length === 0) {
     return {
       visible: false,
@@ -193,7 +201,9 @@ export function analyzeTeammateRuntimeCompatibility({
   const hasOpenCodeLeadMixedUnsupported = issues.some(
     (issue) => issue.reason === 'opencode-led-mixed-unsupported'
   );
-  if (tmuxReady && !hasOpenCodeLeadMixedUnsupported) {
+  const hasExplicitTmux = issues.some((issue) => issue.reason === 'explicit-tmux-mode');
+  const hasExplicitInProcess = issues.some((issue) => issue.reason === 'explicit-in-process-mode');
+  if (!hasOpenCodeLeadMixedUnsupported && !hasExplicitTmux && !hasExplicitInProcess) {
     return {
       visible: false,
       blocksSubmission: false,
@@ -206,11 +216,28 @@ export function analyzeTeammateRuntimeCompatibility({
     };
   }
 
-  const checking = !hasOpenCodeLeadMixedUnsupported && tmuxStatusLoading && !tmuxStatus;
+  if (tmuxReady && hasExplicitTmux && !hasOpenCodeLeadMixedUnsupported && !hasExplicitInProcess) {
+    return {
+      visible: false,
+      blocksSubmission: false,
+      checking: false,
+      title: '',
+      message: '',
+      details: [],
+      tmuxDetail: null,
+      memberWarningById: {},
+    };
+  }
+
+  const checking =
+    hasExplicitTmux &&
+    !hasOpenCodeLeadMixedUnsupported &&
+    !hasExplicitInProcess &&
+    tmuxStatusLoading &&
+    !tmuxStatus;
   const blocksSubmission = true;
   const hasMixedProviders = issues.some((issue) => issue.reason === 'mixed-provider');
   const hasCodexNative = issues.some((issue) => issue.reason === 'codex-native-runtime');
-  const hasExplicitTmux = issues.some((issue) => issue.reason === 'explicit-tmux-mode');
   const details: string[] = [];
   const memberWarningById: Record<string, string> = {};
 
@@ -241,15 +268,20 @@ export function analyzeTeammateRuntimeCompatibility({
   if (hasExplicitTmux) {
     details.push('Custom CLI args force --teammate-mode tmux.');
   }
+  if (hasExplicitInProcess) {
+    details.push('Custom CLI args force --teammate-mode in-process.');
+  }
   if (hasOpenCodeLeadMixedUnsupported) {
     details.push(
       'Fix: keep the team lead on Anthropic, Codex, or Gemini when mixing OpenCode with other providers.'
     );
+  } else if (hasExplicitInProcess) {
+    details.push(
+      'Fix: remove --teammate-mode in-process so teammates can use native process transport.'
+    );
   } else {
     details.push(
-      hasCodexNative && !hasMixedProviders
-        ? 'Fix: install tmux/WSL tmux, use Solo team, or choose a same-provider runtime that supports in-process teammates.'
-        : 'Fix: install tmux/WSL tmux, use Solo team, or keep every teammate on the same non-Codex-native provider as the lead.'
+      'Fix: install tmux/WSL tmux, or remove --teammate-mode tmux so the app can use native process transport.'
     );
   }
 
@@ -260,10 +292,10 @@ export function analyzeTeammateRuntimeCompatibility({
     if (issue.reason === 'mixed-provider') {
       memberWarningById[issue.memberId] =
         `${issue.memberName} uses ${getProviderLabel(issue.memberProviderId ?? leadProviderId)}. ` +
-        `Without tmux, teammates must use the same provider as the ${getProviderLabel(leadProviderId)} lead.`;
+        `This teammate requires a separate process outside the ${getProviderLabel(leadProviderId)} lead.`;
     } else if (issue.reason === 'codex-native-runtime') {
       memberWarningById[issue.memberId] =
-        `${issue.memberName} uses Codex native. Codex native teammates require a separate process, which currently needs tmux.`;
+        `${issue.memberName} uses Codex native. Codex native teammates require a separate Codex process.`;
     } else if (issue.reason === 'opencode-led-mixed-unsupported') {
       memberWarningById[issue.memberId] =
         `${issue.memberName} uses ${getProviderLabel(issue.memberProviderId ?? leadProviderId)}. ` +
@@ -276,19 +308,19 @@ export function analyzeTeammateRuntimeCompatibility({
     blocksSubmission,
     checking,
     title: checking
-      ? 'Checking tmux runtime for teammate support'
+      ? 'Checking tmux runtime for explicit teammate mode'
       : hasOpenCodeLeadMixedUnsupported
         ? 'OpenCode cannot lead mixed-provider teams'
-        : hasCodexNative && !hasMixedProviders
-          ? 'Codex teammates need tmux before they can run'
-          : 'This team needs tmux before it can run',
+        : hasExplicitInProcess
+          ? 'This team cannot use in-process teammates'
+          : 'tmux is not ready for explicit teammate mode',
     message: checking
-      ? 'Some teammates require separate processes. The app is checking whether tmux is available.'
+      ? 'Custom CLI args request tmux teammates. The app is checking whether tmux is available.'
       : hasOpenCodeLeadMixedUnsupported
         ? 'OpenCode teammates can run as secondary runtime lanes under an Anthropic, Codex, or Gemini lead, but OpenCode-led mixed teams are not supported in this phase.'
-        : hasCodexNative && !hasMixedProviders
-          ? 'The Codex lead can run without tmux, but Codex native teammates cannot use the in-process teammate adapter. They must start as separate Codex processes, and this path currently needs tmux.'
-          : 'tmux is not ready on this machine. Same-provider in-process teammates can run without tmux, but this team has teammates that require separate processes.',
+        : hasExplicitInProcess
+          ? 'Some teammates require separate processes. Remove --teammate-mode in-process so the app can use native process transport.'
+          : 'Custom CLI args force --teammate-mode tmux, but tmux is not ready. Remove that arg to use native process transport on Windows, or install tmux/WSL tmux.',
     details,
     tmuxDetail: getTmuxDetail(tmuxStatus, tmuxStatusError),
     memberWarningById,

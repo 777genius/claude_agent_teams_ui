@@ -1,6 +1,6 @@
-import type { AgentActionMode, InboxMessage, TaskRef } from '@shared/types/team';
 import type { OpenCodeDeliveryResponseState } from '../bridge/OpenCodeBridgeCommandContract';
 import type { OpenCodePromptDeliveryStatus } from './OpenCodePromptDeliveryLedger';
+import type { AgentActionMode, InboxMessage, TaskRef } from '@shared/types/team';
 
 export const OPENCODE_PROMPT_DELIVERY_OBSERVE_DELAY_MS = 3_000;
 export const OPENCODE_PROMPT_DELIVERY_RETRY_DELAY_MS = 15_000;

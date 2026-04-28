@@ -52,6 +52,18 @@ describe('memberHelpers spawn-aware presence', () => {
         undefined
       )
     ).toContain('bg-emerald-400');
+    expect(
+      getSpawnAwareDotClass(
+        member,
+        'online',
+        'runtime_pending_bootstrap',
+        true,
+        false,
+        true,
+        false,
+        undefined
+      )
+    ).toContain('animate-pulse');
   });
 
   it('keeps accepted-but-not-yet-online teammates in starting state', () => {

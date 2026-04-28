@@ -74,4 +74,30 @@ describe('CurrentTaskIndicator', () => {
       await Promise.resolve();
     });
   });
+
+  it('syncs the spinner animation phase across independently mounted indicators', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(CurrentTaskIndicator, {
+          task,
+          borderColor: '#3b82f6',
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const spinner = host.querySelector('svg.animate-spin') as SVGElement | null;
+    expect(spinner?.style.animationDelay).toMatch(/^-?\d+(\.\d+)?ms$/);
+    expect(spinner?.style.animationDuration).toBe('1000ms');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
 });

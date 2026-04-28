@@ -158,15 +158,22 @@ function normalizeMessageSendFlags(context, flags) {
     next.member = resolvedTo;
   }
 
+  const fromRequiredForAgentTool = context.allowUserMessageSender === false;
   if (typeof next.from === 'string' && next.from.trim()) {
     const rawFrom = next.from.trim();
     if (rawFrom.toLowerCase() !== 'user') {
       next.from = runtimeHelpers.assertExplicitTeamMemberName(context.paths, rawFrom, 'from', {
         allowLeadAliases: true,
       });
+    } else if (fromRequiredForAgentTool) {
+      throw new Error(
+        'message_send from user is reserved for the human user. Set from to your configured teammate name.'
+      );
     } else {
       next.from = 'user';
     }
+  } else if (fromRequiredForAgentTool) {
+    throw new Error('message_send requires from to be your configured teammate name.');
   }
 
   return next;

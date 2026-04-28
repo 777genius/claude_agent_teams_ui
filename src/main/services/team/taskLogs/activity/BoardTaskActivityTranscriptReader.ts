@@ -10,6 +10,7 @@ import {
   type ParsedBoardTaskLink,
   type ParsedBoardTaskToolAction,
 } from '../contract/BoardTaskTranscriptContract';
+import { TranscriptSessionActorContextTracker } from '../TranscriptSessionActorContext';
 
 import { BoardTaskActivityParseCache } from './BoardTaskActivityParseCache';
 
@@ -45,7 +46,7 @@ async function mapLimit<T, R>(
       if (currentIndex >= items.length) {
         return;
       }
-      results[currentIndex] = await fn(items[currentIndex]!);
+      results[currentIndex] = await fn(items[currentIndex]);
     }
   });
   await Promise.all(workers);
@@ -54,6 +55,12 @@ async function mapLimit<T, R>(
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function lineMayContainTaskActivityOrActorContext(line: string): boolean {
+  return (
+    line.includes('"boardTaskLinks"') || line.includes('"agentName"') || line.includes('"agentId"')
+  );
 }
 
 export class BoardTaskActivityTranscriptReader {
@@ -112,6 +119,7 @@ export class BoardTaskActivityTranscriptReader {
 
   private async parseFile(filePath: string): Promise<RawTaskActivityMessage[]> {
     const results: RawTaskActivityMessage[] = [];
+    const actorContextTracker = new TranscriptSessionActorContextTracker();
     const stream = createReadStream(filePath, { encoding: 'utf8' });
     const rl = readline.createInterface({
       input: stream,
@@ -123,7 +131,7 @@ export class BoardTaskActivityTranscriptReader {
     for await (const line of rl) {
       if (!line.trim()) continue;
       lineCount += 1;
-      if (!line.includes('"boardTaskLinks"')) {
+      if (!lineMayContainTaskActivityOrActorContext(line)) {
         if (lineCount % 500 === 0) {
           await yieldToEventLoop();
         }
@@ -134,6 +142,11 @@ export class BoardTaskActivityTranscriptReader {
         const parsed = JSON.parse(line) as unknown;
         const record = asRecord(parsed);
         if (!record) continue;
+        actorContextTracker.remember(record);
+
+        if (!line.includes('"boardTaskLinks"')) {
+          continue;
+        }
 
         const uuid = typeof record.uuid === 'string' ? record.uuid : '';
         const sessionId = typeof record.sessionId === 'string' ? record.sessionId : '';
@@ -142,6 +155,7 @@ export class BoardTaskActivityTranscriptReader {
 
         const boardTaskLinks = parseBoardTaskLinks(record.boardTaskLinks);
         if (boardTaskLinks.length === 0) continue;
+        const contextRecord = actorContextTracker.apply(record);
 
         sourceOrder += 1;
         results.push({
@@ -149,9 +163,10 @@ export class BoardTaskActivityTranscriptReader {
           uuid,
           timestamp,
           sessionId,
-          agentId: typeof record.agentId === 'string' ? record.agentId : undefined,
-          agentName: typeof record.agentName === 'string' ? record.agentName : undefined,
-          isSidechain: record.isSidechain === true,
+          agentId: typeof contextRecord.agentId === 'string' ? contextRecord.agentId : undefined,
+          agentName:
+            typeof contextRecord.agentName === 'string' ? contextRecord.agentName : undefined,
+          isSidechain: contextRecord.isSidechain === true,
           boardTaskLinks,
           boardTaskToolActions: parseBoardTaskToolActions(record.boardTaskToolActions),
           sourceOrder,

@@ -269,6 +269,10 @@ describe('createCodexAccountFeature', () => {
           source: 'environment',
           sourceLabel: 'Detected from OPENAI_API_KEY',
         },
+        runtimeContext: {
+          binaryPath: '/usr/local/bin/codex',
+          codexHome: '/Users/test/.codex',
+        },
         launchAllowed: true,
         launchReadinessState: 'ready_both',
       });
@@ -314,6 +318,10 @@ describe('createCodexAccountFeature', () => {
       expect(degradedSnapshot.managedAccount).toMatchObject({
         type: 'chatgpt',
         email: 'user@example.com',
+      });
+      expect(degradedSnapshot.runtimeContext).toEqual({
+        binaryPath: '/usr/local/bin/codex',
+        codexHome: '/Users/test/.codex',
       });
       expect(degradedSnapshot.launchAllowed).toBe(true);
       expect(logger.warn).not.toHaveBeenCalledWith(

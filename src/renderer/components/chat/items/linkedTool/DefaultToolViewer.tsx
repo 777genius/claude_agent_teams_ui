@@ -9,7 +9,12 @@ import React from 'react';
 import { type ItemStatus } from '../BaseItem';
 
 import { CollapsibleOutputSection } from './CollapsibleOutputSection';
-import { extractOutputText, renderInput, renderOutput } from './renderHelpers';
+import {
+  extractOutputText,
+  formatToolOutputForDisplay,
+  renderInput,
+  renderOutput,
+} from './renderHelpers';
 
 import type { LinkedToolItem } from '@renderer/types/groups';
 
@@ -19,10 +24,13 @@ interface DefaultToolViewerProps {
 }
 
 export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({ linkedTool, status }) => {
+  const displayOutputContent = linkedTool.result
+    ? formatToolOutputForDisplay(linkedTool.name, linkedTool.result.content)
+    : null;
   const hasMeaningfulOutput =
-    linkedTool.result &&
+    displayOutputContent !== null &&
     (() => {
-      const text = extractOutputText(linkedTool.result.content).trim();
+      const text = extractOutputText(displayOutputContent).trim();
       return text.length > 0 && text !== '[]' && text !== '{}';
     })();
 
@@ -46,11 +54,14 @@ export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({ linkedTool
       </div>
 
       {/* Output Section — Collapsed by default */}
-      {!linkedTool.isOrphaned && linkedTool.result && hasMeaningfulOutput && (
-        <CollapsibleOutputSection status={status}>
-          {renderOutput(linkedTool.result.content)}
-        </CollapsibleOutputSection>
-      )}
+      {!linkedTool.isOrphaned &&
+        linkedTool.result &&
+        hasMeaningfulOutput &&
+        displayOutputContent && (
+          <CollapsibleOutputSection status={status}>
+            {renderOutput(displayOutputContent)}
+          </CollapsibleOutputSection>
+        )}
     </>
   );
 };

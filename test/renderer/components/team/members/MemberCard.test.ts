@@ -228,7 +228,7 @@ describe('MemberCard starting-state visuals', () => {
     });
   });
 
-  it('keeps runtime-pending accessibility copy honest even when launch badge is hidden by an active task', async () => {
+  it('keeps runtime-pending launch status visible even when the teammate has an active task', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -254,8 +254,53 @@ describe('MemberCard starting-state visuals', () => {
       await Promise.resolve();
     });
 
+    expect(host.textContent).toContain('waiting for bootstrap');
     expect(host.textContent).not.toContain('online');
     expect(host.querySelector('[aria-label="waiting for bootstrap"]')).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('keeps registered-only OpenCode status visible next to active task context', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberCard, {
+          member: {
+            ...member,
+            providerId: 'opencode',
+            currentTaskId: currentTask.id,
+          },
+          memberColor: 'blue',
+          currentTask,
+          isTeamAlive: true,
+          isTeamProvisioning: false,
+          spawnStatus: 'waiting',
+          spawnLaunchState: 'runtime_pending_bootstrap',
+          spawnRuntimeAlive: false,
+          runtimeEntry: {
+            memberName: 'alice',
+            alive: false,
+            restartable: false,
+            providerId: 'opencode',
+            livenessKind: 'registered_only',
+            runtimeDiagnostic: 'registered runtime metadata without live process',
+            updatedAt: '2026-04-27T12:17:58.714Z',
+          },
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('registered');
+    expect(host.querySelector('[aria-label="registered"]')).not.toBeNull();
 
     await act(async () => {
       root.unmount();
@@ -520,11 +565,8 @@ describe('MemberCard starting-state visuals', () => {
     });
 
     expect(host.textContent).toContain('worktree');
-    expect(
-      host.querySelector(
-        '[title="Worktree isolation configured. Worktree path: /tmp/project-alice-worktree"]'
-      )
-    ).not.toBeNull();
+    expect(host.textContent).toContain('Worktree isolation is enabled.');
+    expect(host.textContent).toContain('Path: /tmp/project-alice-worktree');
 
     await act(async () => {
       root.render(
@@ -552,13 +594,8 @@ describe('MemberCard starting-state visuals', () => {
     });
 
     expect(host.textContent).toContain('worktree');
-    expect(
-      host.querySelector(
-        '[title="Worktree isolation is configured, but the runtime path is not available yet"]'
-      )
-    ).not.toBeNull();
-    expect(host.querySelector('[title="Worktree isolation configured. Runtime cwd: /tmp/project"]'))
-      .toBeNull();
+    expect(host.textContent).toContain('Path is not available yet.');
+    expect(host.textContent).not.toContain('Runtime cwd: /tmp/project');
 
     await act(async () => {
       root.render(
@@ -1000,6 +1037,42 @@ describe('MemberCard starting-state visuals', () => {
     expect(host.textContent).toContain('Skipped by user after launch failure');
     expect(host.querySelector('[aria-label="Retry teammate"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Skip for this launch"]')).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('moves worktree branch details into the worktree badge tooltip', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberCard, {
+          member: {
+            ...member,
+            name: 'jack',
+            isolation: 'worktree',
+            cwd: '/Users/belief/.claude/team-worktrees/sol-team-proj-abc/room/jack',
+            gitBranch: 'agent-teams/room/jack-abc',
+          },
+          memberColor: 'turquoise',
+          isTeamAlive: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('worktree');
+    expect(host.textContent).toContain(
+      'Path: /Users/belief/.claude/team-worktrees/sol-team-proj-abc/room/jack'
+    );
+    expect(host.textContent).toContain('Branch: agent-teams/room/jack-abc');
+    expect(host.textContent?.match(/agent-teams\/room\/jack-abc/g)).toHaveLength(1);
 
     await act(async () => {
       root.unmount();

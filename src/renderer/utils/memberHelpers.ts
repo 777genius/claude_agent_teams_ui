@@ -117,7 +117,7 @@ export const SPAWN_DOT_COLORS: Record<MemberSpawnStatus, string> = {
   offline: 'bg-zinc-600',
   waiting: 'bg-zinc-400 animate-pulse',
   spawning: 'bg-amber-400',
-  online: 'bg-emerald-400 animate-[dot-online-jelly_0.45s_ease-out]',
+  online: 'bg-emerald-400 animate-pulse',
   error: 'bg-red-400',
   skipped: 'bg-zinc-500',
 };

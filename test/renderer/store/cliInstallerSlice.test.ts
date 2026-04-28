@@ -55,6 +55,7 @@ import {
   getIncompleteMultimodelProviderIds,
   getModelOnlyFallbackProviderIds,
   mergeCliStatusPreservingHydratedProviders,
+  reconcileMultimodelProviderLoading,
 } from '@renderer/store/slices/cliInstallerSlice';
 import { createDefaultCliExtensionCapabilities } from '@shared/utils/providerExtensionCapabilities';
 
@@ -249,6 +250,44 @@ describe('cliInstallerSlice', () => {
 
       expect(getIncompleteMultimodelProviderIds(status)).toEqual(['opencode']);
       expect(getModelOnlyFallbackProviderIds(status)).toEqual([]);
+    });
+
+    it('clears loading for hydrated providers while keeping pending providers marked', () => {
+      const status = createMultimodelStatus([
+        createMultimodelProvider({
+          providerId: 'anthropic',
+          displayName: 'Anthropic',
+          authenticated: true,
+          authMethod: 'oauth_token',
+          statusMessage: null,
+          models: ['claude-sonnet-4-5'],
+          backend: { kind: 'anthropic', label: 'Anthropic' },
+        }),
+        createMultimodelProvider({
+          providerId: 'codex',
+          displayName: 'Codex',
+          supported: false,
+          authenticated: false,
+          authMethod: null,
+          verificationState: 'unknown',
+          statusMessage: 'Checking...',
+          models: [],
+          backend: null,
+          availableBackends: [],
+        }),
+      ]);
+
+      expect(
+        reconcileMultimodelProviderLoading(status, {
+          anthropic: true,
+          codex: true,
+          opencode: true,
+        })
+      ).toEqual({
+        anthropic: false,
+        codex: true,
+        opencode: true,
+      });
     });
 
     it('still allows real OpenCode runtime errors to replace previous ready status', () => {

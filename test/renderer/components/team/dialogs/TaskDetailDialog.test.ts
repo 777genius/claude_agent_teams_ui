@@ -49,11 +49,15 @@ vi.mock('@renderer/components/team/CollapsibleTeamSection', () => ({
     children,
     defaultOpen = true,
     onOpenChange,
+    badge,
+    headerExtra,
   }: {
     title: string;
     children: React.ReactNode;
     defaultOpen?: boolean;
     onOpenChange?: (isOpen: boolean) => void;
+    badge?: React.ReactNode;
+    headerExtra?: React.ReactNode;
   }) => {
     const [open, setOpen] = React.useState(defaultOpen);
     React.useEffect(() => {
@@ -68,7 +72,13 @@ vi.mock('@renderer/components/team/CollapsibleTeamSection', () => ({
           type: 'button',
           onClick: () => setOpen((value) => !value),
         },
-        title
+        title,
+        badge !== undefined
+          ? React.createElement('span', { 'data-testid': `section-badge-${title}` }, badge)
+          : null,
+        headerExtra
+          ? React.createElement('span', { 'data-testid': `section-extra-${title}` }, headerExtra)
+          : null
       ),
       title === 'Changes' && open ? React.createElement('div', null, children) : null
     );
@@ -237,7 +247,7 @@ function makeSummary(taskId: string): TaskChangeSetV2 {
 
 function clickChangesSection(host: HTMLElement): void {
   const button = [...host.querySelectorAll('button')].find(
-    (candidate) => candidate.textContent === 'Changes'
+    (candidate) => candidate.textContent?.startsWith('Changes') === true
   );
   if (!button) {
     throw new Error('Changes section button not found');
@@ -250,6 +260,7 @@ describe('TaskDetailDialog changes summary loading', () => {
     document.body.innerHTML = '';
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('does not drop a new task changes request while another task summary is still in flight', async () => {
@@ -260,8 +271,8 @@ describe('TaskDetailDialog changes summary loading', () => {
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise);
 
-    const taskA = makeTask('task-a');
-    const taskB = makeTask('task-b');
+    const taskA: TeamTaskWithKanban = { ...makeTask('task-a'), changePresence: 'has_changes' };
+    const taskB: TeamTaskWithKanban = { ...makeTask('task-b'), changePresence: 'has_changes' };
     const host = document.createElement('div');
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -329,6 +340,189 @@ describe('TaskDetailDialog changes summary loading', () => {
     });
     expect(host.textContent).toContain('src/task-a.ts');
     expect(host.textContent).not.toContain('src/task-b.ts');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('keeps the changes section lazy-loadable when the task needs attention', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    hoisted.getTaskChanges.mockResolvedValueOnce({
+      ...makeSummary('task-attention'),
+      files: [],
+      totalFiles: 0,
+      totalLinesAdded: 0,
+      totalLinesRemoved: 0,
+      confidence: 'low',
+      warnings: ['No file changes were recorded for this task.'],
+    });
+
+    const task: TeamTaskWithKanban = {
+      ...makeTask('task-attention'),
+      changePresence: 'needs_attention',
+    };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(TaskDetailDialog, {
+          open: true,
+          variant: 'team',
+          teamName: 'team-a',
+          task,
+          taskMap: new Map<string, TeamTaskWithKanban>(),
+          members: [],
+          onClose: vi.fn(),
+          onViewChanges: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      [...host.querySelectorAll('button')].some((button) => button.textContent === 'Changes')
+    ).toBe(true);
+
+    await act(async () => {
+      clickChangesSection(host);
+      await Promise.resolve();
+    });
+
+    expect(hoisted.getTaskChanges).toHaveBeenCalledTimes(1);
+    expect(hoisted.getTaskChanges).toHaveBeenLastCalledWith(
+      'team-a',
+      'task-attention',
+      expect.objectContaining({ summaryOnly: true })
+    );
+    expect(host.textContent).toContain('No file changes recorded');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('preloads the changes summary after 1.5 seconds and shows header loading state', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const request = deferred<TaskChangeSetV2>();
+    hoisted.getTaskChanges.mockImplementationOnce(() => request.promise);
+
+    const task: TeamTaskWithKanban = { ...makeTask('task-autoload'), changePresence: 'unknown' };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(TaskDetailDialog, {
+          open: true,
+          variant: 'team',
+          teamName: 'team-a',
+          task,
+          taskMap: new Map<string, TeamTaskWithKanban>(),
+          members: [],
+          onClose: vi.fn(),
+          onViewChanges: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(hoisted.getTaskChanges).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_499);
+      await Promise.resolve();
+    });
+    expect(hoisted.getTaskChanges).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hoisted.getTaskChanges).toHaveBeenCalledTimes(1);
+    expect(hoisted.getTaskChanges).toHaveBeenLastCalledWith(
+      'team-a',
+      'task-autoload',
+      expect.objectContaining({ summaryOnly: true, forceFresh: false })
+    );
+    expect(host.querySelector('[data-testid="section-badge-Changes"]')).toBeNull();
+    expect(
+      host.querySelector('[data-testid="section-extra-Changes"] .animate-spin')
+    ).not.toBeNull();
+
+    await act(async () => {
+      request.resolve(makeSummary('task-autoload'));
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[data-testid="section-badge-Changes"]')?.textContent).toBe('1');
+
+    await act(async () => {
+      clickChangesSection(host);
+      await Promise.resolve();
+    });
+
+    expect(hoisted.getTaskChanges).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('src/task-autoload.ts');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('keeps the changes section visible for pending tasks and loads without a review handler', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    hoisted.getTaskChanges.mockResolvedValueOnce(makeSummary('task-pending'));
+
+    const task: TeamTaskWithKanban = {
+      ...makeTask('task-pending'),
+      status: 'pending',
+      changePresence: 'unknown',
+      workIntervals: [],
+    } as unknown as TeamTaskWithKanban;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(TaskDetailDialog, {
+          open: true,
+          variant: 'team',
+          teamName: 'team-a',
+          task,
+          taskMap: new Map<string, TeamTaskWithKanban>(),
+          members: [],
+          onClose: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      [...host.querySelectorAll('button')].some((button) => button.textContent === 'Changes')
+    ).toBe(true);
+
+    await act(async () => {
+      clickChangesSection(host);
+      await Promise.resolve();
+    });
+
+    expect(hoisted.getTaskChanges).toHaveBeenCalledTimes(1);
+    expect(hoisted.getTaskChanges).toHaveBeenLastCalledWith(
+      'team-a',
+      'task-pending',
+      expect.objectContaining({ summaryOnly: true })
+    );
+    expect(host.textContent).toContain('src/task-pending.ts');
 
     await act(async () => {
       root.unmount();

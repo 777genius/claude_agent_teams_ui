@@ -58,22 +58,42 @@ export async function resolveDesktopTeammateModeDecision(
     };
   }
 
-  if (explicitMode === 'auto' || explicitMode === 'in-process') {
+  if (explicitMode === 'auto') {
+    return {
+      injectedTeammateMode: null,
+      forceProcessTeammates: true,
+    };
+  }
+
+  if (explicitMode === 'in-process') {
     return {
       injectedTeammateMode: null,
       forceProcessTeammates: false,
     };
   }
 
-  if (!(await isTmuxAvailable())) {
-    return {
-      injectedTeammateMode: null,
-      forceProcessTeammates: false,
-    };
-  }
+  const tmuxAvailable = await isTmuxAvailable();
 
   return {
-    injectedTeammateMode: 'tmux',
+    injectedTeammateMode: tmuxAvailable ? 'tmux' : null,
     forceProcessTeammates: true,
   };
+}
+
+export function applyDesktopTeammateModeDecisionToEnv(
+  env: NodeJS.ProcessEnv,
+  decision: Pick<DesktopTeammateModeDecision, 'forceProcessTeammates'>
+): void {
+  if (decision.forceProcessTeammates) {
+    env.CLAUDE_TEAM_FORCE_PROCESS_TEAMMATES = '1';
+    return;
+  }
+
+  delete env.CLAUDE_TEAM_FORCE_PROCESS_TEAMMATES;
+}
+
+export function buildDesktopTeammateModeCliArgs(
+  decision: Pick<DesktopTeammateModeDecision, 'injectedTeammateMode'>
+): string[] {
+  return decision.injectedTeammateMode ? ['--teammate-mode', decision.injectedTeammateMode] : [];
 }

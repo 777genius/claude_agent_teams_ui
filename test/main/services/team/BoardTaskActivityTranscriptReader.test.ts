@@ -94,4 +94,57 @@ describe('BoardTaskActivityTranscriptReader', () => {
       ],
     });
   });
+
+  it('inherits stable session actor context for task-linked Codex projection rows', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'activity-transcript-reader-actor-'));
+    tempDirs.push(tempDir);
+
+    const filePath = path.join(tempDir, 'codex-session.jsonl');
+    await fs.writeFile(
+      filePath,
+      [
+        JSON.stringify({
+          uuid: 'session-context',
+          sessionId: 'session-codex',
+          timestamp: '2026-04-20T12:00:00.000Z',
+          agentName: 'tom',
+          isSidechain: false,
+          message: { role: 'assistant', content: 'Starting task' },
+        }),
+        JSON.stringify({
+          uuid: 'linked-without-agent-name',
+          sessionId: 'session-codex',
+          timestamp: '2026-04-20T12:01:00.000Z',
+          boardTaskLinks: [
+            {
+              schemaVersion: 1,
+              task: { ref: '12345678', refKind: 'display', canonicalId: 'task-a' },
+              targetRole: 'subject',
+              linkKind: 'board_action',
+              actorContext: { relation: 'same_task' },
+              toolUseId: 'toolu_task_comment',
+            },
+          ],
+          boardTaskToolActions: [
+            {
+              schemaVersion: 1,
+              toolUseId: 'toolu_task_comment',
+              canonicalToolName: 'task_add_comment',
+            },
+          ],
+        }),
+      ].join('\n'),
+      'utf8'
+    );
+
+    const rows = await new BoardTaskActivityTranscriptReader().readFiles([filePath]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      uuid: 'linked-without-agent-name',
+      sessionId: 'session-codex',
+      agentName: 'tom',
+      isSidechain: false,
+    });
+  });
 });

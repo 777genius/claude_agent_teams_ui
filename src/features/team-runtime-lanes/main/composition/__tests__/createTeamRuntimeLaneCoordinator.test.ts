@@ -47,4 +47,49 @@ describe('createTeamRuntimeLaneCoordinator', () => {
       })
     ).toThrow('Mixed teams with OpenCode side lanes require the OpenCode runtime adapter');
   });
+
+  it('drops stale hard-failure reasons when secondary OpenCode evidence later confirms alive', () => {
+    const coordinator = createTeamRuntimeLaneCoordinator();
+
+    const snapshot = coordinator.buildAggregateLaunchSnapshot({
+      teamName: 'mixed-team',
+      launchPhase: 'active',
+      leadDefaults: {
+        providerId: 'codex',
+      },
+      primaryMembers: [],
+      primaryStatuses: {},
+      secondaryMembers: [
+        {
+          laneId: 'secondary:opencode:jack',
+          member: {
+            name: 'jack',
+            providerId: 'opencode',
+            model: 'qwen/qwen3-coder',
+          },
+          leadDefaults: {
+            providerId: 'codex',
+          },
+          evidence: {
+            launchState: 'confirmed_alive',
+            agentToolAccepted: true,
+            runtimeAlive: true,
+            bootstrapConfirmed: true,
+            hardFailure: false,
+            hardFailureReason: 'OpenCode bridge reported member launch failure',
+            diagnostics: ['OpenCode runtime bootstrap check-in accepted'],
+          },
+        },
+      ],
+    });
+
+    expect(snapshot.members.jack).toMatchObject({
+      launchState: 'confirmed_alive',
+      hardFailure: false,
+      hardFailureReason: undefined,
+    });
+    expect(snapshot.members.jack.diagnostics).not.toContain(
+      'hard failure reason: OpenCode bridge reported member launch failure'
+    );
+  });
 });

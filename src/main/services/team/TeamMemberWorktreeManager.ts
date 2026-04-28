@@ -1,6 +1,6 @@
-import { getClaudeBasePath } from '@main/utils/pathDecoder';
-import { createHash } from 'crypto';
+import { getAppDataPath, getClaudeBasePath } from '@main/utils/pathDecoder';
 import { execFile } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -101,10 +101,18 @@ export class TeamMemberWorktreeManager {
   ): Promise<TeamMemberWorktreeResolution> {
     const baseRepoPath = await this.resolveBaseRepoPath(request.baseCwd);
     const repoHash = shortHash(baseRepoPath);
+    const projectSlug = slugify(path.basename(baseRepoPath));
     const teamSlug = slugify(request.teamName);
     const memberSlug = slugify(request.memberName);
     const branchName = `agent-teams/${teamSlug}/${memberSlug}-${repoHash}`;
     const worktreePath = path.join(
+      getAppDataPath(),
+      'team-worktrees',
+      `${projectSlug}-${repoHash}`,
+      teamSlug,
+      memberSlug
+    );
+    const legacyWorktreePath = path.join(
       getClaudeBasePath(),
       'team-worktrees',
       repoHash,
@@ -119,6 +127,15 @@ export class TeamMemberWorktreeManager {
       }
       await this.assertExistingWorktreeMatchesRepo(worktreePath, baseRepoPath, branchName);
       return { baseRepoPath, worktreePath, branchName };
+    }
+
+    const legacyStat = await fs.promises.stat(legacyWorktreePath).catch(() => null);
+    if (legacyStat) {
+      if (!legacyStat.isDirectory()) {
+        throw new Error(`Worktree path exists but is not a directory: ${legacyWorktreePath}`);
+      }
+      await this.assertExistingWorktreeMatchesRepo(legacyWorktreePath, baseRepoPath, branchName);
+      return { baseRepoPath, worktreePath: legacyWorktreePath, branchName };
     }
 
     await fs.promises.mkdir(path.dirname(worktreePath), { recursive: true });

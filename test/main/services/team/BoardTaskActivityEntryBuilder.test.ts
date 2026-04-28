@@ -300,6 +300,51 @@ describe('BoardTaskActivityEntryBuilder', () => {
     expect(entries[0]?.actor.role).toBe('unknown');
   });
 
+  it('keeps named main-session teammates as members instead of forcing lead role', () => {
+    const taskA = makeTask({
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      displayId: 'abcd1234',
+      subject: 'Task A',
+      status: 'in_progress',
+    });
+
+    const messages: RawTaskActivityMessage[] = [
+      {
+        filePath: '/tmp/main-member.jsonl',
+        uuid: 'msg-main-member',
+        timestamp: '2026-04-12T10:00:00.000Z',
+        sessionId: 'session-1',
+        agentName: 'tom',
+        isSidechain: false,
+        sourceOrder: 1,
+        boardTaskLinks: [
+          {
+            schemaVersion: 1,
+            task: { ref: 'abcd1234', refKind: 'display', canonicalId: taskA.id },
+            targetRole: 'subject',
+            linkKind: 'board_action',
+            actorContext: { relation: 'same_task' },
+          },
+        ],
+        boardTaskToolActions: [],
+      },
+    ];
+
+    const entries = new BoardTaskActivityEntryBuilder().buildForTask({
+      teamName: 'demo',
+      targetTask: taskA,
+      tasks: [taskA],
+      messages,
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.actor).toMatchObject({
+      memberName: 'tom',
+      role: 'member',
+      isSidechain: false,
+    });
+  });
+
   it('never joins action payloads onto execution rows', () => {
     const taskA = makeTask({
       id: '123e4567-e89b-12d3-a456-426614174000',

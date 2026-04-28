@@ -29,6 +29,7 @@ import { buildTaskCountsByTeam, normalizePath } from '@renderer/utils/pathNormal
 import { getBaseName } from '@renderer/utils/pathUtils';
 import { nameColorSet } from '@renderer/utils/projectColor';
 import { buildPendingRuntimeSummaryCopy } from '@renderer/utils/teamLaunchSummaryCopy';
+import { isTeamListStatusRunning, resolveTeamStatus } from '@renderer/utils/teamListStatus';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import {
   CheckCircle,
@@ -56,6 +57,7 @@ import {
 
 import type { ActiveTeamRef, TeamCopyData } from './dialogs/CreateTeamDialog';
 import type { TeamListFilterState } from './TeamListFilterPopover';
+import type { TeamStatus } from '@renderer/utils/teamListStatus';
 import type {
   ResolvedTeamMember,
   TeamCreateRequest,
@@ -75,15 +77,6 @@ function generateUniqueName(sourceName: string, existingNames: string[]): string
     }
   }
 }
-
-type TeamStatus =
-  | 'active'
-  | 'idle'
-  | 'provisioning'
-  | 'offline'
-  | 'partial_failure'
-  | 'partial_skipped'
-  | 'partial_pending';
 
 function getRecentProjects(team: TeamSummary): string[] {
   const history = team.projectPathHistory;
@@ -184,36 +177,6 @@ function renderTeamRecentPaths(
       )}
     </div>
   );
-}
-
-function resolveTeamStatus(
-  team: TeamSummary,
-  teamName: string,
-  aliveTeams: string[],
-  currentProgress: ReturnType<typeof getCurrentProvisioningProgressForTeam>,
-  leadActivityByTeam: Record<string, string>
-): TeamStatus {
-  if (aliveTeams.includes(teamName)) {
-    return leadActivityByTeam[teamName] === 'active' ? 'active' : 'idle';
-  }
-  if (
-    currentProgress &&
-    ['validating', 'spawning', 'configuring', 'assembling', 'finalizing', 'verifying'].includes(
-      currentProgress.state
-    )
-  ) {
-    return 'provisioning';
-  }
-  if (team.teamLaunchState === 'partial_pending') {
-    return 'partial_pending';
-  }
-  if (team.teamLaunchState === 'partial_skipped') {
-    return 'partial_skipped';
-  }
-  if (team.partialLaunchFailure || team.teamLaunchState === 'partial_failure') {
-    return 'partial_failure';
-  }
-  return 'offline';
 }
 
 const StatusBadge = ({ status }: { status: TeamStatus }): React.JSX.Element => {
@@ -362,38 +325,68 @@ export const TeamListView = (): React.JSX.Element => {
     return synthetic.length > 0 ? [...teams, ...synthetic] : teams;
   }, [teams, provisioningTeamNames, provisioningSnapshotByTeam]);
 
-  // Fetch alive teams on mount and when teams list changes
+  const fetchAliveTeams = useCallback(async (): Promise<string[] | null> => {
+    if (!electronMode) return null;
+    try {
+      return await api.teams.aliveList();
+    } catch {
+      return null;
+    }
+  }, [electronMode]);
+
+  // Fetch alive teams on mount and when teams list changes.
   useEffect(() => {
-    if (!electronMode) return;
     let cancelled = false;
-    const fetchAlive = async (): Promise<void> => {
-      try {
-        const list = await api.teams.aliveList();
-        if (!cancelled) setAliveTeams(list);
-      } catch {
-        // best-effort
+    void fetchAliveTeams().then((list) => {
+      if (!cancelled && list) {
+        setAliveTeams(list);
       }
-    };
-    void fetchAlive();
+    });
     return () => {
       cancelled = true;
     };
-  }, [electronMode, teams]);
+  }, [fetchAliveTeams, teams]);
+
+  const readyProgressRefreshKey = useMemo(() => {
+    return Object.entries(currentProvisioningRunIdByTeam)
+      .map(([teamName, runId]) => {
+        if (!runId) return null;
+        const progress = provisioningRuns[runId];
+        return progress?.state === 'ready'
+          ? `${teamName}:${progress.runId}:${progress.updatedAt}`
+          : null;
+      })
+      .filter((item): item is string => Boolean(item))
+      .join('|');
+  }, [currentProvisioningRunIdByTeam, provisioningRuns]);
+
+  // Terminal launch progress can arrive before aliveList catches up.
+  useEffect(() => {
+    if (!readyProgressRefreshKey) return;
+    let cancelled = false;
+    void fetchAliveTeams().then((list) => {
+      if (!cancelled && list) {
+        setAliveTeams(list);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchAliveTeams, readyProgressRefreshKey]);
 
   // Refresh alive teams when opening the create dialog so conflict warning is accurate.
   useEffect(() => {
     if (!electronMode || !showCreateDialog) return;
     let cancelled = false;
-    void api.teams
-      .aliveList()
-      .then((list) => {
-        if (!cancelled) setAliveTeams(list);
-      })
-      .catch(() => undefined);
+    void fetchAliveTeams().then((list) => {
+      if (!cancelled && list) {
+        setAliveTeams(list);
+      }
+    });
     return () => {
       cancelled = true;
     };
-  }, [electronMode, showCreateDialog]);
+  }, [electronMode, fetchAliveTeams, showCreateDialog]);
 
   const currentProjectSelection = useMemo(
     () =>
@@ -438,24 +431,32 @@ export const TeamListView = (): React.JSX.Element => {
           getCurrentProvisioningProgressForTeam(provisioningState, t.teamName),
           leadActivityByTeam
         );
-        const isRunning =
-          status !== 'offline' && status !== 'partial_failure' && status !== 'partial_pending';
+        const isRunning = isTeamListStatusRunning(status);
         if (filter.selectedStatuses.has('running') && isRunning) return true;
         if (filter.selectedStatuses.has('offline') && !isRunning) return true;
         return false;
       });
     }
 
-    const aliveSet = new Set(aliveTeams);
     const matchesCurrentProject = currentProjectPath
       ? (team: TeamSummary): boolean => teamMatchesProjectSelection(team, currentProjectPath)
       : null;
+    const nowMs = Date.now();
+    const statusForTeam = (team: TeamSummary): TeamStatus =>
+      resolveTeamStatus(
+        team,
+        team.teamName,
+        aliveTeams,
+        getCurrentProvisioningProgressForTeam(provisioningState, team.teamName),
+        leadActivityByTeam,
+        nowMs
+      );
 
     result = [...result].sort((a, b) => {
-      // 1. Alive (running) teams first
-      const aliveA = aliveSet.has(a.teamName) ? 0 : 1;
-      const aliveB = aliveSet.has(b.teamName) ? 0 : 1;
-      if (aliveA !== aliveB) return aliveA - aliveB;
+      // 1. Running teams first, including the short ready-before-alive-list gap.
+      const runningA = isTeamListStatusRunning(statusForTeam(a)) ? 0 : 1;
+      const runningB = isTeamListStatusRunning(statusForTeam(b)) ? 0 : 1;
+      if (runningA !== runningB) return runningA - runningB;
 
       // 2. Teams related to the selected project are prioritized next
       if (matchesCurrentProject) {

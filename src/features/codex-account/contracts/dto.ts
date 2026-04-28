@@ -64,6 +64,11 @@ export interface CodexLoginStateDto {
   startedAt: string | null;
 }
 
+export interface CodexRuntimeContextDto {
+  binaryPath: string | null;
+  codexHome: string | null;
+}
+
 export interface CodexAccountSnapshotDto {
   preferredAuthMode: CodexAccountAuthMode;
   effectiveAuthMode: CodexAccountEffectiveAuthMode;
@@ -77,6 +82,7 @@ export interface CodexAccountSnapshotDto {
   requiresOpenaiAuth: boolean | null;
   localAccountArtifactsPresent?: boolean;
   localActiveChatgptAccountPresent?: boolean;
+  runtimeContext?: CodexRuntimeContextDto;
   login: CodexLoginStateDto;
   rateLimits: CodexRateLimitSnapshotDto | null;
   updatedAt: string;

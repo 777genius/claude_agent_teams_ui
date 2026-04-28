@@ -306,6 +306,26 @@ function deriveTeammateWorktreeDefault(
   );
 }
 
+function buildWorktreePathByMemberName(
+  members: readonly {
+    name: string;
+    isolation?: 'worktree';
+    cwd?: string;
+    removedAt?: number | string | null;
+  }[]
+): Record<string, string> {
+  const paths: Record<string, string> = {};
+  for (const member of members) {
+    const name = member.name.trim().toLowerCase();
+    const cwd = member.cwd?.trim();
+    if (!name || member.removedAt || member.isolation !== 'worktree' || !cwd) {
+      continue;
+    }
+    paths[name] = cwd;
+  }
+  return paths;
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -458,6 +478,9 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   const [maxTurns, setMaxTurns] = useState(50);
   const [maxBudgetUsd, setMaxBudgetUsd] = useState('');
   const [scheduleHydrationKey, setScheduleHydrationKey] = useState<string | null>(null);
+  const [worktreePathByMemberName, setWorktreePathByMemberName] = useState<Record<string, string>>(
+    {}
+  );
   const effectiveMemberDrafts = useMemo(
     () => (syncModelsWithLead ? membersDrafts.map(clearMemberModelOverrides) : membersDrafts),
     [membersDrafts, syncModelsWithLead]
@@ -802,6 +825,7 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
           normalizeMemberDraftForProviderMode(member, multimodelEnabled)
         )
       );
+      setWorktreePathByMemberName(buildWorktreePathByMemberName(editableMembersSource));
       setTeammateWorktreeDefault(deriveTeammateWorktreeDefault(editableMembersSource));
       setSyncModelsWithLead(
         !editableMembersSource.some((member) => member.providerId || member.model || member.effort)
@@ -1280,6 +1304,31 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
     return warnings;
   }, [memberRuntimeWarningById, teammateRuntimeCompatibility.memberWarningById]);
 
+  const memberWorktreeContinuationInfoById = useMemo(() => {
+    if (!isLaunchMode) {
+      return {};
+    }
+
+    const info: Record<string, string> = {};
+    for (const member of effectiveMemberDrafts) {
+      if (member.removedAt || member.isolation !== 'worktree') {
+        continue;
+      }
+      const lookupName = (member.originalName?.trim() || member.name.trim()).toLowerCase();
+      if (!lookupName) {
+        continue;
+      }
+      const previousWorktreePath = worktreePathByMemberName[lookupName];
+      if (!previousWorktreePath) {
+        continue;
+      }
+      info[member.id] =
+        `This teammate will continue from its existing worktree: ${previousWorktreePath}`;
+    }
+
+    return info;
+  }, [effectiveMemberDrafts, isLaunchMode, worktreePathByMemberName]);
+
   // ---------------------------------------------------------------------------
   // Launch-only effects
   // ---------------------------------------------------------------------------
@@ -1291,7 +1340,10 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
   const hasSelectedWorktreeIsolation =
     isLaunchMode &&
     effectiveMemberDrafts.some((member) => !member.removedAt && member.isolation === 'worktree');
-  const worktreeGitReadiness = useWorktreeGitReadiness(effectiveCwd || null, open && isLaunchMode);
+  const worktreeGitReadiness = useWorktreeGitReadiness(
+    effectiveCwd || null,
+    open && hasSelectedWorktreeIsolation
+  );
   const worktreeIsolationDisabledReason = isLaunchMode
     ? getWorktreeGitControlDisabledReason(worktreeGitReadiness)
     : null;
@@ -2451,11 +2503,16 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
                   onTeammateWorktreeDefaultChange={setTeammateWorktreeDefault}
                   leadWarningText={leadRuntimeWarningText}
                   memberWarningById={combinedMemberRuntimeWarningById}
+                  memberInfoById={memberWorktreeContinuationInfoById}
                   leadModelIssueText={leadModelIssueText}
                   memberModelIssueById={memberModelIssueById}
                   softDeleteMembers
                   disableGeminiOption={isGeminiUiFrozen()}
-                  headerBottom={<WorktreeGitReadinessBanner state={worktreeGitReadiness} />}
+                  headerBottom={
+                    hasSelectedWorktreeIsolation ? (
+                      <WorktreeGitReadinessBanner state={worktreeGitReadiness} />
+                    ) : null
+                  }
                 />
 
                 <div className="space-y-1.5">

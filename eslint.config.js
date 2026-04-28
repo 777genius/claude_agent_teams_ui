@@ -460,6 +460,35 @@ export default defineConfig([
   },
 
   {
+    name: 'electron-main-safe-renderer-send-guard',
+    files: ['src/main/**/*.ts'],
+    ignores: ['src/main/utils/safeWebContentsSend.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name='send'][callee.object.type='MemberExpression'][callee.object.property.name='webContents']",
+          message:
+            'Use safeSendToRenderer(...) instead of direct webContents.send(...) in the main process.',
+        },
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name='send'][callee.object.type='MemberExpression'][callee.object.property.name='sender']",
+          message:
+            'Use safeSendToRenderer(BrowserWindow.fromWebContents(event.sender), ...) instead of direct event.sender.send(...) in the main process.',
+        },
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name='send'][callee.object.name='contents']",
+          message:
+            'Use safeSendToRenderer(...) instead of aliasing webContents and calling contents.send(...) in the main process.',
+        },
+      ],
+    },
+  },
+
+  {
     name: 'team-transcript-project-resolver-sonar-override',
     files: ['src/main/services/team/TeamTranscriptProjectResolver.ts'],
     rules: {

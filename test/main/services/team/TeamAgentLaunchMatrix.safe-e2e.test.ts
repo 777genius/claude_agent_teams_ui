@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 import type {
@@ -31,7 +31,9 @@ import {
 } from '../../../../src/main/utils/pathDecoder';
 import { createPersistedLaunchSnapshot } from '../../../../src/main/services/team/TeamLaunchStateEvaluator';
 import {
+  getOpenCodeRuntimeLaneIndexPath,
   readOpenCodeRuntimeLaneIndex,
+  setOpenCodeRuntimeActiveRunManifest,
   upsertOpenCodeRuntimeLaneIndexEntry,
 } from '../../../../src/main/services/team/opencode/store/OpenCodeRuntimeManifestEvidenceReader';
 
@@ -2001,6 +2003,57 @@ describe('Team agent launch matrix safe e2e', () => {
       'primary',
       'secondary:opencode:bob',
       'secondary:opencode:tom',
+    ]);
+  });
+
+  it('launches mixed OpenCode lanes after a fresh abandoned lane index lock', async () => {
+    const teamName = 'mixed-opencode-abandoned-lane-lock-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    const lockPath = `${getOpenCodeRuntimeLaneIndexPath(getTeamsBasePath(), teamName)}.lock`;
+    const abandonedPid = 424_242;
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await fs.writeFile(lockPath, `${abandonedPid}\n${Date.now()}\n`, 'utf8');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(((pid: number | string) => {
+      if (pid === abandonedPid) {
+        const error = new Error('process is gone') as NodeJS.ErrnoException;
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return true;
+    }) as typeof process.kill);
+    const adapter = new FakeOpenCodeRuntimeAdapter('clean_success', {
+      bob: 'confirmed',
+      tom: 'confirmed',
+    });
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+    const run = createMixedLiveRun({ teamName, projectPath });
+    run.child = { kill: () => undefined };
+    trackLiveRun(svc, run);
+
+    try {
+      await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
+    } finally {
+      killSpy.mockRestore();
+    }
+
+    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
+      {
+        lanes: {
+          'secondary:opencode:bob': { state: 'active' },
+          'secondary:opencode:tom': { state: 'active' },
+        },
+      }
+    );
+    await waitForCondition(() =>
+      run.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
+    );
+    expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
+      'finished',
+      'finished',
     ]);
   });
 
@@ -10398,7 +10451,7 @@ describe('Team agent launch matrix safe e2e', () => {
     const launchAdapter = new FakeOpenCodeRuntimeAdapter();
     const firstService = new TeamProvisioningService();
     firstService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([launchAdapter]));
-    await firstService.createTeam(
+    const launch = await firstService.createTeam(
       {
         teamName,
         cwd: projectPath,
@@ -10426,6 +10479,7 @@ describe('Team agent launch matrix safe e2e', () => {
     });
     expect(messageAdapter.messageInputs).toHaveLength(1);
     expect(messageAdapter.messageInputs[0]).toMatchObject({
+      runId: launch.runId,
       teamName,
       laneId: 'primary',
       memberName: 'alice',
@@ -10433,7 +10487,7 @@ describe('Team agent launch matrix safe e2e', () => {
       text: 'message recovered pure opencode lane',
       messageId: 'msg-recovered-pure-opencode',
     });
-    expect(messageAdapter.messageInputs[0]?.runId).toBeUndefined();
+    expect(messageAdapter.messageInputs[0]?.runId).toBe(launchAdapter.launchInputs[0]?.runId);
   });
 
   it('delivers direct OpenCode member messages to recovered pure OpenCode lanes despite stale terminal provisioning state', async () => {
@@ -10965,6 +11019,729 @@ describe('Team agent launch matrix safe e2e', () => {
       reason: 'opencode_runtime_not_active',
     });
     expect(adapter.messageInputs).toEqual([]);
+  });
+
+  it('does not scan or deliver orphaned mixed OpenCode lanes after app restart when team is stopped', async () => {
+    const teamName = 'mixed-opencode-stopped-orphaned-lane-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    await upsertOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: getTeamsBasePath(),
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      state: 'active',
+      diagnostics: ['orphaned lane from previous app session'],
+    });
+    await setOpenCodeRuntimeActiveRunManifest({
+      teamsBasePath: getTeamsBasePath(),
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      runId: 'orphaned-opencode-run-bob',
+    });
+    const inboxDir = path.join(getTeamsBasePath(), teamName, 'inboxes');
+    await fs.mkdir(inboxDir, { recursive: true });
+    await fs.writeFile(
+      path.join(inboxDir, 'bob.json'),
+      `${JSON.stringify(
+        [
+          {
+            from: 'user',
+            to: 'bob',
+            text: 'must not be delivered while parent team is stopped',
+            timestamp: '2026-04-23T10:01:00.000Z',
+            read: false,
+            messageId: 'msg-stopped-orphaned-lane-bob',
+          },
+        ],
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const adapter = new FakeOpenCodeRuntimeAdapter('clean_success', {
+      bob: 'confirmed',
+    });
+    const restartedService = new TeamProvisioningService();
+    restartedService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+
+    await expect(restartedService.scanOpenCodePromptDeliveryWatchdog(teamName)).resolves.toBe(0);
+    expect(adapter.stopInputs).toHaveLength(1);
+    expect(adapter.stopInputs[0]).toMatchObject({
+      runId: 'orphaned-opencode-run-bob',
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      providerId: 'opencode',
+      reason: 'cleanup',
+      force: true,
+    });
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject({
+      lanes: {},
+    });
+    await expect(
+      restartedService.relayOpenCodeMemberInboxMessages(teamName, 'bob')
+    ).resolves.toMatchObject({
+      relayed: 0,
+      failed: 1,
+      lastDelivery: { delivered: false, reason: 'opencode_runtime_not_active' },
+    });
+    await expect(
+      restartedService.deliverOpenCodeMemberMessage(teamName, {
+        memberName: 'bob',
+        text: 'direct message must not reach orphaned lane',
+        messageId: 'msg-stopped-orphaned-direct-bob',
+      })
+    ).resolves.toEqual({
+      delivered: false,
+      reason: 'opencode_runtime_not_active',
+    });
+
+    expect(adapter.reconcileInputs).toEqual([]);
+    expect(adapter.messageInputs).toEqual([]);
+  });
+
+  it('does not recover missing mixed OpenCode lanes from persisted runtime evidence when parent team is stopped', async () => {
+    const teamName = 'mixed-opencode-stopped-missing-lane-recovery-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    await fs.writeFile(
+      path.join(getTeamsBasePath(), teamName, 'launch-state.json'),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          expectedMembers: ['alice', 'bob'],
+          leadSessionId: 'lead-session',
+          launchPhase: 'reconciled',
+          members: {
+            alice: {
+              name: 'alice',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            bob: {
+              name: 'bob',
+              providerId: 'opencode',
+              model: 'opencode/minimax-m2.5-free',
+              laneId: 'secondary:opencode:bob',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              runtimePid: 7743,
+              runtimeSessionId: 'ses_bob_materialized',
+              livenessKind: 'runtime_process_candidate',
+              pidSource: 'opencode_bridge',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:00:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const adapter = new FakeOpenCodeRuntimeAdapter('partial_pending', {
+      bob: 'launching',
+    });
+    const restartedService = new TeamProvisioningService();
+    restartedService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+
+    await expect(
+      readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)
+    ).resolves.toMatchObject({ lanes: {} });
+    await expect(
+      restartedService.deliverOpenCodeMemberMessage(teamName, {
+        memberName: 'bob',
+        text: 'must not recover stopped parent team',
+        messageId: 'msg-stopped-missing-lane-bob',
+      })
+    ).resolves.toEqual({
+      delivered: false,
+      reason: 'opencode_runtime_not_active',
+    });
+
+    expect(adapter.reconcileInputs).toEqual([]);
+    expect(adapter.messageInputs).toEqual([]);
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject({
+      lanes: {},
+    });
+  });
+
+  it('recovers a missing mixed OpenCode lane index from materialized persisted runtime evidence before direct delivery', async () => {
+    const teamName = 'mixed-opencode-direct-message-recovers-missing-lane-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    await fs.writeFile(
+      path.join(getTeamsBasePath(), teamName, 'launch-state.json'),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          expectedMembers: ['alice', 'bob', 'tom'],
+          leadSessionId: 'lead-session',
+          launchPhase: 'reconciled',
+          members: {
+            alice: {
+              name: 'alice',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            bob: {
+              name: 'bob',
+              providerId: 'opencode',
+              model: 'opencode/minimax-m2.5-free',
+              laneId: 'secondary:opencode:bob',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              runtimePid: 7743,
+              runtimeSessionId: 'ses_bob_materialized',
+              livenessKind: 'runtime_process_candidate',
+              pidSource: 'opencode_bridge',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            tom: {
+              name: 'tom',
+              providerId: 'opencode',
+              model: 'opencode/nemotron-3-super-free',
+              laneId: 'secondary:opencode:tom',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: false,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:00:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const adapter = new FakeOpenCodeRuntimeAdapter('partial_pending', {
+      bob: 'launching',
+      tom: 'failed',
+    });
+    await writeAliveProcessRegistry(teamName);
+    const restartedService = new TeamProvisioningService();
+    restartedService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+
+    await expect(
+      readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)
+    ).resolves.toMatchObject({ lanes: {} });
+    await expect(
+      restartedService.deliverOpenCodeMemberMessage(teamName, {
+        memberName: 'bob',
+        text: 'recovered bob receives direct message',
+        messageId: 'msg-recovered-missing-lane-bob',
+      })
+    ).resolves.toEqual({
+      delivered: true,
+      diagnostics: [],
+    });
+
+    expect(adapter.reconcileInputs).toHaveLength(1);
+    expect(adapter.reconcileInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      reason: 'startup_recovery',
+    });
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
+      {
+        lanes: {
+          'secondary:opencode:bob': {
+            state: 'active',
+          },
+        },
+      }
+    );
+    expect(adapter.messageInputs).toHaveLength(1);
+    expect(adapter.messageInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      memberName: 'bob',
+      cwd: projectPath,
+      text: 'recovered bob receives direct message',
+      messageId: 'msg-recovered-missing-lane-bob',
+    });
+  });
+
+  it('recovers a missing mixed OpenCode lane index from confirmed-alive persisted runtime evidence before direct delivery', async () => {
+    const teamName = 'mixed-opencode-direct-message-recovers-confirmed-missing-lane-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    await fs.writeFile(
+      path.join(getTeamsBasePath(), teamName, 'launch-state.json'),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          expectedMembers: ['alice', 'bob'],
+          leadSessionId: 'lead-session',
+          launchPhase: 'reconciled',
+          members: {
+            alice: {
+              name: 'alice',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            bob: {
+              name: 'bob',
+              providerId: 'opencode',
+              model: 'opencode/minimax-m2.5-free',
+              laneId: 'secondary:opencode:bob',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              runtimePid: 7743,
+              runtimeSessionId: 'ses_bob_confirmed_materialized',
+              livenessKind: 'runtime_process',
+              pidSource: 'opencode_bridge',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:00:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const adapter = new FakeOpenCodeRuntimeAdapter('clean_success', {
+      bob: 'confirmed',
+    });
+    await writeAliveProcessRegistry(teamName);
+    const restartedService = new TeamProvisioningService();
+    restartedService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+
+    await expect(
+      readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)
+    ).resolves.toMatchObject({ lanes: {} });
+    await expect(
+      restartedService.deliverOpenCodeMemberMessage(teamName, {
+        memberName: 'bob',
+        text: 'confirmed alive missing lane recovers',
+        messageId: 'msg-recovered-confirmed-missing-lane-bob',
+      })
+    ).resolves.toEqual({
+      delivered: true,
+      diagnostics: [],
+    });
+
+    expect(adapter.reconcileInputs).toHaveLength(1);
+    expect(adapter.reconcileInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      reason: 'startup_recovery',
+    });
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
+      {
+        lanes: {
+          'secondary:opencode:bob': {
+            state: 'active',
+          },
+        },
+      }
+    );
+    expect(adapter.messageInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      memberName: 'bob',
+      text: 'confirmed alive missing lane recovers',
+      messageId: 'msg-recovered-confirmed-missing-lane-bob',
+    });
+  });
+
+  it('recovers a missing mixed OpenCode lane index before watchdog scans unread OpenCode inbox', async () => {
+    const teamName = 'mixed-opencode-watchdog-recovers-missing-lane-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    await fs.writeFile(
+      path.join(getTeamsBasePath(), teamName, 'launch-state.json'),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          expectedMembers: ['alice', 'bob', 'tom'],
+          leadSessionId: 'lead-session',
+          launchPhase: 'reconciled',
+          members: {
+            alice: {
+              name: 'alice',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            bob: {
+              name: 'bob',
+              providerId: 'opencode',
+              model: 'opencode/minimax-m2.5-free',
+              laneId: 'secondary:opencode:bob',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              runtimePid: 7743,
+              runtimeSessionId: 'ses_bob_materialized',
+              livenessKind: 'runtime_process_candidate',
+              pidSource: 'opencode_bridge',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            tom: {
+              name: 'tom',
+              providerId: 'opencode',
+              model: 'opencode/nemotron-3-super-free',
+              laneId: 'secondary:opencode:tom',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: false,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:00:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const inboxDir = path.join(getTeamsBasePath(), teamName, 'inboxes');
+    await fs.mkdir(inboxDir, { recursive: true });
+    await fs.writeFile(
+      path.join(inboxDir, 'bob.json'),
+      `${JSON.stringify(
+        [
+          {
+            from: 'user',
+            to: 'bob',
+            text: 'recover this unread OpenCode message',
+            timestamp: '2026-04-23T10:01:00.000Z',
+            read: false,
+            messageId: 'msg-watchdog-recovers-missing-lane-bob',
+          },
+        ],
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const adapter = new FakeOpenCodeRuntimeAdapter('partial_pending', {
+      bob: 'launching',
+      tom: 'failed',
+    });
+    await writeAliveProcessRegistry(teamName);
+    const restartedService = new TeamProvisioningService();
+    restartedService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+    const scheduledWatchdogJobs: unknown[] = [];
+    (restartedService as any).scheduleOpenCodePromptDeliveryWatchdog = (input: unknown): void => {
+      scheduledWatchdogJobs.push(input);
+    };
+
+    await expect(
+      readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)
+    ).resolves.toMatchObject({ lanes: {} });
+
+    await expect(restartedService.scanOpenCodePromptDeliveryWatchdog(teamName)).resolves.toBe(1);
+
+    expect(adapter.reconcileInputs).toHaveLength(1);
+    expect(adapter.reconcileInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      reason: 'startup_recovery',
+    });
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
+      {
+        lanes: {
+          'secondary:opencode:bob': {
+            state: 'active',
+          },
+        },
+      }
+    );
+    expect(scheduledWatchdogJobs).toEqual([
+      expect.objectContaining({
+        teamName,
+        memberName: 'bob',
+        messageId: 'msg-watchdog-recovers-missing-lane-bob',
+        delayMs: 500,
+      }),
+    ]);
+  });
+
+  it('recovers one missing mixed OpenCode lane before watchdog scans while sibling lane is active', async () => {
+    const teamName = 'mixed-opencode-watchdog-recovers-one-missing-lane-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    await fs.writeFile(
+      path.join(getTeamsBasePath(), teamName, 'launch-state.json'),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          expectedMembers: ['alice', 'bob', 'tom'],
+          leadSessionId: 'lead-session',
+          launchPhase: 'reconciled',
+          members: {
+            alice: {
+              name: 'alice',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            bob: {
+              name: 'bob',
+              providerId: 'opencode',
+              model: 'opencode/minimax-m2.5-free',
+              laneId: 'secondary:opencode:bob',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              runtimePid: 7743,
+              runtimeSessionId: 'ses_bob_materialized',
+              livenessKind: 'runtime_process_candidate',
+              pidSource: 'opencode_bridge',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            tom: {
+              name: 'tom',
+              providerId: 'opencode',
+              model: 'opencode/nemotron-3-super-free',
+              laneId: 'secondary:opencode:tom',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              runtimePid: 7750,
+              runtimeSessionId: 'ses_tom_active',
+              livenessKind: 'runtime_process',
+              pidSource: 'opencode_bridge',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:00:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    await upsertOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: getTeamsBasePath(),
+      teamName,
+      laneId: 'secondary:opencode:tom',
+      state: 'active',
+    });
+    const inboxDir = path.join(getTeamsBasePath(), teamName, 'inboxes');
+    await fs.mkdir(inboxDir, { recursive: true });
+    await fs.writeFile(
+      path.join(inboxDir, 'bob.json'),
+      `${JSON.stringify(
+        [
+          {
+            from: 'user',
+            to: 'bob',
+            text: 'recover only bob while tom stays active',
+            timestamp: '2026-04-23T10:01:00.000Z',
+            read: false,
+            messageId: 'msg-watchdog-recovers-one-missing-lane-bob',
+          },
+        ],
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const adapter = new FakeOpenCodeRuntimeAdapter('partial_pending', {
+      bob: 'launching',
+      tom: 'confirmed',
+    });
+    await writeAliveProcessRegistry(teamName);
+    const restartedService = new TeamProvisioningService();
+    restartedService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+    const scheduledWatchdogJobs: unknown[] = [];
+    (restartedService as any).scheduleOpenCodePromptDeliveryWatchdog = (input: unknown): void => {
+      scheduledWatchdogJobs.push(input);
+    };
+
+    await expect(restartedService.scanOpenCodePromptDeliveryWatchdog(teamName)).resolves.toBe(1);
+
+    expect(adapter.reconcileInputs).toHaveLength(1);
+    expect(adapter.reconcileInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      reason: 'startup_recovery',
+    });
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
+      {
+        lanes: {
+          'secondary:opencode:bob': {
+            state: 'active',
+          },
+          'secondary:opencode:tom': {
+            state: 'active',
+          },
+        },
+      }
+    );
+    expect(scheduledWatchdogJobs).toEqual([
+      expect.objectContaining({
+        teamName,
+        memberName: 'bob',
+        messageId: 'msg-watchdog-recovers-one-missing-lane-bob',
+        delayMs: 500,
+      }),
+    ]);
+  });
+
+  it('does not recover a missing mixed OpenCode lane index from liveness-only persisted metadata', async () => {
+    const teamName = 'mixed-opencode-direct-message-liveness-only-missing-lane-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    await fs.writeFile(
+      path.join(getTeamsBasePath(), teamName, 'launch-state.json'),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          expectedMembers: ['alice', 'bob'],
+          leadSessionId: 'lead-session',
+          launchPhase: 'reconciled',
+          members: {
+            alice: {
+              name: 'alice',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+            bob: {
+              name: 'bob',
+              providerId: 'opencode',
+              model: 'opencode/minimax-m2.5-free',
+              laneId: 'secondary:opencode:bob',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              livenessKind: 'runtime_process_candidate',
+              pidSource: 'opencode_bridge',
+              lastEvaluatedAt: '2026-04-23T10:00:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:00:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    const adapter = new FakeOpenCodeRuntimeAdapter('partial_pending', {
+      bob: 'launching',
+    });
+    const restartedService = new TeamProvisioningService();
+    restartedService.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+
+    await expect(
+      restartedService.deliverOpenCodeMemberMessage(teamName, {
+        memberName: 'bob',
+        text: 'must not recover from liveness-only stale metadata',
+        messageId: 'msg-liveness-only-missing-lane-bob',
+      })
+    ).resolves.toEqual({
+      delivered: false,
+      reason: 'opencode_runtime_not_active',
+    });
+
+    expect(adapter.reconcileInputs).toEqual([]);
+    expect(adapter.messageInputs).toEqual([]);
+    await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
+      { lanes: {} }
+    );
   });
 
   it('does not deliver direct OpenCode member messages to one detached mixed lane while its sibling lane stays live', async () => {
@@ -13661,6 +14438,87 @@ describe('Team agent launch matrix safe e2e', () => {
       laneId: 'secondary:opencode:eve',
       laneKind: 'secondary',
       runtimeModel: 'opencode/big-pickle',
+    });
+  });
+
+  it('fresh relaunches a failed mixed OpenCode teammate without runtime evidence', async () => {
+    const teamName = 'mixed-opencode-fresh-relaunch-no-runtime-evidence-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    const adapter = new FakeOpenCodeRuntimeAdapter('clean_success', {
+      bob: 'confirmed',
+      tom: 'confirmed',
+    });
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+    const run = createMixedLiveRun({ teamName, projectPath });
+    run.mixedSecondaryLanes = run.mixedSecondaryLanes.filter(
+      (lane: { member: { name: string } }) => lane.member.name !== 'bob'
+    );
+    run.memberSpawnStatuses.set('bob', {
+      status: 'error',
+      launchState: 'failed_to_start',
+      runtimeAlive: false,
+      bootstrapConfirmed: false,
+      hardFailure: true,
+      hardFailureReason: 'File lock timeout: lanes.json',
+      error: 'File lock timeout: lanes.json',
+      agentToolAccepted: false,
+      updatedAt: '2026-04-24T12:00:00.000Z',
+    } as never);
+    trackLiveRun(svc, run);
+
+    await svc.restartMember(teamName, 'bob');
+
+    await waitForCondition(() => adapter.launchInputs.length === 1);
+    expect(adapter.stopInputs).toHaveLength(0);
+    expect(adapter.launchInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      expectedMembers: [expect.objectContaining({ name: 'bob', providerId: 'opencode' })],
+    });
+    const bobLane = run.mixedSecondaryLanes.find(
+      (lane: { member: { name: string } }) => lane.member.name === 'bob'
+    );
+    expect(bobLane).toMatchObject({
+      laneId: 'secondary:opencode:bob',
+      diagnostics: expect.arrayContaining([
+        'controlled_reattach:manual_restart',
+        'fresh_relaunch:no_runtime_evidence',
+      ]),
+    });
+    const statuses = await svc.getMemberSpawnStatuses(teamName);
+    expect(statuses.statuses.bob).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      hardFailure: false,
+    });
+  });
+
+  it('rejects duplicate fresh relaunch while a mixed OpenCode lane is queued', async () => {
+    const teamName = 'mixed-opencode-fresh-relaunch-queued-reject-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    const adapter = new FakeOpenCodeRuntimeAdapter();
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+    const run = createMixedLiveRun({ teamName, projectPath });
+    trackLiveRun(svc, run);
+
+    await expect(svc.restartMember(teamName, 'bob')).rejects.toThrow(
+      'Restart for teammate "bob" is already in progress'
+    );
+
+    expect(adapter.launchInputs).toHaveLength(0);
+    expect(adapter.stopInputs).toHaveLength(0);
+    expect(
+      run.mixedSecondaryLanes.find(
+        (lane: { member: { name: string } }) => lane.member.name === 'bob'
+      )
+    ).toMatchObject({
+      state: 'queued',
     });
   });
 
@@ -16536,6 +17394,27 @@ function trackLiveRun(svc: TeamProvisioningService, run: any): void {
   (svc as any).runs.set(run.runId, run);
   (svc as any).provisioningRunByTeam.set(run.teamName, run.runId);
   (svc as any).aliveRunByTeam.set(run.teamName, run.runId);
+}
+
+async function writeAliveProcessRegistry(teamName: string): Promise<void> {
+  const teamDir = path.join(getTeamsBasePath(), teamName);
+  await fs.mkdir(teamDir, { recursive: true });
+  await fs.writeFile(
+    path.join(teamDir, 'processes.json'),
+    `${JSON.stringify(
+      [
+        {
+          id: 'lead-process',
+          label: 'Team Lead',
+          pid: process.pid,
+          registeredAt: '2026-04-23T10:00:00.000Z',
+        },
+      ],
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
 }
 
 function expectDirectChildKillCount(actual: number, expected: number): void {

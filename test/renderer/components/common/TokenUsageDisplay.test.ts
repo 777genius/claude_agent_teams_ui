@@ -89,8 +89,9 @@ describe('TokenUsageDisplay', () => {
     });
 
     const popover = document.querySelector('[role="tooltip"]');
+    const expectedTotalTokens = new Intl.NumberFormat().format(2250);
     expect(popover).toBeTruthy();
-    expect(popover?.textContent).toContain('2,250');
+    expect(popover?.textContent).toContain(expectedTotalTokens);
     expect(popover?.textContent).toContain('500 (25.0% of prompt input)');
     expect(popover?.textContent).not.toContain('of context');
 

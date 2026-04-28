@@ -81,6 +81,9 @@ function describeStreamSource(stream: BoardTaskLogStreamResponse | null): string
     }
     return 'Task-scoped OpenCode runtime logs projected into the same execution-log components used in Logs.';
   }
+  if (stream?.runtimeProjection?.provider === 'opencode') {
+    return 'Task-scoped transcript logs merged with OpenCode runtime logs and rendered with the same execution-log components used in Logs.';
+  }
   return 'Task-scoped transcript logs rendered with the same execution-log components used in Logs.';
 }
 

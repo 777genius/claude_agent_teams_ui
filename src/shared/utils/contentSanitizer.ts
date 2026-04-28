@@ -20,6 +20,10 @@ const NOISE_TAG_PATTERNS = [
   /<local-command-caveat>[\s\S]*?<\/local-command-caveat>/gi,
   /<system-reminder>[\s\S]*?<\/system-reminder>/gi,
   /<task-notification>[\s\S]*?<\/task-notification>/gi,
+  /<opencode_runtime_identity>[\s\S]*?<\/opencode_runtime_identity>/gi,
+  /<opencode_app_message_delivery>[\s\S]*?<\/opencode_app_message_delivery>/gi,
+  /<opencode_delivery_context>[\s\S]*?<\/opencode_delivery_context>/gi,
+  /<opencode_delivery_retry>[\s\S]*?<\/opencode_delivery_retry>/gi,
 ];
 
 /**
@@ -27,6 +31,8 @@ const NOISE_TAG_PATTERNS = [
  * task notifications.
  */
 const TASK_OUTPUT_INSTRUCTION_PATTERN = / ?Read the output file to retrieve the result: [^\s]+/g;
+const OPENCODE_INBOUND_APP_MESSAGE_PATTERN =
+  /<opencode_inbound_app_message>\s*([\s\S]*?)\s*<\/opencode_inbound_app_message>/gi;
 
 export interface CommandOutputInfo {
   stream: 'stdout' | 'stderr';
@@ -121,6 +127,10 @@ export function sanitizeDisplayContent(content: string): string {
   for (const pattern of NOISE_TAG_PATTERNS) {
     sanitized = sanitized.replace(pattern, '');
   }
+  sanitized = sanitized.replace(
+    OPENCODE_INBOUND_APP_MESSAGE_PATTERN,
+    (_match, innerContent: string | undefined) => innerContent?.trim() ?? ''
+  );
 
   // Also remove any remaining command tags (in case of mixed content)
   sanitized = sanitized
@@ -131,7 +141,7 @@ export function sanitizeDisplayContent(content: string): string {
   // Remove follow-up instructions that only make sense in raw XML form.
   sanitized = sanitized.replace(TASK_OUTPUT_INSTRUCTION_PATTERN, '');
 
-  return sanitized.trim();
+  return sanitized.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**

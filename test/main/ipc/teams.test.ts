@@ -19,7 +19,7 @@ import type {
 vi.mock('electron', () => ({
   app: { getLocale: vi.fn(() => 'en'), getPath: vi.fn(() => '/tmp'), isPackaged: false },
   Notification: Object.assign(vi.fn(), { isSupported: vi.fn(() => false) }),
-  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  BrowserWindow: { fromWebContents: vi.fn(() => null), getAllWindows: vi.fn(() => []) },
 }));
 
 // Keep this mock resilient to new exports (avoid drift).

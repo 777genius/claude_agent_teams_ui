@@ -142,4 +142,63 @@ describe('BoardTaskExactLogStrictParser', () => {
       },
     ]);
   });
+
+  it('inherits stable session actor context for Codex-native rows without agentName', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exact-log-parser-actor-'));
+    tempDirs.push(tempDir);
+
+    const filePath = path.join(tempDir, 'native-session.jsonl');
+    await fs.writeFile(
+      filePath,
+      [
+        JSON.stringify({
+          parentUuid: null,
+          isSidechain: false,
+          userType: 'external',
+          cwd: '/tmp/project',
+          sessionId: 'session-codex',
+          version: '1.0.0',
+          gitBranch: 'main',
+          agentName: 'tom',
+          type: 'system',
+          uuid: 'session-context',
+          timestamp: '2026-04-19T10:00:00.000Z',
+          subtype: 'init',
+          level: 'info',
+          isMeta: false,
+          content: 'started',
+        }),
+        JSON.stringify({
+          parentUuid: 'session-context',
+          userType: 'external',
+          cwd: '/tmp/project',
+          sessionId: 'session-codex',
+          version: '1.0.0',
+          gitBranch: 'main',
+          type: 'assistant',
+          uuid: 'assistant-without-agent',
+          timestamp: '2026-04-19T10:00:01.000Z',
+          requestId: 'req-1',
+          message: {
+            role: 'assistant',
+            id: 'msg-1',
+            type: 'message',
+            model: 'codex',
+            content: [{ type: 'text', text: 'working' }],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        }),
+      ].join('\n'),
+      'utf8'
+    );
+
+    const parsed = await new BoardTaskExactLogStrictParser().parseFiles([filePath]);
+
+    expect(parsed.get(filePath)?.map((message) => [message.uuid, message.agentName])).toEqual([
+      ['session-context', 'tom'],
+      ['assistant-without-agent', 'tom'],
+    ]);
+  });
 });

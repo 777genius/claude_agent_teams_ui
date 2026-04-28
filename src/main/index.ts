@@ -1079,7 +1079,7 @@ async function initializeServices(): Promise<void> {
     new TeamTaskStallSnapshotSource(),
     new TeamTaskStallPolicy(),
     new TeamTaskStallJournal(),
-    new TeamTaskStallNotifier(teamDataService)
+    new TeamTaskStallNotifier(teamDataService, teamProvisioningService)
   );
   let teammateToolTracker: TeammateToolTracker | null = null;
   branchStatusService = new BranchStatusService((event) => {

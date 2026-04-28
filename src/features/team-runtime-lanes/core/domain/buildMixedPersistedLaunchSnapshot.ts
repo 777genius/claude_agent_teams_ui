@@ -146,6 +146,16 @@ function createPrimaryLaneMemberState(params: {
   const runtime = params.status;
   const strongRuntimeAlive = preservesStrongRuntimeAlive(runtime ?? {});
   const sources = runtime ? createSourcesFromStatus(runtime) : undefined;
+  const launchState =
+    runtime?.launchState ??
+    deriveMemberLaunchState({
+      hardFailure: runtime?.hardFailure,
+      bootstrapConfirmed: runtime?.bootstrapConfirmed,
+      runtimeAlive: strongRuntimeAlive,
+      agentToolAccepted: runtime?.agentToolAccepted,
+      pendingPermissionRequestIds: runtime?.pendingPermissionRequestIds,
+    });
+  const hardFailure = runtime?.hardFailure === true || launchState === 'failed_to_start';
   const base: PersistedTeamLaunchMemberState = {
     name: params.member.name.trim(),
     providerId,
@@ -173,20 +183,12 @@ function createPrimaryLaneMemberState(params: {
       providerId === params.leadDefaults.providerId
         ? (params.leadDefaults.launchIdentity ?? undefined)
         : undefined,
-    launchState:
-      runtime?.launchState ??
-      deriveMemberLaunchState({
-        hardFailure: runtime?.hardFailure,
-        bootstrapConfirmed: runtime?.bootstrapConfirmed,
-        runtimeAlive: strongRuntimeAlive,
-        agentToolAccepted: runtime?.agentToolAccepted,
-        pendingPermissionRequestIds: runtime?.pendingPermissionRequestIds,
-      }),
+    launchState,
     agentToolAccepted: runtime?.agentToolAccepted === true,
     runtimeAlive: strongRuntimeAlive,
     bootstrapConfirmed: runtime?.bootstrapConfirmed === true,
-    hardFailure: runtime?.hardFailure === true || runtime?.launchState === 'failed_to_start',
-    hardFailureReason: runtime?.hardFailureReason ?? runtime?.error,
+    hardFailure,
+    hardFailureReason: hardFailure ? (runtime?.hardFailureReason ?? runtime?.error) : undefined,
     pendingPermissionRequestIds: runtime?.pendingPermissionRequestIds?.length
       ? [...new Set(runtime.pendingPermissionRequestIds)]
       : undefined,
@@ -212,7 +214,6 @@ function createSecondaryLaneMemberState(
     normalizeOptionalTeamProviderId(params.member.providerId) ?? params.leadDefaults.providerId;
   const evidence = params.evidence;
   const strongRuntimeAlive = preservesStrongRuntimeAlive(evidence ?? {});
-  const hardFailureReason = evidence?.hardFailureReason;
   const launchState =
     evidence?.launchState ??
     deriveMemberLaunchState({
@@ -222,6 +223,8 @@ function createSecondaryLaneMemberState(
       agentToolAccepted: evidence?.agentToolAccepted,
       pendingPermissionRequestIds: evidence?.pendingPermissionRequestIds,
     });
+  const hardFailure = evidence?.hardFailure === true || launchState === 'failed_to_start';
+  const hardFailureReason = hardFailure ? evidence?.hardFailureReason : undefined;
   const base: PersistedTeamLaunchMemberState = {
     name: params.member.name.trim(),
     providerId,
@@ -249,7 +252,7 @@ function createSecondaryLaneMemberState(
     agentToolAccepted: evidence?.agentToolAccepted === true,
     runtimeAlive: strongRuntimeAlive,
     bootstrapConfirmed: evidence?.bootstrapConfirmed === true,
-    hardFailure: evidence?.hardFailure === true || launchState === 'failed_to_start',
+    hardFailure,
     hardFailureReason,
     pendingPermissionRequestIds: evidence?.pendingPermissionRequestIds?.length
       ? [...new Set(evidence.pendingPermissionRequestIds)]

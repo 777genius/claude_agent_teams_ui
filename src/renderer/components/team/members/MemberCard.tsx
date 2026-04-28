@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { Badge } from '@renderer/components/ui/badge';
+import { SyncedLoader2 } from '@renderer/components/ui/SyncedLoader2';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
@@ -21,18 +22,11 @@ import {
 import { getRuntimeMemorySourceLabel } from '@renderer/utils/memberRuntimeSummary';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { deriveTaskDisplayId } from '@shared/utils/taskIdentity';
-import {
-  AlertTriangle,
-  Ban,
-  GitBranch,
-  Loader2,
-  MessageSquare,
-  Plus,
-  RotateCcw,
-} from 'lucide-react';
+import { AlertTriangle, Ban, GitBranch, MessageSquare, Plus, RotateCcw } from 'lucide-react';
 
 import { CurrentTaskIndicator } from './CurrentTaskIndicator';
 import { MemberLaunchDiagnosticsButton } from './MemberLaunchDiagnosticsButton';
+import { MemberPresenceDot } from './MemberPresenceDot';
 
 import type { TaskStatusCounts } from '@renderer/utils/pathNormalize';
 import type {
@@ -183,9 +177,11 @@ export const MemberCard = ({
   const isLead = isLeadMember(member);
   const workspacePath = member.cwd?.trim();
   const showWorkspaceBadge = !isLead && !isRemoved && member.isolation === 'worktree';
-  const workspaceBadgeTitle = workspacePath
-    ? `Worktree isolation configured. Worktree path: ${workspacePath}`
-    : 'Worktree isolation is configured, but the runtime path is not available yet';
+  const workspaceTooltipLines = [
+    'Worktree isolation is enabled.',
+    workspacePath ? `Path: ${workspacePath}` : 'Path is not available yet.',
+    member.gitBranch ? `Branch: ${member.gitBranch}` : null,
+  ].filter((line): line is string => Boolean(line));
   const activityTask = currentTask ?? reviewTask ?? null;
   const activityTitle = currentTask
     ? `Current task: #${deriveTaskDisplayId(currentTask.id)}`
@@ -200,7 +196,6 @@ export const MemberCard = ({
     !runtimeSummary;
   const showLaunchBadge =
     !isRemoved &&
-    !activityTask &&
     !runtimeAdvisoryLabel &&
     (presenceLabel === 'starting' ||
       presenceLabel === 'connecting' ||
@@ -335,29 +330,36 @@ export const MemberCard = ({
                 loading="lazy"
               />
             </div>
-            <span
-              className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--color-surface)] ${dotClass}`}
-              aria-label={displayPresenceLabel}
-            />
+            <MemberPresenceDot className={`size-2.5 ${dotClass}`} label={displayPresenceLabel} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5 text-sm">
               <span className="shrink-0 font-medium text-[var(--color-text)]">
                 {displayMemberName(member.name)}
               </span>
-              {member.gitBranch ? (
+              {member.gitBranch && !showWorkspaceBadge ? (
                 <span className="flex shrink-0 items-center gap-0.5 text-[10px] text-[var(--color-text-muted)]">
                   <GitBranch size={10} />
                   {member.gitBranch}
                 </span>
               ) : null}
               {showWorkspaceBadge ? (
-                <span
-                  className="shrink-0 rounded border border-emerald-400/35 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-semibold uppercase leading-none text-emerald-300"
-                  title={workspaceBadgeTitle}
-                >
-                  worktree
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="shrink-0 rounded border border-emerald-400/35 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-semibold uppercase leading-none text-emerald-300">
+                      worktree
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-sm text-xs leading-relaxed">
+                    <div className="space-y-1">
+                      {workspaceTooltipLines.map((line) => (
+                        <p key={line} className="break-words">
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
               ) : null}
               {currentTask ? (
                 <CurrentTaskIndicator
@@ -380,8 +382,8 @@ export const MemberCard = ({
                   {runtimeAdvisoryTone === 'error' ? (
                     <AlertTriangle className="size-3 shrink-0 text-red-400" />
                   ) : (
-                    <Loader2
-                      className={`size-3 shrink-0 animate-spin ${runtimeAdvisoryLabel ? 'text-amber-400' : ''}`}
+                    <SyncedLoader2
+                      className={`size-3 shrink-0 ${runtimeAdvisoryLabel ? 'text-amber-400' : ''}`}
                       style={runtimeAdvisoryLabel ? undefined : { color: colors.border }}
                     />
                   )}
@@ -436,8 +438,8 @@ export const MemberCard = ({
               className="flex shrink-0 items-center gap-1"
               title={runtimeEntry?.runtimeDiagnostic}
             >
-              <Loader2
-                className="size-3.5 shrink-0 animate-spin text-[var(--color-text-muted)]"
+              <SyncedLoader2
+                className="size-3.5 shrink-0 text-[var(--color-text-muted)]"
                 aria-label={launchBadgeLabel}
               />
               <Badge
@@ -480,7 +482,7 @@ export const MemberCard = ({
                       onClick={handleSkipFailedLaunch}
                     >
                       {skippingLaunch ? (
-                        <Loader2 className="size-3.5 animate-spin" />
+                        <SyncedLoader2 className="size-3.5" />
                       ) : (
                         <Ban className="size-3.5" />
                       )}
@@ -503,7 +505,7 @@ export const MemberCard = ({
                       onClick={handleRetryFailedLaunch}
                     >
                       {retryingLaunch ? (
-                        <Loader2 className="size-3.5 animate-spin" />
+                        <SyncedLoader2 className="size-3.5" />
                       ) : (
                         <RotateCcw className="size-3.5" />
                       )}
@@ -545,7 +547,7 @@ export const MemberCard = ({
                       onClick={handleRetryFailedLaunch}
                     >
                       {retryingLaunch ? (
-                        <Loader2 className="size-3.5 animate-spin" />
+                        <SyncedLoader2 className="size-3.5" />
                       ) : (
                         <RotateCcw className="size-3.5" />
                       )}

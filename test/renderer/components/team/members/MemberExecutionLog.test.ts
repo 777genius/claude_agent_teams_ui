@@ -183,4 +183,38 @@ describe('MemberExecutionLog', () => {
       await flushMicrotasks();
     });
   });
+
+  it('uses the member name for execution group labels when provided', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    setSingleAiGroup();
+    enhanceState.value = {
+      displayItems: [
+        {
+          type: 'tool',
+          id: 'tool-1',
+          toolName: 'read',
+          timestamp: new Date('2026-04-18T13:23:11.000Z'),
+        },
+      ],
+      itemsSummary: '1 tool call',
+      lastOutput: null,
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(React.createElement(MemberExecutionLog, { chunks: [], memberName: 'jack' }));
+      await flushMicrotasks();
+    });
+
+    expect(host.textContent).toContain('jack turn');
+    expect(host.textContent).not.toContain('Agent turn');
+
+    await act(async () => {
+      root.unmount();
+      await flushMicrotasks();
+    });
+  });
 });

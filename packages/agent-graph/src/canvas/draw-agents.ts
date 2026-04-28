@@ -14,7 +14,7 @@ import {
   MIN_VISIBLE_OPACITY,
 } from '../constants/canvas-constants';
 import { drawHexagon } from './draw-misc';
-import { getAgentGlowSprite, ensureHex, hexWithAlpha } from './render-cache';
+import { getAgentGlowSprite, hexWithAlpha } from './render-cache';
 
 /**
  * Draw all member/lead nodes on the canvas.
@@ -128,7 +128,6 @@ export function drawAgents(
         y,
         r,
         labelText,
-        color,
         node.runtimeLabel,
         node.launchStatusLabel,
         node.launchVisualState
@@ -655,7 +654,7 @@ function drawAvatar(
   isLead: boolean,
   avatarUrl?: string
 ): void {
-  const avatarR = r * 0.6;
+  const avatarR = r * AGENT_DRAW.avatarRadiusScale;
 
   // Try to draw avatar image
   if (avatarUrl) {
@@ -688,17 +687,15 @@ function drawLabel(
   y: number,
   r: number,
   label: string,
-  color: string,
   runtimeLabel?: string,
   launchStatusLabel?: string,
   launchVisualState?: GraphNode['launchVisualState']
 ): void {
   const labelY = y + r + AGENT_DRAW.labelYOffset;
-  ctx.font = '9px monospace';
+  ctx.font = 'bold 10px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.fillStyle = color;
-  ctx.fillText(label, x, labelY);
+  drawLabelText(ctx, label, x, labelY, '#e8f8ff', 12);
 
   const trimmedRuntimeLabel = runtimeLabel?.trim();
   const trimmedLaunchStatusLabel = launchStatusLabel?.trim();
@@ -706,19 +703,66 @@ function drawLabel(
     return;
   }
 
-  let nextLineY = labelY + 10;
+  let nextLineY = labelY + 11;
   if (trimmedRuntimeLabel) {
     ctx.font = '8px monospace';
-    ctx.fillStyle = hexWithAlpha(ensureHex(color), 0.72);
-    ctx.fillText(truncateSubLabel(ctx, trimmedRuntimeLabel, r), x, nextLineY);
+    drawLabelText(ctx, truncateSubLabel(ctx, trimmedRuntimeLabel, r), x, nextLineY, '#b9d7f2', 10);
     nextLineY += 10;
   }
 
   if (trimmedLaunchStatusLabel) {
     ctx.font = '7px monospace';
-    ctx.fillStyle = getLaunchStatusColor(launchVisualState);
-    ctx.fillText(truncateSubLabel(ctx, trimmedLaunchStatusLabel, r), x, nextLineY);
+    drawLabelText(
+      ctx,
+      truncateSubLabel(ctx, trimmedLaunchStatusLabel, r),
+      x,
+      nextLineY,
+      getLaunchStatusColor(launchVisualState),
+      9
+    );
   }
+}
+
+function drawLabelText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  fillStyle: string,
+  lineHeight: number
+): void {
+  const textWidth = ctx.measureText(text).width;
+  const paddingX = 5;
+  const paddingY = 1.5;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(ctx.globalAlpha, 0.88);
+  ctx.beginPath();
+  ctx.roundRect(
+    x - textWidth / 2 - paddingX,
+    y - paddingY,
+    textWidth + paddingX * 2,
+    lineHeight,
+    4
+  );
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(148, 213, 255, 0.18)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = fillStyle;
+  drawTextWithHalo(ctx, text, x, y);
+  ctx.restore();
+}
+
+function drawTextWithHalo(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  ctx.save();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.96)';
+  ctx.strokeText(text, x, y);
+  ctx.restore();
+  ctx.fillText(text, x, y);
 }
 
 function truncateSubLabel(ctx: CanvasRenderingContext2D, label: string, r: number): string {

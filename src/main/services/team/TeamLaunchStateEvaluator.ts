@@ -428,6 +428,9 @@ function normalizePersistedMemberState(
         bootstrapConfirmed,
         livenessKind,
       });
+  const hardFailure = skippedForLaunch
+    ? false
+    : toBoolean(parsed.hardFailure) || parsed.launchState === 'failed_to_start';
   const sources = normalizeSources(parsed.sources) ?? {};
   if (!runtimeAlive) {
     sources.processAlive = undefined;
@@ -467,8 +470,8 @@ function normalizePersistedMemberState(
     agentToolAccepted: skippedForLaunch ? false : toBoolean(parsed.agentToolAccepted),
     runtimeAlive,
     bootstrapConfirmed,
-    hardFailure: skippedForLaunch ? false : toBoolean(parsed.hardFailure),
-    hardFailureReason: skippedForLaunch
+    hardFailure,
+    hardFailureReason: !hardFailure
       ? undefined
       : typeof parsed.hardFailureReason === 'string' && parsed.hardFailureReason.trim().length > 0
         ? parsed.hardFailureReason.trim()
@@ -629,23 +632,22 @@ export function snapshotFromRuntimeMemberStatuses(params: {
     if (runtime?.livenessSource === 'process' && runtimeAlive) {
       sources.processAlive = true;
     }
+    const launchState = runtime?.launchState ?? 'starting';
+    const hardFailure =
+      runtime?.launchState === 'skipped_for_launch'
+        ? false
+        : runtime?.hardFailure === true || launchState === 'failed_to_start';
     const entry: PersistedTeamLaunchMemberState = {
       name,
-      launchState: runtime?.launchState ?? 'starting',
+      launchState,
       skippedForLaunch,
       skipReason: runtime?.skipReason,
       skippedAt: runtime?.skippedAt,
       agentToolAccepted: skippedForLaunch ? false : runtime?.agentToolAccepted === true,
       runtimeAlive,
       bootstrapConfirmed: skippedForLaunch ? false : runtime?.bootstrapConfirmed === true,
-      hardFailure:
-        runtime?.launchState === 'skipped_for_launch'
-          ? false
-          : runtime?.hardFailure === true || runtime?.launchState === 'failed_to_start',
-      hardFailureReason:
-        runtime?.launchState === 'skipped_for_launch'
-          ? undefined
-          : (runtime?.hardFailureReason ?? runtime?.error),
+      hardFailure,
+      hardFailureReason: hardFailure ? (runtime?.hardFailureReason ?? runtime?.error) : undefined,
       pendingPermissionRequestIds: runtime?.pendingPermissionRequestIds?.length
         ? [...new Set(runtime.pendingPermissionRequestIds)]
         : undefined,

@@ -46,6 +46,37 @@ import type {
   TeamTaskWithKanban,
 } from '@shared/types';
 
+const OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE =
+  'No OpenCode runtime session was recorded. Relaunch this teammate to start a fresh OpenCode session.';
+
+function hasOpenCodeRuntimeEvidence(runtimeEntry: TeamAgentRuntimeEntry | undefined): boolean {
+  const hasPid =
+    typeof runtimeEntry?.pid === 'number' &&
+    Number.isFinite(runtimeEntry.pid) &&
+    runtimeEntry.pid > 0;
+  const hasRuntimePid =
+    typeof runtimeEntry?.runtimePid === 'number' &&
+    Number.isFinite(runtimeEntry.runtimePid) &&
+    runtimeEntry.runtimePid > 0;
+  const hasRuntimeSessionId =
+    typeof runtimeEntry?.runtimeSessionId === 'string' &&
+    runtimeEntry.runtimeSessionId.trim().length > 0;
+  const hasRuntimeLiveness =
+    runtimeEntry?.livenessKind === 'runtime_process' ||
+    runtimeEntry?.livenessKind === 'runtime_process_candidate' ||
+    runtimeEntry?.livenessKind === 'permission_blocked';
+  return Boolean(hasPid || hasRuntimePid || hasRuntimeSessionId || hasRuntimeLiveness);
+}
+
+function isOpenCodeNoRuntimeEvidenceFailure(
+  member: ResolvedTeamMember,
+  spawnEntry: MemberSpawnStatusEntry | undefined,
+  runtimeEntry: TeamAgentRuntimeEntry | undefined
+): boolean {
+  const failed = spawnEntry?.launchState === 'failed_to_start' || spawnEntry?.status === 'error';
+  return member.providerId === 'opencode' && failed && !hasOpenCodeRuntimeEvidence(runtimeEntry);
+}
+
 interface MemberDetailDialogProps {
   open: boolean;
   member: ResolvedTeamMember | null;
@@ -165,6 +196,13 @@ export const MemberDetailDialog = ({
   const launchErrorMessage = launchDiagnosticsPayload
     ? getMemberLaunchDiagnosticsErrorMessage(launchDiagnosticsPayload)
     : undefined;
+  const openCodeNoRuntimeEvidence = member
+    ? isOpenCodeNoRuntimeEvidenceFailure(member, spawnEntry, runtimeEntry)
+    : false;
+  const effectiveLaunchErrorMessage = openCodeNoRuntimeEvidence
+    ? OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE
+    : launchErrorMessage;
+  const restartButtonLabel = openCodeNoRuntimeEvidence ? 'Relaunch OpenCode' : 'Restart';
 
   useEffect(() => {
     if (!open || !member) {
@@ -284,10 +322,10 @@ export const MemberDetailDialog = ({
         <DialogFooter>
           {restartError ? (
             <div className="mr-auto text-xs text-red-400">{restartError}</div>
-          ) : launchErrorMessage ? (
+          ) : effectiveLaunchErrorMessage ? (
             <div className="mr-auto flex min-w-0 items-center gap-2 text-xs text-red-400">
-              <span className="min-w-0 truncate" title={launchErrorMessage}>
-                {launchErrorMessage}
+              <span className="min-w-0 truncate" title={effectiveLaunchErrorMessage}>
+                {effectiveLaunchErrorMessage}
               </span>
               {launchDiagnosticsPayload && showCopyDiagnostics ? (
                 <MemberLaunchDiagnosticsButton
@@ -339,7 +377,7 @@ export const MemberDetailDialog = ({
                     ) : (
                       <RotateCcw size={14} />
                     )}
-                    Restart
+                    {restartButtonLabel}
                   </Button>
                 )}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={onSendMessage}>

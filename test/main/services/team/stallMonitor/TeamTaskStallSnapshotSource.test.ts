@@ -11,6 +11,7 @@ describe('TeamTaskStallSnapshotSource', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       {} as never
     );
 
@@ -42,7 +43,10 @@ describe('TeamTaskStallSnapshotSource', () => {
       projectDir: '/tmp/project',
       projectId: 'project-id',
       config: {
-        members: [{ name: 'team-lead', role: 'team lead' }],
+        members: [
+          { name: 'team-lead', role: 'team lead', providerId: 'codex' },
+          { name: 'alice', role: 'Developer', model: 'qwen/qwen3-coder' },
+        ],
       } as never,
       sessionIds: ['session-a'],
       transcriptFiles: ['/tmp/project/session-a.jsonl', '/tmp/project/session-b.jsonl'],
@@ -109,6 +113,15 @@ describe('TeamTaskStallSnapshotSource', () => {
     const exactRowReader = {
       parseFiles: vi.fn(async () => exactRowsByFilePath),
     };
+    const membersMetaStore = {
+      getMembers: vi.fn(async () => [{ name: 'alice', providerId: 'opencode' }]),
+    };
+    const openCodeEvidenceSource = {
+      readEvidence: vi.fn(async () => ({
+        recordsByTaskId: new Map(),
+        exactRowsByFilePath: new Map(),
+      })),
+    };
 
     const source = new TeamTaskStallSnapshotSource(
       locator as never,
@@ -117,7 +130,9 @@ describe('TeamTaskStallSnapshotSource', () => {
       transcriptReader as never,
       batchIndexer as never,
       freshnessReader as never,
-      exactRowReader as never
+      exactRowReader as never,
+      membersMetaStore as never,
+      openCodeEvidenceSource as never
     );
 
     const snapshot = await source.getSnapshot('demo');
@@ -130,13 +145,118 @@ describe('TeamTaskStallSnapshotSource', () => {
     });
     expect(freshnessReader.readSignals).toHaveBeenCalledWith('/tmp/project', ['task-a', 'task-b']);
     expect(exactRowReader.parseFiles).toHaveBeenCalledWith(['/tmp/project/session-a.jsonl', '/tmp/project/session-b.jsonl']);
+    expect(openCodeEvidenceSource.readEvidence).toHaveBeenCalledWith({
+      teamName: 'demo',
+      tasks: [activeTasks[0], activeTasks[1]],
+      providerByMemberName: new Map([
+        ['team-lead', 'codex'],
+        ['alice', 'opencode'],
+      ]),
+    });
     expect(snapshot?.inProgressTasks.map((task) => task.id)).toEqual(['task-a']);
     expect(snapshot?.reviewOpenTasks.map((task) => task.id)).toEqual(['task-b']);
     expect(snapshot?.leadName).toBe('team-lead');
+    expect(snapshot?.providerByMemberName).toEqual(
+      new Map([
+        ['team-lead', 'codex'],
+        ['alice', 'opencode'],
+      ])
+    );
     expect(snapshot?.resolvedReviewersByTaskId.get('task-b')).toEqual({
       reviewer: 'alice',
       source: 'kanban_state',
     });
     expect(snapshot?.recordsByTaskId).toBe(recordsByTaskId);
+  });
+
+  it('merges OpenCode runtime evidence even when no Claude transcript files are available', async () => {
+    const task = {
+      id: 'task-open',
+      displayId: 'opencode1',
+      subject: 'OpenCode task',
+      status: 'in_progress',
+      owner: 'bob',
+    };
+    const openCodeRecord = {
+      id: 'opencode-rec',
+      timestamp: '2026-04-19T12:00:00.000Z',
+      source: {
+        filePath: 'opencode-runtime:demo:bob',
+        sourceOrder: 1,
+      },
+    };
+    const openCodeRows = [
+      {
+        filePath: 'opencode-runtime:demo:bob',
+        sourceOrder: 1,
+        messageUuid: 'msg-open',
+        timestamp: '2026-04-19T12:00:00.000Z',
+        parsedMessage: {
+          uuid: 'msg-open',
+          parentUuid: null,
+          type: 'assistant',
+          timestamp: new Date('2026-04-19T12:00:00.000Z'),
+          content: '',
+          isSidechain: true,
+          isMeta: false,
+          toolCalls: [],
+          toolResults: [],
+        },
+        toolUseIds: [],
+        toolResultIds: [],
+      },
+    ];
+    const source = new TeamTaskStallSnapshotSource(
+      {
+        getContext: vi.fn(async () => ({
+          projectDir: '/tmp/project',
+          projectId: 'project-id',
+          config: {
+            members: [
+              { name: 'team-lead', role: 'team lead', providerId: 'codex' },
+              { name: 'bob', role: 'Developer', providerId: 'opencode' },
+            ],
+          },
+          sessionIds: [],
+          transcriptFiles: [],
+        })),
+      } as never,
+      {
+        getTasks: vi.fn(async () => [task]),
+        getDeletedTasks: vi.fn(async () => []),
+      } as never,
+      {
+        getState: vi.fn(async () => ({ teamName: 'demo', tasks: {} })),
+      } as never,
+      {
+        readFiles: vi.fn(async () => {
+          throw new Error('transcript reader should not be called');
+        }),
+      } as never,
+      {
+        buildIndex: vi.fn(() => new Map()),
+      } as never,
+      {
+        readSignals: vi.fn(async () => new Map()),
+      } as never,
+      {
+        parseFiles: vi.fn(async () => new Map()),
+      } as never,
+      {
+        getMembers: vi.fn(async () => []),
+      } as never,
+      {
+        readEvidence: vi.fn(async () => ({
+          recordsByTaskId: new Map([['task-open', [openCodeRecord]]]),
+          exactRowsByFilePath: new Map([['opencode-runtime:demo:bob', openCodeRows]]),
+        })),
+      } as never
+    );
+
+    const snapshot = await source.getSnapshot('demo');
+
+    expect(snapshot?.recordsByTaskId.get('task-open')).toEqual([openCodeRecord]);
+    expect(snapshot?.exactRowsByFilePath.get('opencode-runtime:demo:bob')).toEqual(openCodeRows);
+    expect(snapshot?.transcriptFiles).toEqual([]);
   });
 });

@@ -233,6 +233,108 @@ describe('ClaudeMultimodelBridgeService', () => {
     });
   });
 
+  it('loads all providers with parallel provider-scoped runtime status probes', async () => {
+    const providerPayloads = {
+      anthropic: {
+        supported: true,
+        authenticated: true,
+        authMethod: 'oauth_token',
+        verificationState: 'verified',
+        canLoginFromUi: true,
+        models: ['claude-sonnet-4-5'],
+        capabilities: { teamLaunch: true, oneShot: true },
+        backend: { kind: 'anthropic', label: 'Anthropic' },
+      },
+      codex: {
+        supported: true,
+        authenticated: true,
+        authMethod: 'api_key',
+        verificationState: 'verified',
+        canLoginFromUi: false,
+        models: ['gpt-5-codex'],
+        capabilities: { teamLaunch: true, oneShot: true },
+        backend: { kind: 'codex-native', label: 'Codex native' },
+      },
+      gemini: {
+        supported: true,
+        authenticated: false,
+        verificationState: 'unknown',
+        canLoginFromUi: true,
+        statusMessage: 'No Gemini runtime backend is ready',
+        models: ['gemini-2.5-pro'],
+        capabilities: { teamLaunch: true, oneShot: true },
+      },
+      opencode: {
+        supported: true,
+        authenticated: true,
+        authMethod: 'opencode_managed',
+        verificationState: 'verified',
+        canLoginFromUi: false,
+        models: ['openai/gpt-5.4-mini'],
+        capabilities: { teamLaunch: true, oneShot: false },
+        backend: { kind: 'opencode-cli', label: 'OpenCode CLI' },
+      },
+    } as const;
+
+    execCliMock.mockImplementation((_binaryPath, args) => {
+      const normalizedArgs = Array.isArray(args) ? args.join(' ') : '';
+      const providerArgIndex = Array.isArray(args) ? args.indexOf('--provider') : -1;
+      const providerId =
+        providerArgIndex >= 0 && Array.isArray(args)
+          ? (args[providerArgIndex + 1] as keyof typeof providerPayloads)
+          : null;
+
+      if (
+        normalizedArgs.startsWith('runtime status --json --provider ') &&
+        providerId &&
+        providerPayloads[providerId]
+      ) {
+        return Promise.resolve({
+          stdout: JSON.stringify({
+            schemaVersion: 2,
+            providers: {
+              [providerId]: providerPayloads[providerId],
+            },
+          }),
+          stderr: '',
+          exitCode: 0,
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected execCli call: ${normalizedArgs}`));
+    });
+
+    const { ClaudeMultimodelBridgeService } =
+      await import('@main/services/runtime/ClaudeMultimodelBridgeService');
+    const service = new ClaudeMultimodelBridgeService();
+    const onUpdate = vi.fn();
+
+    const providers = await service.getProviderStatuses('/mock/agent_teams_orchestrator', onUpdate);
+
+    expect(execCliMock).toHaveBeenCalledTimes(4);
+    expect(execCliMock.mock.calls.map((call) => call[1].join(' '))).toEqual(
+      expect.arrayContaining([
+        'runtime status --json --provider anthropic',
+        'runtime status --json --provider codex',
+        'runtime status --json --provider gemini',
+        'runtime status --json --provider opencode',
+      ])
+    );
+    expect(providers.map((provider) => provider.providerId)).toEqual([
+      'anthropic',
+      'codex',
+      'gemini',
+      'opencode',
+    ]);
+    expect(providers.find((provider) => provider.providerId === 'codex')).toMatchObject({
+      authenticated: true,
+      models: ['gpt-5-codex'],
+      backend: { kind: 'codex-native' },
+    });
+    expect(onUpdate).toHaveBeenCalled();
+    expect(onUpdate.mock.calls.at(-1)?.[0]).toEqual(providers);
+  });
+
   it('overrides provider auth status when provider-aware env reports a missing API key', async () => {
     buildProviderAwareCliEnvMock.mockResolvedValue({
       env: { HOME: '/Users/tester' },

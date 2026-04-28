@@ -29,7 +29,7 @@ export function isEditableShortcutTarget(target: EventTarget | null): boolean {
   }
 
   const contentEditable = editableElement.getAttribute('contenteditable');
-  return contentEditable == null || contentEditable.toLowerCase() !== 'false';
+  return contentEditable?.toLowerCase() !== 'false';
 }
 
 export function useKeyboardShortcuts(): void {

@@ -18,8 +18,9 @@ import { countTokens } from '@main/utils/tokenizer';
 import { createLogger } from '@shared/utils/logger';
 import * as path from 'path';
 
-import { buildSemanticStepGroups } from './SemanticStepGrouper';
 import { resolveProjectStorageDir } from '../discovery/projectStorageDir';
+
+import { buildSemanticStepGroups } from './SemanticStepGrouper';
 
 import type { SubagentResolver } from '../discovery/SubagentResolver';
 import type { FileSystemProvider } from '../infrastructure/FileSystemProvider';

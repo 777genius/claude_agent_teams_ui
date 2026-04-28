@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   OpenCodeRuntimeManifestEvidenceReader,
+  getOpenCodeRuntimeManifestPath,
   getOpenCodeLaneScopedRuntimeFilePath,
   getOpenCodeRuntimeLaneIndexPath,
   getOpenCodeTeamRuntimeDirectory,
@@ -13,8 +14,10 @@ import {
   migrateLegacyOpenCodeRuntimeState,
   readOpenCodeRuntimeLaneIndex,
   recoverStaleOpenCodeRuntimeLaneIndexEntry,
+  setOpenCodeRuntimeActiveRunManifest,
   upsertOpenCodeRuntimeLaneIndexEntry,
 } from '../../../../src/main/services/team/opencode/store/OpenCodeRuntimeManifestEvidenceReader';
+import { createDefaultRuntimeStoreManifest } from '../../../../src/main/services/team/opencode/store/RuntimeStoreManifest';
 
 describe('OpenCodeRuntimeManifestEvidenceReader migration', () => {
   let tempDir: string;
@@ -348,6 +351,100 @@ describe('OpenCodeRuntimeManifestEvidenceReader migration', () => {
         'secondary:opencode:jack': { state: 'active' },
         'secondary:opencode:tom': { state: 'active' },
       },
+    });
+  });
+
+  it('persists lane-scoped activeRunId for runtime evidence after app restart', async () => {
+    const teamName = 'team-theta';
+    const laneId = 'secondary:opencode:jack';
+    const reader = new OpenCodeRuntimeManifestEvidenceReader({ teamsBasePath: tempDir });
+
+    await setOpenCodeRuntimeActiveRunManifest({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      runId: 'run-opencode-jack',
+      clock: () => now,
+    });
+
+    await expect(reader.read(teamName, laneId)).resolves.toMatchObject({
+      activeRunId: 'run-opencode-jack',
+      highWatermark: 0,
+    });
+  });
+
+  it('updates raw legacy runtime manifests without dropping existing capability metadata', async () => {
+    const teamName = 'team-iota';
+    const laneId = 'secondary:opencode:alice';
+    const manifestPath = getOpenCodeRuntimeManifestPath(tempDir, teamName, laneId);
+    const legacyManifest = {
+      ...createDefaultRuntimeStoreManifest(teamName, '2026-04-22T10:00:00.000Z'),
+      activeRunId: 'run-old',
+      activeCapabilitySnapshotId: 'cap-existing',
+      activeBehaviorFingerprint: 'behavior-existing',
+      highWatermark: 5,
+    };
+    await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fs.writeFile(manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`, 'utf8');
+
+    await setOpenCodeRuntimeActiveRunManifest({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      runId: 'run-new',
+      clock: () => now,
+    });
+
+    await expect(
+      new OpenCodeRuntimeManifestEvidenceReader({ teamsBasePath: tempDir }).read(teamName, laneId)
+    ).resolves.toMatchObject({
+      activeRunId: 'run-new',
+      capabilitySnapshotId: 'cap-existing',
+      highWatermark: 0,
+    });
+  });
+
+  it('preserves committed manifest highWatermark when persisting activeRunId', async () => {
+    const teamName = 'team-kappa';
+    const laneId = 'secondary:opencode:bob';
+    const manifestPath = getOpenCodeRuntimeManifestPath(tempDir, teamName, laneId);
+    const committedManifest = {
+      ...createDefaultRuntimeStoreManifest(teamName, '2026-04-22T10:00:00.000Z'),
+      activeRunId: 'run-old',
+      highWatermark: 5,
+      lastCommittedBatchId: 'batch-1',
+      entries: [
+        {
+          schemaName: 'opencode.launchState',
+          schemaVersion: 1,
+          relativePath: 'launch-state.json',
+          contentHash: 'sha256:test',
+          fileSize: 12,
+          mtimeMs: 123,
+          runId: 'run-old',
+          capabilitySnapshotId: null,
+          behaviorFingerprint: null,
+          lastWriteReceiptId: 'receipt-1',
+          state: 'healthy',
+        },
+      ],
+    };
+    await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fs.writeFile(manifestPath, `${JSON.stringify(committedManifest, null, 2)}\n`, 'utf8');
+
+    await setOpenCodeRuntimeActiveRunManifest({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      runId: 'run-new',
+      clock: () => now,
+    });
+
+    await expect(
+      new OpenCodeRuntimeManifestEvidenceReader({ teamsBasePath: tempDir }).read(teamName, laneId)
+    ).resolves.toMatchObject({
+      activeRunId: 'run-new',
+      highWatermark: 5,
     });
   });
 });

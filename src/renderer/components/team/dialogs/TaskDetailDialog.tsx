@@ -55,7 +55,6 @@ import {
 import { linkifyTaskIdsInMarkdown, parseTaskLinkHref } from '@renderer/utils/taskReferenceUtils';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { getTaskKanbanColumn } from '@shared/utils/reviewState';
-import { canDisplayTaskChanges } from '@shared/utils/taskChangeState';
 import {
   deriveTaskDisplayId,
   formatTaskDisplayLabel,
@@ -86,6 +85,7 @@ import {
 } from 'lucide-react';
 
 const TASK_CHANGES_AUTO_REFRESH_MS = 20_000;
+const TASK_CHANGES_INITIAL_LOAD_DELAY_MS = 1_500;
 
 import { SourceMessageAttachments } from '../attachments/SourceMessageAttachments';
 
@@ -325,8 +325,9 @@ export const TaskDetailDialog = ({
       ? currentTask.sourceMessage.attachments.length
       : 0;
 
-  // Lazy-load task changes for any displayable state (in_progress, review, approved, completed).
-  const canShowTaskChanges = currentTask ? canDisplayTaskChanges(currentTask) : false;
+  // Changes is the explicit lazy-load entry point. Keep it visible for all team tasks,
+  // including old/pending tasks that may resolve to an empty result.
+  const canShowTaskChanges = Boolean(currentTask);
   const taskSince = useMemo(() => deriveTaskSince(currentTask), [currentTask]);
   const taskChangeRequestOptions = useMemo(
     () => (currentTask ? buildTaskChangeRequestOptions(currentTask) : null),
@@ -361,13 +362,7 @@ export const TaskDetailDialog = ({
 
   const loadTaskChangeSummary = useCallback(
     async (forceFresh = false): Promise<TaskChangeSetV2 | null> => {
-      if (
-        !currentTask ||
-        !taskChangeSummaryOptions ||
-        variant !== 'team' ||
-        !canShowTaskChanges ||
-        !onViewChanges
-      ) {
+      if (!currentTask || !taskChangeSummaryOptions || variant !== 'team' || !canShowTaskChanges) {
         return null;
       }
       const data = await api.review.getTaskChanges(teamName, currentTask.id, {
@@ -376,7 +371,7 @@ export const TaskDetailDialog = ({
       });
       return data;
     },
-    [canShowTaskChanges, currentTask, onViewChanges, taskChangeSummaryOptions, teamName, variant]
+    [canShowTaskChanges, currentTask, taskChangeSummaryOptions, teamName, variant]
   );
 
   const syncTaskChangeSummaryResult = useCallback(
@@ -410,14 +405,7 @@ export const TaskDetailDialog = ({
       preserveFilesOnError?: boolean;
     } = {}): Promise<void> => {
       const requestKey = currentTaskChangeSummaryKeyRef.current;
-      if (
-        !requestKey ||
-        !currentTask ||
-        variant !== 'team' ||
-        !canShowTaskChanges ||
-        !onViewChanges
-      )
-        return;
+      if (!requestKey || !currentTask || variant !== 'team' || !canShowTaskChanges) return;
       if (taskChangesLoadInFlightKeysRef.current.has(requestKey)) return;
 
       taskChangesLoadInFlightKeysRef.current.add(requestKey);
@@ -449,32 +437,27 @@ export const TaskDetailDialog = ({
         }
       }
     },
-    [
-      canShowTaskChanges,
-      currentTask,
-      loadTaskChangeSummary,
-      onViewChanges,
-      syncTaskChangeSummaryResult,
-      variant,
-    ]
+    [canShowTaskChanges, currentTask, loadTaskChangeSummary, syncTaskChangeSummaryResult, variant]
   );
 
   useEffect(() => {
     if (variant !== 'team') return;
-    if (!open || !currentTask || !canShowTaskChanges || !onViewChanges || !changesSectionOpen)
-      return;
+    if (!open || !currentTask || !canShowTaskChanges || !changesSectionOpen) return;
 
     const summaryKey = currentTaskChangeSummaryKey;
     if (loadedTaskChangeSummaryKeyRef.current === summaryKey) {
       return;
     }
+    if (taskChangesFiles !== null) {
+      loadedTaskChangeSummaryKeyRef.current = summaryKey;
+      return;
+    }
     loadedTaskChangeSummaryKeyRef.current = summaryKey;
 
-    // Show full loading state only when no files are cached yet;
-    // otherwise let the refresh button spinner indicate background reload.
+    // The manual open path only reaches this branch when no summary is cached yet.
     void requestTaskChangeSummary({
       forceFresh: false,
-      showSpinner: !taskChangesFiles || taskChangesFiles.length === 0,
+      showSpinner: true,
       preserveFilesOnError: false,
     });
   }, [
@@ -483,12 +466,46 @@ export const TaskDetailDialog = ({
     currentTask,
     canShowTaskChanges,
     teamName,
-    onViewChanges,
     currentTaskChangeSummaryKey,
     taskChangeRequestSignature,
     variant,
     requestTaskChangeSummary,
     taskChangesFiles,
+  ]);
+
+  useEffect(() => {
+    if (variant !== 'team') return;
+    if (!open || !currentTask || !canShowTaskChanges || changesSectionOpen) return;
+    if (!currentTaskChangeSummaryKey || taskChangesFiles !== null) return;
+
+    const summaryKey = currentTaskChangeSummaryKey;
+    if (loadedTaskChangeSummaryKeyRef.current === summaryKey) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      if (currentTaskChangeSummaryKeyRef.current !== summaryKey) {
+        return;
+      }
+      void requestTaskChangeSummary({
+        forceFresh: false,
+        showSpinner: true,
+        preserveFilesOnError: true,
+      });
+    }, TASK_CHANGES_INITIAL_LOAD_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    changesSectionOpen,
+    open,
+    currentTask,
+    canShowTaskChanges,
+    currentTaskChangeSummaryKey,
+    requestTaskChangeSummary,
+    taskChangesFiles,
+    variant,
   ]);
 
   useEffect(() => {
@@ -499,7 +516,7 @@ export const TaskDetailDialog = ({
 
   useEffect(() => {
     if (variant !== 'team') return;
-    if (!open || !currentTask || !canShowTaskChanges || !onViewChanges || !changesSectionOpen) {
+    if (!open || !currentTask || !canShowTaskChanges || !changesSectionOpen) {
       return;
     }
 
@@ -519,7 +536,6 @@ export const TaskDetailDialog = ({
     open,
     currentTask,
     canShowTaskChanges,
-    onViewChanges,
     requestTaskChangeSummary,
     variant,
   ]);
@@ -1138,14 +1154,21 @@ export const TaskDetailDialog = ({
             </CollapsibleTeamSection>
 
             {/* Changes */}
-            {variant === 'team' && canShowTaskChanges && onViewChanges ? (
+            {variant === 'team' && canShowTaskChanges ? (
               <CollapsibleTeamSection
                 key={`task-changes:${currentTask.id}`}
                 title="Changes"
                 icon={<FileDiff size={14} />}
-                badge={taskChangesFiles ? taskChangesFiles.length : undefined}
+                badge={
+                  !taskChangesLoading && taskChangesFiles ? taskChangesFiles.length : undefined
+                }
                 headerExtra={
-                  changesSectionOpen ? (
+                  taskChangesLoading && !changesSectionOpen ? (
+                    <Loader2
+                      size={12}
+                      className="pointer-events-none animate-spin text-[var(--color-text-muted)]"
+                    />
+                  ) : changesSectionOpen ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -1192,16 +1215,22 @@ export const TaskDetailDialog = ({
                           fileName={file.relativePath.split('/').pop() ?? file.relativePath}
                           className="size-3.5"
                         />
-                        <button
-                          type="button"
-                          className="min-w-0 flex-1 truncate text-left font-mono text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text)]"
-                          onClick={() => {
-                            handleClose();
-                            onViewChanges(currentTask.id, file.filePath);
-                          }}
-                        >
-                          {file.relativePath}
-                        </button>
+                        {onViewChanges ? (
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 truncate text-left font-mono text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text)]"
+                            onClick={() => {
+                              handleClose();
+                              onViewChanges(currentTask.id, file.filePath);
+                            }}
+                          >
+                            {file.relativePath}
+                          </button>
+                        ) : (
+                          <span className="min-w-0 flex-1 truncate text-left font-mono text-[var(--color-text-secondary)]">
+                            {file.relativePath}
+                          </span>
+                        )}
                         <span className="flex shrink-0 items-center gap-1.5">
                           {file.linesAdded > 0 ? (
                             <span className="text-emerald-400">+{file.linesAdded}</span>
@@ -1211,21 +1240,23 @@ export const TaskDetailDialog = ({
                           ) : null}
                         </span>
                         <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
-                                onClick={() => {
-                                  handleClose();
-                                  onViewChanges(currentTask.id, file.filePath);
-                                }}
-                              >
-                                <GitCompareArrows size={13} />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">Review diff</TooltipContent>
-                          </Tooltip>
+                          {onViewChanges ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-border-emphasis)] hover:text-[var(--color-text)]"
+                                  onClick={() => {
+                                    handleClose();
+                                    onViewChanges(currentTask.id, file.filePath);
+                                  }}
+                                >
+                                  <GitCompareArrows size={13} />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Review diff</TooltipContent>
+                            </Tooltip>
+                          ) : null}
                           {onOpenInEditor ? (
                             <Tooltip>
                               <TooltipTrigger asChild>

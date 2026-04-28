@@ -48,6 +48,16 @@ interface CodexLastKnownRateLimits {
   observedAt: number;
 }
 
+interface CodexRuntimeContext {
+  binaryPath: string | null;
+  codexHome: string | null;
+}
+
+interface CodexLastKnownRuntimeContext {
+  payload: CodexRuntimeContext;
+  observedAt: number;
+}
+
 interface CodexSnapshotRefreshOptions {
   includeRateLimits: boolean;
   forceRefreshToken: boolean;
@@ -127,6 +137,16 @@ function asRateLimits(
     secondary: asRateLimitWindow(snapshot.secondary),
     credits: asCreditsSnapshot(snapshot.credits),
     planType: snapshot.planType,
+  };
+}
+
+function createRuntimeContext(
+  binaryPath: string | null | undefined,
+  codexHome: string | null | undefined
+): CodexRuntimeContext {
+  return {
+    binaryPath: binaryPath?.trim() || null,
+    codexHome: codexHome?.trim() || null,
   };
 }
 
@@ -236,6 +256,7 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
   private pendingRefreshOptions: CodexSnapshotRefreshOptions | null = null;
   private lastKnownAccount: CodexLastKnownAccount | null = null;
   private lastKnownRateLimits: CodexLastKnownRateLimits | null = null;
+  private lastKnownRuntimeContext: CodexLastKnownRuntimeContext | null = null;
   private mutationQueue: Promise<void> = Promise.resolve();
   private mutationQueueRelease: (() => void) | null = null;
   private activeMutationCount = 0;
@@ -372,6 +393,7 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
     this.pendingRefreshOptions = null;
     this.lastKnownAccount = null;
     this.lastKnownRateLimits = null;
+    this.lastKnownRuntimeContext = null;
     this.activeMutationCount = 0;
     if (this.mutationQueueRelease) {
       this.mutationQueueRelease();
@@ -441,6 +463,7 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
     let appServerStatusMessage: string | null = null;
     let accountPayload = this.lastKnownAccount?.payload ?? null;
     let requiresOpenaiAuth: boolean | null = accountPayload?.requiresOpenaiAuth ?? null;
+    let runtimeContext = createRuntimeContext(binaryPath, null);
 
     try {
       const accountResult = await this.appServerClient.readAccount({
@@ -448,6 +471,13 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
         env,
         refreshToken: options?.forceRefreshToken ?? false,
       });
+      runtimeContext = createRuntimeContext(binaryPath, accountResult.initialize.codexHome);
+      if (runtimeContext.codexHome) {
+        this.lastKnownRuntimeContext = {
+          payload: runtimeContext,
+          observedAt: now,
+        };
+      }
       const canReuseLastKnownManagedAccount =
         options?.forceRefreshToken !== true &&
         localActiveChatgptAccountPresent &&
@@ -482,6 +512,14 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
       } else {
         accountPayload = this.lastKnownAccount.payload;
         requiresOpenaiAuth = this.lastKnownAccount.payload.requiresOpenaiAuth;
+      }
+
+      if (
+        this.lastKnownRuntimeContext &&
+        now - this.lastKnownRuntimeContext.observedAt <= LAST_KNOWN_GOOD_MANAGED_ACCOUNT_TTL_MS &&
+        this.lastKnownRuntimeContext.payload.binaryPath === binaryPath
+      ) {
+        runtimeContext = this.lastKnownRuntimeContext.payload;
       }
     }
 
@@ -542,6 +580,7 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
       requiresOpenaiAuth,
       localAccountArtifactsPresent,
       localActiveChatgptAccountPresent,
+      runtimeContext,
       login,
       rateLimits,
       updatedAt: new Date(now).toISOString(),

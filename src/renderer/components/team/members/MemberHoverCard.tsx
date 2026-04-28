@@ -36,6 +36,7 @@ import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from '../provi
 
 import { CurrentTaskIndicator } from './CurrentTaskIndicator';
 import { MemberLaunchDiagnosticsButton } from './MemberLaunchDiagnosticsButton';
+import { MemberPresenceDot } from './MemberPresenceDot';
 
 import type { LeadActivityState, TeamTaskWithKanban } from '@shared/types';
 
@@ -191,10 +192,7 @@ export const MemberHoverCard = ({
                 className="size-10 rounded-full bg-[var(--color-surface-raised)]"
                 loading="lazy"
               />
-              <span
-                className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-[var(--color-surface)] ${dotClass}`}
-                aria-label={badgeLabel}
-              />
+              <MemberPresenceDot className={`size-3 ${dotClass}`} label={badgeLabel} />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">

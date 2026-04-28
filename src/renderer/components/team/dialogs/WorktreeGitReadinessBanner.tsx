@@ -147,13 +147,13 @@ export function getWorktreeGitControlDisabledReason(
   return state.status.canUseWorktrees ? null : (state.status.message ?? null);
 }
 
-export function WorktreeGitReadinessBanner({
+export const WorktreeGitReadinessBanner = ({
   state,
   showReady = false,
 }: {
   state: WorktreeGitReadinessState;
   showReady?: boolean;
-}): React.JSX.Element | null {
+}): React.JSX.Element | null => {
   const { status, loading, actionLoading, error, initializeRepository, createInitialCommit } =
     state;
 
@@ -240,4 +240,4 @@ export function WorktreeGitReadinessBanner({
       </div>
     </div>
   );
-}
+};

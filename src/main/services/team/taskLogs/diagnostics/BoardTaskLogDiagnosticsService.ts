@@ -170,6 +170,12 @@ function isEmptyToolPayload(value: unknown): boolean {
   return false;
 }
 
+function asObjectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 function collectEmptyPayloadExamples(
   stream: Awaited<ReturnType<BoardTaskLogStreamService['getTaskLogStream']>>
 ): BoardTaskLogDiagnosticExample[] {
@@ -194,7 +200,7 @@ function collectEmptyPayloadExamples(
           });
         }
 
-        const toolUseResult = message.toolUseResult;
+        const toolUseResult = asObjectRecord(message.toolUseResult);
         if (!toolUseResult) {
           continue;
         }

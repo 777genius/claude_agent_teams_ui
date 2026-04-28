@@ -80,6 +80,7 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
   const status = getToolStatus(linkedTool);
   const { isLight } = useTheme();
   const summary = getToolSummary(linkedTool.name, linkedTool.input);
+  const normalizedToolName = linkedTool.name.toLowerCase();
   const summaryNode =
     searchQueryOverride && searchQueryOverride.trim().length > 0
       ? highlightQueryInText(
@@ -159,16 +160,16 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
 
   // Determine which specialized viewer to use
   const useReadViewer =
-    linkedTool.name === 'Read' && hasReadContent(linkedTool) && !linkedTool.result?.isError;
-  const useEditViewer = linkedTool.name === 'Edit' && hasEditContent(linkedTool);
+    normalizedToolName === 'read' && hasReadContent(linkedTool) && !linkedTool.result?.isError;
+  const useEditViewer = normalizedToolName === 'edit' && hasEditContent(linkedTool);
   const useWriteViewer =
-    linkedTool.name === 'Write' && hasWriteContent(linkedTool) && !linkedTool.result?.isError;
+    normalizedToolName === 'write' && hasWriteContent(linkedTool) && !linkedTool.result?.isError;
   const useSkillViewer = linkedTool.name === 'Skill' && hasSkillInstructions(linkedTool);
   const useDefaultViewer = !useReadViewer && !useEditViewer && !useWriteViewer && !useSkillViewer;
 
   // Check if we should show error display for Read/Write tools
-  const showReadError = linkedTool.name === 'Read' && linkedTool.result?.isError;
-  const showWriteError = linkedTool.name === 'Write' && linkedTool.result?.isError;
+  const showReadError = normalizedToolName === 'read' && linkedTool.result?.isError;
+  const showWriteError = normalizedToolName === 'write' && linkedTool.result?.isError;
 
   return (
     <div ref={handleRef}>

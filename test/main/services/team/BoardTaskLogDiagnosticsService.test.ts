@@ -354,4 +354,115 @@ describe('BoardTaskLogDiagnosticsService', () => {
     expect(report.stream.visibleToolNames).toContain('mcp__agent-teams__task_complete');
     expect(report.diagnosis.join(' ')).not.toContain('Only board MCP actions are explicit');
   });
+
+  it('ignores non-record toolUseResult values when checking empty stream payloads', async () => {
+    const task = createTask();
+    const taskReader = {
+      getTasks: async () => [task],
+      getDeletedTasks: async () => [] as TeamTask[],
+    };
+    const transcriptSourceLocator = {
+      listTranscriptFiles: async () => [] as string[],
+    };
+    const recordSource = {
+      getTaskRecords: async () => [],
+    };
+    const strictParser = {
+      parseFiles: async () => new Map(),
+    };
+    const streamService = {
+      getTaskLogStream: async () => ({
+        participants: [],
+        defaultFilter: 'all' as const,
+        segments: [
+          {
+            id: 'segment-1',
+            participantKey: 'member:tom',
+            actor: {
+              memberName: 'tom',
+              role: 'member' as const,
+              sessionId: 'session-tom',
+              isSidechain: false,
+            },
+            startTimestamp: '2026-04-12T15:36:00.000Z',
+            endTimestamp: '2026-04-12T15:36:00.000Z',
+            chunks: [
+              {
+                id: 'chunk-1',
+                rawMessages: [
+                  {
+                    uuid: 'assistant-1',
+                    parentUuid: null,
+                    type: 'assistant',
+                    timestamp: new Date('2026-04-12T15:36:00.000Z'),
+                    role: 'assistant',
+                    content: [
+                      {
+                        type: 'tool_use',
+                        id: 'tool-1',
+                        name: 'mcp__agent-teams__task_add_comment',
+                        input: {},
+                      },
+                    ],
+                    toolCalls: [
+                      {
+                        id: 'tool-1',
+                        name: 'mcp__agent-teams__task_add_comment',
+                        input: {},
+                        isTask: false,
+                      },
+                    ],
+                    toolResults: [],
+                    isSidechain: false,
+                    isMeta: false,
+                    isCompactSummary: false,
+                  },
+                  {
+                    uuid: 'user-1',
+                    parentUuid: 'assistant-1',
+                    type: 'user',
+                    timestamp: new Date('2026-04-12T15:36:01.000Z'),
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'tool_result',
+                        tool_use_id: 'tool-1',
+                        content: 'validation failed',
+                        is_error: true,
+                      },
+                    ],
+                    toolCalls: [],
+                    toolResults: [
+                      {
+                        toolUseId: 'tool-1',
+                        content: 'validation failed',
+                        isError: true,
+                      },
+                    ],
+                    sourceToolUseID: 'tool-1',
+                    toolUseResult: new Error('validation failed'),
+                    isSidechain: false,
+                    isMeta: false,
+                    isCompactSummary: false,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const diagnosticsService = new BoardTaskLogDiagnosticsService(
+      taskReader as never,
+      transcriptSourceLocator as never,
+      recordSource as never,
+      strictParser as never,
+      streamService as never,
+    );
+
+    const report = await diagnosticsService.diagnose(TEAM_NAME, TASK_ID);
+
+    expect(report.stream.emptyPayloadExamples).toEqual([]);
+    expect(report.stream.visibleToolNames).toEqual(['mcp__agent-teams__task_add_comment']);
+  });
 });

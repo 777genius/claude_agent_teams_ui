@@ -175,6 +175,7 @@ const AIExecutionGroup = ({
     );
     return enhanceAIGroup({ ...group, processes: filteredProcesses });
   }, [group, memberName]);
+  const groupLabel = memberName?.trim() ? `${memberName.trim()} turn` : 'Agent turn';
   const hasToggleContent = enhanced.displayItems.length > 0;
   const visibleLastOutput =
     enhanced.lastOutput?.type === 'tool_result' && hasToggleContent ? null : enhanced.lastOutput;
@@ -192,7 +193,7 @@ const AIExecutionGroup = ({
             >
               <Bot className="size-4 shrink-0 text-[var(--color-text-secondary)]" />
               <span className="shrink-0 text-xs font-semibold text-[var(--color-text-secondary)]">
-                Agent
+                {groupLabel}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-text-muted)]">
                 {enhanced.itemsSummary}
