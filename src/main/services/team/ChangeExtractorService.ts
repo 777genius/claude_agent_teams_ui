@@ -14,6 +14,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { JsonTaskChangeSummaryCacheRepository } from './cache/JsonTaskChangeSummaryCacheRepository';
+import { OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION } from './opencode/bridge/OpenCodeBridgeCommandContract';
 import {
   getOpenCodeLaneScopedRuntimeFilePath,
   getOpenCodeTeamRuntimeDirectory,
@@ -533,9 +534,25 @@ export class ChangeExtractorService {
             }
           : {}),
       });
+      const evidenceContractVersion =
+        typeof result.opencodeTaskLedgerEvidenceContractVersion === 'number' &&
+        Number.isInteger(result.opencodeTaskLedgerEvidenceContractVersion)
+          ? result.opencodeTaskLedgerEvidenceContractVersion
+          : 0;
+      const hasExpectedEvidenceContract =
+        evidenceContractVersion >= OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION;
+      const diagnostics = hasExpectedEvidenceContract
+        ? (result.diagnostics ?? [])
+        : [
+            `OpenCode task ledger evidence contract is unsupported or missing: ${evidenceContractVersion}.`,
+            ...(result.diagnostics ?? []),
+          ];
       void appendOpenCodeTaskChangeDiag({
         event: 'backfill_result',
-        reason: this.classifyOpenCodeBackfillResult(result),
+        reason:
+          !hasExpectedEvidenceContract && result.importedEvents <= 0
+            ? 'unsupported-evidence-contract'
+            : this.classifyOpenCodeBackfillResult(result),
         teamName: input.teamName,
         taskId: input.taskId,
         displayId: input.taskMeta?.displayId ?? null,
@@ -546,6 +563,7 @@ export class ChangeExtractorService {
         deliveryRecordCount: deliveryContextRecords.length,
         deliveryContextFingerprint: deliveryContextPayload.hash,
         result: {
+          opencodeTaskLedgerEvidenceContractVersion: evidenceContractVersion,
           attributionMode: result.attributionMode ?? OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
           outcome: result.outcome,
           dryRun: result.dryRun,
@@ -555,13 +573,14 @@ export class ChangeExtractorService {
           importedEvents: result.importedEvents,
           skippedEvents: result.skippedEvents,
         },
-        diagnostics: (result.diagnostics ?? []).slice(0, 25),
+        diagnostics: diagnostics.slice(0, 25),
         notices: (result.notices ?? []).slice(0, 25),
       }).catch(() => undefined);
       const backfilled =
         result.importedEvents > 0 ||
-        result.outcome === 'imported' ||
-        (result.outcome === 'duplicates-only' && result.candidateEvents > 0);
+        (hasExpectedEvidenceContract &&
+          (result.outcome === 'imported' ||
+            (result.outcome === 'duplicates-only' && result.candidateEvents > 0)));
 
       if (result.importedEvents > 0) {
         await this.invalidateTaskChangeSummaries(input.teamName, [input.taskId], {
@@ -569,7 +588,7 @@ export class ChangeExtractorService {
         });
       }
 
-      if (backfilled || deliveryContextRecords.length === 0) {
+      if ((hasExpectedEvidenceContract && backfilled) || deliveryContextRecords.length === 0) {
         this.openCodeBackfillCache.set(cacheKey, {
           backfilledAt: backfilled ? Date.now() : 0,
           expiresAt: Date.now() + this.openCodeBackfillCacheTtl,
@@ -578,9 +597,9 @@ export class ChangeExtractorService {
         this.openCodeBackfillCache.delete(cacheKey);
       }
 
-      if (result.diagnostics.length > 0 && result.outcome !== 'no-history') {
+      if (diagnostics.length > 0 && result.outcome !== 'no-history') {
         logger.debug(
-          `OpenCode ledger backfill for ${input.teamName}/${input.taskId}: ${result.outcome}; ${result.diagnostics.join('; ')}`
+          `OpenCode ledger backfill for ${input.teamName}/${input.taskId}: ${result.outcome}; ${diagnostics.join('; ')}`
         );
       }
       return { attempted: true, backfilled };
