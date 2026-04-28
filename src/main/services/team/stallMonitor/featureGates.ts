@@ -22,19 +22,25 @@ function readInt(value: string | undefined, defaultValue: number): number {
 }
 
 export function isTeamTaskStallMonitorEnabled(): boolean {
-  return readEnabledFlag(process.env.CLAUDE_TEAM_TASK_STALL_MONITOR_ENABLED, false);
+  // General stall monitor for all providers. When enabled, stalled work/review tasks are
+  // evaluated and routed to the normal alert pipeline.
+  return readEnabledFlag(process.env.CLAUDE_TEAM_TASK_STALL_MONITOR_ENABLED, true);
 }
 
 export function isOpenCodeTaskStallRemediationEnabled(): boolean {
-  return readEnabledFlag(process.env.CLAUDE_TEAM_OPENCODE_TASK_STALL_REMEDIATION_ENABLED, false);
+  // OpenCode-specific enhancement. It can directly nudge the OpenCode task owner before
+  // falling back to the lead alert path.
+  return readEnabledFlag(process.env.CLAUDE_TEAM_OPENCODE_TASK_STALL_REMEDIATION_ENABLED, true);
 }
 
 export function isTeamTaskStallScannerEnabled(): boolean {
+  // The scanner must run for either full monitoring or OpenCode-only remediation mode.
   return isTeamTaskStallMonitorEnabled() || isOpenCodeTaskStallRemediationEnabled();
 }
 
 export function isTeamTaskStallAlertsEnabled(): boolean {
-  return readEnabledFlag(process.env.CLAUDE_TEAM_TASK_STALL_ALERTS_ENABLED, false);
+  // Lead/system notifications for alerts that are not handled by provider-specific remediation.
+  return readEnabledFlag(process.env.CLAUDE_TEAM_TASK_STALL_ALERTS_ENABLED, true);
 }
 
 export function getTeamTaskStallScanIntervalMs(): number {
@@ -50,5 +56,6 @@ export function getTeamTaskStallActivationGraceMs(): number {
 }
 
 export function getOpenCodeWeakStartStallThresholdMs(): number {
-  return readInt(process.env.CLAUDE_TEAM_OPENCODE_WEAK_START_STALL_THRESHOLD_MS, 6 * 60_000);
+  // Shorter OpenCode threshold for "started work" comments that do not contain concrete progress.
+  return readInt(process.env.CLAUDE_TEAM_OPENCODE_WEAK_START_STALL_THRESHOLD_MS, 120_000);
 }

@@ -26,6 +26,11 @@ interface TeamObservationState {
   lastActivationAtMs: number;
 }
 
+function unrefBackgroundTimer(timer: ReturnType<typeof setTimeout>): void {
+  const maybeTimer = timer as { unref?: () => void };
+  maybeTimer.unref?.();
+}
+
 export class TeamTaskStallMonitor {
   private scanTimer: ReturnType<typeof setTimeout> | null = null;
   private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -68,10 +73,10 @@ export class TeamTaskStallMonitor {
   }
 
   noteTeamChange(event: TeamChangeEvent): void {
-    this.registry.noteTeamChange(event);
     if (!isTeamTaskStallScannerEnabled()) {
       return;
     }
+    this.registry.noteTeamChange(event);
 
     if (
       event.type === 'member-spawn' ||
@@ -103,6 +108,7 @@ export class TeamTaskStallMonitor {
       this.scanTimer = null;
       void this.runScan();
     }, delayMs);
+    unrefBackgroundTimer(this.scanTimer);
   }
 
   private scheduleNudgedScan(): void {
@@ -113,6 +119,7 @@ export class TeamTaskStallMonitor {
       this.nudgeTimer = null;
       void this.runScan();
     }, 5_000);
+    unrefBackgroundTimer(this.nudgeTimer);
   }
 
   private async runScan(): Promise<void> {
@@ -179,10 +186,11 @@ export class TeamTaskStallMonitor {
       evaluations.push(this.policy.evaluateReview({ now, task, snapshot }));
     }
 
-    const remediationOnly =
-      isOpenCodeTaskStallRemediationEnabled() && !isTeamTaskStallMonitorEnabled();
-    const scopedTaskIds = remediationOnly ? this.getOpenCodeOwnedTaskIds(snapshot) : undefined;
-    const journalEvaluations = remediationOnly
+    const fullMonitorEnabled = isTeamTaskStallMonitorEnabled();
+    const openCodeRemediationEnabled = isOpenCodeTaskStallRemediationEnabled();
+    const openCodeOnlyMode = openCodeRemediationEnabled && !fullMonitorEnabled;
+    const scopedTaskIds = openCodeOnlyMode ? this.getOpenCodeOwnedTaskIds(snapshot) : undefined;
+    const journalEvaluations = openCodeOnlyMode
       ? evaluations.filter((evaluation) => this.isOpenCodeOwnerWorkEvaluation(snapshot, evaluation))
       : evaluations;
     const activeTaskIds = [
@@ -205,7 +213,7 @@ export class TeamTaskStallMonitor {
     }
 
     const alertedEpochKeys = new Set<string>();
-    if (isOpenCodeTaskStallRemediationEnabled()) {
+    if (openCodeRemediationEnabled) {
       const remediatedAlerts = await this.notifier.notifyOpenCodeOwners(teamName, alerts);
       for (const alert of remediatedAlerts) {
         alertedEpochKeys.add(alert.epochKey);

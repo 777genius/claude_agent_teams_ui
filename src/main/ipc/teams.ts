@@ -3,6 +3,7 @@ import { setCurrentMainOp } from '@main/services/infrastructure/EventLoopLagMoni
 import { getTeamDataWorkerClient } from '@main/services/team/TeamDataWorkerClient';
 import { getAppIconPath } from '@main/utils/appIcon';
 import { getAppDataPath, getTeamsBasePath } from '@main/utils/pathDecoder';
+import { safeSendToRenderer } from '@main/utils/safeWebContentsSend';
 import { stripMarkdown } from '@main/utils/textFormatting';
 import {
   TEAM_ADD_MEMBER,
@@ -1761,6 +1762,13 @@ async function handleGetClaudeLogs(
   });
 }
 
+function sendProvisioningProgress(
+  targetWindow: BrowserWindow | null,
+  progress: TeamProvisioningProgress
+): void {
+  safeSendToRenderer(targetWindow, TEAM_PROVISIONING_PROGRESS, progress);
+}
+
 async function handleCreateTeam(
   event: IpcMainInvokeEvent,
   request: unknown
@@ -1769,16 +1777,12 @@ async function handleCreateTeam(
   if (!validation.valid) {
     return { success: false, error: validation.error };
   }
+  const progressTargetWindow = BrowserWindow.fromWebContents(event.sender);
 
   return wrapTeamHandler('create', () => {
     addMainBreadcrumb('team', 'create', { teamName: validation.value.teamName });
     return getTeamProvisioningService().createTeam(validation.value, (progress) => {
-      try {
-        event.sender.send(TEAM_PROVISIONING_PROGRESS, progress);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn(`Failed to emit provisioning progress: ${message}`);
-      }
+      sendProvisioningProgress(progressTargetWindow, progress);
     });
   });
 }
@@ -1790,6 +1794,7 @@ async function handleLaunchTeam(
   if (!request || typeof request !== 'object') {
     return { success: false, error: 'Invalid team launch request' };
   }
+  const progressTargetWindow = BrowserWindow.fromWebContents(event.sender);
 
   const payload = request as Partial<TeamLaunchRequest>;
   const validatedTeamName = validateTeamName(payload.teamName);
@@ -1912,12 +1917,7 @@ async function handleLaunchTeam(
 
     return wrapTeamHandler('create', () =>
       getTeamProvisioningService().createTeam(createRequest, (progress) => {
-        try {
-          event.sender.send(TEAM_PROVISIONING_PROGRESS, progress);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.warn(`Failed to emit draft launch provisioning progress: ${message}`);
-        }
+        sendProvisioningProgress(progressTargetWindow, progress);
       })
     );
   }
@@ -1985,12 +1985,7 @@ async function handleLaunchTeam(
             : undefined,
       },
       (progress) => {
-        try {
-          event.sender.send(TEAM_PROVISIONING_PROGRESS, progress);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.warn(`Failed to emit launch provisioning progress: ${message}`);
-        }
+        sendProvisioningProgress(progressTargetWindow, progress);
       }
     );
   });

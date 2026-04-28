@@ -16,6 +16,11 @@ interface TeamLogSourceTrackingHandle {
   ): Promise<{ projectFingerprint: string | null; logSourceGeneration: string | null }>;
 }
 
+function unrefBackgroundTimer(timer: ReturnType<typeof setInterval>): void {
+  const maybeTimer = timer as { unref?: () => void };
+  maybeTimer.unref?.();
+}
+
 export class ActiveTeamRegistry {
   private readonly activeTeams = new Set<string>();
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
@@ -61,6 +66,7 @@ export class ActiveTeamRegistry {
     this.reconcileTimer = setInterval(() => {
       void this.reconcile();
     }, this.reconcileIntervalMs);
+    unrefBackgroundTimer(this.reconcileTimer);
   }
 
   async stop(): Promise<void> {

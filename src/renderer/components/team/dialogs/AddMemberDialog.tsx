@@ -8,6 +8,7 @@ import {
   validateMemberNameInline,
 } from '@renderer/components/team/members/MembersEditorSection';
 import { Button } from '@renderer/components/ui/button';
+import { isGeminiUiFrozen } from '@renderer/utils/geminiUiFreeze';
 import {
   Dialog,
   DialogContent,
@@ -198,6 +199,7 @@ export const AddMemberDialog = ({
             showWorktreeIsolationControls
             teammateWorktreeDefault={teammateWorktreeDefault}
             onTeammateWorktreeDefaultChange={setTeammateWorktreeDefault}
+            disableGeminiOption={isGeminiUiFrozen()}
           />
         </div>
 
