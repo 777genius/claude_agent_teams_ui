@@ -1332,24 +1332,30 @@ describe('ChangeExtractorService', () => {
       'utf8'
     );
 
-    const backfillOpenCodeTaskLedger = vi.fn(async (input: any) => ({
-      schemaVersion: 1,
-      providerId: 'opencode',
-      teamName: input.teamName,
-      taskId: input.taskId,
-      projectDir: input.projectDir,
-      workspaceRoot: input.workspaceRoot,
-      dryRun: false,
-      attributionMode: input.attributionMode,
-      scannedSessions: 1,
-      scannedToolparts: 0,
-      candidateEvents: 0,
-      importedEvents: 0,
-      skippedEvents: 0,
-      outcome: 'no-attribution',
-      notices: [],
-      diagnostics: [],
-    }));
+    let backfillAttempt = 0;
+    const backfillOpenCodeTaskLedger = vi.fn(async (input: any) => {
+      const outcome = backfillAttempt++ === 0 ? 'transient-error' : 'no-attribution';
+      return {
+        schemaVersion: 1,
+        providerId: 'opencode',
+        teamName: input.teamName,
+        taskId: input.taskId,
+        projectDir: input.projectDir,
+        workspaceRoot: input.workspaceRoot,
+        dryRun: false,
+        attributionMode: input.attributionMode,
+        scannedSessions: 1,
+        scannedToolparts: 0,
+        candidateEvents: 0,
+        importedEvents: 0,
+        skippedEvents: 0,
+        outcome,
+        notices: [],
+        diagnostics: outcome === 'transient-error'
+          ? ['OpenCode SQLite file changed while snapshot was read; using transaction snapshot.']
+          : [],
+      };
+    });
     const workerClient = {
       isAvailable: vi.fn(() => true),
       computeTaskChanges: vi.fn(async () =>
