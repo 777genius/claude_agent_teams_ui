@@ -413,6 +413,10 @@ export class ChangeExtractorService {
       input.teamName,
       input.taskId
     );
+    const backfillMemberName = this.resolveOpenCodeBackfillMemberName(
+      input.effectiveOptions.owner,
+      deliveryContextRecords
+    );
     const deliveryContextFingerprint =
       this.hashOpenCodeDeliveryContextRecords(deliveryContextRecords);
 
@@ -444,7 +448,7 @@ export class ChangeExtractorService {
         teamName: input.teamName,
         taskId: input.taskId,
         displayId: input.taskMeta?.displayId ?? null,
-        memberName: input.effectiveOptions.owner ?? null,
+        memberName: backfillMemberName ?? input.effectiveOptions.owner ?? null,
         projectDir,
         workspaceRoot,
         sourceGeneration,
@@ -466,7 +470,8 @@ export class ChangeExtractorService {
       workspaceRoot,
       cacheKey,
       deliveryContextRecords,
-      sourceGeneration
+      sourceGeneration,
+      backfillMemberName
     ).finally(() => {
       this.openCodeBackfillInFlight.delete(cacheKey);
     });
@@ -482,7 +487,8 @@ export class ChangeExtractorService {
     deliveryContextRecords: Awaited<
       ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>
     >,
-    sourceGeneration: string | null
+    sourceGeneration: string | null,
+    backfillMemberName?: string
   ): Promise<boolean> {
     const deliveryContext = await this.createOpenCodeDeliveryContextTempFile(
       input.teamName,
@@ -495,10 +501,10 @@ export class ChangeExtractorService {
         teamName: input.teamName,
         taskId: input.taskId,
         taskDisplayId: input.taskMeta?.displayId,
-        memberName: input.effectiveOptions.owner,
         projectDir,
         workspaceRoot,
         attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
+        ...(backfillMemberName ? { memberName: backfillMemberName } : {}),
         ...(deliveryContext.filePath ? { deliveryContextPath: deliveryContext.filePath } : {}),
       });
       void appendOpenCodeTaskChangeDiag({
@@ -507,7 +513,7 @@ export class ChangeExtractorService {
         teamName: input.teamName,
         taskId: input.taskId,
         displayId: input.taskMeta?.displayId ?? null,
-        memberName: input.effectiveOptions.owner ?? null,
+        memberName: backfillMemberName ?? input.effectiveOptions.owner ?? null,
         projectDir,
         workspaceRoot,
         sourceGeneration,
@@ -562,7 +568,7 @@ export class ChangeExtractorService {
         teamName: input.teamName,
         taskId: input.taskId,
         displayId: input.taskMeta?.displayId ?? null,
-        memberName: input.effectiveOptions.owner ?? null,
+        memberName: backfillMemberName ?? input.effectiveOptions.owner ?? null,
         projectDir,
         workspaceRoot,
         deliveryRecordCount: deliveryContextRecords.length,
@@ -743,6 +749,18 @@ export class ChangeExtractorService {
     }
 
     return records.slice(-200);
+  }
+
+  private resolveOpenCodeBackfillMemberName(
+    owner: string | undefined,
+    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
+  ): string | undefined {
+    const members = [...new Set(records.map((record) => record.memberName.trim()).filter(Boolean))];
+    const normalizedOwner = owner?.trim();
+    if (normalizedOwner && members.includes(normalizedOwner)) {
+      return normalizedOwner;
+    }
+    return members.length === 1 ? members[0] : undefined;
   }
 
   private async readOpenCodeRuntimeLaneIdsFromDisk(
