@@ -47,6 +47,7 @@ import type { AgentChangeSet, ChangeStats, TaskChangeSetV2 } from '@shared/types
 
 const logger = createLogger('Service:ChangeExtractorService');
 const OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE = 'strict-delivery' as const;
+const OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE = 'opencode-session-snapshot-v1' as const;
 const OPEN_CODE_MAX_DISCOVERED_LANES = 500;
 
 /** Кеш-запись: данные + mtime файла + время протухания */
@@ -448,6 +449,7 @@ export class ChangeExtractorService {
       sourceGeneration,
       deliveryContextFingerprint,
       attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
+      evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
     });
     const now = Date.now();
     const cached = this.openCodeBackfillCache.get(cacheKey);
@@ -474,6 +476,7 @@ export class ChangeExtractorService {
         deliveryRecordCount: 0,
         deliveryContextFingerprint,
         attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
+        evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
       }).catch(() => undefined);
       return { attempted: false, backfilled: false };
     }
@@ -562,6 +565,7 @@ export class ChangeExtractorService {
         sourceGeneration,
         deliveryRecordCount: deliveryContextRecords.length,
         deliveryContextFingerprint: deliveryContextPayload.hash,
+        evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
         result: {
           opencodeTaskLedgerEvidenceContractVersion: evidenceContractVersion,
           attributionMode: result.attributionMode ?? OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
@@ -618,6 +622,7 @@ export class ChangeExtractorService {
         workspaceRoot,
         deliveryRecordCount: deliveryContextRecords.length,
         deliveryContextFingerprint: deliveryContextPayload.hash,
+        evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
         error: error instanceof Error ? error.message : String(error),
       }).catch(() => undefined);
       if (deliveryContextRecords.length === 0) {
@@ -868,6 +873,7 @@ export class ChangeExtractorService {
     sourceGeneration?: string | null;
     deliveryContextFingerprint: string;
     attributionMode: typeof OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE;
+    evidencePipeline: typeof OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE;
   }): string {
     return JSON.stringify({
       teamName: input.teamName,
@@ -878,6 +884,7 @@ export class ChangeExtractorService {
       sourceGeneration: input.sourceGeneration ?? '',
       deliveryContextFingerprint: input.deliveryContextFingerprint,
       attributionMode: input.attributionMode,
+      evidencePipeline: input.evidencePipeline,
     });
   }
 
