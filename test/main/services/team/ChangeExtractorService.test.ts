@@ -1,5 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as fs from 'fs/promises';
@@ -999,7 +1000,12 @@ describe('ChangeExtractorService', () => {
     await fs.mkdir(projectPath, { recursive: true });
     await writeOpenCodeDeliveryLedger(tmpDir);
 
+    let deliveryContextHashVerified = false;
     const backfillOpenCodeTaskLedger = vi.fn(async (input: any) => {
+      deliveryContextHashVerified =
+        createHash('sha256')
+          .update(await fs.readFile(input.deliveryContextPath, 'utf8'))
+          .digest('hex') === input.deliveryContextHash;
       await writeOpenCodeLedgerBundle(input.projectDir, projectPath);
       return {
         schemaVersion: 1,
@@ -1069,6 +1075,12 @@ describe('ChangeExtractorService', () => {
         attributionMode: 'strict-delivery',
       })
     );
+    const backfillInput = backfillOpenCodeTaskLedger.mock.calls[0]?.[0];
+    expect(backfillInput.deliveryContextPath).toEqual(
+      expect.stringContaining('delivery-context.json')
+    );
+    expect(backfillInput.deliveryContextHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(deliveryContextHashVerified).toBe(true);
     expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]).not.toHaveProperty('evidenceMode');
     expect(workerClient.computeTaskChanges).not.toHaveBeenCalled();
   });
@@ -1513,6 +1525,7 @@ describe('ChangeExtractorService', () => {
           projectDir,
           workspaceRoot: projectPath,
           deliveryContextPath: expect.stringContaining('delivery-context.json'),
+          deliveryContextHash: expect.stringMatching(/^[a-f0-9]{64}$/),
           attributionMode: 'strict-delivery',
         })
       );
@@ -1621,6 +1634,7 @@ describe('ChangeExtractorService', () => {
     expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]?.deliveryContextPath).toEqual(
       expect.stringContaining('delivery-context.json')
     );
+    expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]?.deliveryContextHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('does not cache negative OpenCode backfill while delivery context already exists', async () => {
@@ -1732,8 +1746,10 @@ describe('ChangeExtractorService', () => {
     expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]?.deliveryContextPath).toEqual(
       expect.stringContaining('delivery-context.json')
     );
+    expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]?.deliveryContextHash).toMatch(/^[a-f0-9]{64}$/);
     expect(backfillOpenCodeTaskLedger.mock.calls[1]?.[0]?.deliveryContextPath).toEqual(
       expect.stringContaining('delivery-context.json')
     );
+    expect(backfillOpenCodeTaskLedger.mock.calls[1]?.[0]?.deliveryContextHash).toMatch(/^[a-f0-9]{64}$/);
   });
 });

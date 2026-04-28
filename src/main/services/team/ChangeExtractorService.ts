@@ -9,7 +9,7 @@ import {
 } from '@shared/utils/taskChangeState';
 import { createHash } from 'crypto';
 import { existsSync } from 'fs';
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
+import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -77,6 +77,7 @@ interface OpenCodeBackfillAttempt {
 
 interface OpenCodeDeliveryContextTempFile {
   filePath: string | null;
+  hash: string | null;
   cleanup: () => Promise<void>;
 }
 
@@ -513,7 +514,12 @@ export class ChangeExtractorService {
         workspaceRoot,
         attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
         ...(backfillMemberName ? { memberName: backfillMemberName } : {}),
-        ...(deliveryContext.filePath ? { deliveryContextPath: deliveryContext.filePath } : {}),
+        ...(deliveryContext.filePath
+          ? {
+              deliveryContextPath: deliveryContext.filePath,
+              deliveryContextHash: deliveryContext.hash ?? undefined,
+            }
+          : {}),
       });
       void appendOpenCodeTaskChangeDiag({
         event: 'backfill_result',
@@ -661,27 +667,26 @@ export class ChangeExtractorService {
     records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
   ): Promise<OpenCodeDeliveryContextTempFile> {
     if (records.length === 0) {
-      return { filePath: null, cleanup: async () => undefined };
+      return { filePath: null, hash: null, cleanup: async () => undefined };
     }
 
     const dir = await mkdtemp(path.join(os.tmpdir(), 'claude-team-opencode-ledger-context-'));
+    await chmod(dir, 0o700).catch(() => undefined);
     const filePath = path.join(dir, 'delivery-context.json');
-    await writeFile(
-      filePath,
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          teamName,
-          taskId,
-          records,
-        },
-        null,
-        2
-      )}\n`,
-      { encoding: 'utf8', mode: 0o600 }
-    );
+    const rawContext = `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        teamName,
+        taskId,
+        records,
+      },
+      null,
+      2
+    )}\n`;
+    await writeFile(filePath, rawContext, { encoding: 'utf8', mode: 0o600 });
     return {
       filePath,
+      hash: createHash('sha256').update(rawContext).digest('hex'),
       cleanup: async () => {
         await rm(dir, { recursive: true, force: true }).catch(() => undefined);
       },

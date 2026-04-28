@@ -170,6 +170,8 @@ describe('OpenCodeReadinessBridge', () => {
         taskDisplayId: 'abc12345',
         projectDir: '/claude/project',
         workspaceRoot: '/repo',
+        deliveryContextPath: '/tmp/claude-team-opencode-ledger-context-test/delivery-context.json',
+        deliveryContextHash: 'a'.repeat(64),
       })
     ).resolves.toMatchObject({
       outcome: 'imported',
@@ -184,6 +186,8 @@ describe('OpenCodeReadinessBridge', () => {
         taskDisplayId: 'abc12345',
         projectDir: '/claude/project',
         workspaceRoot: '/repo',
+        deliveryContextPath: '/tmp/claude-team-opencode-ledger-context-test/delivery-context.json',
+        deliveryContextHash: 'a'.repeat(64),
       },
       {
         cwd: '/repo',

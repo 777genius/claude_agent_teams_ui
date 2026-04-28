@@ -239,6 +239,7 @@ export interface OpenCodeBackfillTaskLedgerCommandBody {
   projectDir?: string;
   workspaceRoot?: string;
   deliveryContextPath?: string;
+  deliveryContextHash?: string;
   attributionMode?: OpenCodeBackfillTaskLedgerAttributionMode;
   dryRun?: boolean;
 }
