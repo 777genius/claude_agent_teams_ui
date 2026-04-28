@@ -241,6 +241,32 @@ describe('TaskChangeLedgerReader', () => {
           linesAdded: 1,
           linesRemoved: 1,
         },
+        {
+          schemaVersion: 1,
+          eventId: 'event-apply-patch',
+          taskId: TASK_ID,
+          taskRef: TASK_ID,
+          taskRefKind: 'canonical',
+          phase: 'work',
+          executionSeq: 3,
+          sessionId: 'opencode-session-1',
+          memberName: 'bob',
+          toolUseId: 'part-apply-patch',
+          source: 'opencode_toolpart_apply_patch',
+          operation: 'modify',
+          confidence: 'medium',
+          workspaceRoot: '/repo',
+          filePath: '/repo/src/new.ts',
+          relativePath: 'src/new.ts',
+          timestamp: '2026-03-01T10:02:00.000Z',
+          toolStatus: 'succeeded',
+          before: null,
+          after: null,
+          beforeState: { exists: true, unavailableReason: 'opencode-apply-patch-before-content-unavailable' },
+          afterState: { exists: true, unavailableReason: 'opencode-apply-patch-final-content-unavailable' },
+          linesAdded: 0,
+          linesRemoved: 0,
+        },
       ],
     });
 
@@ -254,8 +280,9 @@ describe('TaskChangeLedgerReader', () => {
     });
 
     const snippets = result?.files[0]?.snippets ?? [];
-    expect(snippets.map((snippet) => snippet.toolName)).toEqual(['Write', 'Edit']);
-    expect(snippets.map((snippet) => snippet.type)).toEqual(['write-new', 'edit']);
+    expect(snippets.map((snippet) => snippet.toolName)).toEqual(['Write', 'Edit', 'Edit']);
+    expect(snippets.map((snippet) => snippet.type)).toEqual(['write-new', 'edit', 'edit']);
+    expect(snippets[2]?.ledger?.source).toBe('ledger-snapshot');
   });
 
   it('groups rename relations in summary-only bundles without losing absolute paths', async () => {
