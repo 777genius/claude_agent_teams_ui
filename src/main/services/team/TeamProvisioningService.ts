@@ -12947,6 +12947,16 @@ export class TeamProvisioningService {
       }
       launchArgs.push(...parseCliArgs(request.extraCliArgs));
       launchArgs.push(...providerArgs);
+      // When the lead uses a different provider than some teammates (e.g., anthropic lead
+      // with codex teammates), the lead needs the teammate provider's launch args so they
+      // can be inherited by the teammate subprocess via buildInheritedCliFlags.
+      // Without this, a codex teammate spawned from an anthropic lead has no way to learn
+      // about the required forced_login_method (chatgpt/api) and fails to start.
+      const crossProviderMemberArgs = await this.buildCrossProviderMemberArgs(
+        resolvedProviderId,
+        effectiveMemberSpecs
+      );
+      launchArgs.push(...crossProviderMemberArgs);
       const finalLaunchArgs = mergeJsonSettingsArgs(launchArgs);
       const runtimeWarning = buildRuntimeLaunchWarning(request, shellEnv, {
         geminiRuntimeAuth,
@@ -21415,6 +21425,33 @@ export class TeamProvisioningService {
       geminiRuntimeAuth: null,
       providerArgs: providerEnvResult.providerArgs,
     };
+  }
+
+  private async buildCrossProviderMemberArgs(
+    primaryProviderId: TeamProviderId,
+    memberSpecs: TeamCreateRequest['members']
+  ): Promise<string[]> {
+    const crossProviderIds = new Set<TeamProviderId>();
+    for (const member of memberSpecs) {
+      const memberId = resolveTeamProviderId(
+        normalizeTeamMemberProviderId(member.providerId) ?? primaryProviderId
+      );
+      if (memberId !== primaryProviderId) {
+        crossProviderIds.add(memberId);
+      }
+    }
+    const args: string[] = [];
+    for (const providerId of crossProviderIds) {
+      try {
+        const env = await this.buildProvisioningEnv(providerId);
+        if (env.providerArgs) {
+          args.push(...env.providerArgs);
+        }
+      } catch {
+        // Best-effort: don't block launch if cross-provider env resolution fails
+      }
+    }
+    return args;
   }
 
   private async resolveControlApiBaseUrl(): Promise<string | null> {
