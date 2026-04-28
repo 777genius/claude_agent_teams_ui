@@ -14276,6 +14276,87 @@ describe('Team agent launch matrix safe e2e', () => {
     });
   });
 
+  it('fresh relaunches a failed mixed OpenCode teammate without runtime evidence', async () => {
+    const teamName = 'mixed-opencode-fresh-relaunch-no-runtime-evidence-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    const adapter = new FakeOpenCodeRuntimeAdapter('clean_success', {
+      bob: 'confirmed',
+      tom: 'confirmed',
+    });
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+    const run = createMixedLiveRun({ teamName, projectPath });
+    run.mixedSecondaryLanes = run.mixedSecondaryLanes.filter(
+      (lane: { member: { name: string } }) => lane.member.name !== 'bob'
+    );
+    run.memberSpawnStatuses.set('bob', {
+      status: 'error',
+      launchState: 'failed_to_start',
+      runtimeAlive: false,
+      bootstrapConfirmed: false,
+      hardFailure: true,
+      hardFailureReason: 'File lock timeout: lanes.json',
+      error: 'File lock timeout: lanes.json',
+      agentToolAccepted: false,
+      updatedAt: '2026-04-24T12:00:00.000Z',
+    } as never);
+    trackLiveRun(svc, run);
+
+    await svc.restartMember(teamName, 'bob');
+
+    await waitForCondition(() => adapter.launchInputs.length === 1);
+    expect(adapter.stopInputs).toHaveLength(0);
+    expect(adapter.launchInputs[0]).toMatchObject({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      expectedMembers: [expect.objectContaining({ name: 'bob', providerId: 'opencode' })],
+    });
+    const bobLane = run.mixedSecondaryLanes.find(
+      (lane: { member: { name: string } }) => lane.member.name === 'bob'
+    );
+    expect(bobLane).toMatchObject({
+      laneId: 'secondary:opencode:bob',
+      diagnostics: expect.arrayContaining([
+        'controlled_reattach:manual_restart',
+        'fresh_relaunch:no_runtime_evidence',
+      ]),
+    });
+    const statuses = await svc.getMemberSpawnStatuses(teamName);
+    expect(statuses.statuses.bob).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      hardFailure: false,
+    });
+  });
+
+  it('rejects duplicate fresh relaunch while a mixed OpenCode lane is queued', async () => {
+    const teamName = 'mixed-opencode-fresh-relaunch-queued-reject-safe-e2e';
+    await writeMixedTeamConfig({ teamName, projectPath });
+    await writeTeamMeta(teamName, projectPath);
+    await writeMembersMeta(teamName);
+    const adapter = new FakeOpenCodeRuntimeAdapter();
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
+    const run = createMixedLiveRun({ teamName, projectPath });
+    trackLiveRun(svc, run);
+
+    await expect(svc.restartMember(teamName, 'bob')).rejects.toThrow(
+      'Restart for teammate "bob" is already in progress'
+    );
+
+    expect(adapter.launchInputs).toHaveLength(0);
+    expect(adapter.stopInputs).toHaveLength(0);
+    expect(
+      run.mixedSecondaryLanes.find(
+        (lane: { member: { name: string } }) => lane.member.name === 'bob'
+      )
+    ).toMatchObject({
+      state: 'queued',
+    });
+  });
+
   it('reattaches an existing mixed OpenCode teammate after member update without changing siblings', async () => {
     const teamName = 'mixed-opencode-update-member-reattach-safe-e2e';
     await writeMixedTeamConfig({ teamName, projectPath });

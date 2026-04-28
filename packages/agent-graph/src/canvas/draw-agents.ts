@@ -654,7 +654,7 @@ function drawAvatar(
   isLead: boolean,
   avatarUrl?: string
 ): void {
-  const avatarR = r * 0.6;
+  const avatarR = r * AGENT_DRAW.avatarRadiusScale;
 
   // Try to draw avatar image
   if (avatarUrl) {

@@ -466,8 +466,8 @@ export class TeamGraphAdapter {
       launchStatusLabel: leadLaunchPresentation?.launchStatusLabel ?? undefined,
       contextUsage: percent != null ? Math.max(0, Math.min(1, percent / 100)) : undefined,
       avatarUrl: leadMember
-        ? resolveMemberAvatarUrl(leadMember, avatarMap, 64)
-        : agentAvatarUrl(leadName, 64),
+        ? resolveMemberAvatarUrl(leadMember, avatarMap, 96)
+        : agentAvatarUrl(leadName, 96),
       pendingApproval,
       activeTool: activeTool
         ? {
@@ -567,7 +567,7 @@ export class TeamGraphAdapter {
         launchStatusLabel: isTeamVisualOnline
           ? (launchPresentation.launchStatusLabel ?? undefined)
           : undefined,
-        avatarUrl: resolveMemberAvatarUrl(member, avatarMap, 64),
+        avatarUrl: resolveMemberAvatarUrl(member, avatarMap, 96),
         currentTaskId: member.currentTaskId ?? undefined,
         currentTaskSubject: member.currentTaskId
           ? data.tasks.find((t) => t.id === member.currentTaskId)?.subject

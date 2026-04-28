@@ -1626,6 +1626,25 @@ function hasOpenCodeRuntimeLivenessMarker(
   );
 }
 
+function hasOpenCodeRuntimeEntryHandle(
+  value:
+    | Pick<TeamAgentRuntimeEntry, 'pid' | 'runtimePid' | 'runtimeSessionId' | 'livenessKind'>
+    | undefined
+    | null
+): boolean {
+  if (!value) {
+    return false;
+  }
+  const pid = typeof value.pid === 'number' && Number.isFinite(value.pid) && value.pid > 0;
+  const runtimePid =
+    typeof value.runtimePid === 'number' &&
+    Number.isFinite(value.runtimePid) &&
+    value.runtimePid > 0;
+  const runtimeSessionId =
+    typeof value.runtimeSessionId === 'string' && value.runtimeSessionId.trim().length > 0;
+  return pid || runtimePid || runtimeSessionId || hasOpenCodeRuntimeLivenessMarker(value);
+}
+
 function isRecoverablePersistedOpenCodeRuntimeCandidate(
   member: PersistedTeamLaunchMemberState | undefined | null
 ): boolean {
@@ -9618,6 +9637,20 @@ export class TeamProvisioningService {
     );
     const existingLane = existingLaneIndex >= 0 ? run.mixedSecondaryLanes[existingLaneIndex] : null;
 
+    if (run.pendingMemberRestarts.has(memberName)) {
+      throw new Error(`Restart for teammate "${memberName}" is already in progress`);
+    }
+    if (existingLane?.state === 'queued' || existingLane?.state === 'launching') {
+      throw new Error(`Restart for teammate "${memberName}" is already in progress`);
+    }
+
+    const hasRuntimeEvidence = await this.hasOpenCodeMemberRuntimeEvidenceForControlledRelaunch({
+      teamName,
+      memberName: memberSpec.name,
+      laneId: nextLane.laneId,
+      existingLane,
+    });
+
     if (existingLane) {
       await this.stopSingleMixedSecondaryRuntimeLane(run, existingLane, 'relaunch');
     }
@@ -9629,7 +9662,10 @@ export class TeamProvisioningService {
     laneState.state = 'queued';
     laneState.result = null;
     laneState.warnings = [];
-    laneState.diagnostics = options?.reason ? [`controlled_reattach:${options.reason}`] : [];
+    laneState.diagnostics = [
+      ...(options?.reason ? [`controlled_reattach:${options.reason}`] : []),
+      ...(!hasRuntimeEvidence ? ['fresh_relaunch:no_runtime_evidence'] : []),
+    ];
 
     if (existingLaneIndex >= 0) {
       run.mixedSecondaryLanes[existingLaneIndex] = laneState;
@@ -9645,6 +9681,45 @@ export class TeamProvisioningService {
     run.pendingMemberRestarts.delete(memberName);
 
     await this.launchSingleMixedSecondaryLane(run, laneState);
+  }
+
+  private async hasOpenCodeMemberRuntimeEvidenceForControlledRelaunch(params: {
+    teamName: string;
+    memberName: string;
+    laneId: string;
+    existingLane: MixedSecondaryRuntimeLaneState | null;
+  }): Promise<boolean> {
+    const laneResultMember =
+      params.existingLane?.result?.members[params.memberName] ??
+      Object.values(params.existingLane?.result?.members ?? {}).find(
+        (member) => member.memberName?.trim() === params.memberName
+      );
+    if (hasOpenCodeRuntimeHandle(laneResultMember)) {
+      return true;
+    }
+
+    const persistedSnapshot = await this.launchStateStore.read(params.teamName).catch(() => null);
+    const persistedMember =
+      persistedSnapshot?.members[params.memberName] ??
+      Object.values(persistedSnapshot?.members ?? {}).find(
+        (member) => member.laneId === params.laneId
+      );
+    if (
+      hasOpenCodeRuntimeHandle(persistedMember) ||
+      hasOpenCodeRuntimeLivenessMarker(persistedMember)
+    ) {
+      return true;
+    }
+
+    const liveRuntimeByMember = await this.getLiveTeamAgentRuntimeMetadata(params.teamName).catch(
+      () => new Map<string, TeamAgentRuntimeEntry>()
+    );
+    const liveRuntimeMember =
+      liveRuntimeByMember.get(params.memberName) ??
+      [...liveRuntimeByMember.entries()].find(([candidateName]) =>
+        matchesObservedMemberNameForExpected(candidateName, params.memberName)
+      )?.[1];
+    return hasOpenCodeRuntimeEntryHandle(liveRuntimeMember);
   }
 
   async detachOpenCodeOwnedMemberLane(teamName: string, memberName: string): Promise<void> {
@@ -16512,6 +16587,7 @@ export class TeamProvisioningService {
     run: ProvisioningRun,
     lane: MixedSecondaryRuntimeLaneState
   ): Promise<void> {
+    const requestedDiagnostics = [...lane.diagnostics];
     const adapter = this.getOpenCodeRuntimeAdapter();
     if (!adapter) {
       const message = 'OpenCode runtime adapter is not registered for mixed team launch.';
@@ -16535,10 +16611,10 @@ export class TeamProvisioningService {
           },
         },
         warnings: [],
-        diagnostics: [message],
+        diagnostics: [...requestedDiagnostics, message],
       };
       lane.warnings = [];
-      lane.diagnostics = [message];
+      lane.diagnostics = [...requestedDiagnostics, message];
       await this.publishMixedSecondaryLaneStatusChange(run, lane);
       lane.state = 'finished';
       return;
@@ -16560,7 +16636,7 @@ export class TeamProvisioningService {
     lane.state = 'launching';
     lane.runId = lane.runId ?? randomUUID();
     lane.warnings = [];
-    lane.diagnostics = [...migration.diagnostics];
+    lane.diagnostics = [...requestedDiagnostics, ...migration.diagnostics];
     const laneCwd = lane.member.cwd?.trim() || run.request.cwd;
     this.setSecondaryRuntimeRun({
       teamName: run.teamName,
@@ -16610,10 +16686,11 @@ export class TeamProvisioningService {
       }
       lane.result = result;
       lane.warnings = [...result.warnings];
-      lane.diagnostics = [...migration.diagnostics, ...result.diagnostics];
+      lane.diagnostics = [...requestedDiagnostics, ...migration.diagnostics, ...result.diagnostics];
 
       if (isDefinitiveOpenCodePreLaunchFailure(result, lane.member.name)) {
         const diagnostics = [
+          ...requestedDiagnostics,
           ...migration.diagnostics,
           ...collectRuntimeLaunchFailureDiagnostics(result, lane.member.name),
         ];
@@ -16656,7 +16733,7 @@ export class TeamProvisioningService {
         diagnostics: [message],
       };
       lane.warnings = [];
-      lane.diagnostics = [...migration.diagnostics, message];
+      lane.diagnostics = [...requestedDiagnostics, ...migration.diagnostics, message];
       await upsertOpenCodeRuntimeLaneIndexEntry({
         teamsBasePath: getTeamsBasePath(),
         teamName: run.teamName,
