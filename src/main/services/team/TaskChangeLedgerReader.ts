@@ -1190,15 +1190,7 @@ export class TaskChangeLedgerReader {
   }
 
   private evidenceRankForEvent(event: LedgerEvent): number {
-    const hasFullText =
-      event.before !== null ||
-      event.after !== null ||
-      (event.operation === 'create' &&
-        event.afterState?.exists === true &&
-        !event.afterState.unavailableReason) ||
-      (event.operation === 'delete' &&
-        event.beforeState?.exists === true &&
-        !event.beforeState.unavailableReason);
+    const hasFullText = this.hasFullTextEvidence(event);
 
     switch (event.evidenceProof) {
       case 'opencode-snapshot':
@@ -1212,6 +1204,16 @@ export class TaskChangeLedgerReader {
       default:
         return hasFullText ? 30 : 5;
     }
+  }
+
+  private hasFullTextEvidence(event: Pick<LedgerEvent, 'before' | 'after' | 'operation'>): boolean {
+    if (event.operation === 'create') {
+      return event.after !== null;
+    }
+    if (event.operation === 'delete') {
+      return event.before !== null;
+    }
+    return event.before !== null && event.after !== null;
   }
 
   private async readContentRef(

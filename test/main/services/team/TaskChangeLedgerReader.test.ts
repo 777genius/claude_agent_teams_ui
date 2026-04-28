@@ -285,6 +285,84 @@ describe('TaskChangeLedgerReader', () => {
     expect(snippets[2]?.ledger?.source).toBe('ledger-snapshot');
   });
 
+  it('projects partial OpenCode snapshot journal evidence to a later full-text upgrade', async () => {
+    tmpDir = await fsTempDir();
+    const eventsDir = path.join(tmpDir, '.board-task-changes', 'events');
+    const blobsDir = path.join(tmpDir, '.board-task-changes', 'blobs');
+    await mkdir(eventsDir, { recursive: true });
+    await mkdir(blobsDir, { recursive: true });
+
+    const beforeContent = 'export const value = 1;\n';
+    const afterContent = 'export const value = 2;\n';
+    await writeFile(path.join(blobsDir, 'before.txt'), beforeContent, 'utf8');
+    await writeFile(path.join(blobsDir, 'after.txt'), afterContent, 'utf8');
+    const sourceImportKey = 'opencode\0session-1\0part-edit\0src/file.ts';
+    const baseEvent = {
+      schemaVersion: 1,
+      taskId: TASK_ID,
+      taskRef: TASK_ID,
+      taskRefKind: 'canonical',
+      phase: 'work',
+      executionSeq: 1,
+      sessionId: 'opencode-session-1',
+      memberName: 'bob',
+      toolUseId: 'part-edit',
+      source: 'opencode_toolpart_edit',
+      operation: 'modify',
+      confidence: 'high',
+      workspaceRoot: '/repo',
+      filePath: '/repo/src/file.ts',
+      relativePath: 'src/file.ts',
+      timestamp: '2026-03-01T10:00:00.000Z',
+      toolStatus: 'succeeded',
+      sourceRuntime: 'opencode',
+      sourceProvider: 'opencode',
+      sourceImportKey,
+      evidenceProof: 'opencode-snapshot',
+      beforeState: { exists: true, sha256: sha(beforeContent), sizeBytes: beforeContent.length },
+      afterState: { exists: true, sha256: sha(afterContent), sizeBytes: afterContent.length },
+      linesAdded: 1,
+      linesRemoved: 1,
+    };
+    await writeFile(
+      path.join(eventsDir, `${encodeURIComponent(TASK_ID)}.jsonl`),
+      [
+        {
+          ...baseEvent,
+          eventId: 'event-partial',
+          before: null,
+          after: { sha256: sha(afterContent), sizeBytes: afterContent.length, blobRef: 'after.txt' },
+        },
+        {
+          ...baseEvent,
+          eventId: 'event-full',
+          supersedesEventId: 'event-partial',
+          before: { sha256: sha(beforeContent), sizeBytes: beforeContent.length, blobRef: 'before.txt' },
+          after: { sha256: sha(afterContent), sizeBytes: afterContent.length, blobRef: 'after.txt' },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join('\n') + '\n',
+      'utf8'
+    );
+
+    const reader = new TaskChangeLedgerReader();
+    const result = await reader.readTaskChanges({
+      teamName: 'team',
+      taskId: TASK_ID,
+      projectDir: tmpDir,
+      projectPath: '/repo',
+      includeDetails: true,
+    });
+
+    expect(result?.files).toHaveLength(1);
+    const snippets = result?.files[0]?.snippets ?? [];
+    expect(snippets).toHaveLength(1);
+    expect(snippets[0]?.ledger?.eventId).toBe('event-full');
+    expect(snippets[0]?.ledger?.originalFullContent).toBe(beforeContent);
+    expect(snippets[0]?.ledger?.modifiedFullContent).toBe(afterContent);
+  });
+
   it('groups rename relations in summary-only bundles without losing absolute paths', async () => {
     const relation = { kind: 'rename', oldPath: 'src/old.ts', newPath: 'src/new.ts' };
     tmpDir = await makeLedgerBundle({
