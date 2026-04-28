@@ -1731,4 +1731,73 @@ describe('changeReviewSlice task changes', () => {
     expect(store.getState().reviewUndoStack).toEqual([]);
     expect(store.getState().fileContentVersionByPath).toEqual({});
   });
+
+  it('clears metadata-only decisions when ledger evidence upgrades to full text for the same changeKey', async () => {
+    const store = createSliceStore();
+    const changeKey = 'path:/repo/file.ts';
+    const currentFile = {
+      ...makeFile('/repo/file.ts'),
+      changeKey,
+      snippets: [],
+      ledgerSummary: {
+        latestOperation: 'modify',
+        contentAvailability: 'metadata-only',
+        reviewability: 'metadata-only',
+      },
+    };
+    const freshFile = {
+      ...makeFile('/repo/file.ts'),
+      changeKey,
+      ledgerSummary: {
+        latestOperation: 'modify',
+        contentAvailability: 'full-text',
+        reviewability: 'full-text',
+        beforeState: { exists: true, sha256: 'before-hash', sizeBytes: 6 },
+        afterState: { exists: true, sha256: 'after-hash', sizeBytes: 5 },
+      },
+    };
+    const current = {
+      ...makeTaskChangeSet('task-ledger', '/repo/file.ts'),
+      files: [currentFile],
+      provenance: {
+        sourceKind: 'ledger',
+        sourceFingerprint: 'metadata-only-projection',
+      },
+    };
+    const fresh = {
+      ...current,
+      files: [freshFile],
+      provenance: {
+        sourceKind: 'ledger',
+        sourceFingerprint: 'snapshot-full-text-projection',
+      },
+    };
+    hoisted.getTaskChanges.mockResolvedValueOnce(fresh);
+
+    store.setState({
+      activeChangeSet: current,
+      hunkDecisions: { [`${changeKey}:0`]: 'rejected' },
+      fileDecisions: { [changeKey]: 'rejected' },
+      hunkContextHashesByFile: { [changeKey]: { 0: 'metadata-only-context' } },
+      fileChunkCounts: { [changeKey]: 1 },
+      reviewUndoStack: [
+        {
+          hunkDecisions: { [`${changeKey}:0`]: 'rejected' },
+          fileDecisions: { [changeKey]: 'rejected' },
+        },
+      ],
+      changeSetEpoch: 4,
+      fileContentVersionByPath: { '/repo/file.ts': 2 },
+    });
+
+    await store.getState().applyReview('team-a', 'task-ledger');
+
+    expect(hoisted.applyDecisions).not.toHaveBeenCalled();
+    expect(store.getState().activeChangeSet).toEqual(fresh);
+    expect(store.getState().fileDecisions).toEqual({});
+    expect(store.getState().hunkDecisions).toEqual({});
+    expect(store.getState().hunkContextHashesByFile).toEqual({});
+    expect(store.getState().reviewUndoStack).toEqual([]);
+    expect(store.getState().fileContentVersionByPath).toEqual({});
+  });
 });
