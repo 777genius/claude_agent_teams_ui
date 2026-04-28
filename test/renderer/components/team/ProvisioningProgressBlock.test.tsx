@@ -24,9 +24,11 @@ vi.mock('lucide-react', () => {
   const Icon = (props: React.SVGProps<SVGSVGElement>) => React.createElement('svg', props);
   return {
     AlertTriangle: Icon,
+    Check: Icon,
     CheckCircle2: Icon,
     ChevronDown: Icon,
     ChevronRight: Icon,
+    ClipboardList: Icon,
     Info: Icon,
     Loader2: Icon,
     X: Icon,
@@ -38,6 +40,7 @@ import { ProvisioningProgressBlock } from '@renderer/components/team/Provisionin
 describe('ProvisioningProgressBlock', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.unstubAllGlobals();
   });
 
   it('keeps live output and CLI logs collapsed by default while launch is still running', async () => {
@@ -179,6 +182,75 @@ describe('ProvisioningProgressBlock', () => {
 
     expect(host.textContent).not.toContain('Diagnostics');
     expect(host.textContent).not.toContain('alice - bootstrap confirmed');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('copies a combined diagnostics payload from the live output toolbar', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: { writeText },
+    });
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProvisioningProgressBlock, {
+          title: 'Launching team',
+          message: 'Starting Claude CLI process',
+          currentStepIndex: 1,
+          loading: true,
+          defaultLiveOutputOpen: true,
+          startedAt: '2026-04-28T12:00:00.000Z',
+          pid: 321,
+          assistantOutput: 'Launch trace line',
+          cliLogsTail: '[stderr] OPENAI_API_KEY=secret-value\n[stdout] booted',
+          launchDiagnostics: [
+            {
+              id: 'alice:runtime_not_found',
+              memberName: 'alice',
+              severity: 'warning',
+              code: 'runtime_not_found',
+              label: 'alice - waiting for runtime',
+              detail: 'codex --api-key hidden-value',
+              observedAt: '2026-04-28T12:00:01.000Z',
+            },
+          ],
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const button = Array.from(host.querySelectorAll('button')).find((candidate) =>
+      candidate.textContent?.includes('Copy diagnostics')
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copied = String(writeText.mock.calls[0]?.[0] ?? '');
+    expect(copied).toContain('# Team provisioning diagnostics');
+    expect(copied).toContain('Title: Launching team');
+    expect(copied).toContain('Message: Starting Claude CLI process');
+    expect(copied).toContain('PID: 321');
+    expect(copied).toContain('alice - waiting for runtime');
+    expect(copied).toContain('Launch trace line');
+    expect(copied).toContain('[stdout] booted');
+    expect(copied).toContain('OPENAI_API_KEY=[redacted]');
+    expect(copied).toContain('--api-key [redacted]');
+    expect(copied).not.toContain('secret-value');
+    expect(copied).not.toContain('hidden-value');
 
     await act(async () => {
       root.unmount();

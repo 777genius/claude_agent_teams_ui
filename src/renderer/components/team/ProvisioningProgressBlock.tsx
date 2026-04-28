@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { cn } from '@renderer/lib/utils';
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Info,
   Loader2,
   X,
@@ -26,6 +28,13 @@ const PROVISIONING_STEPS: StepProgressBarStep[] = DISPLAY_STEPS.map((s) => ({
   key: s.key,
   label: s.label,
 }));
+const PROVIDER_API_KEY_FLAG_PATTERN =
+  /(--(?:openai|codex|anthropic)[-_]api[-_]key(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
+const SECRET_FLAG_PATTERN =
+  /(--(?:api[-_]key|token|password|secret|authorization|auth[-_]token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
+const SECRET_ENV_ASSIGNMENT_PATTERN =
+  /\b([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|AUTHORIZATION)[A-Z0-9_]*\s*=\s*)("[^"]*"|'[^']*'|\S+)/gi;
+const AUTH_HEADER_PATTERN = /\b(Authorization\s*:\s*)(Bearer\s+)?("[^"]*"|'[^']*'|\S+)/gi;
 
 export interface ProvisioningProgressBlockProps {
   /** Title above the steps, e.g. "Launching team" */
@@ -138,6 +147,86 @@ function sanitizeAssistantOutput(raw?: string, isError = false): string | null {
   );
 }
 
+function redactProvisioningDiagnosticsCopy(text: string): string {
+  return text
+    .replace(PROVIDER_API_KEY_FLAG_PATTERN, '$1[redacted]')
+    .replace(SECRET_FLAG_PATTERN, '$1[redacted]')
+    .replace(SECRET_ENV_ASSIGNMENT_PATTERN, '$1[redacted]')
+    .replace(AUTH_HEADER_PATTERN, '$1$2[redacted]');
+}
+
+function formatOptionalValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return '(none)';
+  }
+  return String(value);
+}
+
+function formatLaunchDiagnosticsCopy(
+  items: readonly TeamLaunchDiagnosticItem[] | undefined
+): string {
+  if (!items || items.length === 0) {
+    return '(none)';
+  }
+
+  return items
+    .map((item) =>
+      [
+        `- id: ${item.id}`,
+        item.memberName ? `  member: ${item.memberName}` : undefined,
+        `  severity: ${item.severity}`,
+        `  code: ${item.code}`,
+        `  label: ${item.label}`,
+        item.detail ? `  detail: ${item.detail}` : undefined,
+        `  observedAt: ${item.observedAt}`,
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join('\n')
+    )
+    .join('\n');
+}
+
+function buildProvisioningDiagnosticsCopy(input: {
+  title: string;
+  message?: string | null;
+  messageSeverity?: 'error' | 'warning' | 'info';
+  tone: 'default' | 'error';
+  startedAt?: string;
+  elapsed?: string | null;
+  pid?: number;
+  currentStepIndex: number;
+  errorStepIndex?: number;
+  liveOutput?: string | null;
+  cliLogsTail?: string;
+  launchDiagnostics?: TeamLaunchDiagnosticItem[];
+}): string {
+  const payload = [
+    '# Team provisioning diagnostics',
+    '',
+    '## Summary',
+    `Title: ${input.title}`,
+    `Message: ${formatOptionalValue(input.message)}`,
+    `Message severity: ${formatOptionalValue(input.messageSeverity)}`,
+    `Tone: ${input.tone}`,
+    `Started at: ${formatOptionalValue(input.startedAt)}`,
+    `Elapsed: ${formatOptionalValue(input.elapsed)}`,
+    `PID: ${formatOptionalValue(input.pid)}`,
+    `Current step index: ${input.currentStepIndex}`,
+    `Error step index: ${formatOptionalValue(input.errorStepIndex)}`,
+    '',
+    '## Launch diagnostics',
+    formatLaunchDiagnosticsCopy(input.launchDiagnostics),
+    '',
+    '## Live output',
+    input.liveOutput?.trim() || '(empty)',
+    '',
+    '## CLI logs tail',
+    input.cliLogsTail?.trim() || '(empty)',
+  ].join('\n');
+
+  return redactProvisioningDiagnosticsCopy(payload).trim();
+}
+
 export const ProvisioningProgressBlock = ({
   title,
   message,
@@ -164,9 +253,42 @@ export const ProvisioningProgressBlock = ({
   const [logsOpen, setLogsOpen] = useState(() => defaultLogsOpen ?? false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [liveOutputOpen, setLiveOutputOpen] = useState(defaultLiveOutputOpen);
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const outputScrollRef = useRef<HTMLDivElement>(null);
+  const copyResetTimerRef = useRef<number | null>(null);
   const isError = tone === 'error';
   const displayAssistantOutput = sanitizeAssistantOutput(assistantOutput, isError);
+  const diagnosticsCopyText = useMemo(
+    () =>
+      buildProvisioningDiagnosticsCopy({
+        title,
+        message,
+        messageSeverity,
+        tone,
+        startedAt,
+        elapsed,
+        pid,
+        currentStepIndex,
+        errorStepIndex,
+        liveOutput: displayAssistantOutput,
+        cliLogsTail,
+        launchDiagnostics,
+      }),
+    [
+      title,
+      message,
+      messageSeverity,
+      tone,
+      startedAt,
+      elapsed,
+      pid,
+      currentStepIndex,
+      errorStepIndex,
+      displayAssistantOutput,
+      cliLogsTail,
+      launchDiagnostics,
+    ]
+  );
   const visibleLaunchDiagnostics =
     launchDiagnostics?.filter((item) => item.severity === 'warning' || item.severity === 'error') ??
     [];
@@ -197,6 +319,36 @@ export const ProvisioningProgressBlock = ({
       setLiveOutputOpen(false);
     }
   }, [isError, cliLogsTail]);
+
+  useEffect(
+    () => () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const copyDiagnostics = async (): Promise<void> => {
+    if (!navigator.clipboard?.writeText) {
+      setDiagnosticsCopied(false);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(diagnosticsCopyText);
+    } catch {
+      setDiagnosticsCopied(false);
+      return;
+    }
+    setDiagnosticsCopied(true);
+    if (copyResetTimerRef.current !== null) {
+      window.clearTimeout(copyResetTimerRef.current);
+    }
+    copyResetTimerRef.current = window.setTimeout(() => {
+      copyResetTimerRef.current = null;
+      setDiagnosticsCopied(false);
+    }, 1500);
+  };
 
   return (
     <div
@@ -338,14 +490,28 @@ export const ProvisioningProgressBlock = ({
         </div>
       ) : null}
       <div className="mt-2">
-        <button
-          type="button"
-          className="flex items-center gap-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-          onClick={() => setLiveOutputOpen((v) => !v)}
-        >
-          {liveOutputOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          Live output
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            className="flex items-center gap-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+            onClick={() => setLiveOutputOpen((v) => !v)}
+          >
+            {liveOutputOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            Live output
+          </button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 shrink-0 gap-1 px-2 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            title={diagnosticsCopied ? 'Diagnostics copied' : 'Copy diagnostics'}
+            aria-label={diagnosticsCopied ? 'Diagnostics copied' : 'Copy diagnostics'}
+            onClick={() => void copyDiagnostics()}
+          >
+            {diagnosticsCopied ? <Check size={12} /> : <ClipboardList size={12} />}
+            <span>{diagnosticsCopied ? 'Copied' : 'Copy diagnostics'}</span>
+          </Button>
+        </div>
         {liveOutputOpen ? (
           <div
             ref={outputScrollRef}

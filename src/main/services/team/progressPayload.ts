@@ -16,10 +16,16 @@ import type { TeamLaunchDiagnosticItem } from '@shared/types';
 
 export const PROGRESS_LOG_TAIL_LINES = 200;
 export const PROGRESS_OUTPUT_TAIL_PARTS = 20;
+export const PROGRESS_TRACE_TAIL_LINES = 120;
 export const PROGRESS_LAUNCH_DIAGNOSTICS_LIMIT = 20;
 const PROGRESS_LAUNCH_DIAGNOSTIC_TEXT_LIMIT = 500;
+const PROGRESS_TRACE_TEXT_LIMIT = 800;
+const PROVIDER_API_KEY_FLAG_PATTERN =
+  /(--(?:openai|codex|anthropic)[-_]api[-_]key(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
 const SECRET_FLAG_PATTERN =
-  /(--(?:api-key|token|password|secret|authorization|auth-token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
+  /(--(?:api[-_]key|token|password|secret|authorization|auth[-_]token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
+const SECRET_ENV_ASSIGNMENT_PATTERN =
+  /\b([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|AUTHORIZATION)[A-Z0-9_]*\s*=\s*)("[^"]*"|'[^']*'|\S+)/gi;
 
 /**
  * Return the trailing `maxLines` of a line-buffered CLI log, joined with "\n"
@@ -57,15 +63,65 @@ export function buildProgressAssistantOutput(
   return joined.trim().length === 0 ? undefined : joined;
 }
 
-function boundDiagnosticText(value: string | undefined): string | undefined {
-  const trimmed = value?.replace(/\s+/g, ' ').trim();
-  if (!trimmed) {
+function boundRedactedText(
+  value: string | undefined,
+  limit: number,
+  whitespace: 'collapse' | 'preserve'
+): string | undefined {
+  const prepared = whitespace === 'collapse' ? value?.replace(/\s+/g, ' ').trim() : value?.trim();
+  if (!prepared) {
     return undefined;
   }
-  const redacted = trimmed.replace(SECRET_FLAG_PATTERN, '$1[redacted]');
-  return redacted.length > PROGRESS_LAUNCH_DIAGNOSTIC_TEXT_LIMIT
-    ? `${redacted.slice(0, PROGRESS_LAUNCH_DIAGNOSTIC_TEXT_LIMIT - 3).trimEnd()}...`
-    : redacted;
+  const redacted = prepared
+    .replace(PROVIDER_API_KEY_FLAG_PATTERN, '$1[redacted]')
+    .replace(SECRET_FLAG_PATTERN, '$1[redacted]')
+    .replace(SECRET_ENV_ASSIGNMENT_PATTERN, '$1[redacted]')
+    .replace(/```/g, "'''");
+  return redacted.length > limit ? `${redacted.slice(0, limit - 3).trimEnd()}...` : redacted;
+}
+
+function boundDiagnosticText(value: string | undefined): string | undefined {
+  return boundRedactedText(value, PROGRESS_LAUNCH_DIAGNOSTIC_TEXT_LIMIT, 'collapse');
+}
+
+export function buildProgressTraceLine(input: {
+  timestamp: string;
+  state: string;
+  message: string;
+  detail?: string;
+}): string {
+  const message = boundRedactedText(input.message, PROGRESS_TRACE_TEXT_LIMIT, 'collapse') ?? '';
+  const detail = boundRedactedText(input.detail, PROGRESS_TRACE_TEXT_LIMIT, 'collapse');
+  return detail
+    ? `${input.timestamp} [${input.state}] ${message} - ${detail}`
+    : `${input.timestamp} [${input.state}] ${message}`;
+}
+
+export function buildProgressTraceTail(
+  lines: readonly string[],
+  maxLines: number = PROGRESS_TRACE_TAIL_LINES
+): string | undefined {
+  return buildProgressLogsTail(lines, maxLines);
+}
+
+export function buildProgressLiveOutput(
+  traceLines: readonly string[],
+  assistantParts: readonly string[],
+  options?: {
+    maxTraceLines?: number;
+    maxAssistantParts?: number;
+  }
+): string | undefined {
+  const trace = buildProgressTraceTail(traceLines, options?.maxTraceLines);
+  const assistant = buildProgressAssistantOutput(assistantParts, options?.maxAssistantParts);
+  if (!trace) {
+    return assistant;
+  }
+  const traceBlock = `**Launch trace**\n\n\`\`\`text\n${trace}\n\`\`\``;
+  if (!assistant) {
+    return traceBlock;
+  }
+  return `${traceBlock}\n\n**Runtime output**\n\n${assistant}`;
 }
 
 export function boundLaunchDiagnostics(

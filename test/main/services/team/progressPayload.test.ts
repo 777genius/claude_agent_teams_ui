@@ -3,9 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   PROGRESS_LOG_TAIL_LINES,
   PROGRESS_OUTPUT_TAIL_PARTS,
+  PROGRESS_TRACE_TAIL_LINES,
   boundLaunchDiagnostics,
   buildProgressAssistantOutput,
+  buildProgressLiveOutput,
   buildProgressLogsTail,
+  buildProgressTraceLine,
+  buildProgressTraceTail,
 } from '../../../../src/main/services/team/progressPayload';
 
 describe('buildProgressLogsTail', () => {
@@ -74,6 +78,60 @@ describe('buildProgressAssistantOutput', () => {
     const result = buildProgressAssistantOutput(parts);
     expect(result).toBeDefined();
     expect(result!.split('\n\n')).toHaveLength(PROGRESS_OUTPUT_TAIL_PARTS);
+  });
+});
+
+describe('buildProgressTraceLine', () => {
+  it('redacts secrets and strips markdown fence delimiters', () => {
+    const result = buildProgressTraceLine({
+      timestamp: '2026-04-28T12:00:00.000Z',
+      state: 'spawning',
+      message: 'Starting runtime --api-key sk-test',
+      detail: 'OPENAI_API_KEY=super-secret CODEX_API_KEY="also-secret" ```',
+    });
+
+    expect(result).toContain('--api-key [redacted]');
+    expect(result).toContain('OPENAI_API_KEY=[redacted]');
+    expect(result).toContain('CODEX_API_KEY=[redacted]');
+    expect(result).not.toContain('sk-test');
+    expect(result).not.toContain('super-secret');
+    expect(result).not.toContain('also-secret');
+    expect(result).not.toContain('```');
+  });
+});
+
+describe('buildProgressTraceTail', () => {
+  it('caps trace output to the last N lines', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => `trace-${i}`);
+
+    expect(buildProgressTraceTail(lines, 3)).toBe('trace-7\ntrace-8\ntrace-9');
+  });
+
+  it('uses the default trace tail size when not overridden', () => {
+    const lines = Array.from({ length: PROGRESS_TRACE_TAIL_LINES + 10 }, (_, i) => `trace-${i}`);
+    const result = buildProgressTraceTail(lines);
+
+    expect(result).toBeDefined();
+    expect(result!.split('\n')).toHaveLength(PROGRESS_TRACE_TAIL_LINES);
+  });
+});
+
+describe('buildProgressLiveOutput', () => {
+  it('preserves assistant-only output when no trace is available', () => {
+    expect(buildProgressLiveOutput([], ['hello'], { maxAssistantParts: 10 })).toBe('hello');
+  });
+
+  it('combines bounded launch trace with runtime output', () => {
+    const result = buildProgressLiveOutput(['trace-1', 'trace-2'], ['assistant'], {
+      maxTraceLines: 1,
+      maxAssistantParts: 10,
+    });
+
+    expect(result).toContain('**Launch trace**');
+    expect(result).not.toContain('trace-1');
+    expect(result).toContain('trace-2');
+    expect(result).toContain('**Runtime output**');
+    expect(result).toContain('assistant');
   });
 });
 

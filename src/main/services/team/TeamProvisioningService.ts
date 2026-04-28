@@ -183,8 +183,9 @@ import { withInboxLock } from './inboxLock';
 import { getEffectiveInboxMessageId } from './inboxMessageIdentity';
 import {
   boundLaunchDiagnostics,
-  buildProgressAssistantOutput,
+  buildProgressLiveOutput,
   buildProgressLogsTail,
+  buildProgressTraceLine,
 } from './progressPayload';
 import { resolveDesktopTeammateModeDecision } from './runtimeTeammateMode';
 import {
@@ -1340,6 +1341,10 @@ interface ProvisioningRun {
   pendingInboxRelayCandidates: PendingInboxRelayCandidate[];
   /** Accumulates assistant text during provisioning phase for live UI preview. */
   provisioningOutputParts: string[];
+  /** Bounded orchestration checkpoints shown in the Live output panel. */
+  provisioningTraceLines: string[];
+  /** Last emitted trace key, used to avoid duplicate progress spam. */
+  lastProvisioningTraceKey: string | null;
   /** Stable assistant message ids -> provisioningOutputParts index for in-place updates. */
   provisioningOutputIndexByMessageId: Map<string, number>;
   /** Session ID detected from stream-json output (result.session_id or message.session_id). */
@@ -1404,6 +1409,8 @@ interface ProvisioningRun {
   /** Per-member warning throttle for repeated "missing from config" logs. */
   lastMemberSpawnAuditMissingWarningAt: Map<string, number>;
 }
+
+const PROVISIONING_TRACE_STORAGE_LIMIT = 500;
 
 interface MixedSecondaryRuntimeLaneState {
   laneId: string;
@@ -3369,6 +3376,75 @@ function clearGeminiPostLaunchHydrationState(run: ProvisioningRun): void {
   run.suppressGeminiPostLaunchHydrationOutput = false;
 }
 
+function buildProvisioningTraceDetail(
+  extras?: Pick<
+    TeamProvisioningProgress,
+    'pid' | 'error' | 'warnings' | 'configReady' | 'launchDiagnostics'
+  >
+): string | undefined {
+  const parts = [
+    extras?.pid != null ? `pid=${extras.pid}` : undefined,
+    extras?.configReady === true ? 'configReady=true' : undefined,
+    extras?.error ? `error=${extras.error}` : undefined,
+    extras?.warnings?.length ? `warnings=${extras.warnings.join('; ')}` : undefined,
+    extras?.launchDiagnostics?.length
+      ? `launchDiagnostics=${extras.launchDiagnostics.length}`
+      : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(' | ') : undefined;
+}
+
+function appendProvisioningTrace(
+  run: ProvisioningRun,
+  state: Exclude<TeamProvisioningState, 'idle'>,
+  message: string,
+  detail?: string
+): void {
+  run.provisioningTraceLines ??= [];
+  run.lastProvisioningTraceKey ??= null;
+  const key = `${state}\u0000${message}\u0000${detail ?? ''}`;
+  if (run.lastProvisioningTraceKey === key) {
+    return;
+  }
+  run.lastProvisioningTraceKey = key;
+  run.provisioningTraceLines.push(
+    buildProgressTraceLine({
+      timestamp: nowIso(),
+      state,
+      message,
+      detail,
+    })
+  );
+  if (run.provisioningTraceLines.length > PROVISIONING_TRACE_STORAGE_LIMIT) {
+    run.provisioningTraceLines.splice(
+      0,
+      run.provisioningTraceLines.length - PROVISIONING_TRACE_STORAGE_LIMIT
+    );
+  }
+}
+
+function buildProvisioningLiveOutput(run: ProvisioningRun): string | undefined {
+  return buildProgressLiveOutput(run.provisioningTraceLines, run.provisioningOutputParts);
+}
+
+function initializeProvisioningTrace(run: ProvisioningRun): void {
+  appendProvisioningTrace(run, run.progress.state, run.progress.message);
+  run.progress = {
+    ...run.progress,
+    assistantOutput: buildProvisioningLiveOutput(run) ?? run.progress.assistantOutput,
+  };
+}
+
+function emitProvisioningCheckpoint(run: ProvisioningRun, message: string, detail?: string): void {
+  appendProvisioningTrace(run, run.progress.state, message, detail);
+  run.progress = {
+    ...run.progress,
+    updatedAt: nowIso(),
+    assistantOutput: buildProvisioningLiveOutput(run) ?? run.progress.assistantOutput,
+  };
+  run.onProgress(run.progress);
+}
+
 function updateProgress(
   run: ProvisioningRun,
   state: Exclude<TeamProvisioningState, 'idle'>,
@@ -3388,8 +3464,8 @@ function updateProgress(
   // from ~20 event-driven sites (auth retries, stall warnings, spawn events),
   // and an unbounded `provisioningOutputParts.join` was part of the same OOM
   // class that `emitLogsProgress` already guards against.
-  const assistantOutput =
-    buildProgressAssistantOutput(run.provisioningOutputParts) ?? run.progress.assistantOutput;
+  appendProvisioningTrace(run, state, message, buildProvisioningTraceDetail(extras));
+  const assistantOutput = buildProvisioningLiveOutput(run) ?? run.progress.assistantOutput;
   run.progress = {
     ...run.progress,
     state,
@@ -3753,16 +3829,18 @@ function emitLogsProgress(run: ProvisioningRun): void {
   const logsTail =
     buildProgressLogsTail(run.claudeLogLines) ??
     extractLogsTail(run.stdoutBuffer, run.stderrBuffer);
-  const assistantOutput = buildProgressAssistantOutput(run.provisioningOutputParts);
+  const assistantOutput = buildProvisioningLiveOutput(run);
+  const assistantOutputChanged =
+    assistantOutput !== undefined && assistantOutput !== run.progress.assistantOutput;
 
-  if (!logsTail && !assistantOutput) {
+  if (!logsTail && !assistantOutputChanged) {
     return;
   }
   run.progress = {
     ...run.progress,
     updatedAt: nowIso(),
     ...(logsTail !== undefined && { cliLogsTail: logsTail }),
-    ...(assistantOutput !== undefined && { assistantOutput }),
+    ...(assistantOutputChanged && { assistantOutput }),
   };
   run.onProgress(run.progress);
 }
@@ -3925,6 +4003,8 @@ export class TeamProvisioningService {
   private readonly provisioningRunByTeam = new Map<string, string>();
   private readonly aliveRunByTeam = new Map<string, string>();
   private readonly runtimeAdapterProgressByRunId = new Map<string, TeamProvisioningProgress>();
+  private readonly runtimeAdapterTraceLinesByRunId = new Map<string, string[]>();
+  private readonly runtimeAdapterTraceKeyByRunId = new Map<string, string>();
   private readonly runtimeAdapterRunByTeam = new Map<
     string,
     {
@@ -6337,13 +6417,41 @@ export class TeamProvisioningService {
     );
   }
 
+  private enrichRuntimeAdapterProgressTrace(
+    progress: TeamProvisioningProgress
+  ): TeamProvisioningProgress {
+    const detail = buildProvisioningTraceDetail(progress);
+    const key = `${progress.state}\u0000${progress.message}\u0000${detail ?? ''}`;
+    const lines = this.runtimeAdapterTraceLinesByRunId.get(progress.runId) ?? [];
+    if (this.runtimeAdapterTraceKeyByRunId.get(progress.runId) !== key) {
+      this.runtimeAdapterTraceKeyByRunId.set(progress.runId, key);
+      lines.push(
+        buildProgressTraceLine({
+          timestamp: progress.updatedAt,
+          state: progress.state,
+          message: progress.message,
+          detail,
+        })
+      );
+      if (lines.length > PROVISIONING_TRACE_STORAGE_LIMIT) {
+        lines.splice(0, lines.length - PROVISIONING_TRACE_STORAGE_LIMIT);
+      }
+      this.runtimeAdapterTraceLinesByRunId.set(progress.runId, lines);
+    }
+    return {
+      ...progress,
+      assistantOutput: buildProgressLiveOutput(lines, []) ?? progress.assistantOutput,
+    };
+  }
+
   private setRuntimeAdapterProgress(
     progress: TeamProvisioningProgress,
     onProgress?: (progress: TeamProvisioningProgress) => void
   ): TeamProvisioningProgress {
-    this.runtimeAdapterProgressByRunId.set(progress.runId, progress);
-    onProgress?.(progress);
-    return progress;
+    const nextProgress = this.enrichRuntimeAdapterProgressTrace(progress);
+    this.runtimeAdapterProgressByRunId.set(nextProgress.runId, nextProgress);
+    onProgress?.(nextProgress);
+    return nextProgress;
   }
 
   private async getPersistedTranscriptClaudeLogs(
@@ -11101,9 +11209,7 @@ export class TeamProvisioningService {
             message: this.buildStallProgressMessage(silenceSec, elapsed),
             messageSeverity: 'warning' as const,
           }),
-          assistantOutput:
-            buildProgressAssistantOutput(run.provisioningOutputParts) ??
-            run.progress.assistantOutput,
+          assistantOutput: buildProvisioningLiveOutput(run) ?? run.progress.assistantOutput,
         };
         run.onProgress(run.progress);
       } catch (err) {
@@ -11735,6 +11841,8 @@ export class TeamProvisioningService {
         silentUserDmForwardClearHandle: null,
         pendingInboxRelayCandidates: [],
         provisioningOutputParts: [],
+        provisioningTraceLines: [],
+        lastProvisioningTraceKey: null,
         provisioningOutputIndexByMessageId: new Map(),
         detectedSessionId: null,
         leadActivityState: 'active',
@@ -11775,9 +11883,16 @@ export class TeamProvisioningService {
       this.resetTeamScopedTransientStateForNewRun(request.teamName);
       this.runs.set(runId, run);
       this.provisioningRunByTeam.set(request.teamName, runId);
+      initializeProvisioningTrace(run);
       run.onProgress(run.progress);
+      emitProvisioningCheckpoint(run, 'Clearing persisted launch state');
       await this.clearPersistedLaunchState(request.teamName);
 
+      emitProvisioningCheckpoint(
+        run,
+        'Building deterministic create bootstrap spec',
+        `expectedMembers=${effectiveMemberSpecs.length}`
+      );
       const bootstrapSpec = buildDeterministicCreateBootstrapSpec(
         runId,
         request,
@@ -11795,15 +11910,23 @@ export class TeamProvisioningService {
       let bootstrapSpecPath: string;
       let bootstrapUserPromptPath: string | null = null;
       try {
+        emitProvisioningCheckpoint(run, 'Writing deterministic bootstrap spec file');
         bootstrapSpecPath = await writeDeterministicBootstrapSpecFile(bootstrapSpec);
         run.bootstrapSpecPath = bootstrapSpecPath;
         if (initialUserPrompt) {
+          emitProvisioningCheckpoint(
+            run,
+            'Writing deferred user prompt file',
+            `chars=${promptSize.chars} lines=${promptSize.lines}`
+          );
           bootstrapUserPromptPath =
             await writeDeterministicBootstrapUserPromptFile(initialUserPrompt);
           run.bootstrapUserPromptPath = bootstrapUserPromptPath;
         }
+        emitProvisioningCheckpoint(run, 'Writing MCP config file');
         mcpConfigPath = await this.mcpConfigBuilder.writeConfigFile(request.cwd);
         run.mcpConfigPath = mcpConfigPath;
+        emitProvisioningCheckpoint(run, 'Validating agent-teams MCP runtime');
         await this.validateAgentTeamsMcpRuntime(claudePath, request.cwd, shellEnv, mcpConfigPath, {
           isCancelled: () =>
             run.cancelRequested ||
@@ -11871,6 +11994,7 @@ export class TeamProvisioningService {
       try {
         // Pre-save our meta files before spawn — CLI doesn't touch these.
         // If provisioning fails before TeamCreate, user can retry without re-entering config.
+        emitProvisioningCheckpoint(run, 'Persisting team metadata before spawn');
         const teamDir = path.join(getTeamsBasePath(), request.teamName);
         const tasksDir = path.join(getTasksBasePath(), request.teamName);
         await fs.promises.mkdir(teamDir, { recursive: true });
@@ -11905,9 +12029,15 @@ export class TeamProvisioningService {
           throw new Error('Team launch cancelled by app shutdown');
         }
         if (request.skipPermissions === false) {
+          emitProvisioningCheckpoint(run, 'Seeding lead bootstrap permission rules');
           await this.seedLeadBootstrapPermissionRules(request.teamName, request.cwd);
         }
 
+        emitProvisioningCheckpoint(
+          run,
+          'Spawning Claude CLI process',
+          `args=${spawnArgs.length} cwd=${request.cwd}`
+        );
         child = spawnCli(claudePath, spawnArgs, {
           cwd: request.cwd,
           env: { ...shellEnv },
@@ -12790,6 +12920,8 @@ export class TeamProvisioningService {
         silentUserDmForwardClearHandle: null,
         pendingInboxRelayCandidates: [],
         provisioningOutputParts: [],
+        provisioningTraceLines: [],
+        lastProvisioningTraceKey: null,
         provisioningOutputIndexByMessageId: new Map(),
         detectedSessionId: previousSessionId ?? null,
         leadActivityState: 'active',
@@ -12836,13 +12968,17 @@ export class TeamProvisioningService {
       this.resetTeamScopedTransientStateForNewRun(request.teamName);
       this.runs.set(runId, run);
       this.provisioningRunByTeam.set(request.teamName, runId);
+      initializeProvisioningTrace(run);
       run.onProgress(run.progress);
+      emitProvisioningCheckpoint(run, 'Clearing persisted launch state');
       await this.clearPersistedLaunchState(request.teamName);
+      emitProvisioningCheckpoint(run, 'Publishing mixed secondary lane status');
       for (const lane of run.mixedSecondaryLanes ?? []) {
         await this.publishMixedSecondaryLaneStatusChange(run, lane);
       }
 
       // Read existing tasks to include in teammate prompts for work resumption
+      emitProvisioningCheckpoint(run, 'Reading existing tasks for launch prompt');
       const taskReader = new TeamTaskReader();
       let existingTasks: TeamTask[] = [];
       try {
@@ -12870,17 +13006,30 @@ export class TeamProvisioningService {
       let bootstrapSpecPath: string;
       let bootstrapUserPromptPath: string | null = null;
       try {
+        emitProvisioningCheckpoint(
+          run,
+          'Building deterministic launch bootstrap spec',
+          `expectedMembers=${effectiveMemberSpecs.length}`
+        );
         const bootstrapSpec = buildDeterministicLaunchBootstrapSpec(
           runId,
           request,
           effectiveMemberSpecs
         );
+        emitProvisioningCheckpoint(run, 'Writing deterministic bootstrap spec file');
         bootstrapSpecPath = await writeDeterministicBootstrapSpecFile(bootstrapSpec);
         run.bootstrapSpecPath = bootstrapSpecPath;
+        emitProvisioningCheckpoint(
+          run,
+          'Writing launch hydration prompt file',
+          `chars=${promptSize.chars} lines=${promptSize.lines}`
+        );
         bootstrapUserPromptPath = await writeDeterministicBootstrapUserPromptFile(prompt);
         run.bootstrapUserPromptPath = bootstrapUserPromptPath;
+        emitProvisioningCheckpoint(run, 'Writing MCP config file');
         mcpConfigPath = await this.mcpConfigBuilder.writeConfigFile(request.cwd);
         run.mcpConfigPath = mcpConfigPath;
+        emitProvisioningCheckpoint(run, 'Validating agent-teams MCP runtime');
         await this.validateAgentTeamsMcpRuntime(claudePath, request.cwd, shellEnv, mcpConfigPath, {
           isCancelled: () =>
             run.cancelRequested ||
@@ -12952,6 +13101,7 @@ export class TeamProvisioningService {
       // can be inherited by the teammate subprocess via buildInheritedCliFlags.
       // Without this, a codex teammate spawned from an anthropic lead has no way to learn
       // about the required forced_login_method (chatgpt/api) and fails to start.
+      emitProvisioningCheckpoint(run, 'Resolving cross-provider member launch args');
       const crossProviderMemberArgs = await this.buildCrossProviderMemberArgs(
         resolvedProviderId,
         effectiveMemberSpecs
@@ -12971,6 +13121,7 @@ export class TeamProvisioningService {
       });
       // --resume is added above when a valid previous session JSONL exists.
       // Without it, CLI creates a fresh session ID automatically.
+      emitProvisioningCheckpoint(run, 'Persisting team metadata before spawn');
       await this.teamMetaStore.writeMeta(request.teamName, {
         displayName: syntheticRequest.displayName,
         description: syntheticRequest.description,
@@ -13006,8 +13157,14 @@ export class TeamProvisioningService {
           throw new Error('Team launch cancelled by app shutdown');
         }
         if (request.skipPermissions === false) {
+          emitProvisioningCheckpoint(run, 'Seeding lead bootstrap permission rules');
           await this.seedLeadBootstrapPermissionRules(request.teamName, request.cwd);
         }
+        emitProvisioningCheckpoint(
+          run,
+          'Spawning Claude CLI process for team launch',
+          `args=${finalLaunchArgs.length} cwd=${request.cwd}`
+        );
         child = spawnCli(claudePath, finalLaunchArgs, {
           cwd: request.cwd,
           env: { ...shellEnv },
@@ -18911,14 +19068,18 @@ export class TeamProvisioningService {
             run.provisioningOutputParts.push(warningText);
           }
           run.lastRetryAt = Date.now();
+          appendProvisioningTrace(
+            run,
+            run.progress.state,
+            retryText,
+            errorMessage ? `error=${errorMessage}` : undefined
+          );
           run.progress = {
             ...run.progress,
             updatedAt: nowIso(),
             message: retryText,
             messageSeverity: 'error' as const,
-            assistantOutput:
-              buildProgressAssistantOutput(run.provisioningOutputParts) ??
-              run.progress.assistantOutput,
+            assistantOutput: buildProvisioningLiveOutput(run) ?? run.progress.assistantOutput,
           };
           run.onProgress(run.progress);
         }
