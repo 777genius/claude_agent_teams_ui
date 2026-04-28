@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs/promises';
 
 import { ChangeExtractorService } from '../../../../src/main/services/team/ChangeExtractorService';
+import { OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION } from '../../../../src/main/services/team/opencode/bridge/OpenCodeBridgeCommandContract';
 import { buildTaskChangePresenceDescriptor } from '../../../../src/main/services/team/taskChangePresenceUtils';
 import { setClaudeBasePathOverride } from '../../../../src/main/utils/pathDecoder';
 
@@ -1823,6 +1824,81 @@ describe('ChangeExtractorService', () => {
     });
 
     expect(backfillOpenCodeTaskLedger).toHaveBeenCalledTimes(2);
+    expect(workerClient.computeTaskChanges).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches duplicates-only OpenCode backfill from the current evidence contract', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'change-extractor-service-'));
+    setClaudeBasePathOverride(tmpDir);
+    await writeTaskFile(tmpDir, { displayId: 'abc12345', owner: 'bob' });
+    const projectDir = path.join(tmpDir, 'project-dir');
+    const projectPath = path.join(tmpDir, 'repo');
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenCodeDeliveryLedger(tmpDir);
+
+    const backfillOpenCodeTaskLedger = vi.fn(async (input: any) => ({
+      schemaVersion: 1,
+      providerId: 'opencode',
+      opencodeTaskLedgerEvidenceContractVersion:
+        OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION,
+      teamName: input.teamName,
+      taskId: input.taskId,
+      projectDir: input.projectDir,
+      workspaceRoot: input.workspaceRoot,
+      dryRun: false,
+      attributionMode: input.attributionMode,
+      scannedSessions: 1,
+      scannedToolparts: 1,
+      candidateEvents: 1,
+      importedEvents: 0,
+      skippedEvents: 1,
+      outcome: 'duplicates-only',
+      notices: [],
+      diagnostics: [],
+    }));
+    const workerClient = {
+      isAvailable: vi.fn(() => true),
+      computeTaskChanges: vi.fn(async () =>
+        makeTaskChangeResult(TASK_ID, { content: '', confidence: 'fallback' })
+      ),
+    };
+
+    const service = new ChangeExtractorService(
+      {
+        getLogSourceWatchContext: vi.fn(async () => ({
+          projectDir,
+          projectPath,
+          sessionIds: [],
+        })),
+        findLogFileRefsForTask: vi.fn(async () => []),
+        findMemberLogPaths: vi.fn(async () => []),
+      } as any,
+      {
+        parseBoundaries: vi.fn(async () => ({
+          boundaries: [],
+          scopes: [],
+          isSingleTaskSession: true,
+          detectedMechanism: 'none' as const,
+        })),
+      } as any,
+      { getConfig: vi.fn(async () => ({ projectPath })) } as any,
+      undefined,
+      workerClient as any,
+      { backfillOpenCodeTaskLedger } as any,
+      { getMeta: vi.fn(async () => ({ providerId: 'opencode' })) } as any
+    );
+
+    await service.getTaskChanges(TEAM_NAME, TASK_ID, {
+      owner: 'bob',
+      status: 'completed',
+    });
+    await service.getTaskChanges(TEAM_NAME, TASK_ID, {
+      owner: 'bob',
+      status: 'completed',
+    });
+
+    expect(backfillOpenCodeTaskLedger).toHaveBeenCalledTimes(1);
     expect(workerClient.computeTaskChanges).toHaveBeenCalledTimes(2);
   });
 });
