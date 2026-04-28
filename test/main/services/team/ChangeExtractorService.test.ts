@@ -1276,6 +1276,65 @@ describe('ChangeExtractorService', () => {
     expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]).not.toHaveProperty('memberName');
   });
 
+  it('ignores OpenCode delivery records that match only a recreated task display id', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'change-extractor-service-'));
+    setClaudeBasePathOverride(tmpDir);
+    await writeTaskFile(tmpDir, { displayId: 'abc12345', owner: 'bob' });
+    const projectDir = path.join(tmpDir, 'project-dir');
+    const projectPath = path.join(tmpDir, 'repo');
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenCodeDeliveryLedger(tmpDir, {
+      taskId: 'old-task',
+      displayId: 'abc12345',
+      memberName: 'bob',
+    });
+
+    const backfillOpenCodeTaskLedger = vi.fn(async () => {
+      throw new Error('display-id-only delivery record must not backfill');
+    });
+    const workerClient = {
+      isAvailable: vi.fn(() => true),
+      computeTaskChanges: vi.fn(async () =>
+        makeTaskChangeResult(TASK_ID, { content: '', confidence: 'fallback' })
+      ),
+    };
+
+    const service = new ChangeExtractorService(
+      {
+        getLogSourceWatchContext: vi.fn(async () => ({
+          projectDir,
+          projectPath,
+          sessionIds: [],
+        })),
+        findLogFileRefsForTask: vi.fn(async () => []),
+        findMemberLogPaths: vi.fn(async () => []),
+      } as any,
+      {
+        parseBoundaries: vi.fn(async () => ({
+          boundaries: [],
+          scopes: [],
+          isSingleTaskSession: true,
+          detectedMechanism: 'none' as const,
+        })),
+      } as any,
+      { getConfig: vi.fn(async () => ({ projectPath })) } as any,
+      undefined,
+      workerClient as any,
+      { backfillOpenCodeTaskLedger } as any,
+      { getMeta: vi.fn(async () => ({ providerId: 'opencode' })) } as any
+    );
+
+    const result = await service.getTaskChanges(TEAM_NAME, TASK_ID, {
+      owner: 'bob',
+      status: 'completed',
+    });
+
+    expect(result.files).toHaveLength(0);
+    expect(backfillOpenCodeTaskLedger).not.toHaveBeenCalled();
+    expect(workerClient.computeTaskChanges).toHaveBeenCalledTimes(1);
+  });
+
   it('does not run OpenCode backfill for explicit non-OpenCode teams even if stale runtime files exist', async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'change-extractor-service-'));
     setClaudeBasePathOverride(tmpDir);
