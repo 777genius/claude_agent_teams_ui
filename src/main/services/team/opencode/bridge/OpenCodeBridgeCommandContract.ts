@@ -240,17 +240,10 @@ export interface OpenCodeBackfillTaskLedgerCommandBody {
   workspaceRoot?: string;
   deliveryContextPath?: string;
   attributionMode?: OpenCodeBackfillTaskLedgerAttributionMode;
-  evidenceMode?: OpenCodeBackfillTaskLedgerEvidenceMode;
   dryRun?: boolean;
 }
 
 export type OpenCodeBackfillTaskLedgerAttributionMode = 'strict-delivery' | 'compatible';
-export type OpenCodeBackfillTaskLedgerEvidenceMode =
-  | 'off'
-  | 'metadata-only'
-  | 'chain-only'
-  | 'snapshot-probe'
-  | 'snapshot-auto';
 
 export type OpenCodeBackfillTaskLedgerOutcome =
   | 'imported'
@@ -271,7 +264,6 @@ export interface OpenCodeBackfillTaskLedgerCommandData {
   workspaceRoot?: string;
   dryRun: boolean;
   attributionMode?: OpenCodeBackfillTaskLedgerAttributionMode;
-  evidenceMode?: OpenCodeBackfillTaskLedgerEvidenceMode;
   strictWindowCandidateCount?: number;
   openCodeDbFingerprint?: string;
   deliveryLedgerFingerprint?: string;

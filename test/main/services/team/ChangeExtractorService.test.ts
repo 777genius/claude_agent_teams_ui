@@ -1060,6 +1060,7 @@ describe('ChangeExtractorService', () => {
         attributionMode: 'strict-delivery',
       })
     );
+    expect(backfillOpenCodeTaskLedger.mock.calls[0]?.[0]).not.toHaveProperty('evidenceMode');
     expect(workerClient.computeTaskChanges).not.toHaveBeenCalled();
   });
 
@@ -1185,6 +1186,8 @@ describe('ChangeExtractorService', () => {
         })
       );
     });
+    const backfillCalls = backfillOpenCodeTaskLedger.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    expect(backfillCalls[0]?.[0]).not.toHaveProperty('evidenceMode');
 
     expect(settled).toBe(false);
     expect(workerClient.computeTaskChanges).not.toHaveBeenCalled();
