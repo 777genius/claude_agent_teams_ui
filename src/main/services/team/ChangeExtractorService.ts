@@ -81,6 +81,11 @@ interface OpenCodeDeliveryContextTempFile {
   cleanup: () => Promise<void>;
 }
 
+interface OpenCodeDeliveryContextPayload {
+  rawContext: string;
+  hash: string;
+}
+
 export class ChangeExtractorService {
   private cache = new Map<string, CacheEntry>();
   private taskChangeSummaryCache = new Map<string, TaskChangeSummaryCacheEntry>();
@@ -422,12 +427,16 @@ export class ChangeExtractorService {
       input.teamName,
       input.taskId
     );
+    const deliveryContextPayload = this.buildOpenCodeDeliveryContextPayload(
+      input.teamName,
+      input.taskId,
+      deliveryContextRecords
+    );
     const backfillMemberName = this.resolveOpenCodeBackfillMemberName(
       input.effectiveOptions.owner,
       deliveryContextRecords
     );
-    const deliveryContextFingerprint =
-      this.hashOpenCodeDeliveryContextRecords(deliveryContextRecords);
+    const deliveryContextFingerprint = deliveryContextPayload.hash;
 
     const cacheKey = this.buildOpenCodeBackfillCacheKey({
       teamName: input.teamName,
@@ -479,6 +488,7 @@ export class ChangeExtractorService {
       workspaceRoot,
       cacheKey,
       deliveryContextRecords,
+      deliveryContextPayload,
       sourceGeneration,
       backfillMemberName
     ).finally(() => {
@@ -496,13 +506,15 @@ export class ChangeExtractorService {
     deliveryContextRecords: Awaited<
       ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>
     >,
+    deliveryContextPayload: OpenCodeDeliveryContextPayload,
     sourceGeneration: string | null,
     backfillMemberName?: string
   ): Promise<OpenCodeBackfillAttempt> {
     const deliveryContext = await this.createOpenCodeDeliveryContextTempFile(
       input.teamName,
       input.taskId,
-      deliveryContextRecords
+      deliveryContextRecords,
+      deliveryContextPayload
     );
     try {
       const result = await this.openCodeLedgerBackfillPort!.backfillOpenCodeTaskLedger({
@@ -532,7 +544,7 @@ export class ChangeExtractorService {
         workspaceRoot,
         sourceGeneration,
         deliveryRecordCount: deliveryContextRecords.length,
-        deliveryContextFingerprint: this.hashOpenCodeDeliveryContextRecords(deliveryContextRecords),
+        deliveryContextFingerprint: deliveryContextPayload.hash,
         result: {
           attributionMode: result.attributionMode ?? OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
           outcome: result.outcome,
@@ -586,7 +598,7 @@ export class ChangeExtractorService {
         projectDir,
         workspaceRoot,
         deliveryRecordCount: deliveryContextRecords.length,
-        deliveryContextFingerprint: this.hashOpenCodeDeliveryContextRecords(deliveryContextRecords),
+        deliveryContextFingerprint: deliveryContextPayload.hash,
         error: error instanceof Error ? error.message : String(error),
       }).catch(() => undefined);
       if (deliveryContextRecords.length === 0) {
@@ -664,7 +676,8 @@ export class ChangeExtractorService {
   private async createOpenCodeDeliveryContextTempFile(
     teamName: string,
     taskId: string,
-    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
+    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>,
+    payload = this.buildOpenCodeDeliveryContextPayload(teamName, taskId, records)
   ): Promise<OpenCodeDeliveryContextTempFile> {
     if (records.length === 0) {
       return { filePath: null, hash: null, cleanup: async () => undefined };
@@ -673,6 +686,21 @@ export class ChangeExtractorService {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'claude-team-opencode-ledger-context-'));
     await chmod(dir, 0o700).catch(() => undefined);
     const filePath = path.join(dir, 'delivery-context.json');
+    await writeFile(filePath, payload.rawContext, { encoding: 'utf8', mode: 0o600 });
+    return {
+      filePath,
+      hash: payload.hash,
+      cleanup: async () => {
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      },
+    };
+  }
+
+  private buildOpenCodeDeliveryContextPayload(
+    teamName: string,
+    taskId: string,
+    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
+  ): OpenCodeDeliveryContextPayload {
     const rawContext = `${JSON.stringify(
       {
         schemaVersion: 1,
@@ -683,13 +711,9 @@ export class ChangeExtractorService {
       null,
       2
     )}\n`;
-    await writeFile(filePath, rawContext, { encoding: 'utf8', mode: 0o600 });
     return {
-      filePath,
       hash: createHash('sha256').update(rawContext).digest('hex'),
-      cleanup: async () => {
-        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-      },
+      rawContext,
     };
   }
 
@@ -796,50 +820,6 @@ export class ChangeExtractorService {
       if (laneIds.length >= OPEN_CODE_MAX_DISCOVERED_LANES) break;
     }
     return laneIds.sort((left, right) => left.localeCompare(right));
-  }
-
-  private hashOpenCodeDeliveryContextRecords(
-    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
-  ): string {
-    const stableRecords = records
-      .map((record) => ({
-        memberName: record.memberName,
-        laneId: record.laneId ?? '',
-        runtimeSessionId: record.runtimeSessionId ?? '',
-        inboxMessageId: record.inboxMessageId ?? '',
-        deliveredUserMessageId: record.deliveredUserMessageId ?? '',
-        taskRefs: record.taskRefs
-          .map((taskRef) => ({
-            taskId: taskRef.taskId,
-            displayId: taskRef.displayId,
-            teamName: taskRef.teamName,
-          }))
-          .sort((left, right) =>
-            `${left.teamName}\0${left.taskId}\0${left.displayId}`.localeCompare(
-              `${right.teamName}\0${right.taskId}\0${right.displayId}`
-            )
-          ),
-      }))
-      .sort((left, right) =>
-        [
-          left.laneId,
-          left.memberName,
-          left.runtimeSessionId,
-          left.inboxMessageId,
-          left.deliveredUserMessageId,
-        ]
-          .join('\0')
-          .localeCompare(
-            [
-              right.laneId,
-              right.memberName,
-              right.runtimeSessionId,
-              right.inboxMessageId,
-              right.deliveredUserMessageId,
-            ].join('\0')
-          )
-      );
-    return createHash('sha256').update(JSON.stringify(stableRecords)).digest('hex');
   }
 
   private async readOpenCodePromptDeliveryLedgerRecords(
