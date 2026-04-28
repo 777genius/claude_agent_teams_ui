@@ -636,6 +636,7 @@ describe('TeamProvisioningService', () => {
       await svc.getTeamAgentRuntimeSnapshot('runtime-team');
 
       expect(listTmuxPaneRuntimeInfoForCurrentPlatform).not.toHaveBeenCalled();
+      expect(listTmuxPanePidsForCurrentPlatform).not.toHaveBeenCalled();
     });
 
     it('exposes providerBackendId from the live run request when available', async () => {
