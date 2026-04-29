@@ -46,7 +46,8 @@ const liveDescribe =
     : describe.skip;
 
 const DEFAULT_ORCHESTRATOR_CLI = '/Users/belief/dev/projects/claude/agent_teams_orchestrator/cli';
-const DEFAULT_MODEL = 'haiku';
+const DEFAULT_MODEL = 'sonnet';
+const DEFAULT_EFFORT = 'low' as const;
 
 liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   let tempDir: string;
@@ -145,17 +146,40 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
       svc = new TeamProvisioningService();
       const activeService = svc;
       const teamDataService = new TeamDataService();
+      const configReader = new TeamConfigReader();
+      const membersMetaStore = new TeamMembersMetaStore();
       feature = createMemberWorkSyncFeature({
         teamsBasePath: getTeamsBasePath(),
-        configReader: new TeamConfigReader(),
+        configReader,
         taskReader: new TeamTaskReader(),
         kanbanManager: new TeamKanbanManager(),
-        membersMetaStore: new TeamMembersMetaStore(),
+        membersMetaStore,
         isTeamActive: (name) =>
           activeService.isTeamAlive(name) || activeService.hasProvisioningRun(name),
         listLifecycleActiveTeamNames: async () => [teamName!],
         nudgeSideEffectsEnabled: false,
         queueQuietWindowMs: 500,
+        // Native Claude teammates are registered by the real lead process, but in this
+        // headless harness their bootstrap turn can finish before there is a durable
+        // member process to prompt. The live assertion below still uses a real Claude
+        // process, real MCP calls, and a real Stop hook payload; this seam keeps the
+        // test focused on hook ingestion instead of tmux liveness.
+        runtimeTurnSettledTargetResolver: {
+          resolve: async (event) => {
+            if (event.provider !== 'claude') {
+              return { ok: false, reason: 'unsupported_provider' };
+            }
+            if (!teamName) {
+              return { ok: false, reason: 'missing_team' };
+            }
+            const config = await configReader.getConfig(teamName);
+            const leadSessionId = config?.leadSessionId?.trim();
+            if (!leadSessionId || event.sessionId !== leadSessionId) {
+              return { ok: false, reason: 'no_matching_member_session' };
+            }
+            return { ok: true, teamName, memberName };
+          },
+        },
       });
       activeService.setTeamChangeEmitter((event: TeamChangeEvent) =>
         feature!.noteTeamChange(event)
@@ -180,11 +204,11 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
           cwd: projectPath,
           providerId: 'anthropic',
           model,
+          effort: DEFAULT_EFFORT,
           skipPermissions: true,
           prompt: [
-            'Keep launch work minimal.',
-            'If you receive a task, follow task instructions exactly.',
-            'Before going idle with unfinished assigned work, call member_work_sync_status and member_work_sync_report.',
+            'Keep launch work minimal and wait for the explicit live-test instruction.',
+            'Do not inspect tasks or send messages until the next user turn.',
           ].join(' '),
           members: [
             {
@@ -192,6 +216,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
               role: 'Developer',
               providerId: 'anthropic',
               model,
+              effort: DEFAULT_EFFORT,
             },
           ],
         },
@@ -232,8 +257,18 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
         ].join('\n'),
       });
       feature.noteTeamChange({ type: 'task', teamName, taskId: task.id });
-      const relay = await activeService.relayInboxFileToLiveRecipient(teamName, memberName);
-      expect(relay.relayed).toBeGreaterThan(0);
+      await activeService.sendMessageToTeam(
+        teamName,
+        [
+          `Live member-work-sync validation instruction. Marker: ${marker}.`,
+          `Use the board MCP tools as member "${memberName}" for this validation.`,
+          `Call task_get for taskId "${task.id}", then task_start.`,
+          `Add one task comment containing exactly: ${marker}:still-working.`,
+          `Then call member_work_sync_status with teamName "${teamName}", memberName "${memberName}", and controlUrl "${controlServer.baseUrl}".`,
+          `Then call member_work_sync_report with teamName "${teamName}", memberName "${memberName}", controlUrl "${controlServer.baseUrl}", state "still_working", the exact agendaFingerprint and reportToken returned by member_work_sync_status, and taskIds ["${task.id}"].`,
+          'After that stop. Do not complete the task. Do not send a user-visible message.',
+        ].join('\n')
+      );
 
       await waitUntil(async () => {
         const status = await feature!.getStatus({ teamName: teamName!, memberName });

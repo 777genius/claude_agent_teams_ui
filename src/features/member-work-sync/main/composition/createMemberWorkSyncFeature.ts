@@ -18,6 +18,7 @@ import {
   type MemberWorkSyncReconcileContext,
   RuntimeTurnSettledIngestor,
   type RuntimeTurnSettledDrainSummary,
+  type RuntimeTurnSettledTargetResolverPort,
 } from '../../core/application';
 import { MemberWorkSyncTeamChangeRouter } from '../adapters/input/MemberWorkSyncTeamChangeRouter';
 import { TeamInboxMemberWorkSyncNudgeSink } from '../adapters/output/TeamInboxMemberWorkSyncNudgeSink';
@@ -104,6 +105,7 @@ export function createMemberWorkSyncFeature(deps: {
   listLifecycleActiveTeamNames?: () => Promise<string[]>;
   nudgeSideEffectsEnabled?: boolean;
   queueQuietWindowMs?: number;
+  runtimeTurnSettledTargetResolver?: RuntimeTurnSettledTargetResolverPort;
   logger?: MemberWorkSyncLoggerPort;
 }): MemberWorkSyncFeatureFacade {
   const clock = new SystemClockAdapter();
@@ -126,10 +128,12 @@ export function createMemberWorkSyncFeature(deps: {
     paths: runtimeTurnSettledSpoolPaths,
   });
   const runtimeTurnSettledNormalizer = new ClaudeStopHookPayloadNormalizer(hash);
-  const runtimeTurnSettledTargetResolver = new TeamRuntimeTurnSettledTargetResolver({
-    teamSource: deps.configReader,
-    membersMetaStore: deps.membersMetaStore,
-  });
+  const runtimeTurnSettledTargetResolver =
+    deps.runtimeTurnSettledTargetResolver ??
+    new TeamRuntimeTurnSettledTargetResolver({
+      teamSource: deps.configReader,
+      membersMetaStore: deps.membersMetaStore,
+    });
   const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);
   const watchdogCooldown = new TeamTaskStallJournalWorkSyncCooldown(deps.teamsBasePath);
   const busySignal = new MemberWorkSyncToolActivityBusySignal();
