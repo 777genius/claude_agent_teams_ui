@@ -1,6 +1,6 @@
 # Member Work Sync Control Plane Plan
 
-**Status:** Phase 1, Phase 1.5 observability, minimal read-only member details surface, and readiness-gated Phase 2 nudge outbox/dispatcher implemented
+**Status:** Phase 1, Phase 1.5 observability, minimal read-only member details surface, and readiness-gated Phase 2 nudge outbox/dispatcher/scheduler implemented
 **Scope:** Team management, task work synchronization, agent work coordination  
 **Primary repo:** `claude_team`  
 **Secondary write-boundary repo:** `agent_teams_orchestrator` / `agent-teams-controller`  
@@ -38,8 +38,9 @@ Current implementation note:
 - Queue reconciles can plan a Phase 2 outbox item only when `phase2Readiness=shadow_ready`; read-only diagnostics never create outbox intents. This preserves the anti-spam gate and keeps UI/status reads passive.
 - Dispatcher use case runs after queued reconcile and is also exposed through the facade. It claims due outbox rows, revalidates active team/status/current fingerprint/readiness/busy/watchdog cooldown, then writes one idempotent inbox nudge through a narrow port.
 - Production busy revalidation is wired through a tool-activity busy signal adapter. Active or recently finished tool calls defer Phase 2 nudges instead of interrupting work.
-- A feature-owned dispatch scheduler wakes due retryable outbox items for active teams. It is bounded, unref'ed, and still relies on dispatcher revalidation before any inbox write.
+- A feature-owned dispatch scheduler wakes due retryable outbox items for lifecycle-active teams only. It is bounded, unref'ed, and still relies on dispatcher revalidation before any inbox write.
 - Dispatcher applies per-member hourly rate limiting and bounded deterministic retry backoff with jitter before retrying failed nudge attempts.
+- Superseded-but-undelivered outbox items can be revived by a fresh queued reconcile for the same agenda fingerprint. Delivered nudges remain one-per-fingerprint.
 - Phase 2 dispatch stays blocked until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
 
 Patterns used:
@@ -3012,6 +3013,15 @@ Includes:
 - per-member token bucket;
 - shared cooldown with watchdog.
 
+Implemented safety constraints:
+
+- only queued reconciles plan outbox rows;
+- read-only diagnostics never plan outbox rows;
+- outbox planning requires `phase2Readiness.state === "shadow_ready"`;
+- dispatch revalidates lifecycle, current status, current fingerprint, readiness, busy state, rate limit, and watchdog cooldown immediately before inbox insert;
+- scheduled dispatch lists lifecycle-active teams only, not all stored teams;
+- undelivered `superseded` rows can be revived by a later fresh reconcile for the same fingerprint, while `delivered` rows remain one-per-fingerprint.
+
 ### Phase 3: Provider Accelerators
 
 `🎯 8   🛡️ 8   🧠 5`, `300-600 LOC`.
@@ -3024,6 +3034,12 @@ Includes:
 - optional manual "sync now".
 
 No accelerator is proof.
+
+Current implementation:
+
+- tool-finish enqueue and tool-activity busy suppression are implemented through `TeamChangeEvent` and the feature-owned busy signal;
+- Claude Stop hook and OpenCode turn-settled hooks are intentionally not wired yet because the current feature boundary does not expose one authoritative cross-provider "turn settled and idle" signal. Adding an adapter around prompt text, idle notifications, or provider-specific transcript heuristics would be less reliable than the current tool-finish + scheduled reconcile path;
+- manual "sync now" remains optional because details/status reads are passive by design, and explicit manual nudges should reuse the existing outbox/dispatcher instead of bypassing readiness guards.
 
 ---
 

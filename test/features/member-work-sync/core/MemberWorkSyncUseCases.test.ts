@@ -140,6 +140,18 @@ class InMemoryOutboxStore implements MemberWorkSyncOutboxStorePort {
     this.ensures.push(input);
     const current = this.items.get(input.id);
     if (current) {
+      if (current.status === 'superseded') {
+        const revived = {
+          ...current,
+          status: 'pending' as const,
+          updatedAt: input.nowIso,
+        };
+        delete revived.lastError;
+        delete revived.claimedBy;
+        delete revived.claimedAt;
+        this.items.set(input.id, revived);
+        return { ok: true as const, outcome: 'existing' as const, item: revived };
+      }
       return { ok: true as const, outcome: 'existing' as const, item: current };
     }
     const item: MemberWorkSyncOutboxItem = {
@@ -520,7 +532,7 @@ describe('MemberWorkSync use cases', () => {
   it('does not dispatch stale outbox items after the member reports still working', async () => {
     const outbox = new InMemoryOutboxStore();
     const inbox = new InMemoryInboxNudge();
-    const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
+    const { clock, deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
     store.phase2ReadinessState = 'shadow_ready';
 
     const reconciler = new MemberWorkSyncReconciler(deps);
@@ -550,6 +562,17 @@ describe('MemberWorkSync use cases', () => {
       status: 'superseded',
       lastError: 'status_no_longer_matches_outbox',
     });
+
+    clock.set('2026-04-29T00:03:00.000Z');
+    const expired = await reconciler.execute(
+      { teamName: 'team-a', memberName: 'bob' },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
+
+    expect(expired.state).toBe('needs_sync');
+    const revived = outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`);
+    expect(revived).toMatchObject({ status: 'pending' });
+    expect(revived).not.toHaveProperty('lastError');
   });
 
   it('rate-limits delivered nudges per member per hour', async () => {

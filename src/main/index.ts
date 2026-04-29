@@ -1236,10 +1236,17 @@ async function initializeServices(): Promise<void> {
     isTeamActive: (teamName) =>
       teamProvisioningService.isTeamAlive(teamName) ||
       teamProvisioningService.hasProvisioningRun(teamName),
-    listActiveTeamNames: async () =>
-      (await teamDataService.listTeams())
-        .filter((team) => !team.deletedAt)
-        .map((team) => team.teamName),
+    listActiveTeamNames: async () => {
+      const teams = await teamDataService.listTeams();
+      return teams
+        .filter(
+          (team) =>
+            !team.deletedAt &&
+            (teamProvisioningService.isTeamAlive(team.teamName) ||
+              teamProvisioningService.hasProvisioningRun(team.teamName))
+        )
+        .map((team) => team.teamName);
+    },
     logger: createLogger('Feature:MemberWorkSync'),
   });
   void teamDataService

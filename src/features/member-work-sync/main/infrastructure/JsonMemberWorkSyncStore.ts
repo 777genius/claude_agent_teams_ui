@@ -97,6 +97,10 @@ function isOutboxTerminal(status: MemberWorkSyncOutboxItem['status']): boolean {
   return status === 'delivered' || status === 'superseded' || status === 'failed_terminal';
 }
 
+function canReviveOutboxItem(status: MemberWorkSyncOutboxItem['status']): boolean {
+  return status === 'superseded' || (!isOutboxTerminal(status) && status !== 'pending');
+}
+
 function canClaimOutboxItem(item: MemberWorkSyncOutboxItem, nowIso: string): boolean {
   if (item.status !== 'pending' && item.status !== 'failed_retryable') {
     return false;
@@ -379,7 +383,7 @@ export class JsonMemberWorkSyncStore
             return;
           }
 
-          if (!isOutboxTerminal(current.status) && current.status !== 'pending') {
+          if (canReviveOutboxItem(current.status)) {
             const next: MemberWorkSyncOutboxItem = {
               ...current,
               status: 'pending',
