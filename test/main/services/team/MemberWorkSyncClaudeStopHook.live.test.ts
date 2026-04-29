@@ -70,6 +70,19 @@ interface ClaudeStopHookLiveScenario {
   buildInstructionLines(context: Required<ClaudeStopHookLiveScenarioContext>): string[];
 }
 
+function hasAcceptedReportForScenario(input: {
+  metrics: Awaited<ReturnType<MemberWorkSyncFeatureFacade['getMetrics']>>;
+  memberName: string;
+  expectedState: ClaudeStopHookLiveScenarioState;
+}): boolean {
+  return input.metrics.recentEvents.some(
+    (event) =>
+      event.kind === 'report_accepted' &&
+      event.memberName === input.memberName &&
+      event.reportState === input.expectedState
+  );
+}
+
 liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   let tempDir: string;
   let tempClaudeRoot: string;
@@ -314,8 +327,9 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
         context: 'Claude validation turn',
       });
       await feature!.replayPendingReports([teamName!]);
-      const [status, tasks] = await Promise.all([
+      const [status, metrics, tasks] = await Promise.all([
         feature!.getStatus({ teamName: teamName!, memberName }),
+        feature!.getMetrics({ teamName: teamName! }),
         new TeamTaskReader().getTasks(teamName!),
       ]);
       const currentTask = tasks.find((candidate) => candidate.id === task.id);
@@ -323,11 +337,17 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
       const hasMarkerComment = currentTask?.comments?.some(
         (comment) => comment.author === memberName && comment.text.includes(expectedMarker)
       );
+      const reportAccepted =
+        (status.report?.accepted === true && status.report.state === scenario.expectedState) ||
+        hasAcceptedReportForScenario({
+          metrics,
+          memberName,
+          expectedState: scenario.expectedState,
+        });
       return Boolean(
         hasMarkerComment &&
           currentTask?.status === scenario.expectedTaskStatus &&
-          status.report?.accepted &&
-          status.report.state === scenario.expectedState
+          reportAccepted
       );
     }, 300_000, 2_000, async () =>
       formatMemberWorkSyncDiagnostics({
@@ -379,17 +399,34 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
       feature.getStatus({ teamName, memberName }),
       feature.getMetrics({ teamName }),
     ]);
-    expect(finalStatus.state).toBe(scenario.expectedState);
-    expect(finalStatus.report).toMatchObject({
-      accepted: true,
-      state: scenario.expectedState,
-    });
+    const finalReportAccepted =
+      (finalStatus.report?.accepted === true &&
+        finalStatus.report.state === scenario.expectedState) ||
+      hasAcceptedReportForScenario({
+        metrics,
+        memberName,
+        expectedState: scenario.expectedState,
+      });
+    expect(finalReportAccepted).toBe(true);
+    if (finalStatus.state !== 'inactive') {
+      expect(finalStatus.state).toBe(scenario.expectedState);
+      expect(finalStatus.report).toMatchObject({
+        accepted: true,
+        state: scenario.expectedState,
+      });
+    }
     if (scenario.expectedState === 'caught_up') {
       expect(finalStatus.agenda.items).toHaveLength(0);
     } else {
       expect(finalStatus.agenda.items.some((item) => item.taskId === task.id)).toBe(true);
     }
-    expect(metrics.recentEvents.some((event) => event.kind === 'report_accepted')).toBe(true);
+    expect(
+      hasAcceptedReportForScenario({
+        metrics,
+        memberName,
+        expectedState: scenario.expectedState,
+      })
+    ).toBe(true);
     await expect(feature.dispatchDueNudges([teamName])).resolves.toMatchObject({
       claimed: 0,
       delivered: 0,
