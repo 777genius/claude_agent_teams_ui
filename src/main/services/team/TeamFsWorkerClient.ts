@@ -74,6 +74,10 @@ function resolveWorkerPath(): string | null {
   return null;
 }
 
+function shouldWarnUnavailableWorker(): boolean {
+  return process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true';
+}
+
 export class TeamFsWorkerClient {
   private worker: Worker | null = null;
   private readonly workerPath: string | null = resolveWorkerPath();
@@ -84,7 +88,7 @@ export class TeamFsWorkerClient {
   >();
 
   isAvailable(): boolean {
-    if (!this.workerPath && !this.warnedUnavailable) {
+    if (!this.workerPath && !this.warnedUnavailable && shouldWarnUnavailableWorker()) {
       this.warnedUnavailable = true;
       const baseDir =
         typeof __dirname === 'string' && __dirname.length > 0

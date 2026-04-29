@@ -2359,6 +2359,184 @@ watchdog does not trust work-sync reports as progress.
 
 This prevents a valid `still_working` lease from hiding a real task stall.
 
+### 16.6 Current Codebase Fit Audit
+
+This plan was checked against the current codebase shape, not only against the target design.
+
+Existing codebase facts:
+
+- `docs/FEATURE_ARCHITECTURE_STANDARD.md` already requires a full feature slice for medium and large features.
+- `src/features/recent-projects` is the cleanest local template for contracts/core/main/preload/renderer boundaries.
+- `TeamTaskReader` already normalizes persisted task files, deleted tasks, history events, comments, attachments, and review state.
+- `TeamKanbanManager` already owns kanban/reviewer overlay state.
+- `TeamMembersMetaStore` already owns active/removed member metadata.
+- `TeamConfigReader` already has bounded team reads, worker fallback, launch summary projection, and soft-deleted team handling.
+- `TeamTaskStallSnapshotSource` already contains useful provider/member resolution, but it is stall-monitor-specific and should not become the new feature core.
+- `TeamTaskStallMonitor` already has active-team registry, unref timers, startup/activation grace, and scan scheduling. MemberWorkSync should reuse the pattern, not the internals.
+- `TeamChangeEvent` is intentionally lightweight. Some events only provide `detail` strings such as `inboxes/<member>.json`, so routing must handle incomplete event data safely.
+- MCP tools are registered through `mcp-server`, but the authoritative tool catalog comes from the workspace package `agent-teams-controller`.
+
+Concrete integration decisions:
+
+| Area | Safe fit | Avoid |
+|---|---|---|
+| Feature structure | `src/features/member-work-sync` full slice | adding another large class under `src/main/services/team` |
+| Agenda source | output adapter wraps `TeamTaskReader`, `TeamKanbanManager`, `TeamMembersMetaStore`, `TeamConfigReader` | parsing task JSON again in feature core |
+| Lifecycle source | output adapter composes config summary, bootstrap state, launch state, active runtime evidence | treating config existence as active team |
+| Event routing | feature-owned queue receives `TeamChangeEvent` and re-reads state | doing reconciliation inside `teamChangeEmitter` synchronously |
+| MCP tool | add catalog entry plus tool registration plus controller type bridge | only adding `mcp-server/src/tools/*` and forgetting catalog registration |
+| Watchdog | read cooldowns only in Phase 2, reports never count as progress | sharing mutable journal state with `TeamTaskStallMonitor` |
+| Renderer | read-only adapter/view-model after main status API exists | putting agenda policy in React components |
+
+### 16.7 Additional Bug Risks To Guard Explicitly
+
+These are the places most likely to create subtle bugs during implementation.
+
+#### Lightweight TeamChangeEvent Data
+
+Current events often do not contain enough structured data to route to one exact member. For example, inbox events may carry only `detail: "inboxes/bob.json"` or `detail: "sentMessages.json"`.
+
+Rules:
+
+- If member can be parsed confidently from `detail`, enqueue only that member.
+- If member cannot be parsed, enqueue all active members with debounce and bounded concurrency.
+- Never treat event `detail` as authoritative task/member ownership.
+- Always re-read current tasks and members before writing status.
+
+This keeps event routing level-triggered, not edge-triggered.
+
+#### Current Reviewer Resolution
+
+`stallMonitor/reviewerResolution.ts` can use historical actors because stall detection needs historical evidence. MemberWorkSync must resolve current action ownership only.
+
+Rules:
+
+- Prefer current kanban reviewer overlay when available and task is in `review`.
+- Otherwise use current-cycle history only: latest `review_requested` or `review_started` in the current review cycle.
+- Do not use old `review_approved` actor as reviewer.
+- If current reviewer is ambiguous, skip review agenda item and add diagnostic.
+
+This avoids incorrectly pinging a reviewer from a previous cycle.
+
+#### Team Lifecycle Ambiguity
+
+The codebase has multiple lifecycle signals: config, soft delete, bootstrap state, launch-state summary, active process registry, and OpenCode runtime metadata.
+
+Rules:
+
+- Deleted team -> inactive.
+- Pending create without config -> inactive.
+- Bootstrap/provisioning `cancelled` or stopped runtime -> inactive.
+- Active process or current launch evidence -> active.
+- Unknown lifecycle in Phase 1 -> do not nudge and write conservative diagnostic only.
+
+Phase 1 must prefer false negatives over false positives.
+
+#### Tool Catalog Registration
+
+The MCP server registration loop is driven by `AGENT_TEAMS_MCP_TOOL_GROUPS` from `agent-teams-controller`.
+
+Cut 2 must update all of these together:
+
+- `agent-teams-controller/src/mcpToolCatalog.js`
+- `mcp-server/src/tools/index.ts`
+- `mcp-server/src/tools/<work-sync-tools>.ts`
+- `mcp-server/src/agent-teams-controller.d.ts`
+- stdio/e2e tool list tests
+
+If any of these are missing, the tool may compile but never appear to agents.
+
+Recommended tool group:
+
+```text
+workSync
+teammateOperational: true
+toolNames: ["member_work_sync_report", "member_work_sync_status"]
+```
+
+If adding a new group causes broad type churn, fallback is to temporarily place the tools in the existing `process` group, but only with a TODO and dedicated tests. Do not put report/status tools in `task`, because they are operational state, not board mutation.
+
+#### Main-Service Dependency Direction
+
+The feature application layer must not depend on `TeamDataService`, `TeamProvisioningService`, Electron, filesystem, or process APIs.
+
+Allowed shape:
+
+```ts
+// core/application
+class MemberWorkSyncReconciler {
+  constructor(
+    private readonly agendaSource: WorkAgendaSourcePort,
+    private readonly statusStore: MemberWorkSyncStatusStorePort,
+    private readonly lifecycle: TeamLifecyclePort,
+    private readonly clock: ClockPort
+  ) {}
+}
+```
+
+Main adapters may depend on existing services:
+
+```ts
+// main/adapters/output
+class TeamServicesWorkAgendaSource implements WorkAgendaSourcePort {
+  constructor(
+    private readonly taskReader: TeamTaskReader,
+    private readonly kanbanManager: TeamKanbanManager,
+    private readonly membersMetaStore: TeamMembersMetaStore,
+    private readonly configReader: TeamConfigReader
+  ) {}
+}
+```
+
+This keeps DIP intact and makes core tests cheap.
+
+#### Store And Locking Reuse
+
+OpenCode has `VersionedJsonStore`, but it is under OpenCode-specific runtime code.
+
+Rules:
+
+- Do not deep-import OpenCode runtime store internals from `member-work-sync`.
+- Extract a generic team-store helper only if it can be used without changing OpenCode behavior.
+- Otherwise implement a tiny feature-local JSON store with atomic write, size cap, schema version, and per-team lock.
+- All writes must be bounded and best-effort on deleted/missing team dirs.
+
+This avoids coupling a generic feature to OpenCode runtime internals.
+
+#### Task Comments And User-Visible Noise
+
+`member_work_sync_report` must not create task comments, inbox messages, or user notifications.
+
+Rules:
+
+- Accepted report writes only work-sync status/report store.
+- Rejected report writes only bounded diagnostics.
+- Report note is diagnostic only and must be size-limited.
+- Renderer Phase 1 shows status in details/dev diagnostics, not alarming warnings.
+
+This prevents another "agent spammed the board" class of bugs.
+
+#### Phase 2 Dispatch Safety
+
+Nudges are intentionally out of Phase 1. When Phase 2 starts, dispatch must revalidate immediately before sending.
+
+Required dispatch guard:
+
+```text
+load outbox item
+read current lifecycle
+read current member active state
+recompute agenda
+compare fingerprint
+check no accepted valid lease
+check recent watchdog cooldown
+check one-in-flight key
+send nudge
+mark dispatched
+```
+
+If any check fails, drop or supersede the item. Do not send stale nudges.
+
 ---
 
 ## 17. Store And Locking
@@ -3055,18 +3233,57 @@ Cross-repo acceptance:
 Recommended commit sequence:
 
 1. `docs: add member work sync control plane plan`
-2. `refactor(team): extract current review cycle resolver`
-3. `refactor(team): extract reusable versioned json store`
-4. `feat(member-work-sync): add domain agenda and fingerprint model`
-5. `feat(member-work-sync): add status store and shadow reconciler`
-6. `feat(member-work-sync): expose current agenda fingerprint read surface`
-7. `feat(member-work-sync): add report token adapter and validation`
-8. `feat(member-work-sync): add report validation use case`
-9. `feat(agent-teams): add member work sync report tool`
-10. `test(member-work-sync): add shadow control plane coverage`
-11. `feat(member-work-sync): wire shadow reconciler to team changes`
+2. `test(team): cover current review cycle action ownership`
+3. `refactor(team): extract current review cycle resolver`
+4. `refactor(team): extract reusable versioned json store`
+5. `feat(member-work-sync): add domain agenda and fingerprint model`
+6. `feat(member-work-sync): add status store and shadow reconciler`
+7. `feat(member-work-sync): expose current agenda fingerprint read surface`
+8. `feat(member-work-sync): add report token adapter and validation`
+9. `feat(member-work-sync): add report validation use case`
+10. `feat(agent-teams): add member work sync report tool`
+11. `test(member-work-sync): add shadow control plane coverage`
+12. `feat(member-work-sync): wire shadow reconciler to team changes`
 
 Keep Phase 2 in separate commits/PR.
+
+### 27.0 Cut 0: Fit Check Before Code
+
+Goal:
+
+```text
+Prove the feature can sit on existing service boundaries before creating new runtime behavior.
+```
+
+Estimate: `🎯 10   🛡️ 10   🧠 3`, `80-180 LOC`.
+
+Step order:
+
+1. Add test fixtures for agenda inputs using existing `TeamTaskReader` output shape.
+   - Include pending owned work, active work, review, needs-fix, deleted tasks, removed members, and stale reviewer history.
+   - Do not test raw JSON parser details here.
+
+2. Add current-review-cycle resolver tests.
+   - Prove old `review_approved` actor does not become current reviewer.
+   - Prove kanban reviewer overlay wins when task is actively in review.
+   - Prove ambiguity returns `null` plus diagnostic.
+
+3. Add lifecycle adapter contract tests with fakes.
+   - deleted team -> inactive;
+   - pending create -> inactive;
+   - cancelled bootstrap -> inactive;
+   - active runtime evidence -> active;
+   - unknown -> shadow diagnostic only.
+
+4. Add MCP catalog registration checklist test plan.
+   - No implementation yet.
+   - Confirm adding a new operational group requires `agent-teams-controller` catalog and `mcp-server` registration changes.
+
+Cut 0 stop criteria:
+
+- Existing task/review types cannot represent a planned agenda item without guessing.
+- Lifecycle cannot be resolved conservatively from existing sources.
+- MCP catalog cannot support a new operational group without broad unrelated changes.
 
 ### 27.1 Cut 1: Shadow Core And Status
 
@@ -3202,16 +3419,20 @@ Step order:
 
 5. Add app validation bridge contract.
    - `claude_team` exposes a narrow main-process/application port.
-   - Orchestrator calls that port when available.
+   - The MCP/controller boundary calls that port when available.
    - Result is structured and does not leak internal task data.
+   - Do not create a second validation implementation in `agent-teams-controller`.
 
-6. Add orchestrator MCP tool.
+6. Add MCP/controller tool registration.
    - Tool name: `member_work_sync_report`.
-   - Controller validates schema, size, reserved actors, obvious unsafe aliases.
-   - Controller attaches trusted runtime/session context when available.
-   - Controller forwards to app validation port.
-   - If app validation port unavailable, controller writes pending intent only if identity is not terminally invalid.
-   - Controller never returns accepted lease unless app returned accepted lease.
+   - Update `agent-teams-controller/src/mcpToolCatalog.js` so the tool is in a teammate-operational group.
+   - Update `mcp-server/src/tools/index.ts` and add a dedicated work-sync tools module.
+   - Update `mcp-server/src/agent-teams-controller.d.ts`.
+   - Controller/MCP layer validates schema, size, reserved actors, obvious unsafe aliases.
+   - Controller/MCP layer attaches trusted runtime/session context when available.
+   - Controller/MCP layer forwards to app validation port.
+   - If app validation port is unavailable, write pending intent only if identity is not terminally invalid.
+   - Never return accepted lease unless app returned accepted lease.
 
 7. Add pending intent replay.
    - Replay through the same reporter use case.
@@ -3228,6 +3449,9 @@ Cut 2 tests:
 ```bash
 pnpm vitest run test/features/member-work-sync
 pnpm vitest run test/main/services/team/TeamProvisioningServiceRelay.test.ts
+pnpm --filter agent-teams-controller test
+pnpm --filter agent-teams-mcp test
+pnpm --filter agent-teams-mcp test:e2e
 cd /Users/belief/dev/projects/claude/agent_teams_orchestrator && bun test src/services/opencode/OpenCodeBridgeCommandHandler.test.ts
 cd /Users/belief/dev/projects/claude/claude_team && pnpm typecheck --pretty false
 git diff --check
