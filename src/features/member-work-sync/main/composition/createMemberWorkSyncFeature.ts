@@ -19,6 +19,7 @@ import {
 } from '../../core/application';
 import { MemberWorkSyncTeamChangeRouter } from '../adapters/input/MemberWorkSyncTeamChangeRouter';
 import { TeamInboxMemberWorkSyncNudgeSink } from '../adapters/output/TeamInboxMemberWorkSyncNudgeSink';
+import { TeamTaskStallJournalWorkSyncCooldown } from '../adapters/output/TeamTaskStallJournalWorkSyncCooldown';
 import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
 import { HmacMemberWorkSyncReportTokenAdapter } from '../infrastructure/HmacMemberWorkSyncReportTokenAdapter';
 import {
@@ -72,6 +73,7 @@ export function createMemberWorkSyncFeature(deps: {
   const store = new JsonMemberWorkSyncStore(storePaths);
   const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);
   const inboxNudge = new TeamInboxMemberWorkSyncNudgeSink();
+  const watchdogCooldown = new TeamTaskStallJournalWorkSyncCooldown(deps.teamsBasePath);
   const useCaseDeps = {
     clock,
     hash,
@@ -80,6 +82,7 @@ export function createMemberWorkSyncFeature(deps: {
     reportStore: store,
     outboxStore: store,
     inboxNudge,
+    watchdogCooldown,
     reportToken,
     ...(deps.isTeamActive ? { lifecycle: { isTeamActive: deps.isTeamActive } } : {}),
     logger: deps.logger,
@@ -93,6 +96,10 @@ export function createMemberWorkSyncFeature(deps: {
   const queue = new MemberWorkSyncEventQueue({
     reconcile: async (request, context: MemberWorkSyncReconcileContext) => {
       await reconciler.execute(request, context);
+      await nudgeDispatcher.dispatchDue({
+        teamNames: [request.teamName],
+        claimedBy: `member-work-sync:${process.pid}`,
+      });
     },
     isTeamActive: deps.isTeamActive ?? (() => true),
     logger: deps.logger,

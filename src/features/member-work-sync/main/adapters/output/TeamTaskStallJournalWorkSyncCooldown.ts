@@ -1,0 +1,63 @@
+import { readFile } from 'fs/promises';
+import { join } from 'path';
+import type { MemberWorkSyncWatchdogCooldownPort } from '../../../core/application';
+
+const DEFAULT_WATCHDOG_COOLDOWN_MS = 10 * 60_000;
+
+interface StallJournalEntry {
+  taskId: string;
+  state: string;
+  alertedAt?: string;
+}
+
+function parseTime(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+export class TeamTaskStallJournalWorkSyncCooldown implements MemberWorkSyncWatchdogCooldownPort {
+  constructor(
+    private readonly teamsBasePath: string,
+    private readonly cooldownMs: number = DEFAULT_WATCHDOG_COOLDOWN_MS
+  ) {}
+
+  async hasRecentNudge(input: {
+    teamName: string;
+    memberName: string;
+    taskIds: string[];
+    nowIso: string;
+  }): Promise<boolean> {
+    const taskIds = new Set(input.taskIds);
+    if (taskIds.size === 0) {
+      return false;
+    }
+
+    try {
+      const raw = await readFile(
+        join(this.teamsBasePath, input.teamName, 'stall-monitor-journal.json'),
+        'utf8'
+      );
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        return true;
+      }
+      const now = parseTime(input.nowIso) ?? Date.now();
+      return parsed.some((entry): boolean => {
+        const row = entry as Partial<StallJournalEntry>;
+        if (row.state !== 'alerted' || !row.taskId || !taskIds.has(row.taskId)) {
+          return false;
+        }
+        const alertedAt = parseTime(row.alertedAt);
+        return alertedAt != null && now - alertedAt <= this.cooldownMs;
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return false;
+      }
+      return true;
+    }
+  }
+}
