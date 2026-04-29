@@ -54,6 +54,8 @@ liveDescribe('Member work sync Codex live e2e', () => {
   let previousCliFlavor: string | undefined;
   let previousControlUrl: string | undefined;
   let previousNudgeFlag: string | undefined;
+  let previousCodexHome: string | undefined;
+  let codexHomeDir: string;
   let svc: {
     stopTeam(teamName: string): Promise<unknown>;
     isTeamAlive(teamName: string): boolean;
@@ -84,11 +86,17 @@ liveDescribe('Member work sync Codex live e2e', () => {
     previousCliFlavor = process.env.CLAUDE_TEAM_CLI_FLAVOR;
     previousControlUrl = process.env.CLAUDE_TEAM_CONTROL_URL;
     previousNudgeFlag = process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED;
+    previousCodexHome = process.env.CODEX_HOME;
+
+    const codexHomeRoot = path.resolve('temp', 'member-work-sync-codex-live');
+    await fs.mkdir(codexHomeRoot, { recursive: true });
+    codexHomeDir = await fs.mkdtemp(path.join(codexHomeRoot, 'codex-home-'));
 
     process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH =
       process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
     process.env.CLAUDE_TEAM_CLI_FLAVOR = 'agent_teams_orchestrator';
     process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED = '0';
+    process.env.CODEX_HOME = codexHomeDir;
 
     svc = null;
     feature = null;
@@ -108,11 +116,14 @@ liveDescribe('Member work sync Codex live e2e', () => {
     restoreEnv('CLAUDE_TEAM_CLI_FLAVOR', previousCliFlavor);
     restoreEnv('CLAUDE_TEAM_CONTROL_URL', previousControlUrl);
     restoreEnv('CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED', previousNudgeFlag);
+    restoreEnv('CODEX_HOME', previousCodexHome);
     setClaudeBasePathOverride(null);
     if (process.env.MEMBER_WORK_SYNC_CODEX_KEEP_TEMP === '1') {
       console.info(`[MemberWorkSyncCodex.live] preserved temp dir: ${tempDir}`);
+      console.info(`[MemberWorkSyncCodex.live] preserved CODEX_HOME: ${codexHomeDir}`);
     } else {
       await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(codexHomeDir, { recursive: true, force: true });
     }
   });
 

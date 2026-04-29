@@ -24556,7 +24556,11 @@ export class TeamProvisioningService {
       throwIfCancelled();
       child = spawnCli(launchSpec.command, launchSpec.args, {
         cwd: launchSpec.cwd ?? cwd,
-        env: { ...env, ...launchSpec.env },
+        env: {
+          ...env,
+          ...launchSpec.env,
+          AGENT_TEAMS_MCP_CLAUDE_DIR: fixture.claudeDir,
+        },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });

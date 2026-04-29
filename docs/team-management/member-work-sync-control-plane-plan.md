@@ -1,6 +1,6 @@
 # Member Work Sync Control Plane Plan
 
-**Status:** Phase 1, Phase 1.5 observability, minimal read-only member details surface, and readiness-gated Phase 2 nudge outbox/dispatcher/scheduler implemented
+**Status:** Phase 1, Phase 1.5 observability, minimal read-only member details surface, and opt-in Phase 2 nudge outbox/dispatcher/scheduler implemented
 **Scope:** Team management, task work synchronization, agent work coordination  
 **Primary repo:** `claude_team`  
 **Secondary write-boundary repo:** `agent_teams_orchestrator` / `agent-teams-controller`  
@@ -36,9 +36,10 @@ Current implementation note:
 - Phase 1.5 exposes a machine-readable `phase2Readiness` assessment from shadow metrics. It can say `collecting_shadow_data`, `blocked`, or `shadow_ready`; it still does not dispatch nudges.
 - Phase 2 storage foundation is implemented as a durable outbox: idempotency key, payload hash conflict checks, claim generation fencing, retry/terminal states.
 - Queue reconciles can plan a Phase 2 outbox item only when `phase2Readiness=shadow_ready`; read-only diagnostics never create outbox intents. This preserves the anti-spam gate and keeps UI/status reads passive.
-- Dispatcher use case runs after queued reconcile and is also exposed through the facade. It claims due outbox rows, revalidates active team/status/current fingerprint/readiness/busy/watchdog cooldown, then writes one idempotent inbox nudge through a narrow port.
+- Phase 2 nudge side effects are additionally disabled by default in production composition. Set `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED=1` only for isolated live validation. This keeps status/report/metrics active while guaranteeing that shadow-ready metrics cannot start inbox nudges by accident.
+- Dispatcher use case can run after queued reconcile and is also exposed through the facade when nudge side effects are explicitly enabled. It claims due outbox rows, revalidates active team/status/current fingerprint/readiness/busy/watchdog cooldown, then writes one idempotent inbox nudge through a narrow port.
 - Production busy revalidation is wired through a tool-activity busy signal adapter. Active or recently finished tool calls defer Phase 2 nudges instead of interrupting work.
-- A feature-owned dispatch scheduler wakes due retryable outbox items for lifecycle-active teams only. It is bounded, unref'ed, and still relies on dispatcher revalidation before any inbox write.
+- A feature-owned dispatch scheduler wakes due retryable outbox items for lifecycle-active teams only when nudge side effects are enabled. It is bounded, unref'ed, and still relies on dispatcher revalidation before any inbox write.
 - Dispatcher applies per-member hourly rate limiting and bounded deterministic retry backoff with jitter before retrying failed nudge attempts.
 - Superseded-but-undelivered outbox items can be revived by a fresh queued reconcile for the same agenda fingerprint. Delivered nudges remain one-per-fingerprint.
 - Phase 2 dispatch stays blocked until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
@@ -1363,7 +1364,7 @@ Expired leases are ignored by `SyncDecisionPolicy`.
 
 ### 10.4 Shadow Would-Nudge Semantics
 
-Phase 1 may compute `wouldNudgeCount`, but must not enqueue or send.
+Phase 1 may compute `wouldNudgeCount`, but must not enqueue or send. Production composition enforces this by default by not wiring `outboxStore`/`inboxNudge` unless `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED=1`.
 
 `wouldNudge` is true only when all are true:
 

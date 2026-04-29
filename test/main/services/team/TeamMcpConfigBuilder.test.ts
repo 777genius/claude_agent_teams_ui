@@ -240,6 +240,19 @@ describe('TeamMcpConfigBuilder', () => {
     expectTsxEntry(server, sourceEntry);
   });
 
+  it('pins the MCP controller to the active Claude base path', async () => {
+    const claudeDir = path.join(tempAppData, 'custom-claude-root');
+    setClaudeBasePathOverride(claudeDir);
+    mockSourceWorkspaceEntryAvailable();
+    const builder = new TeamMcpConfigBuilder();
+
+    const configPath = await builder.writeConfigFile();
+    createdPaths.push(configPath);
+
+    const server = readGeneratedServer(configPath);
+    expect(server?.env?.AGENT_TEAMS_MCP_CLAUDE_DIR).toBe(claudeDir);
+  });
+
   it('falls back to the built workspace MCP entry when source execution is unavailable', async () => {
     const builtEntry = mockBuiltWorkspaceEntryAvailable();
     const builder = new TeamMcpConfigBuilder();
