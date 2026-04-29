@@ -1,6 +1,6 @@
 # Member Work Sync Control Plane Plan
 
-**Status:** Phase 1 and Phase 1.5 observability implemented, Phase 2 deferred until shadow metrics are reviewed
+**Status:** Phase 1 and Phase 1.5 observability implemented, minimal read-only member details surface wired, Phase 2 deferred until shadow metrics are reviewed
 **Scope:** Team management, task work synchronization, agent work coordination  
 **Primary repo:** `claude_team`  
 **Secondary write-boundary repo:** `agent_teams_orchestrator` / `agent-teams-controller`  
@@ -31,7 +31,7 @@ Phase 2 adds durable nudges only after Phase 1 metrics prove that fingerprint ch
 
 Current implementation note:
 
-- Phase 1 is intentionally shadow-only: it computes agendas, fingerprints, report tokens, reports, persisted status, passive queue reconciliation, startup replay, diagnostics, metrics, and read-only renderer view models.
+- Phase 1 is intentionally shadow-only: it computes agendas, fingerprints, report tokens, reports, persisted status, passive queue reconciliation, startup replay, diagnostics, metrics, and a neutral read-only member details surface.
 - Phase 1 does not insert inbox messages, send nudges, mark tasks/messages read, or change `TeamTaskStallMonitor` semantics.
 - Phase 2 must not start until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
 
