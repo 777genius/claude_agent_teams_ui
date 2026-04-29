@@ -31,6 +31,7 @@ import {
   createCodexModelCatalogFeature,
 } from '@features/codex-model-catalog/main';
 import {
+  buildMemberWorkSyncRuntimeTurnSettledEnvironment,
   createMemberWorkSyncFeature,
   type MemberWorkSyncFeatureFacade,
   registerMemberWorkSyncIpc,
@@ -246,6 +247,21 @@ async function createOpenCodeRuntimeAdapterRegistry(): Promise<TeamRuntimeAdapte
 
   const bridgeEnv = applyOpenCodeAutoUpdatePolicy({ ...process.env });
   bridgeEnv.AGENT_TEAMS_MCP_CLAUDE_DIR = getClaudeBasePath();
+  try {
+    const turnSettledEnv = await buildMemberWorkSyncRuntimeTurnSettledEnvironment({
+      teamsBasePath: getTeamsBasePath(),
+      provider: 'opencode',
+    });
+    if (turnSettledEnv) {
+      Object.assign(bridgeEnv, turnSettledEnv);
+    }
+  } catch (error) {
+    logger.warn(
+      `[OpenCode] Runtime adapter bridge turn-settled spool unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
   try {
     const mcpLaunchSpec = await resolveAgentTeamsMcpLaunchSpec();
     const mcpEntry = mcpLaunchSpec.args[0];

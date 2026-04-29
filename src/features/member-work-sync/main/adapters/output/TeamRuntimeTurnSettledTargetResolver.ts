@@ -80,7 +80,11 @@ export class TeamRuntimeTurnSettledTargetResolver implements RuntimeTurnSettledT
 
   async resolve(event: RuntimeTurnSettledEvent): Promise<RuntimeTurnSettledTargetResolution> {
     if (event.provider === 'codex') {
-      return this.resolveCodexEvent(event);
+      return this.resolveProviderOwnedEvent(event, 'codex');
+    }
+
+    if (event.provider === 'opencode') {
+      return this.resolveProviderOwnedEvent(event, 'opencode');
     }
 
     if (event.provider !== 'claude') {
@@ -154,8 +158,9 @@ export class TeamRuntimeTurnSettledTargetResolver implements RuntimeTurnSettledT
     };
   }
 
-  private async resolveCodexEvent(
-    event: RuntimeTurnSettledEvent
+  private async resolveProviderOwnedEvent(
+    event: RuntimeTurnSettledEvent,
+    expectedProviderId: 'codex' | 'opencode'
   ): Promise<RuntimeTurnSettledTargetResolution> {
     const teamName = event.teamName?.trim();
     const memberName = event.memberName?.trim();
@@ -172,7 +177,7 @@ export class TeamRuntimeTurnSettledTargetResolver implements RuntimeTurnSettledT
     }
 
     const providerId = providerForMember(member);
-    if (providerId && providerId !== 'codex') {
+    if (providerId && providerId !== expectedProviderId) {
       return { ok: false, reason: 'provider_mismatch' };
     }
 

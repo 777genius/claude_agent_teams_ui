@@ -133,4 +133,63 @@ describe('TeamRuntimeTurnSettledTargetResolver', () => {
       })
     ).resolves.toEqual({ ok: false, reason: 'provider_mismatch' });
   });
+
+  it('resolves OpenCode turn-settled payloads from durable team/member identity', async () => {
+    const resolver = new TeamRuntimeTurnSettledTargetResolver({
+      teamSource: {
+        listTeams: vi.fn(async () => {
+          throw new Error('opencode path should not scan attributed files');
+        }),
+        getConfig: vi.fn(async () => ({
+          name: 'team-a',
+          members: [{ name: 'Jack', providerId: 'opencode' }],
+        }) satisfies TeamConfig),
+      },
+      membersMetaStore: { getMembers: vi.fn(async () => []) } as never,
+      memberLogsFinder: {
+        listAttributedMemberFiles: vi.fn(async () => []),
+      },
+    });
+
+    await expect(
+      resolver.resolve({
+        schemaVersion: 1,
+        provider: 'opencode',
+        hookEventName: 'Stop',
+        sourceId: 'source-1',
+        payloadHash: 'hash',
+        recordedAt: '2026-04-29T12:00:00.000Z',
+        sessionId: 'ses-1',
+        teamName: 'team-a',
+        memberName: 'jack',
+      })
+    ).resolves.toEqual({ ok: true, teamName: 'team-a', memberName: 'jack' });
+  });
+
+  it('rejects OpenCode events for non-OpenCode teammates', async () => {
+    const resolver = new TeamRuntimeTurnSettledTargetResolver({
+      teamSource: {
+        listTeams: vi.fn(async () => []),
+        getConfig: vi.fn(async () => ({
+          name: 'team-a',
+          members: [{ name: 'Jack', providerId: 'codex' }],
+        }) satisfies TeamConfig),
+      },
+      membersMetaStore: { getMembers: vi.fn(async () => []) } as never,
+    });
+
+    await expect(
+      resolver.resolve({
+        schemaVersion: 1,
+        provider: 'opencode',
+        hookEventName: 'Stop',
+        sourceId: 'source-1',
+        payloadHash: 'hash',
+        recordedAt: '2026-04-29T12:00:00.000Z',
+        sessionId: 'ses-1',
+        teamName: 'team-a',
+        memberName: 'jack',
+      })
+    ).resolves.toEqual({ ok: false, reason: 'provider_mismatch' });
+  });
 });

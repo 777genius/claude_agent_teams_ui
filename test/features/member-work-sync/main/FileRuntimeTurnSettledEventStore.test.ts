@@ -113,6 +113,29 @@ describe('FileRuntimeTurnSettledEventStore', () => {
     });
   });
 
+  it('claims OpenCode runtime turn-settled payloads', async () => {
+    const paths = await makePaths();
+    await fs.mkdir(paths.getIncomingDir(), { recursive: true });
+    await fs.writeFile(
+      path.join(paths.getIncomingDir(), '20260429-1.opencode.json'),
+      '{"eventName":"runtime_turn_settled"}',
+      'utf8'
+    );
+    const store = new FileRuntimeTurnSettledEventStore({
+      paths,
+      now: () => new Date('2026-04-29T12:00:00.000Z'),
+    });
+
+    const claimed = await store.claimPending(10);
+
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]).toMatchObject({
+      fileName: '20260429-1.opencode.json',
+      provider: 'opencode',
+      raw: '{"eventName":"runtime_turn_settled"}',
+    });
+  });
+
   it('does not reclaim fresh processing payloads from an active drain', async () => {
     const paths = await makePaths();
     await fs.mkdir(paths.getProcessingDir(), { recursive: true });

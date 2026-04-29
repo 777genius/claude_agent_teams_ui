@@ -31,11 +31,9 @@ import { MemberWorkSyncNudgeDispatchScheduler } from '../infrastructure/MemberWo
 import { MemberWorkSyncStorePaths } from '../infrastructure/MemberWorkSyncStorePaths';
 import { MemberWorkSyncToolActivityBusySignal } from '../infrastructure/MemberWorkSyncToolActivityBusySignal';
 import { NodeHashAdapter } from '../infrastructure/NodeHashAdapter';
+import { OpenCodeTurnSettledPayloadNormalizer } from '../infrastructure/OpenCodeTurnSettledPayloadNormalizer';
 import { RuntimeTurnSettledDrainScheduler } from '../infrastructure/RuntimeTurnSettledDrainScheduler';
-import { buildRuntimeTurnSettledEnvironment } from '../infrastructure/runtimeTurnSettledEnvironment';
-import { buildRuntimeTurnSettledHookSettings } from '../infrastructure/runtimeTurnSettledHookSettings';
-import { RuntimeTurnSettledSpoolPaths } from '../infrastructure/RuntimeTurnSettledSpoolPaths';
-import { ShellRuntimeTurnSettledHookScriptInstaller } from '../infrastructure/ShellRuntimeTurnSettledHookScriptInstaller';
+import { RuntimeTurnSettledSpoolInitializer } from '../infrastructure/RuntimeTurnSettledSpoolInitializer';
 import { SystemClockAdapter } from '../infrastructure/SystemClockAdapter';
 
 import type {
@@ -82,6 +80,15 @@ export function resolveMemberWorkSyncNudgeSideEffectsEnabled(
   return false;
 }
 
+export function buildMemberWorkSyncRuntimeTurnSettledEnvironment(input: {
+  teamsBasePath: string;
+  provider: RuntimeTurnSettledProvider;
+}): Promise<Record<string, string> | null> {
+  return new RuntimeTurnSettledSpoolInitializer(input.teamsBasePath).buildEnvironment({
+    provider: input.provider,
+  });
+}
+
 export interface MemberWorkSyncFeatureFacade {
   getStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
   getMetrics(request: MemberWorkSyncMetricsRequest): Promise<MemberWorkSyncTeamMetrics>;
@@ -126,16 +133,14 @@ export function createMemberWorkSyncFeature(deps: {
   });
   const storePaths = new MemberWorkSyncStorePaths(deps.teamsBasePath);
   const store = new JsonMemberWorkSyncStore(storePaths);
-  const runtimeTurnSettledSpoolPaths = new RuntimeTurnSettledSpoolPaths(deps.teamsBasePath);
-  const runtimeTurnSettledHookInstaller = new ShellRuntimeTurnSettledHookScriptInstaller(
-    runtimeTurnSettledSpoolPaths
-  );
+  const runtimeTurnSettledSpool = new RuntimeTurnSettledSpoolInitializer(deps.teamsBasePath);
   const runtimeTurnSettledStore = new FileRuntimeTurnSettledEventStore({
-    paths: runtimeTurnSettledSpoolPaths,
+    paths: runtimeTurnSettledSpool.getPaths(),
   });
   const runtimeTurnSettledNormalizer = new CompositeRuntimeTurnSettledPayloadNormalizer([
     new ClaudeStopHookPayloadNormalizer(hash),
     new CodexNativeTurnSettledPayloadNormalizer(hash),
+    new OpenCodeTurnSettledPayloadNormalizer(hash),
   ]);
   const runtimeTurnSettledTargetResolver =
     deps.runtimeTurnSettledTargetResolver ??
@@ -257,27 +262,10 @@ export function createMemberWorkSyncFeature(deps: {
             claimedBy: `member-work-sync:${process.pid}`,
           })
         : Promise.resolve(emptyNudgeDispatchSummary()),
-    buildRuntimeTurnSettledHookSettings: async ({ provider }) => {
-      if (provider !== 'claude') {
-        return null;
-      }
-      const installed = await runtimeTurnSettledHookInstaller.install();
-      return buildRuntimeTurnSettledHookSettings({
-        scriptPath: installed.scriptPath,
-        spoolRoot: installed.spoolRoot,
-        provider,
-      });
-    },
-    buildRuntimeTurnSettledEnvironment: async ({ provider }) => {
-      if (provider !== 'codex') {
-        return null;
-      }
-      const installed = await runtimeTurnSettledHookInstaller.install();
-      return buildRuntimeTurnSettledEnvironment({
-        provider,
-        spoolRoot: installed.spoolRoot,
-      });
-    },
+    buildRuntimeTurnSettledHookSettings: async ({ provider }) =>
+      runtimeTurnSettledSpool.buildHookSettings({ provider }),
+    buildRuntimeTurnSettledEnvironment: async ({ provider }) =>
+      runtimeTurnSettledSpool.buildEnvironment({ provider }),
     drainRuntimeTurnSettledEvents: () => runtimeTurnSettledIngestor.drainPending(),
     getQueueDiagnostics: () => queue.getDiagnostics(),
     dispose: async () => {

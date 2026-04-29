@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   MEMBER_WORK_SYNC_NUDGE_SIDE_EFFECTS_ENV,
+  buildMemberWorkSyncRuntimeTurnSettledEnvironment,
   createMemberWorkSyncFeature,
   resolveMemberWorkSyncNudgeSideEffectsEnabled,
 } from '@features/member-work-sync/main';
@@ -141,5 +142,51 @@ describe('createMemberWorkSyncFeature composition', () => {
     } finally {
       await feature.dispose();
     }
+  });
+
+  it('builds OpenCode turn-settled environment without requiring nudge side effects', async () => {
+    const root = makeTempRoot();
+    const feature = createMemberWorkSyncFeature({
+      teamsBasePath: root,
+      configReader: {} as never,
+      taskReader: {} as never,
+      kanbanManager: {} as never,
+      membersMetaStore: {} as never,
+      nudgeSideEffectsEnabled: false,
+    });
+
+    try {
+      const env = await feature.buildRuntimeTurnSettledEnvironment({ provider: 'opencode' });
+      expect(env).toEqual({
+        [RUNTIME_TURN_SETTLED_SPOOL_ROOT_ENV]: path.join(
+          root,
+          '.member-work-sync/runtime-hooks'
+        ),
+      });
+      await expect(
+        fs.promises.stat(path.join(root, '.member-work-sync/runtime-hooks/incoming'))
+      ).resolves.toMatchObject({ mode: expect.any(Number) });
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('builds OpenCode bridge environment before feature facade initialization', async () => {
+    const root = makeTempRoot();
+
+    const env = await buildMemberWorkSyncRuntimeTurnSettledEnvironment({
+      teamsBasePath: root,
+      provider: 'opencode',
+    });
+
+    expect(env).toEqual({
+      [RUNTIME_TURN_SETTLED_SPOOL_ROOT_ENV]: path.join(
+        root,
+        '.member-work-sync/runtime-hooks'
+      ),
+    });
+    await expect(
+      fs.promises.stat(path.join(root, '.member-work-sync/runtime-hooks/incoming'))
+    ).resolves.toMatchObject({ mode: expect.any(Number) });
   });
 });

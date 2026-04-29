@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promis
 import path from 'path';
 
 import { isRuntimeTurnSettledProvider } from '../../core/domain';
-
+import type { RuntimeTurnSettledProvider } from '../../core/domain';
 import type {
   RuntimeTurnSettledClaimedPayload,
   RuntimeTurnSettledEventStorePort,
@@ -25,7 +25,7 @@ export interface FileRuntimeTurnSettledEventStoreDeps {
   now?: () => Date;
 }
 
-function parseProviderFromFileName(fileName: string): 'claude' | 'codex' | null {
+function parseProviderFromFileName(fileName: string): RuntimeTurnSettledProvider | null {
   const parts = fileName.split('.');
   const provider = parts.length >= 3 ? parts[parts.length - 2] : null;
   return isRuntimeTurnSettledProvider(provider) ? provider : null;
