@@ -103,6 +103,7 @@ export function createMemberWorkSyncFeature(deps: {
   isTeamActive?: (teamName: string) => Promise<boolean> | boolean;
   listLifecycleActiveTeamNames?: () => Promise<string[]>;
   nudgeSideEffectsEnabled?: boolean;
+  queueQuietWindowMs?: number;
   logger?: MemberWorkSyncLoggerPort;
 }): MemberWorkSyncFeatureFacade {
   const clock = new SystemClockAdapter();
@@ -166,6 +167,7 @@ export function createMemberWorkSyncFeature(deps: {
       }
     },
     isTeamActive: deps.isTeamActive ?? (() => true),
+    ...(deps.queueQuietWindowMs != null ? { quietWindowMs: deps.queueQuietWindowMs } : {}),
     logger: deps.logger,
   });
   const router = new MemberWorkSyncTeamChangeRouter(agendaSource, queue);
