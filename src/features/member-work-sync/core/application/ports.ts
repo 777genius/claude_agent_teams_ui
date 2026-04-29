@@ -1,5 +1,6 @@
 import type {
   MemberWorkSyncAgenda,
+  MemberWorkSyncTeamMetrics,
   MemberWorkSyncProviderId,
   MemberWorkSyncReport,
   MemberWorkSyncReportIntent,
@@ -73,6 +74,7 @@ export interface MemberWorkSyncAgendaSourcePort {
 export interface MemberWorkSyncStatusStorePort {
   read(input: { teamName: string; memberName: string }): Promise<MemberWorkSyncStatus | null>;
   write(status: MemberWorkSyncStatus): Promise<void>;
+  readTeamMetrics?(teamName: string): Promise<MemberWorkSyncTeamMetrics>;
 }
 
 export interface MemberWorkSyncReportStorePort {

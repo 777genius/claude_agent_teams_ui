@@ -1,10 +1,13 @@
 import {
+  MEMBER_WORK_SYNC_GET_METRICS,
   MEMBER_WORK_SYNC_GET_STATUS,
   MEMBER_WORK_SYNC_REPORT,
+  type MemberWorkSyncMetricsRequest,
   type MemberWorkSyncReportRequest,
   type MemberWorkSyncReportResult,
   type MemberWorkSyncStatus,
   type MemberWorkSyncStatusRequest,
+  type MemberWorkSyncTeamMetrics,
 } from '../../../contracts';
 import { createLogger } from '@shared/utils/logger';
 
@@ -30,6 +33,18 @@ export function registerMemberWorkSyncIpc(
   );
 
   ipcMain.handle(
+    MEMBER_WORK_SYNC_GET_METRICS,
+    async (_event, request: MemberWorkSyncMetricsRequest): Promise<MemberWorkSyncTeamMetrics> => {
+      try {
+        return await feature.getMetrics(request);
+      } catch (error) {
+        logger.error('Failed to get member work sync metrics', error);
+        throw error;
+      }
+    }
+  );
+
+  ipcMain.handle(
     MEMBER_WORK_SYNC_REPORT,
     async (_event, request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult> => {
       try {
@@ -44,5 +59,6 @@ export function registerMemberWorkSyncIpc(
 
 export function removeMemberWorkSyncIpc(ipcMain: IpcMain): void {
   ipcMain.removeHandler(MEMBER_WORK_SYNC_GET_STATUS);
+  ipcMain.removeHandler(MEMBER_WORK_SYNC_GET_METRICS);
   ipcMain.removeHandler(MEMBER_WORK_SYNC_REPORT);
 }

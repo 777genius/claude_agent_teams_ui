@@ -1,11 +1,14 @@
 import type {
+  MemberWorkSyncMetricsRequest,
   MemberWorkSyncReportRequest,
   MemberWorkSyncReportResult,
   MemberWorkSyncStatus,
   MemberWorkSyncStatusRequest,
+  MemberWorkSyncTeamMetrics,
 } from '../../contracts';
 import {
   MemberWorkSyncDiagnosticsReader,
+  MemberWorkSyncMetricsReader,
   MemberWorkSyncPendingReportIntentReplayer,
   type MemberWorkSyncPendingReportReplaySummary,
   MemberWorkSyncReconciler,
@@ -33,6 +36,7 @@ import type { MemberWorkSyncLoggerPort } from '../../core/application';
 
 export interface MemberWorkSyncFeatureFacade {
   getStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
+  getMetrics(request: MemberWorkSyncMetricsRequest): Promise<MemberWorkSyncTeamMetrics>;
   report(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult>;
   noteTeamChange(event: TeamChangeEvent): void;
   enqueueStartupScan(teamNames: string[]): Promise<void>;
@@ -74,6 +78,7 @@ export function createMemberWorkSyncFeature(deps: {
     logger: deps.logger,
   };
   const diagnosticsReader = new MemberWorkSyncDiagnosticsReader(useCaseDeps);
+  const metricsReader = new MemberWorkSyncMetricsReader(useCaseDeps);
   const reporter = new MemberWorkSyncReporter(useCaseDeps);
   const reconciler = new MemberWorkSyncReconciler(useCaseDeps);
   const pendingReportReplayer = new MemberWorkSyncPendingReportIntentReplayer(useCaseDeps);
@@ -88,6 +93,7 @@ export function createMemberWorkSyncFeature(deps: {
 
   return {
     getStatus: (request) => diagnosticsReader.execute(request),
+    getMetrics: (request) => metricsReader.execute(request),
     report: (request) => reporter.execute(request),
     noteTeamChange: (event) => router.noteTeamChange(event),
     enqueueStartupScan: (teamNames) => router.enqueueStartupScan(teamNames),

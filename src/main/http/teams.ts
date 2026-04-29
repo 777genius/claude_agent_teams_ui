@@ -751,6 +751,31 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
     }
   );
 
+  app.get<{ Params: { teamName: string } }>(
+    '/api/teams/:teamName/member-work-sync/metrics',
+    async (request, reply) => {
+      try {
+        const validatedTeamName = validateTeamName(request.params.teamName);
+        if (!validatedTeamName.valid) {
+          return reply.status(400).send({ error: validatedTeamName.error });
+        }
+        return reply.send(
+          await getMemberWorkSyncFeature(services).getMetrics({
+            teamName: validatedTeamName.value!,
+          })
+        );
+      } catch (error) {
+        if (shouldLogError(error)) {
+          logger.error(
+            `Error in GET /api/teams/${request.params.teamName}/member-work-sync/metrics:`,
+            getErrorMessage(error)
+          );
+        }
+        return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+      }
+    }
+  );
+
   app.get<{ Params: { teamName: string; memberName: string } }>(
     '/api/teams/:teamName/member-work-sync/:memberName',
     async (request, reply) => {

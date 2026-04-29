@@ -214,6 +214,12 @@ describe('MemberWorkSync use cases', () => {
     expect(result.accepted).toBe(false);
     expect(result.code).toBe('stale_fingerprint');
     expect(result.status.state).toBe('needs_sync');
+    expect(result.status.report).toMatchObject({
+      accepted: false,
+      rejectionCode: 'stale_fingerprint',
+      agendaFingerprint: 'agenda:v1:stale',
+    });
+    expect(store.writes.at(-1)?.diagnostics).toContain('report_rejected:stale_fingerprint');
     expect(store.pendingReports).toHaveLength(0);
   });
 
@@ -288,6 +294,10 @@ describe('MemberWorkSync use cases', () => {
 
     expect(result.accepted).toBe(false);
     expect(result.code).toBe('invalid_report_token');
+    expect(result.status.report).toMatchObject({
+      accepted: false,
+      rejectionCode: 'invalid_report_token',
+    });
     expect(store.pendingReports).toHaveLength(0);
   });
 

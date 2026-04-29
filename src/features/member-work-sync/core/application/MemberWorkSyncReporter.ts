@@ -2,6 +2,7 @@ import type {
   MemberWorkSyncReport,
   MemberWorkSyncReportRequest,
   MemberWorkSyncReportResult,
+  MemberWorkSyncStatus,
 } from '../../contracts';
 import { validateMemberWorkSyncReport } from '../domain';
 import {
@@ -27,11 +28,12 @@ export class MemberWorkSyncReporter {
       : true;
     if (!teamActive) {
       const status = await this.reconciler.execute(request);
+      const rejectedStatus = await this.recordRejectedReport(status, request, 'team_runtime_inactive');
       return {
         accepted: false,
         code: 'team_runtime_inactive',
         message: 'Team runtime is not active. Restart the team before reporting work sync state.',
-        status,
+        status: rejectedStatus,
       };
     }
     const tokenValidation = this.deps.reportToken
@@ -53,11 +55,12 @@ export class MemberWorkSyncReporter {
 
     if (!validation.ok) {
       const status = await this.reconciler.execute(request);
+      const rejectedStatus = await this.recordRejectedReport(status, request, validation.code);
       return {
         accepted: false,
         code: validation.code,
         message: validation.message,
-        status,
+        status: rejectedStatus,
       };
     }
 
@@ -102,5 +105,30 @@ export class MemberWorkSyncReporter {
       message: validation.message,
       status,
     };
+  }
+
+  private async recordRejectedReport(
+    status: MemberWorkSyncStatus,
+    request: MemberWorkSyncReportRequest,
+    rejectionCode: string
+  ): Promise<MemberWorkSyncStatus> {
+    const rejectedStatus: MemberWorkSyncStatus = {
+      ...status,
+      report: {
+        teamName: status.teamName,
+        memberName: status.memberName,
+        state: request.state,
+        agendaFingerprint: request.agendaFingerprint,
+        reportedAt: status.evaluatedAt,
+        ...(request.taskIds ? { taskIds: [...request.taskIds] } : {}),
+        ...(request.note ? { note: request.note } : {}),
+        source: request.source ?? 'app',
+        accepted: false,
+        rejectionCode,
+      },
+      diagnostics: [...status.diagnostics, `report_rejected:${rejectionCode}`],
+    };
+    await this.deps.statusStore.write(rejectedStatus);
+    return rejectedStatus;
   }
 }

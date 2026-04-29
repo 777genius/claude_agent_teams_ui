@@ -98,10 +98,12 @@ import type { CodexAccountElectronApi } from '@features/codex-account/contracts'
 import type { RecentProjectsElectronApi } from '@features/recent-projects/contracts';
 import type { RuntimeProviderManagementApi } from '@features/runtime-provider-management/contracts';
 import type {
+  MemberWorkSyncMetricsRequest,
   MemberWorkSyncReportRequest,
   MemberWorkSyncReportResult,
   MemberWorkSyncStatus,
   MemberWorkSyncStatusRequest,
+  MemberWorkSyncTeamMetrics,
 } from '@features/member-work-sync/contracts';
 import type {
   ConversationGroup,
@@ -612,6 +614,7 @@ export interface TeamsAPI {
 
 export interface MemberWorkSyncElectronApi {
   getStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
+  getMetrics(request: MemberWorkSyncMetricsRequest): Promise<MemberWorkSyncTeamMetrics>;
   report(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult>;
 }
 

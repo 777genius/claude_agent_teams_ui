@@ -5,6 +5,42 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { JsonMemberWorkSyncStore } from '@features/member-work-sync/main/infrastructure/JsonMemberWorkSyncStore';
 import { MemberWorkSyncStorePaths } from '@features/member-work-sync/main/infrastructure/MemberWorkSyncStorePaths';
+import type { MemberWorkSyncStatus } from '@features/member-work-sync/contracts';
+
+function makeStatus(overrides: Partial<MemberWorkSyncStatus>): MemberWorkSyncStatus {
+  return {
+    teamName: 'team-a',
+    memberName: 'bob',
+    state: 'needs_sync',
+    agenda: {
+      teamName: 'team-a',
+      memberName: 'bob',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      fingerprint: 'agenda:v1:abc',
+      items: [
+        {
+          taskId: 'task-1',
+          displayId: '11111111',
+          subject: 'Ship UI',
+          kind: 'work',
+          assignee: 'bob',
+          priority: 'normal',
+          reason: 'owned_pending_task',
+          evidence: { status: 'pending', owner: 'bob' },
+        },
+      ],
+      diagnostics: [],
+    },
+    shadow: {
+      reconciledBy: 'queue',
+      wouldNudge: true,
+      fingerprintChanged: false,
+    },
+    evaluatedAt: '2026-04-29T00:00:00.000Z',
+    diagnostics: [],
+    ...overrides,
+  };
+}
 
 describe('JsonMemberWorkSyncStore', () => {
   let root: string;
@@ -68,5 +104,45 @@ describe('JsonMemberWorkSyncStore', () => {
       status: 'accepted',
       resultCode: 'accepted',
     });
+  });
+
+  it('records bounded shadow metrics from status writes', async () => {
+    await store.write(makeStatus({}));
+    await store.write(
+      makeStatus({
+        agenda: {
+          teamName: 'team-a',
+          memberName: 'bob',
+          generatedAt: '2026-04-29T00:01:00.000Z',
+          fingerprint: 'agenda:v1:def',
+          items: [],
+          diagnostics: [],
+        },
+        state: 'caught_up',
+        shadow: {
+          reconciledBy: 'request',
+          wouldNudge: false,
+          fingerprintChanged: true,
+          previousFingerprint: 'agenda:v1:abc',
+        },
+        evaluatedAt: '2026-04-29T00:01:00.000Z',
+      })
+    );
+
+    const metrics = await store.readTeamMetrics('team-a');
+    expect(metrics).toMatchObject({
+      teamName: 'team-a',
+      memberCount: 1,
+      actionableItemCount: 0,
+      wouldNudgeCount: 1,
+      fingerprintChangeCount: 1,
+    });
+    expect(metrics.stateCounts.caught_up).toBe(1);
+    expect(metrics.recentEvents.map((event) => event.kind)).toEqual([
+      'status_evaluated',
+      'would_nudge',
+      'status_evaluated',
+      'fingerprint_changed',
+    ]);
   });
 });

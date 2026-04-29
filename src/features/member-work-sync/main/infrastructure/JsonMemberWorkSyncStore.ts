@@ -4,9 +4,12 @@ import { mkdir, readFile, rename } from 'fs/promises';
 
 import { withFileLock } from '@main/services/team/fileLock';
 import type {
+  MemberWorkSyncMetricEvent,
   MemberWorkSyncReportIntent,
   MemberWorkSyncReportRequest,
   MemberWorkSyncStatus,
+  MemberWorkSyncStatusState,
+  MemberWorkSyncTeamMetrics,
 } from '../../contracts';
 import type {
   MemberWorkSyncReportStorePort,
@@ -17,6 +20,9 @@ import type { MemberWorkSyncStorePaths } from './MemberWorkSyncStorePaths';
 interface StoreFile {
   schemaVersion: 1;
   members: Record<string, MemberWorkSyncStatus>;
+  metrics?: {
+    recentEvents: MemberWorkSyncMetricEvent[];
+  };
 }
 
 interface PendingReportFile {
@@ -37,6 +43,17 @@ function isStoreFile(value: unknown): value is StoreFile {
     typeof (value as StoreFile).members === 'object' &&
     !Array.isArray((value as StoreFile).members)
   );
+}
+
+function emptyStateCounts(): Record<MemberWorkSyncStatusState, number> {
+  return {
+    caught_up: 0,
+    needs_sync: 0,
+    still_working: 0,
+    blocked: 0,
+    inactive: 0,
+    unknown: 0,
+  };
 }
 
 function isPendingReportFile(value: unknown): value is PendingReportFile {
@@ -82,6 +99,91 @@ function buildPendingReportIntentId(request: MemberWorkSyncReportRequest): strin
     .digest('hex')}`;
 }
 
+function buildMetricEventId(status: MemberWorkSyncStatus, kind: MemberWorkSyncMetricEvent['kind']) {
+  return `member-work-sync-metric:${createHash('sha256')
+    .update(
+      stableStringify({
+        teamName: status.teamName,
+        memberName: normalizeMemberKey(status.memberName),
+        kind,
+        state: status.state,
+        agendaFingerprint: status.agenda.fingerprint,
+        evaluatedAt: status.evaluatedAt,
+        reportState: status.report?.state ?? '',
+        rejectionCode: status.report?.rejectionCode ?? '',
+      })
+    )
+    .digest('hex')}`;
+}
+
+function buildMetricEvents(status: MemberWorkSyncStatus): MemberWorkSyncMetricEvent[] {
+  const base = {
+    teamName: status.teamName,
+    memberName: status.memberName,
+    state: status.state,
+    agendaFingerprint: status.agenda.fingerprint,
+    recordedAt: status.evaluatedAt,
+    actionableCount: status.agenda.items.length,
+    ...(status.providerId ? { providerId: status.providerId } : {}),
+    ...(status.shadow?.previousFingerprint
+      ? { previousFingerprint: status.shadow.previousFingerprint }
+      : {}),
+    ...(status.shadow?.triggerReasons?.length
+      ? { triggerReasons: [...status.shadow.triggerReasons] }
+      : {}),
+    ...(status.report?.state ? { reportState: status.report.state } : {}),
+    ...(status.report?.rejectionCode ? { rejectionCode: status.report.rejectionCode } : {}),
+  };
+  const events: MemberWorkSyncMetricEvent[] = [
+    {
+      ...base,
+      id: buildMetricEventId(status, 'status_evaluated'),
+      kind: 'status_evaluated',
+    },
+  ];
+  if (status.shadow?.wouldNudge) {
+    events.push({
+      ...base,
+      id: buildMetricEventId(status, 'would_nudge'),
+      kind: 'would_nudge',
+    });
+  }
+  if (status.shadow?.fingerprintChanged) {
+    events.push({
+      ...base,
+      id: buildMetricEventId(status, 'fingerprint_changed'),
+      kind: 'fingerprint_changed',
+    });
+  }
+  if (status.report?.accepted) {
+    events.push({
+      ...base,
+      id: buildMetricEventId(status, 'report_accepted'),
+      kind: 'report_accepted',
+    });
+  } else if (status.report?.rejectionCode) {
+    events.push({
+      ...base,
+      id: buildMetricEventId(status, 'report_rejected'),
+      kind: 'report_rejected',
+    });
+  }
+  return events;
+}
+
+function appendMetricEvents(file: StoreFile, status: MemberWorkSyncStatus): void {
+  const current = file.metrics?.recentEvents ?? [];
+  const byId = new Map(current.map((event) => [event.id, event]));
+  for (const event of buildMetricEvents(status)) {
+    byId.set(event.id, event);
+  }
+  file.metrics = {
+    recentEvents: [...byId.values()]
+      .sort((left, right) => left.recordedAt.localeCompare(right.recordedAt))
+      .slice(-200),
+  };
+}
+
 async function quarantineFile(filePath: string): Promise<void> {
   try {
     await rename(filePath, `${filePath}.invalid.${Date.now()}`);
@@ -110,6 +212,7 @@ export class JsonMemberWorkSyncStore
       await withFileLock(this.paths.getStatusPath(status.teamName), async () => {
         const existing = await this.readFile(status.teamName);
         existing.members[normalizeMemberKey(status.memberName)] = status;
+        appendMetricEvents(existing, status);
         await mkdir(this.paths.getTeamDir(status.teamName), { recursive: true });
         await atomicWriteAsync(
           this.paths.getStatusPath(status.teamName),
@@ -117,6 +220,36 @@ export class JsonMemberWorkSyncStore
         );
       });
     });
+  }
+
+  async readTeamMetrics(teamName: string): Promise<MemberWorkSyncTeamMetrics> {
+    const file = await this.readFile(teamName);
+    const stateCounts = emptyStateCounts();
+    const members = Object.values(file.members);
+    let actionableItemCount = 0;
+    for (const status of members) {
+      stateCounts[status.state] += 1;
+      actionableItemCount += status.agenda.items.length;
+    }
+    const recentEvents = [...(file.metrics?.recentEvents ?? [])].sort((left, right) =>
+      left.recordedAt.localeCompare(right.recordedAt)
+    );
+    return {
+      teamName,
+      generatedAt: new Date().toISOString(),
+      memberCount: members.length,
+      stateCounts,
+      actionableItemCount,
+      wouldNudgeCount: recentEvents.filter((event) => event.kind === 'would_nudge').length,
+      fingerprintChangeCount: recentEvents.filter(
+        (event) => event.kind === 'fingerprint_changed'
+      ).length,
+      reportAcceptedCount: recentEvents.filter((event) => event.kind === 'report_accepted')
+        .length,
+      reportRejectedCount: recentEvents.filter((event) => event.kind === 'report_rejected')
+        .length,
+      recentEvents,
+    };
   }
 
   async appendPendingReport(request: MemberWorkSyncReportRequest, reason: string): Promise<void> {
@@ -190,7 +323,7 @@ export class JsonMemberWorkSyncStore
         await quarantineFile(filePath);
       }
     }
-    return { schemaVersion: 1, members: {} };
+    return { schemaVersion: 1, members: {}, metrics: { recentEvents: [] } };
   }
 
   private async readPendingFile(teamName: string): Promise<PendingReportFile> {

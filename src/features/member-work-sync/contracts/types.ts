@@ -102,6 +102,42 @@ export interface MemberWorkSyncStatus {
   providerId?: MemberWorkSyncProviderId;
 }
 
+export type MemberWorkSyncMetricEventKind =
+  | 'status_evaluated'
+  | 'would_nudge'
+  | 'fingerprint_changed'
+  | 'report_accepted'
+  | 'report_rejected';
+
+export interface MemberWorkSyncMetricEvent {
+  id: string;
+  teamName: string;
+  memberName: string;
+  kind: MemberWorkSyncMetricEventKind;
+  state: MemberWorkSyncStatusState;
+  agendaFingerprint: string;
+  recordedAt: string;
+  actionableCount: number;
+  providerId?: MemberWorkSyncProviderId;
+  previousFingerprint?: string;
+  triggerReasons?: string[];
+  reportState?: MemberWorkSyncReportState;
+  rejectionCode?: string;
+}
+
+export interface MemberWorkSyncTeamMetrics {
+  teamName: string;
+  generatedAt: string;
+  memberCount: number;
+  stateCounts: Record<MemberWorkSyncStatusState, number>;
+  actionableItemCount: number;
+  wouldNudgeCount: number;
+  fingerprintChangeCount: number;
+  reportAcceptedCount: number;
+  reportRejectedCount: number;
+  recentEvents: MemberWorkSyncMetricEvent[];
+}
+
 export interface MemberWorkSyncReportRequest {
   teamName: string;
   memberName: string;
@@ -125,4 +161,8 @@ export interface MemberWorkSyncReportResult {
 export interface MemberWorkSyncStatusRequest {
   teamName: string;
   memberName: string;
+}
+
+export interface MemberWorkSyncMetricsRequest {
+  teamName: string;
 }
