@@ -7,6 +7,13 @@ import type { MemberWorkSyncFeatureFacade } from '../../../../src/features/membe
 
 import type { TeamProvisioningProgress } from '../../../../src/shared/types';
 
+export class FatalWaitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FatalWaitError';
+  }
+}
+
 export interface MemberWorkSyncLiveControlServer {
   baseUrl: string;
   close(): Promise<void>;
@@ -102,6 +109,9 @@ export async function waitUntil(
         return;
       }
     } catch (error) {
+      if (error instanceof FatalWaitError) {
+        throw error;
+      }
       lastError = error;
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
@@ -173,6 +183,57 @@ export async function formatMemberWorkSyncDiagnostics(input: {
   ].join('\n');
 }
 
+export async function throwIfClaudeTranscriptApiError(input: {
+  claudeRoot: string;
+  context: string;
+}): Promise<void> {
+  const transcriptFiles = await findJsonlFiles(path.join(input.claudeRoot, 'projects'));
+  const apiErrors: Array<{ filePath: string; error: string; text: string }> = [];
+  for (const filePath of transcriptFiles) {
+    const raw = await fs.readFile(filePath, 'utf8').catch(() => '');
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line.includes('"isApiErrorMessage"') && !line.includes('"error"')) {
+        continue;
+      }
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (parsed.isApiErrorMessage !== true && typeof parsed.error !== 'string') {
+        continue;
+      }
+      const message = parsed.message as Record<string, unknown> | undefined;
+      apiErrors.push({
+        filePath,
+        error: typeof parsed.error === 'string' ? parsed.error : 'api_error',
+        text: extractClaudeMessageText(message),
+      });
+    }
+  }
+
+  if (apiErrors.length === 0) {
+    return;
+  }
+
+  const latest = apiErrors.at(-1)!;
+  throw new FatalWaitError(
+    [
+      `${input.context}: Claude API error detected in live transcript.`,
+      `error=${latest.error}`,
+      latest.text ? `message=${latest.text}` : undefined,
+      `transcript=${latest.filePath}`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  );
+}
+
 export async function readRuntimeTurnSettledProcessedMetas(teamsBasePath: string): Promise<
   Array<{
     filePath: string;
@@ -196,6 +257,37 @@ export async function readRuntimeTurnSettledProcessedMetas(teamsBasePath: string
       })
   );
   return metas.sort((left, right) => left.filePath.localeCompare(right.filePath));
+}
+
+async function findJsonlFiles(rootPath: string): Promise<string[]> {
+  const entries = await fs.readdir(rootPath, { withFileTypes: true }).catch(() => []);
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(rootPath, entry.name);
+      if (entry.isDirectory()) {
+        return findJsonlFiles(entryPath);
+      }
+      return entry.isFile() && entry.name.endsWith('.jsonl') ? [entryPath] : [];
+    })
+  );
+  return nested.flat().sort((left, right) => left.localeCompare(right));
+}
+
+function extractClaudeMessageText(message: Record<string, unknown> | undefined): string {
+  const content = message?.content;
+  if (!Array.isArray(content)) {
+    return '';
+  }
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object') {
+        return '';
+      }
+      const text = (part as { text?: unknown }).text;
+      return typeof text === 'string' ? text : '';
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 async function readRequestJson(request: http.IncomingMessage): Promise<unknown> {

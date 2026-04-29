@@ -25,6 +25,7 @@ import {
   readRuntimeTurnSettledProcessedMetas,
   restoreEnv,
   startMemberWorkSyncControlServer,
+  throwIfClaudeTranscriptApiError,
   type MemberWorkSyncLiveControlServer,
   waitUntil,
 } from './memberWorkSyncLiveHarness';
@@ -251,6 +252,10 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
       }
       return last?.state === 'ready';
     }, 240_000);
+    await throwIfClaudeTranscriptApiError({
+      claudeRoot: tempClaudeRoot,
+      context: 'Claude team launch',
+    });
 
     await expect(
       fs.stat(
@@ -304,6 +309,10 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     );
 
     await waitUntil(async () => {
+      await throwIfClaudeTranscriptApiError({
+        claudeRoot: tempClaudeRoot,
+        context: 'Claude validation turn',
+      });
       await feature!.replayPendingReports([teamName!]);
       const [status, tasks] = await Promise.all([
         feature!.getStatus({ teamName: teamName!, memberName }),
@@ -331,6 +340,10 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
 
     const beforeTurnSettledReconciled = feature.getQueueDiagnostics().reconciled;
     await waitUntil(async () => {
+      await throwIfClaudeTranscriptApiError({
+        claudeRoot: tempClaudeRoot,
+        context: 'Claude Stop hook turn',
+      });
       await feature!.drainRuntimeTurnSettledEvents();
       const metas = await readRuntimeTurnSettledProcessedMetas(getTeamsBasePath());
       return metas.some(({ filePath, meta }) => {
