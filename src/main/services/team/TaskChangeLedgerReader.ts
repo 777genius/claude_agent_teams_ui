@@ -129,6 +129,13 @@ interface LedgerEvent {
   linesRemoved?: number;
   replaceAll?: boolean;
   warnings?: string[];
+  sourceRuntime?: 'opencode';
+  sourceProvider?: 'opencode';
+  sourceImportKey?: string;
+  evidenceProof?: string;
+  supersedesEventId?: string;
+  snapshotId?: string;
+  snapshotSource?: string;
 }
 
 interface LedgerNotice {
@@ -196,7 +203,7 @@ interface LedgerSummaryScopeV2 {
   primaryAgentId?: string;
   primaryMemberName?: string;
   memberName: string;
-  agentIds: string[];
+  agentIds?: string[];
   memberNames?: string[];
   startTimestamp: string;
   endTimestamp: string;
@@ -428,11 +435,7 @@ export class TaskChangeLedgerReader {
       return null;
     }
 
-    const provenance = this.buildLedgerProvenance(
-      bundle.journalStamp,
-      bundle.integrity,
-      bundle.schemaVersion
-    );
+    const provenance = this.buildLedgerProvenanceFromSummaryBundle(bundle);
 
     if (
       freshness &&
@@ -450,11 +453,7 @@ export class TaskChangeLedgerReader {
     ) {
       return {
         bundle,
-        provenance: this.buildLedgerProvenance(
-          journalStamp,
-          bundle.integrity,
-          bundle.schemaVersion
-        ),
+        provenance: this.buildLedgerProvenanceFromSummaryBundle(bundle, journalStamp),
         mode: 'validated',
       };
     }
@@ -694,6 +693,86 @@ export class TaskChangeLedgerReader {
     return this.buildLedgerProvenance(journalStamp, integrity, bundleSchemaVersion);
   }
 
+  private buildLedgerProvenanceFromSummaryBundle(
+    bundle: LedgerSummaryBundleV2,
+    journalStamp: TaskChangeJournalStamp = bundle.journalStamp
+  ): TaskChangeProvenance {
+    return {
+      sourceKind: 'ledger',
+      sourceFingerprint: this.hashFingerprintPayload(this.buildProjectedSummaryIdentity(bundle)),
+      journalStamp,
+      bundleSchemaVersion: bundle.schemaVersion,
+      integrity: bundle.integrity,
+    };
+  }
+
+  private buildProjectedSummaryIdentity(bundle: LedgerSummaryBundleV2): unknown {
+    return {
+      kind: 'ledger-summary-v2-projected-identity',
+      schemaVersion: bundle.schemaVersion,
+      bundleKind: bundle.bundleKind,
+      taskId: bundle.taskId,
+      integrity: bundle.integrity,
+      totalFiles: bundle.totalFiles,
+      totalLinesAdded: bundle.totalLinesAdded,
+      totalLinesRemoved: bundle.totalLinesRemoved,
+      diffStatCompleteness: bundle.diffStatCompleteness,
+      confidence: bundle.confidence,
+      files: [...bundle.files]
+        .map((file) => ({
+          changeKey: this.normalizeSummaryChangeKey(file),
+          filePath: normalizePathForComparison(file.filePath),
+          relativePath: normalizePathForComparison(file.relativePath),
+          displayPath: file.displayPath ? normalizePathForComparison(file.displayPath) : undefined,
+          linesAdded: file.linesAdded,
+          linesRemoved: file.linesRemoved,
+          diffStatKnown: file.diffStatKnown,
+          latestOperation: file.latestOperation,
+          createdInTask: file.createdInTask,
+          deletedInTask: file.deletedInTask,
+          baselineExists: file.baselineExists,
+          finalExists: file.finalExists,
+          latestBeforeHash: file.latestBeforeHash,
+          latestAfterHash: file.latestAfterHash,
+          latestBeforeState: this.contentStateFingerprint(file.latestBeforeState),
+          latestAfterState: this.contentStateFingerprint(file.latestAfterState),
+          contentAvailability: file.contentAvailability,
+          reviewability: file.reviewability,
+          relation: file.relation
+            ? {
+                kind: file.relation.kind,
+                oldPath: normalizePathForComparison(file.relation.oldPath),
+                newPath: normalizePathForComparison(file.relation.newPath),
+              }
+            : undefined,
+          worktreePath: file.worktreePath
+            ? normalizePathForComparison(file.worktreePath)
+            : undefined,
+          worktreeBranch: file.worktreeBranch,
+          baseWorkspaceRoot: file.baseWorkspaceRoot
+            ? normalizePathForComparison(file.baseWorkspaceRoot)
+            : undefined,
+        }))
+        .sort(
+          (left, right) =>
+            left.changeKey.localeCompare(right.changeKey) ||
+            left.filePath.localeCompare(right.filePath)
+        ),
+    };
+  }
+
+  private contentStateFingerprint(state: LedgerContentState | undefined): unknown {
+    if (!state) {
+      return undefined;
+    }
+    return {
+      exists: state.exists,
+      sha256: state.sha256,
+      sizeBytes: state.sizeBytes,
+      unavailableReason: state.unavailableReason,
+    };
+  }
+
   private hashFingerprintPayload(payload: unknown): string {
     return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   }
@@ -793,9 +872,10 @@ export class TaskChangeLedgerReader {
     bundle?: LedgerSummaryBundleV2;
     provenance: TaskChangeProvenance;
   }): Promise<TaskChangeSetV2> {
-    const snippets = await this.buildSnippets(params.projectDir, params.journal.events);
+    const projectedEvents = this.projectJournalEventsForUi(params.journal.events);
+    const snippets = await this.buildSnippets(params.projectDir, projectedEvents);
     const groupedSnippets = this.groupSnippets(snippets);
-    const warnings = this.collectWarnings(params.journal.events, params.journal.notices, {
+    const warnings = this.collectWarnings(projectedEvents, params.journal.notices, {
       recovered: params.journal.recovered,
     });
 
@@ -836,15 +916,15 @@ export class TaskChangeLedgerReader {
       totalLinesAdded = fallback.totalLinesAdded;
       totalLinesRemoved = fallback.totalLinesRemoved;
       totalFiles = fallback.files.length;
-      confidence = params.journal.events.some((event) => event.confidence === 'low')
+      confidence = projectedEvents.some((event) => event.confidence === 'low')
         ? 'low'
-        : params.journal.events.some((event) => event.confidence === 'medium')
+        : projectedEvents.some((event) => event.confidence === 'medium')
           ? 'medium'
           : 'high';
       scope = this.buildFallbackScope(
         params.taskId,
         files,
-        params.journal.events,
+        projectedEvents,
         params.journal.notices
       );
       diffStatCompleteness = fallback.files.every((file) => file.diffStatKnown !== false)
@@ -883,7 +963,8 @@ export class TaskChangeLedgerReader {
       undefined,
       params.journal.recovered ? 'recovered' : 'ok'
     );
-    const snippets = params.journal.events.map((event) => this.eventToSnippet(event, null, null));
+    const projectedEvents = this.projectJournalEventsForUi(params.journal.events);
+    const snippets = projectedEvents.map((event) => this.eventToSnippet(event, null, null));
     const grouped = this.groupSnippets(snippets);
     const fallback = this.buildFallbackFilesFromGroupedSnippets(grouped, params.projectPath);
     return {
@@ -893,20 +974,20 @@ export class TaskChangeLedgerReader {
       totalLinesAdded: fallback.totalLinesAdded,
       totalLinesRemoved: fallback.totalLinesRemoved,
       totalFiles: fallback.files.length,
-      confidence: params.journal.events.some((event) => event.confidence === 'low')
+      confidence: projectedEvents.some((event) => event.confidence === 'low')
         ? 'low'
-        : params.journal.events.some((event) => event.confidence === 'medium')
+        : projectedEvents.some((event) => event.confidence === 'medium')
           ? 'medium'
           : 'high',
       computedAt: new Date().toISOString(),
       scope: this.buildFallbackScope(
         params.taskId,
         fallback.files,
-        params.journal.events,
+        projectedEvents,
         params.journal.notices
       ),
       warnings: [
-        ...this.collectWarnings(params.journal.events, params.journal.notices, {
+        ...this.collectWarnings(projectedEvents, params.journal.notices, {
           recovered: params.journal.recovered,
         }),
         'Task change summary fell back to journal reconstruction.',
@@ -972,6 +1053,7 @@ export class TaskChangeLedgerReader {
   private mapV2SummaryFile(file: LedgerSummaryFileV2, projectPath?: string): FileChangeSummary {
     const displayPath = file.displayPath ?? file.filePath;
     const filePath = this.normalizeLedgerFilePath(file.filePath);
+    const agentIds = Array.isArray(file.agentIds) ? file.agentIds : [];
     return {
       filePath,
       relativePath: this.relativePath(displayPath, projectPath, file.relativePath),
@@ -993,7 +1075,7 @@ export class TaskChangeLedgerReader {
         ...(file.latestBeforeState ? { beforeState: file.latestBeforeState } : {}),
         ...(file.latestAfterState ? { afterState: file.latestAfterState } : {}),
         ...(file.primaryActorKey ? { primaryActorKey: file.primaryActorKey } : {}),
-        ...(file.agentIds.length > 0 ? { agentIds: file.agentIds } : {}),
+        ...(agentIds.length > 0 ? { agentIds } : {}),
         ...(file.memberNames ? { memberNames: file.memberNames } : {}),
         ...(file.executionSeqRange ? { executionSeqRange: file.executionSeqRange } : {}),
         ...(file.worktreePath ? { worktreePath: file.worktreePath } : {}),
@@ -1021,6 +1103,7 @@ export class TaskChangeLedgerReader {
     scope: LedgerSummaryScopeV2,
     files: LedgerSummaryFileV2[]
   ): TaskChangeScope {
+    const agentIds = Array.isArray(scope.agentIds) ? scope.agentIds : [];
     return {
       taskId,
       memberName:
@@ -1039,7 +1122,7 @@ export class TaskChangeLedgerReader {
       ...(scope.primaryActorKey ? { primaryActorKey: scope.primaryActorKey } : {}),
       ...(scope.primaryAgentId ? { primaryAgentId: scope.primaryAgentId } : {}),
       ...(scope.primaryMemberName ? { primaryMemberName: scope.primaryMemberName } : {}),
-      ...(scope.agentIds.length > 0 ? { agentIds: scope.agentIds } : {}),
+      ...(agentIds.length > 0 ? { agentIds } : {}),
       ...(scope.memberNames ? { memberNames: scope.memberNames } : {}),
       ...(scope.toolUseCount !== undefined ? { toolUseCount: scope.toolUseCount } : {}),
       ...(scope.toolUseIdsTruncated ? { toolUseIdsTruncated: true } : {}),
@@ -1062,6 +1145,75 @@ export class TaskChangeLedgerReader {
         return this.eventToSnippet(event, beforeContent, afterContent);
       })
     );
+  }
+
+  private projectJournalEventsForUi(events: LedgerEvent[]): LedgerEvent[] {
+    const selectedBySourceImportKey = new Map<
+      string,
+      { event: LedgerEvent; index: number; rank: number }
+    >();
+    const passthrough: Array<{ event: LedgerEvent; index: number }> = [];
+
+    events.forEach((event, index) => {
+      const sourceImportKey = this.sourceImportKeyForEvent(event);
+      if (!sourceImportKey) {
+        passthrough.push({ event, index });
+        return;
+      }
+      const rank = this.evidenceRankForEvent(event);
+      const existing = selectedBySourceImportKey.get(sourceImportKey);
+      if (!existing || rank >= existing.rank) {
+        selectedBySourceImportKey.set(sourceImportKey, { event, index, rank });
+      }
+    });
+
+    return [
+      ...passthrough,
+      ...[...selectedBySourceImportKey.values()].map(({ event, index }) => ({ event, index })),
+    ]
+      .sort((left, right) => left.index - right.index)
+      .map(({ event }) => event);
+  }
+
+  private sourceImportKeyForEvent(event: LedgerEvent): string | null {
+    if (
+      event.sourceImportKey &&
+      (event.sourceRuntime === 'opencode' ||
+        event.sourceProvider === 'opencode' ||
+        event.source === 'opencode_toolpart_write' ||
+        event.source === 'opencode_toolpart_edit' ||
+        event.source === 'opencode_toolpart_apply_patch')
+    ) {
+      return event.sourceImportKey;
+    }
+    return null;
+  }
+
+  private evidenceRankForEvent(event: LedgerEvent): number {
+    const hasFullText = this.hasFullTextEvidence(event);
+
+    switch (event.evidenceProof) {
+      case 'opencode-snapshot':
+        return hasFullText ? 50 : 35;
+      case 'inverse-apply-patch-chain':
+      case 'inverse-edit-chain':
+      case 'toolpart-chain':
+        return hasFullText ? 40 : 25;
+      case 'metadata-only-fallback':
+        return 10;
+      default:
+        return hasFullText ? 30 : 5;
+    }
+  }
+
+  private hasFullTextEvidence(event: Pick<LedgerEvent, 'before' | 'after' | 'operation'>): boolean {
+    if (event.operation === 'create') {
+      return event.after !== null;
+    }
+    if (event.operation === 'delete') {
+      return event.before !== null;
+    }
+    return event.before !== null && event.after !== null;
   }
 
   private async readContentRef(

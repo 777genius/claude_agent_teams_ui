@@ -1651,4 +1651,153 @@ describe('changeReviewSlice task changes', () => {
     });
     expect(store.getState().activeChangeSet).toEqual(current);
   });
+
+  it('does not force re-review when ledger provenance stays stable despite warning changes', async () => {
+    const store = createSliceStore();
+    const current = {
+      ...makeTaskChangeSet('task-ledger', '/repo/file.ts'),
+      provenance: {
+        sourceKind: 'ledger',
+        sourceFingerprint: 'projected-fp-stable',
+      },
+      warnings: [],
+    };
+    const fresh = {
+      ...current,
+      computedAt: '2026-03-01T13:00:00.000Z',
+      warnings: ['raw journal warning changed'],
+    };
+    hoisted.getTaskChanges.mockResolvedValueOnce(fresh);
+    hoisted.applyDecisions.mockResolvedValueOnce({
+      applied: 1,
+      skipped: 0,
+      conflicts: 0,
+      errors: [],
+    });
+
+    store.setState({
+      activeChangeSet: current,
+      hunkDecisions: { '/repo/file.ts:0': 'rejected' },
+      fileDecisions: { '/repo/file.ts': 'rejected' },
+      fileChunkCounts: { '/repo/file.ts': 1 },
+      changeSetEpoch: 0,
+      fileContentVersionByPath: {},
+    });
+
+    await store.getState().applyReview('team-a', 'task-ledger');
+
+    expect(store.getState().applyError).toBeNull();
+    expect(hoisted.applyDecisions).toHaveBeenCalledTimes(1);
+    expect(store.getState().activeChangeSet).toEqual(current);
+  });
+
+  it('forces re-review when ledger projected provenance changes with the same file paths', async () => {
+    const store = createSliceStore();
+    const current = {
+      ...makeTaskChangeSet('task-ledger', '/repo/file.ts'),
+      provenance: {
+        sourceKind: 'ledger',
+        sourceFingerprint: 'projected-fp-v1',
+      },
+    };
+    const fresh = {
+      ...current,
+      provenance: {
+        sourceKind: 'ledger',
+        sourceFingerprint: 'projected-fp-v2',
+      },
+    };
+    hoisted.getTaskChanges.mockResolvedValueOnce(fresh);
+
+    store.setState({
+      activeChangeSet: current,
+      hunkDecisions: { '/repo/file.ts:0': 'rejected' },
+      fileDecisions: { '/repo/file.ts': 'rejected' },
+      fileChunkCounts: { '/repo/file.ts': 1 },
+      reviewUndoStack: [{ hunkDecisions: { '/repo/file.ts:0': 'rejected' }, fileDecisions: { '/repo/file.ts': 'rejected' } }],
+      changeSetEpoch: 2,
+      fileContentVersionByPath: { '/repo/file.ts': 3 },
+    });
+
+    await store.getState().applyReview('team-a', 'task-ledger');
+
+    expect(hoisted.applyDecisions).not.toHaveBeenCalled();
+    expect(store.getState().activeChangeSet).toEqual(fresh);
+    expect(store.getState().applyError).toBe(
+      'Changes have been updated since you started reviewing. Please re-review.'
+    );
+    expect(store.getState().hunkDecisions).toEqual({});
+    expect(store.getState().fileDecisions).toEqual({});
+    expect(store.getState().reviewUndoStack).toEqual([]);
+    expect(store.getState().fileContentVersionByPath).toEqual({});
+  });
+
+  it('clears metadata-only decisions when ledger evidence upgrades to full text for the same changeKey', async () => {
+    const store = createSliceStore();
+    const changeKey = 'path:/repo/file.ts';
+    const currentFile = {
+      ...makeFile('/repo/file.ts'),
+      changeKey,
+      snippets: [],
+      ledgerSummary: {
+        latestOperation: 'modify',
+        contentAvailability: 'metadata-only',
+        reviewability: 'metadata-only',
+      },
+    };
+    const freshFile = {
+      ...makeFile('/repo/file.ts'),
+      changeKey,
+      ledgerSummary: {
+        latestOperation: 'modify',
+        contentAvailability: 'full-text',
+        reviewability: 'full-text',
+        beforeState: { exists: true, sha256: 'before-hash', sizeBytes: 6 },
+        afterState: { exists: true, sha256: 'after-hash', sizeBytes: 5 },
+      },
+    };
+    const current = {
+      ...makeTaskChangeSet('task-ledger', '/repo/file.ts'),
+      files: [currentFile],
+      provenance: {
+        sourceKind: 'ledger',
+        sourceFingerprint: 'metadata-only-projection',
+      },
+    };
+    const fresh = {
+      ...current,
+      files: [freshFile],
+      provenance: {
+        sourceKind: 'ledger',
+        sourceFingerprint: 'snapshot-full-text-projection',
+      },
+    };
+    hoisted.getTaskChanges.mockResolvedValueOnce(fresh);
+
+    store.setState({
+      activeChangeSet: current,
+      hunkDecisions: { [`${changeKey}:0`]: 'rejected' },
+      fileDecisions: { [changeKey]: 'rejected' },
+      hunkContextHashesByFile: { [changeKey]: { 0: 'metadata-only-context' } },
+      fileChunkCounts: { [changeKey]: 1 },
+      reviewUndoStack: [
+        {
+          hunkDecisions: { [`${changeKey}:0`]: 'rejected' },
+          fileDecisions: { [changeKey]: 'rejected' },
+        },
+      ],
+      changeSetEpoch: 4,
+      fileContentVersionByPath: { '/repo/file.ts': 2 },
+    });
+
+    await store.getState().applyReview('team-a', 'task-ledger');
+
+    expect(hoisted.applyDecisions).not.toHaveBeenCalled();
+    expect(store.getState().activeChangeSet).toEqual(fresh);
+    expect(store.getState().fileDecisions).toEqual({});
+    expect(store.getState().hunkDecisions).toEqual({});
+    expect(store.getState().hunkContextHashesByFile).toEqual({});
+    expect(store.getState().reviewUndoStack).toEqual([]);
+    expect(store.getState().fileContentVersionByPath).toEqual({});
+  });
 });
