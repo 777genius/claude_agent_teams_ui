@@ -285,6 +285,14 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
       );
     }, 30_000);
 
+    const processedMetasBeforeValidation = await readRuntimeTurnSettledProcessedMetas(
+      getTeamsBasePath()
+    );
+    const processedMetaPathsBeforeValidation = new Set(
+      processedMetasBeforeValidation.map(({ filePath }) => filePath)
+    );
+    const validationSentAt = Date.now();
+
     await activeService.sendMessageToTeam(
       teamName,
       scenario
@@ -325,13 +333,18 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     await waitUntil(async () => {
       await feature!.drainRuntimeTurnSettledEvents();
       const metas = await readRuntimeTurnSettledProcessedMetas(getTeamsBasePath());
-      return metas.some(({ meta }) => {
+      return metas.some(({ filePath, meta }) => {
         const event = meta.event as Record<string, unknown> | undefined;
+        const recordedAt =
+          typeof event?.recordedAt === 'string' ? Date.parse(event.recordedAt) : Number.NaN;
         return (
+          !processedMetaPathsBeforeValidation.has(filePath) &&
           meta.outcome === 'enqueued' &&
           meta.teamName === teamName &&
           meta.memberName === memberName &&
-          event?.provider === 'claude'
+          event?.provider === 'claude' &&
+          Number.isFinite(recordedAt) &&
+          recordedAt >= validationSentAt
         );
       });
     }, 180_000, 2_000, async () =>
@@ -386,7 +399,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
           `Add one task comment containing exactly: ${marker}:still-working.`,
           `Then call member_work_sync_status with teamName "${teamName}", memberName "${memberName}", and controlUrl "${controlUrl}".`,
           `Then call member_work_sync_report with teamName "${teamName}", memberName "${memberName}", controlUrl "${controlUrl}", state "still_working", the exact agendaFingerprint and reportToken returned by member_work_sync_status, and the current task id if available.`,
-          'After that stop. Do not send a user-visible message.',
+          `After that, finish the turn with exactly: ${marker}:hook-settled.`,
         ],
         buildInstructionLines: ({ marker, memberName, teamName, controlUrl, taskId }) => [
           `Live member-work-sync validation instruction. Marker: ${marker}.`,
@@ -395,7 +408,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
           `Add one task comment containing exactly: ${marker}:still-working.`,
           `Then call member_work_sync_status with teamName "${teamName}", memberName "${memberName}", and controlUrl "${controlUrl}".`,
           `Then call member_work_sync_report with teamName "${teamName}", memberName "${memberName}", controlUrl "${controlUrl}", state "still_working", the exact agendaFingerprint and reportToken returned by member_work_sync_status, and taskIds ["${taskId}"].`,
-          'After that stop. Do not complete the task. Do not send a user-visible message.',
+          `Do not complete the task. After that, finish the turn with exactly: ${marker}:hook-settled.`,
         ],
       }),
     420_000
@@ -418,7 +431,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
           'Then call task_complete for this task.',
           `Then call member_work_sync_status with teamName "${teamName}", memberName "${memberName}", and controlUrl "${controlUrl}".`,
           `Then call member_work_sync_report with teamName "${teamName}", memberName "${memberName}", controlUrl "${controlUrl}", state "caught_up", the exact agendaFingerprint and reportToken returned by member_work_sync_status, and no taskIds.`,
-          'After that stop. Do not send a user-visible message.',
+          `After that, finish the turn with exactly: ${marker}:hook-settled.`,
         ],
         buildInstructionLines: ({ marker, memberName, teamName, controlUrl, taskId }) => [
           `Live member-work-sync caught-up validation instruction. Marker: ${marker}.`,
@@ -428,7 +441,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
           `Call task_complete for taskId "${taskId}".`,
           `Then call member_work_sync_status with teamName "${teamName}", memberName "${memberName}", and controlUrl "${controlUrl}".`,
           `Then call member_work_sync_report with teamName "${teamName}", memberName "${memberName}", controlUrl "${controlUrl}", state "caught_up", the exact agendaFingerprint and reportToken returned by member_work_sync_status, and no taskIds.`,
-          'After that stop. Do not send a user-visible message.',
+          `After that, finish the turn with exactly: ${marker}:hook-settled.`,
         ],
       }),
     420_000
