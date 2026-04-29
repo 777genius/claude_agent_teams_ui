@@ -8,7 +8,6 @@ import {
   validateMemberNameInline,
 } from '@renderer/components/team/members/MembersEditorSection';
 import { Button } from '@renderer/components/ui/button';
-import { isGeminiUiFrozen } from '@renderer/utils/geminiUiFreeze';
 import {
   Dialog,
   DialogContent,
@@ -17,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@renderer/components/ui/dialog';
+import { isGeminiUiFrozen } from '@renderer/utils/geminiUiFreeze';
 import { Loader2 } from 'lucide-react';
 
 import type { MemberDraft } from '@renderer/components/team/members/membersEditorTypes';
