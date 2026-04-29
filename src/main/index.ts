@@ -1240,11 +1240,11 @@ async function initializeServices(): Promise<void> {
   });
   void teamDataService
     .listTeams()
-    .then((teams) =>
-      memberWorkSyncFeature?.enqueueStartupScan(
-        teams.filter((team) => !team.deletedAt).map((team) => team.teamName)
-      )
-    )
+    .then(async (teams) => {
+      const activeTeamNames = teams.filter((team) => !team.deletedAt).map((team) => team.teamName);
+      await memberWorkSyncFeature?.replayPendingReports(activeTeamNames);
+      await memberWorkSyncFeature?.enqueueStartupScan(activeTeamNames);
+    })
     .catch((error: unknown) =>
       logger.warn(`[Init] Member work sync startup scan failed: ${String(error)}`)
     );

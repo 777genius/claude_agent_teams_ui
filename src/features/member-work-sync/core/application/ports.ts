@@ -2,6 +2,8 @@ import type {
   MemberWorkSyncAgenda,
   MemberWorkSyncProviderId,
   MemberWorkSyncReport,
+  MemberWorkSyncReportIntent,
+  MemberWorkSyncReportIntentStatus,
   MemberWorkSyncReportRequest,
   MemberWorkSyncStatus,
 } from '../../contracts';
@@ -75,6 +77,12 @@ export interface MemberWorkSyncStatusStorePort {
 
 export interface MemberWorkSyncReportStorePort {
   appendPendingReport?(request: MemberWorkSyncReportRequest, reason: string): Promise<void>;
+  listPendingReports?(teamName: string): Promise<MemberWorkSyncReportIntent[]>;
+  markPendingReportProcessed?(
+    teamName: string,
+    id: string,
+    result: { status: MemberWorkSyncReportIntentStatus; resultCode: string; processedAt: string }
+  ): Promise<void>;
 }
 
 export interface MemberWorkSyncUseCaseDeps {

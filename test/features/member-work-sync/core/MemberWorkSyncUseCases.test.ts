@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MemberWorkSyncDiagnosticsReader,
+  MemberWorkSyncPendingReportIntentReplayer,
   MemberWorkSyncReporter,
   type MemberWorkSyncAgendaSourceResult,
   type MemberWorkSyncStatusStorePort,
@@ -9,6 +10,7 @@ import {
 } from '@features/member-work-sync/core/application';
 import type {
   MemberWorkSyncActionableWorkItem,
+  MemberWorkSyncReportIntent,
   MemberWorkSyncReportRequest,
   MemberWorkSyncStatus,
 } from '@features/member-work-sync/contracts';
@@ -42,6 +44,7 @@ class MutableClock {
 class InMemoryStatusStore implements MemberWorkSyncStatusStorePort {
   readonly writes: MemberWorkSyncStatus[] = [];
   readonly pendingReports: Array<{ request: MemberWorkSyncReportRequest; reason: string }> = [];
+  readonly pendingIntents = new Map<string, MemberWorkSyncReportIntent>();
 
   async read(): Promise<MemberWorkSyncStatus | null> {
     return this.writes.at(-1) ?? null;
@@ -53,6 +56,25 @@ class InMemoryStatusStore implements MemberWorkSyncStatusStorePort {
 
   async appendPendingReport(request: MemberWorkSyncReportRequest, reason: string): Promise<void> {
     this.pendingReports.push({ request, reason });
+  }
+
+  async listPendingReports(): Promise<MemberWorkSyncReportIntent[]> {
+    return [...this.pendingIntents.values()].filter((intent) => intent.status === 'pending');
+  }
+
+  async markPendingReportProcessed(
+    _teamName: string,
+    id: string,
+    result: {
+      status: MemberWorkSyncReportIntent['status'];
+      resultCode: string;
+      processedAt: string;
+    }
+  ): Promise<void> {
+    const current = this.pendingIntents.get(id);
+    if (current) {
+      this.pendingIntents.set(id, { ...current, ...result });
+    }
   }
 }
 
@@ -157,7 +179,29 @@ describe('MemberWorkSync use cases', () => {
     expect(expired.diagnostics).toContain('report_lease_expired');
   });
 
-  it('rejects stale or unsafe reports and records pending intent only', async () => {
+  it('uses app clock instead of model supplied reportedAt for lease timing', async () => {
+    const { deps } = createDeps();
+    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reporter = new MemberWorkSyncReporter(deps);
+    const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
+
+    const result = await reporter.execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+      state: 'still_working',
+      agendaFingerprint: current.agenda.fingerprint,
+      reportToken: current.reportToken,
+      reportedAt: '2099-01-01T00:00:00.000Z',
+      leaseTtlMs: 120_000,
+      source: 'test',
+    });
+
+    expect(result.accepted).toBe(true);
+    expect(result.status.report?.reportedAt).toBe('2026-04-29T00:00:00.000Z');
+    expect(result.status.report?.expiresAt).toBe('2026-04-29T00:02:00.000Z');
+  });
+
+  it('rejects stale reports without turning app-side validation failures into pending intents', async () => {
     const { deps, store } = createDeps();
     const result = await new MemberWorkSyncReporter(deps).execute({
       teamName: 'team-a',
@@ -170,8 +214,7 @@ describe('MemberWorkSync use cases', () => {
     expect(result.accepted).toBe(false);
     expect(result.code).toBe('stale_fingerprint');
     expect(result.status.state).toBe('needs_sync');
-    expect(store.pendingReports).toHaveLength(1);
-    expect(store.pendingReports[0].reason).toBe('stale_fingerprint');
+    expect(store.pendingReports).toHaveLength(0);
   });
 
   it('accepts caught_up only when the app-side agenda is empty', async () => {
@@ -246,5 +289,38 @@ describe('MemberWorkSync use cases', () => {
     expect(result.accepted).toBe(false);
     expect(result.code).toBe('invalid_report_token');
     expect(store.pendingReports).toHaveLength(0);
+  });
+
+  it('replays pending controller intents through the same app validator', async () => {
+    const { deps, store } = createDeps();
+    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
+    store.pendingIntents.set('intent-1', {
+      id: 'intent-1',
+      teamName: 'team-a',
+      memberName: 'bob',
+      status: 'pending',
+      reason: 'control_api_unavailable',
+      recordedAt: '2026-04-29T00:00:01.000Z',
+      request: {
+        teamName: 'team-a',
+        memberName: 'bob',
+        state: 'still_working',
+        agendaFingerprint: current.agenda.fingerprint,
+        reportToken: current.reportToken,
+        leaseTtlMs: 120_000,
+        source: 'mcp',
+      },
+    });
+
+    const summary = await new MemberWorkSyncPendingReportIntentReplayer(deps).replayTeam('team-a');
+
+    expect(summary).toEqual({ processed: 1, accepted: 1, rejected: 0, superseded: 0 });
+    expect(store.pendingIntents.get('intent-1')).toMatchObject({
+      status: 'accepted',
+      resultCode: 'accepted',
+      processedAt: '2026-04-29T00:00:00.000Z',
+    });
+    expect(store.writes.at(-1)?.state).toBe('still_working');
   });
 });

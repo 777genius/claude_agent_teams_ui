@@ -12,7 +12,7 @@ export class MemberWorkSyncStorePaths {
   }
 
   getPendingReportsPath(teamName: string): string {
-    return join(this.getTeamDir(teamName), 'pending-reports.jsonl');
+    return join(this.getTeamDir(teamName), 'pending-reports.json');
   }
 
   getReportTokenSecretPath(teamName: string): string {

@@ -66,6 +66,20 @@ export interface MemberWorkSyncReport {
   rejectionCode?: string;
 }
 
+export type MemberWorkSyncReportIntentStatus = 'pending' | 'accepted' | 'rejected' | 'superseded';
+
+export interface MemberWorkSyncReportIntent {
+  id: string;
+  teamName: string;
+  memberName: string;
+  request: MemberWorkSyncReportRequest;
+  reason: string;
+  status: MemberWorkSyncReportIntentStatus;
+  recordedAt: string;
+  processedAt?: string;
+  resultCode?: string;
+}
+
 export interface MemberWorkSyncShadowDiagnostics {
   reconciledBy: 'request' | 'queue' | 'report';
   wouldNudge: boolean;

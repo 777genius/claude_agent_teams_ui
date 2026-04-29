@@ -6,6 +6,8 @@ import type {
 } from '../../contracts';
 import {
   MemberWorkSyncDiagnosticsReader,
+  MemberWorkSyncPendingReportIntentReplayer,
+  type MemberWorkSyncPendingReportReplaySummary,
   MemberWorkSyncReconciler,
   MemberWorkSyncReporter,
   type MemberWorkSyncReconcileContext,
@@ -34,6 +36,7 @@ export interface MemberWorkSyncFeatureFacade {
   report(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult>;
   noteTeamChange(event: TeamChangeEvent): void;
   enqueueStartupScan(teamNames: string[]): Promise<void>;
+  replayPendingReports(teamNames: string[]): Promise<MemberWorkSyncPendingReportReplaySummary>;
   getQueueDiagnostics(): MemberWorkSyncQueueDiagnostics;
   dispose(): Promise<void>;
 }
@@ -73,6 +76,7 @@ export function createMemberWorkSyncFeature(deps: {
   const diagnosticsReader = new MemberWorkSyncDiagnosticsReader(useCaseDeps);
   const reporter = new MemberWorkSyncReporter(useCaseDeps);
   const reconciler = new MemberWorkSyncReconciler(useCaseDeps);
+  const pendingReportReplayer = new MemberWorkSyncPendingReportIntentReplayer(useCaseDeps);
   const queue = new MemberWorkSyncEventQueue({
     reconcile: async (request, context: MemberWorkSyncReconcileContext) => {
       await reconciler.execute(request, context);
@@ -87,6 +91,24 @@ export function createMemberWorkSyncFeature(deps: {
     report: (request) => reporter.execute(request),
     noteTeamChange: (event) => router.noteTeamChange(event),
     enqueueStartupScan: (teamNames) => router.enqueueStartupScan(teamNames),
+    replayPendingReports: async (teamNames) => {
+      const summaries = await Promise.allSettled(
+        teamNames.map((teamName) => pendingReportReplayer.replayTeam(teamName))
+      );
+      return summaries.reduce<MemberWorkSyncPendingReportReplaySummary>(
+        (accumulator, summary) => {
+          if (summary.status !== 'fulfilled') {
+            return accumulator;
+          }
+          accumulator.processed += summary.value.processed;
+          accumulator.accepted += summary.value.accepted;
+          accumulator.rejected += summary.value.rejected;
+          accumulator.superseded += summary.value.superseded;
+          return accumulator;
+        },
+        { processed: 0, accepted: 0, rejected: 0, superseded: 0 }
+      );
+    },
     getQueueDiagnostics: () => queue.getDiagnostics(),
     dispose: () => queue.stop(),
   };

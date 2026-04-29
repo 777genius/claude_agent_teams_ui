@@ -11,14 +11,6 @@ import {
 } from './MemberWorkSyncReconciler';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
-const TERMINAL_REPORT_REJECTION_CODES = new Set([
-  'reserved_or_invalid_member',
-  'identity_mismatch',
-  'member_inactive',
-  'identity_untrusted',
-  'invalid_report_token',
-]);
-
 export class MemberWorkSyncReporter {
   private readonly reconciler: MemberWorkSyncReconciler;
 
@@ -29,9 +21,7 @@ export class MemberWorkSyncReporter {
   async execute(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult> {
     const source = await this.deps.agendaSource.loadAgenda(request);
     const agenda = finalizeMemberWorkSyncAgenda(this.deps, source);
-    const nowIso = (
-      request.reportedAt ? new Date(request.reportedAt) : this.deps.clock.now()
-    ).toISOString();
+    const nowIso = this.deps.clock.now().toISOString();
     const teamActive = this.deps.lifecycle
       ? await this.deps.lifecycle.isTeamActive(agenda.teamName)
       : true;
@@ -63,9 +53,6 @@ export class MemberWorkSyncReporter {
 
     if (!validation.ok) {
       const status = await this.reconciler.execute(request);
-      if (!TERMINAL_REPORT_REJECTION_CODES.has(validation.code)) {
-        await this.deps.reportStore?.appendPendingReport?.(request, validation.code);
-      }
       return {
         accepted: false,
         code: validation.code,

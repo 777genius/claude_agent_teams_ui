@@ -2329,6 +2329,74 @@ describe('agent-teams-controller API', () => {
     }
   });
 
+  it('records member work sync report intents only when the app validator is unavailable', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+
+    const pending = await controller.workSync.memberWorkSyncReport({
+      memberName: 'bob',
+      state: 'still_working',
+      agendaFingerprint: 'agenda:v1:abc',
+      reportToken: 'wrs:v1.test.token',
+      taskIds: ['task-1'],
+    });
+
+    expect(pending.pendingValidation).toBe(true);
+    expect(pending.accepted).toBe(false);
+
+    const intentFile = path.join(
+      claudeDir,
+      'teams',
+      'my-team',
+      '.member-work-sync',
+      'pending-reports.json'
+    );
+    const intents = JSON.parse(fs.readFileSync(intentFile, 'utf8'));
+    expect(Object.values(intents.intents)).toEqual([
+      expect.objectContaining({
+        teamName: 'my-team',
+        memberName: 'bob',
+        reason: 'control_api_unavailable',
+        status: 'pending',
+        request: expect.objectContaining({
+          memberName: 'bob',
+          source: 'mcp',
+          reportToken: 'wrs:v1.test.token',
+        }),
+      }),
+    ]);
+  });
+
+  it('does not record pending work sync intents for app-side validation rejections', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+
+    const server = await startControlServer(async () => ({
+      statusCode: 400,
+      body: { error: 'stale_fingerprint' },
+    }));
+
+    try {
+      await expect(
+        controller.workSync.memberWorkSyncReport({
+          controlUrl: server.baseUrl,
+          memberName: 'bob',
+          state: 'still_working',
+          agendaFingerprint: 'agenda:v1:stale',
+          reportToken: 'wrs:v1.test.token',
+        })
+      ).rejects.toThrow('stale_fingerprint');
+
+      expect(
+        fs.existsSync(
+          path.join(claudeDir, 'teams', 'my-team', '.member-work-sync', 'pending-reports.json')
+        )
+      ).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('prefers the published control endpoint over a stale env URL', async () => {
     const claudeDir = makeClaudeDir();
     const controller = createController({ teamName: 'my-team', claudeDir });
