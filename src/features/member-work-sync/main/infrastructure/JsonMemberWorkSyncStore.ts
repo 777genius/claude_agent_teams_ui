@@ -2,6 +2,7 @@ import { atomicWriteAsync } from '@main/utils/atomicWrite';
 import { createHash } from 'crypto';
 import { mkdir, readFile, rename } from 'fs/promises';
 
+import { withFileLock } from '@main/services/team/fileLock';
 import type {
   MemberWorkSyncReportIntent,
   MemberWorkSyncReportRequest,
@@ -106,34 +107,38 @@ export class JsonMemberWorkSyncStore
 
   async write(status: MemberWorkSyncStatus): Promise<void> {
     await this.enqueue(status.teamName, async () => {
-      const existing = await this.readFile(status.teamName);
-      existing.members[normalizeMemberKey(status.memberName)] = status;
-      await mkdir(this.paths.getTeamDir(status.teamName), { recursive: true });
-      await atomicWriteAsync(
-        this.paths.getStatusPath(status.teamName),
-        JSON.stringify(existing, null, 2)
-      );
+      await withFileLock(this.paths.getStatusPath(status.teamName), async () => {
+        const existing = await this.readFile(status.teamName);
+        existing.members[normalizeMemberKey(status.memberName)] = status;
+        await mkdir(this.paths.getTeamDir(status.teamName), { recursive: true });
+        await atomicWriteAsync(
+          this.paths.getStatusPath(status.teamName),
+          JSON.stringify(existing, null, 2)
+        );
+      });
     });
   }
 
   async appendPendingReport(request: MemberWorkSyncReportRequest, reason: string): Promise<void> {
     const id = buildPendingReportIntentId(request);
     await this.enqueue(request.teamName, async () => {
-      const existing = await this.readPendingFile(request.teamName);
-      const current = existing.intents[id];
-      if (current && current.status !== 'pending') {
-        return;
-      }
-      existing.intents[id] = {
-        id,
-        teamName: request.teamName,
-        memberName: request.memberName,
-        request,
-        reason: current?.reason ?? reason,
-        status: 'pending',
-        recordedAt: current?.recordedAt ?? new Date().toISOString(),
-      };
-      await this.writePendingFile(request.teamName, existing);
+      await withFileLock(this.paths.getPendingReportsPath(request.teamName), async () => {
+        const existing = await this.readPendingFile(request.teamName);
+        const current = existing.intents[id];
+        if (current && current.status !== 'pending') {
+          return;
+        }
+        existing.intents[id] = {
+          id,
+          teamName: request.teamName,
+          memberName: request.memberName,
+          request,
+          reason: current?.reason ?? reason,
+          status: 'pending',
+          recordedAt: current?.recordedAt ?? new Date().toISOString(),
+        };
+        await this.writePendingFile(request.teamName, existing);
+      });
     });
   }
 
@@ -154,18 +159,20 @@ export class JsonMemberWorkSyncStore
     }
   ): Promise<void> {
     await this.enqueue(teamName, async () => {
-      const existing = await this.readPendingFile(teamName);
-      const current = existing.intents[id];
-      if (!current || current.status !== 'pending') {
-        return;
-      }
-      existing.intents[id] = {
-        ...current,
-        status: result.status,
-        resultCode: result.resultCode,
-        processedAt: result.processedAt,
-      };
-      await this.writePendingFile(teamName, existing);
+      await withFileLock(this.paths.getPendingReportsPath(teamName), async () => {
+        const existing = await this.readPendingFile(teamName);
+        const current = existing.intents[id];
+        if (!current || current.status !== 'pending') {
+          return;
+        }
+        existing.intents[id] = {
+          ...current,
+          status: result.status,
+          resultCode: result.resultCode,
+          processedAt: result.processedAt,
+        };
+        await this.writePendingFile(teamName, existing);
+      });
     });
   }
 

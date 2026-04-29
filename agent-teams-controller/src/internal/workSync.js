@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const runtimeHelpers = require('./runtimeHelpers.js');
+const { withFileLockSync } = require('./fileLock.js');
 
 const DEFAULT_WAIT_TIMEOUT_MS = 10000;
 const MIN_WAIT_TIMEOUT_MS = 1000;
@@ -173,25 +174,28 @@ function writePendingReportFile(filePath, data) {
 
 function appendPendingReportIntent(context, body, reason) {
   const filePath = path.join(context.paths.teamDir, '.member-work-sync', 'pending-reports.json');
-  const data = readPendingReportFile(filePath);
-  const request = {
-    ...body,
-    source: 'mcp',
-  };
-  const id = buildPendingIntentId(request);
-  const current = data.intents[id];
-  if (!current || current.status === 'pending') {
-    data.intents[id] = {
-      id,
-      teamName: body.teamName,
-      memberName: body.memberName,
-      request,
-      reason,
-      status: 'pending',
-      recordedAt: current && current.recordedAt ? current.recordedAt : new Date().toISOString(),
+  const { id } = withFileLockSync(filePath, () => {
+    const data = readPendingReportFile(filePath);
+    const request = {
+      ...body,
+      source: 'mcp',
     };
-    writePendingReportFile(filePath, data);
-  }
+    const intentId = buildPendingIntentId(request);
+    const current = data.intents[intentId];
+    if (!current || current.status === 'pending') {
+      data.intents[intentId] = {
+        id: intentId,
+        teamName: body.teamName,
+        memberName: body.memberName,
+        request,
+        reason,
+        status: 'pending',
+        recordedAt: current && current.recordedAt ? current.recordedAt : new Date().toISOString(),
+      };
+      writePendingReportFile(filePath, data);
+    }
+    return { id: intentId };
+  });
   return {
     accepted: false,
     pendingValidation: true,
