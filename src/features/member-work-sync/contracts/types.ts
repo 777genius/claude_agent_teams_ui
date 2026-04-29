@@ -66,6 +66,14 @@ export interface MemberWorkSyncReport {
   rejectionCode?: string;
 }
 
+export interface MemberWorkSyncShadowDiagnostics {
+  reconciledBy: 'request' | 'queue' | 'report';
+  wouldNudge: boolean;
+  fingerprintChanged: boolean;
+  previousFingerprint?: string;
+  triggerReasons?: string[];
+}
+
 export interface MemberWorkSyncStatus {
   teamName: string;
   memberName: string;
@@ -74,6 +82,7 @@ export interface MemberWorkSyncStatus {
   report?: MemberWorkSyncReport;
   reportToken?: string;
   reportTokenExpiresAt?: string;
+  shadow?: MemberWorkSyncShadowDiagnostics;
   evaluatedAt: string;
   diagnostics: string[];
   providerId?: MemberWorkSyncProviderId;

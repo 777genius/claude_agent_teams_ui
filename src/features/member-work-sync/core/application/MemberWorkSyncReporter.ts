@@ -32,6 +32,18 @@ export class MemberWorkSyncReporter {
     const nowIso = (
       request.reportedAt ? new Date(request.reportedAt) : this.deps.clock.now()
     ).toISOString();
+    const teamActive = this.deps.lifecycle
+      ? await this.deps.lifecycle.isTeamActive(agenda.teamName)
+      : true;
+    if (!teamActive) {
+      const status = await this.reconciler.execute(request);
+      return {
+        accepted: false,
+        code: 'team_runtime_inactive',
+        message: 'Team runtime is not active. Restart the team before reporting work sync state.',
+        status,
+      };
+    }
     const tokenValidation = this.deps.reportToken
       ? await this.deps.reportToken.verify({
           token: request.reportToken,
@@ -86,6 +98,11 @@ export class MemberWorkSyncReporter {
             : ('still_working' as const),
       agenda,
       report,
+      shadow: {
+        reconciledBy: 'report',
+        wouldNudge: false,
+        fingerprintChanged: false,
+      },
       evaluatedAt: nowIso,
       diagnostics: [...agenda.diagnostics, 'report_accepted'],
       ...(source.providerId ? { providerId: source.providerId } : {}),

@@ -567,7 +567,7 @@ let codexAccountFeature: CodexAccountFeatureFacade | null = null;
 let codexModelCatalogFeature: CodexModelCatalogFeatureFacade | null = null;
 let recentProjectsFeature: RecentProjectsFeatureFacade;
 let runtimeProviderManagementFeature: RuntimeProviderManagementFeatureFacade;
-let memberWorkSyncFeature: MemberWorkSyncFeatureFacade;
+let memberWorkSyncFeature: MemberWorkSyncFeatureFacade | null = null;
 let teamDataService: TeamDataService;
 let teamProvisioningService: TeamProvisioningService;
 let cliInstallerService: CliInstallerService;
@@ -787,6 +787,7 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       if (typeof row.teamName !== 'string' || row.teamName.trim().length === 0) return;
       const teamName = row.teamName.trim();
       const detail = typeof row.detail === 'string' ? row.detail : '';
+      memberWorkSyncFeature?.noteTeamChange(row as TeamChangeEvent);
 
       if (
         teamDataService &&
@@ -1182,6 +1183,7 @@ async function initializeServices(): Promise<void> {
   const teamChangeEmitter = (event: TeamChangeEvent): void => {
     forwardTeamChange(event);
     teamTaskStallMonitor?.noteTeamChange(event);
+    memberWorkSyncFeature?.noteTeamChange(event);
     if (event.type === 'lead-activity' && event.detail === 'offline') {
       teammateToolTracker?.handleTeamOffline(event.teamName);
     }
@@ -1231,8 +1233,21 @@ async function initializeServices(): Promise<void> {
     taskReader: new TeamTaskReader(),
     kanbanManager: new TeamKanbanManager(),
     membersMetaStore: new TeamMembersMetaStore(),
+    isTeamActive: (teamName) =>
+      teamProvisioningService.isTeamAlive(teamName) ||
+      teamProvisioningService.hasProvisioningRun(teamName),
     logger: createLogger('Feature:MemberWorkSync'),
   });
+  void teamDataService
+    .listTeams()
+    .then((teams) =>
+      memberWorkSyncFeature?.enqueueStartupScan(
+        teams.filter((team) => !team.deletedAt).map((team) => team.teamName)
+      )
+    )
+    .catch((error: unknown) =>
+      logger.warn(`[Init] Member work sync startup scan failed: ${String(error)}`)
+    );
   codexAccountFeature = createCodexAccountFeature({
     logger: createLogger('Feature:CodexAccount'),
     configManager,
@@ -1354,7 +1369,7 @@ async function startHttpServer(
         chunkBuilder: activeContext.chunkBuilder,
         dataCache: activeContext.dataCache,
         recentProjectsFeature,
-        memberWorkSyncFeature,
+        memberWorkSyncFeature: memberWorkSyncFeature ?? undefined,
         updaterService,
         sshConnectionManager,
         teamDataService,
@@ -1477,6 +1492,8 @@ async function shutdownServices(): Promise<void> {
     codexModelCatalogFeature = null;
     await runShutdownStep('Codex account dispose', () => codexAccountFeature?.dispose());
     codexAccountFeature = null;
+    await runShutdownStep('member work sync dispose', () => memberWorkSyncFeature?.dispose());
+    memberWorkSyncFeature = null;
 
     if (ptyTerminalService) {
       await runShutdownStep('PTY terminals kill', () => ptyTerminalService.killAll());

@@ -60,6 +60,7 @@ function createDeps(options?: {
   items?: MemberWorkSyncActionableWorkItem[];
   activeMemberNames?: string[];
   inactive?: boolean;
+  teamActive?: boolean;
   providerId?: 'opencode' | 'codex';
 }) {
   const clock = new MutableClock();
@@ -97,6 +98,9 @@ function createDeps(options?: {
           ? { ok: true }
           : { ok: false, reason: input.token ? 'invalid' : 'missing' },
     },
+    lifecycle: {
+      isTeamActive: () => options?.teamActive ?? true,
+    },
   };
   return { clock, deps, source, store };
 }
@@ -112,6 +116,12 @@ describe('MemberWorkSync use cases', () => {
     expect(status.state).toBe('needs_sync');
     expect(status.agenda.items).toEqual([workItem]);
     expect(status.diagnostics).toContain('no_current_report');
+    expect(status.reportToken).toBe(`token:team-a:bob:${status.agenda.fingerprint}`);
+    expect(status.shadow).toMatchObject({
+      reconciledBy: 'request',
+      wouldNudge: true,
+      fingerprintChanged: false,
+    });
     expect(store.pendingReports).toEqual([]);
   });
 
@@ -134,6 +144,7 @@ describe('MemberWorkSync use cases', () => {
 
     expect(result.accepted).toBe(true);
     expect(result.status.state).toBe('still_working');
+    expect(result.status.shadow).toMatchObject({ reconciledBy: 'report', wouldNudge: false });
 
     clock.set('2026-04-29T00:01:59.000Z');
     expect((await reader.execute({ teamName: 'team-a', memberName: 'bob' })).state).toBe(
@@ -180,6 +191,41 @@ describe('MemberWorkSync use cases', () => {
 
     expect(result.accepted).toBe(true);
     expect(result.status.state).toBe('caught_up');
+  });
+
+  it('marks status inactive when the team runtime is not active', async () => {
+    const { deps } = createDeps({ teamActive: false });
+    const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+    });
+
+    expect(status.state).toBe('inactive');
+    expect(status.diagnostics).toContain('team_runtime_inactive');
+    expect(status.shadow?.wouldNudge).toBe(false);
+  });
+
+  it('records fingerprint transitions without treating them as progress proof', async () => {
+    const { deps, source } = createDeps();
+    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    await reader.execute({ teamName: 'team-a', memberName: 'bob' });
+
+    source.agenda.items = [
+      {
+        ...workItem,
+        taskId: 'task-2',
+        displayId: '22222222',
+        subject: 'New work',
+      },
+    ];
+    const changed = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
+
+    expect(changed.shadow).toMatchObject({
+      fingerprintChanged: true,
+      wouldNudge: true,
+    });
+    expect(changed.shadow?.previousFingerprint).toMatch(/^agenda:v1:/);
+    expect(changed.state).toBe('needs_sync');
   });
 
   it('rejects invalid report tokens without recording replayable intents', async () => {

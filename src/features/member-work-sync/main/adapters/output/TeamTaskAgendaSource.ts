@@ -1,5 +1,6 @@
 import {
   buildActionableWorkAgenda,
+  isReservedMemberName,
   normalizeMemberName,
   type MemberWorkSyncMemberLike,
 } from '../../../core/domain';
@@ -64,6 +65,20 @@ function toMemberLike(member: TeamMember): MemberWorkSyncMemberLike {
 
 export class TeamTaskAgendaSource implements MemberWorkSyncAgendaSourcePort {
   constructor(private readonly deps: TeamTaskAgendaSourceDeps) {}
+
+  async loadActiveMemberNames(teamName: string): Promise<string[]> {
+    const config = await this.deps.configReader.getConfig(teamName);
+    if (!config || config.deletedAt) {
+      return [];
+    }
+
+    const metaMembers = await this.deps.membersMetaStore.getMembers(teamName);
+    return mergeMembers(config.members ?? [], metaMembers)
+      .filter((member) => !member.removedAt)
+      .map((member) => normalizeMemberName(member.name))
+      .filter((memberName) => memberName.length > 0 && !isReservedMemberName(memberName))
+      .sort((left, right) => left.localeCompare(right));
+  }
 
   async loadAgenda(input: {
     teamName: string;

@@ -43,6 +43,10 @@ export interface MemberWorkSyncReportTokenPort {
   ): Promise<MemberWorkSyncReportTokenVerification>;
 }
 
+export interface MemberWorkSyncLifecyclePort {
+  isTeamActive(teamName: string): Promise<boolean> | boolean;
+}
+
 export interface MemberWorkSyncLoggerPort {
   debug(message: string, metadata?: Record<string, unknown>): void;
   warn(message: string, metadata?: Record<string, unknown>): void;
@@ -80,6 +84,7 @@ export interface MemberWorkSyncUseCaseDeps {
   statusStore: MemberWorkSyncStatusStorePort;
   reportStore?: MemberWorkSyncReportStorePort;
   reportToken?: MemberWorkSyncReportTokenPort;
+  lifecycle?: MemberWorkSyncLifecyclePort;
   logger?: MemberWorkSyncLoggerPort;
 }
 
