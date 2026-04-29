@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/u
 import { useMemberStats } from '@renderer/hooks/useMemberStats';
 import { useStore } from '@renderer/store';
 import { selectMemberMessagesForTeamMember } from '@renderer/store/slices/teamSlice';
+import { MemberWorkSyncStatusPanel } from '@features/member-work-sync/renderer';
 import {
   buildMemberLaunchDiagnosticsPayload,
   getMemberLaunchDiagnosticsErrorMessage,
@@ -291,7 +292,14 @@ export const MemberDetailDialog = ({
             </TabsTrigger>
           </TabsList>
           <TabsContent value="tasks">
-            <MemberTasksTab tasks={memberTasks} onTaskClick={onTaskClick} />
+            <div className="space-y-3">
+              <MemberWorkSyncStatusPanel
+                teamName={teamName}
+                memberName={member.name}
+                enabled={open && !member.removedAt}
+              />
+              <MemberTasksTab tasks={memberTasks} onTaskClick={onTaskClick} />
+            </div>
           </TabsContent>
           <TabsContent value="activity">
             <MemberMessagesTab

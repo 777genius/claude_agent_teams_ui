@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MemberWorkSyncBadge,
   MemberWorkSyncDetails,
+  MemberWorkSyncStatusPanel,
   useMemberWorkSyncStatus,
 } from '@features/member-work-sync/renderer';
 
@@ -109,5 +110,27 @@ describe('member work sync renderer', () => {
     expect(host.textContent).toContain('Shadow would nudge');
     expect(host.textContent).toContain('11111111');
     expect(host.textContent).not.toContain('developer_only');
+  });
+
+  it('renders the status panel through the read-only API hook', async () => {
+    apiMocks.getStatus.mockResolvedValue(makeStatus());
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberWorkSyncStatusPanel, {
+          teamName: 'team-a',
+          memberName: 'bob',
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Member work sync');
+    expect(host.textContent).toContain('Needs sync');
+    expect(host.textContent).toContain('Shadow would nudge');
+    expect(apiMocks.getStatus).toHaveBeenCalledWith({ teamName: 'team-a', memberName: 'bob' });
   });
 });
