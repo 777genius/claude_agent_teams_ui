@@ -64,4 +64,71 @@ describe('mergeJsonSettingsArgs', () => {
       '{"fastMode":false,"codex":{"forced_login_method":"chatgpt"}}',
     ]);
   });
+
+  it('preserves multiple hook entries for the same hook event', () => {
+    const merged = mergeJsonSettingsArgs([
+      '--settings',
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              matcher: '',
+              hooks: [{ type: 'command', command: '/bin/sh user-stop.sh' }],
+            },
+          ],
+        },
+      }),
+      '--settings',
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              matcher: '',
+              hooks: [{ type: 'command', command: '/bin/sh app-stop.sh' }],
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(JSON.parse(getSettingsValues(merged)[0] ?? '{}')).toEqual({
+      hooks: {
+        Stop: [
+          {
+            matcher: '',
+            hooks: [{ type: 'command', command: '/bin/sh user-stop.sh' }],
+          },
+          {
+            matcher: '',
+            hooks: [{ type: 'command', command: '/bin/sh app-stop.sh' }],
+          },
+        ],
+      },
+    });
+  });
+
+  it('dedupes identical hook entries while preserving unrelated array replacement semantics', () => {
+    const appHook = {
+      matcher: '',
+      hooks: [{ type: 'command', command: '/bin/sh app-stop.sh' }],
+    };
+
+    const merged = mergeJsonSettingsArgs([
+      '--settings',
+      JSON.stringify({
+        permissions: { allow: ['Read'] },
+        hooks: { Stop: [appHook] },
+      }),
+      '--settings',
+      JSON.stringify({
+        permissions: { allow: ['Bash'] },
+        hooks: { Stop: [appHook] },
+      }),
+    ]);
+
+    expect(JSON.parse(getSettingsValues(merged)[0] ?? '{}')).toEqual({
+      permissions: { allow: ['Bash'] },
+      hooks: { Stop: [appHook] },
+    });
+  });
 });

@@ -1,5 +1,7 @@
 type JsonObject = Record<string, unknown>;
 
+type JsonArray = unknown[];
+
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -13,10 +15,77 @@ function parseJsonSettingsObject(raw: string): JsonObject | null {
   }
 }
 
+function isHookEntry(value: unknown): value is JsonObject {
+  return isJsonObject(value) && Array.isArray(value.hooks);
+}
+
+function getHookEntryDedupeKey(value: unknown): string | null {
+  if (!isHookEntry(value)) {
+    return null;
+  }
+
+  const commands = value.hooks
+    .map((hook) => (isJsonObject(hook) && typeof hook.command === 'string' ? hook.command : null))
+    .filter((command): command is string => Boolean(command));
+  if (commands.length === 0) {
+    return null;
+  }
+
+  return JSON.stringify({
+    matcher: typeof value.matcher === 'string' ? value.matcher : '',
+    commands,
+  });
+}
+
+function mergeHookEntryArrays(target: JsonArray, source: JsonArray): JsonArray {
+  const merged = [...target];
+  const seen = new Set<string>();
+  for (const entry of merged) {
+    const key = getHookEntryDedupeKey(entry);
+    if (key) {
+      seen.add(key);
+    }
+  }
+
+  for (const entry of source) {
+    const key = getHookEntryDedupeKey(entry);
+    if (key && seen.has(key)) {
+      continue;
+    }
+    merged.push(entry);
+    if (key) {
+      seen.add(key);
+    }
+  }
+
+  return merged;
+}
+
+function mergeHooksObject(target: JsonObject, source: JsonObject): JsonObject {
+  const merged: JsonObject = { ...target };
+  for (const [hookName, sourceValue] of Object.entries(source)) {
+    const currentValue = merged[hookName];
+    if (Array.isArray(currentValue) && Array.isArray(sourceValue)) {
+      merged[hookName] = mergeHookEntryArrays(currentValue, sourceValue);
+      continue;
+    }
+    if (isJsonObject(currentValue) && isJsonObject(sourceValue)) {
+      merged[hookName] = deepMergeJsonObjects(currentValue, sourceValue);
+      continue;
+    }
+    merged[hookName] = sourceValue;
+  }
+  return merged;
+}
+
 function deepMergeJsonObjects(target: JsonObject, source: JsonObject): JsonObject {
   const merged: JsonObject = { ...target };
   for (const [key, value] of Object.entries(source)) {
     const current = merged[key];
+    if (key === 'hooks' && isJsonObject(current) && isJsonObject(value)) {
+      merged[key] = mergeHooksObject(current, value);
+      continue;
+    }
     if (isJsonObject(current) && isJsonObject(value)) {
       merged[key] = deepMergeJsonObjects(current, value);
       continue;
