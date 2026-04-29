@@ -86,4 +86,52 @@ describe('FileRuntimeTurnSettledEventStore', () => {
     };
     expect(meta).toMatchObject({ outcome: 'enqueued', teamName: 'team-a' });
   });
+
+  it('reclaims stale processing payloads before claiming pending events', async () => {
+    const paths = await makePaths();
+    await fs.mkdir(paths.getProcessingDir(), { recursive: true });
+    const filePath = path.join(paths.getProcessingDir(), '20260429-1.codex.json');
+    await fs.writeFile(filePath, '{"eventName":"runtime_turn_settled"}', 'utf8');
+    await fs.utimes(
+      filePath,
+      new Date('2026-04-29T11:00:00.000Z'),
+      new Date('2026-04-29T11:00:00.000Z')
+    );
+    const store = new FileRuntimeTurnSettledEventStore({
+      paths,
+      now: () => new Date('2026-04-29T12:00:00.000Z'),
+      processingStaleMs: 60_000,
+    });
+
+    const claimed = await store.claimPending(10);
+
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]).toMatchObject({
+      fileName: '20260429-1.codex.json',
+      provider: 'codex',
+      raw: '{"eventName":"runtime_turn_settled"}',
+    });
+  });
+
+  it('does not reclaim fresh processing payloads from an active drain', async () => {
+    const paths = await makePaths();
+    await fs.mkdir(paths.getProcessingDir(), { recursive: true });
+    const filePath = path.join(paths.getProcessingDir(), '20260429-1.codex.json');
+    await fs.writeFile(filePath, '{"eventName":"runtime_turn_settled"}', 'utf8');
+    await fs.utimes(
+      filePath,
+      new Date('2026-04-29T11:59:45.000Z'),
+      new Date('2026-04-29T11:59:45.000Z')
+    );
+    const store = new FileRuntimeTurnSettledEventStore({
+      paths,
+      now: () => new Date('2026-04-29T12:00:00.000Z'),
+      processingStaleMs: 60_000,
+    });
+
+    const claimed = await store.claimPending(10);
+
+    expect(claimed).toHaveLength(0);
+    await expect(fs.stat(filePath)).resolves.toMatchObject({ isFile: expect.any(Function) });
+  });
 });

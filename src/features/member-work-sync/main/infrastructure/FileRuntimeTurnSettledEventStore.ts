@@ -13,12 +13,14 @@ import type { RuntimeTurnSettledSpoolPaths } from './RuntimeTurnSettledSpoolPath
 const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;
 const DEFAULT_PROCESSED_RETENTION_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PROCESSED_RETENTION_COUNT = 1000;
+const DEFAULT_PROCESSING_STALE_MS = 5 * 60 * 1000;
 
 export interface FileRuntimeTurnSettledEventStoreDeps {
   paths: RuntimeTurnSettledSpoolPaths;
   maxPayloadBytes?: number;
   processedRetentionMs?: number;
   processedRetentionCount?: number;
+  processingStaleMs?: number;
   now?: () => Date;
 }
 
@@ -47,6 +49,7 @@ export class FileRuntimeTurnSettledEventStore implements RuntimeTurnSettledEvent
   private readonly maxPayloadBytes: number;
   private readonly processedRetentionMs: number;
   private readonly processedRetentionCount: number;
+  private readonly processingStaleMs: number;
   private readonly now: () => Date;
 
   constructor(private readonly deps: FileRuntimeTurnSettledEventStoreDeps) {
@@ -54,11 +57,13 @@ export class FileRuntimeTurnSettledEventStore implements RuntimeTurnSettledEvent
     this.processedRetentionMs = deps.processedRetentionMs ?? DEFAULT_PROCESSED_RETENTION_MS;
     this.processedRetentionCount =
       deps.processedRetentionCount ?? DEFAULT_PROCESSED_RETENTION_COUNT;
+    this.processingStaleMs = deps.processingStaleMs ?? DEFAULT_PROCESSING_STALE_MS;
     this.now = deps.now ?? (() => new Date());
   }
 
   async claimPending(limit: number): Promise<RuntimeTurnSettledClaimedPayload[]> {
     await this.ensureDirectories();
+    await this.recoverStaleProcessingPayloads();
 
     const entries = await readdir(this.deps.paths.getIncomingDir(), { withFileTypes: true }).catch(
       () => []
@@ -149,6 +154,35 @@ export class FileRuntimeTurnSettledEventStore implements RuntimeTurnSettledEvent
     ]);
   }
 
+  private async recoverStaleProcessingPayloads(): Promise<void> {
+    const cutoff = this.now().getTime() - this.processingStaleMs;
+    const entries = await readdir(this.deps.paths.getProcessingDir(), {
+      withFileTypes: true,
+    }).catch(() => []);
+
+    await Promise.allSettled(
+      entries
+        .filter(
+          (entry) =>
+            entry.isFile() &&
+            !entry.name.startsWith('.') &&
+            !entry.name.endsWith('.meta.json')
+        )
+        .map(async (entry) => {
+          const processingPath = path.join(this.deps.paths.getProcessingDir(), entry.name);
+          const fileStat = await stat(processingPath).catch(() => null);
+          if (!fileStat?.isFile() || fileStat.mtimeMs > cutoff) {
+            return;
+          }
+
+          await moveFileBestEffort(
+            processingPath,
+            path.join(this.deps.paths.getIncomingDir(), entry.name)
+          );
+        })
+    );
+  }
+
   private async quarantineIncoming(
     incomingPath: string,
     fileName: string,
@@ -185,7 +219,10 @@ export class FileRuntimeTurnSettledEventStore implements RuntimeTurnSettledEvent
     );
 
     await Promise.allSettled(
-      toRemove.flatMap((file) => [rm(file.filePath, { force: true }), rm(buildMetaFilePath(file.filePath), { force: true })])
+      toRemove.flatMap((file) => [
+        rm(file.filePath, { force: true }),
+        rm(buildMetaFilePath(file.filePath), { force: true }),
+      ])
     );
   }
 }
