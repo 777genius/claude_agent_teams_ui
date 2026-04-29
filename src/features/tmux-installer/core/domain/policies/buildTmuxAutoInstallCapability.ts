@@ -67,7 +67,7 @@ function buildManualHints(platform: TmuxPlatform): TmuxInstallHint[] {
       },
       {
         title: 'Install Ubuntu',
-        description: 'Recommended WSL distro for the tmux runtime path.',
+        description: 'Recommended WSL distro for optional tmux pane transport.',
         command: 'wsl --install -d Ubuntu --no-launch',
       },
       {

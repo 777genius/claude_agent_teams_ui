@@ -20,7 +20,7 @@ const baseStatus: TmuxStatus = {
     version: null,
     binaryPath: null,
     runtimeReady: false,
-    detail: 'tmux improves persistent teammate reliability.',
+    detail: 'tmux is optional. Install it only if you want pane transport.',
   },
   error: null,
   autoInstall: {
@@ -72,9 +72,9 @@ describe('TmuxInstallerBannerAdapter', () => {
     expect(result.progressPercent).toBeNull();
     expect(result.manualHints).toHaveLength(1);
     expect(result.manualHintsCollapsible).toBe(false);
-    expect(result.body).toContain('persistent teammate reliability');
-    expect(result.benefitsBody).toContain('Optional, but recommended');
-    expect(result.benefitsBody).toContain('multi-agent teams that mix providers');
+    expect(result.body).toContain('tmux is optional');
+    expect(result.benefitsBody).toContain('Optional');
+    expect(result.benefitsBody).toContain('pane-based terminal transport');
     expect(result.installButtonPrimary).toBe(true);
     expect(result.showRefreshButton).toBe(true);
   });
@@ -102,7 +102,7 @@ describe('TmuxInstallerBannerAdapter', () => {
 
     expect(result.title).toBe('Installing tmux');
     expect(result.body).toBe('Renderer bridge failed');
-    expect(result.benefitsBody).toContain('Optional, but recommended');
+    expect(result.benefitsBody).toContain('Optional');
     expect(result.error).toBe('Renderer bridge failed');
     expect(result.installDisabled).toBe(true);
     expect(result.canCancel).toBe(true);
@@ -171,7 +171,7 @@ describe('TmuxInstallerBannerAdapter', () => {
     expect(result.primaryGuideUrl).toBe('https://learn.microsoft.com/en-us/windows/wsl/install');
     expect(result.progressPercent).toBe(82);
     expect(result.manualHintsCollapsible).toBe(true);
-    expect(result.benefitsBody).toContain('With tmux in WSL');
+    expect(result.benefitsBody).toContain('WSL-backed tmux');
     expect(result.showRefreshButton).toBe(true);
   });
 
@@ -188,7 +188,7 @@ describe('TmuxInstallerBannerAdapter', () => {
           version: 'tmux 3.4',
           binaryPath: 'C:\\tmux.exe',
           runtimeReady: false,
-          detail: 'tmux was found on Windows, but WSL-backed tmux is still preferred.',
+          detail: 'tmux was found on Windows. Native process teammates do not require it.',
         },
       },
       snapshot: idleSnapshot,
@@ -199,7 +199,7 @@ describe('TmuxInstallerBannerAdapter', () => {
 
     expect(result.visible).toBe(false);
     expect(result.locationLabel).toBe('Host runtime');
-    expect(result.runtimeReadyLabel).toBe('Installed, but not active yet');
+    expect(result.runtimeReadyLabel).toBe('Installed, optional transport inactive');
     expect(result.versionLabel).toBe('tmux 3.4');
     expect(result.benefitsBody).toBeNull();
   });
@@ -216,7 +216,7 @@ describe('TmuxInstallerBannerAdapter', () => {
           version: 'tmux 3.6a',
           binaryPath: '/opt/homebrew/bin/tmux',
           runtimeReady: true,
-          detail: 'tmux is available for persistent teammates.',
+          detail: 'tmux is available as an optional pane transport.',
         },
       },
       snapshot: {

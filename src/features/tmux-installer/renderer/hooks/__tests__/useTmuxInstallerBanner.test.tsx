@@ -25,7 +25,7 @@ const baseStatus: TmuxStatus = {
     version: null,
     binaryPath: null,
     runtimeReady: false,
-    detail: 'tmux improves persistent teammate reliability.',
+    detail: 'tmux is optional. Install it only if you want pane transport.',
   },
   error: null,
   autoInstall: {

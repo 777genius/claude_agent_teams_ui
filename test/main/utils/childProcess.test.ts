@@ -64,6 +64,41 @@ function createGeneratedBunLauncher(): { dir: string; launcher: string; target: 
   return { dir, launcher, target };
 }
 
+function createExtensionlessNpmNodeLauncher(): {
+  dir: string;
+  launcher: string;
+  target: string;
+} {
+  const dir = mkdtempSync(path.join(tmpdir(), 'cat-cli-npm-launcher-'));
+  const targetDir = path.join(dir, 'node_modules', 'opencode-ai', 'bin');
+  mkdirSync(targetDir, { recursive: true });
+  const target = path.join(targetDir, 'opencode');
+  writeFileSync(target, 'console.log("ok")', 'utf8');
+  const launcher = path.join(dir, 'opencode.cmd');
+  writeFileSync(
+    launcher,
+    [
+      '@ECHO off',
+      'GOTO start',
+      ':find_dp0',
+      'SET dp0=%~dp0',
+      'EXIT /b',
+      ':start',
+      'SETLOCAL',
+      'CALL :find_dp0',
+      'IF EXIST "%dp0%\\node.exe" (',
+      '  SET "_prog=%dp0%\\node.exe"',
+      ') ELSE (',
+      '  SET "_prog=node"',
+      ')',
+      'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\opencode-ai\\bin\\opencode" %*',
+      '',
+    ].join('\r\n'),
+    'utf8'
+  );
+  return { dir, launcher, target };
+}
+
 describe('cli child process helpers', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -144,6 +179,24 @@ describe('cli child process helpers', () => {
         const result = spawnCli(launcher, ['--model', 'test%PATH%"arg']);
         expect(spawnMock).toHaveBeenCalledTimes(1);
         expect(spawnMock.mock.calls[0][0]).toBe('bun');
+        expect(spawnMock.mock.calls[0][1]).toEqual([target, '--model', 'test%PATH%"arg']);
+        expect(spawnMock.mock.calls[0][2]).not.toHaveProperty('shell');
+        expect(result).toBe(fake);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('runs extensionless npm node cmd launchers directly', () => {
+      setPlatform('win32');
+      const fake = {} as any;
+      const spawnMock = child.spawn as unknown as Mock;
+      spawnMock.mockReturnValue(fake);
+      const { dir, launcher, target } = createExtensionlessNpmNodeLauncher();
+      try {
+        const result = spawnCli(launcher, ['--model', 'test%PATH%"arg']);
+        expect(spawnMock).toHaveBeenCalledTimes(1);
+        expect(spawnMock.mock.calls[0][0]).toBe('node');
         expect(spawnMock.mock.calls[0][1]).toEqual([target, '--model', 'test%PATH%"arg']);
         expect(spawnMock.mock.calls[0][2]).not.toHaveProperty('shell');
         expect(result).toBe(fake);
@@ -273,6 +326,29 @@ describe('cli child process helpers', () => {
         const result = await execCli(launcher, ['--model', 'test%PATH%"arg']);
         expect(execFileMock).toHaveBeenCalledTimes(1);
         expect(execFileMock.mock.calls[0][0]).toBe('bun');
+        expect(execFileMock.mock.calls[0][1]).toEqual([target, '--model', 'test%PATH%"arg']);
+        expect(execMock).not.toHaveBeenCalled();
+        expect(result.stdout).toBe('ok');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('executes extensionless npm node cmd launchers directly', async () => {
+      setPlatform('win32');
+      const execFileMock = child.execFile as unknown as Mock;
+      const execMock = child.exec as unknown as Mock;
+      execFileMock.mockImplementation(
+        (_cmd: string, _args: string[], _opts: unknown, cb: ExecCallback) => {
+          cb(null, 'ok', '');
+          return {} as any;
+        }
+      );
+      const { dir, launcher, target } = createExtensionlessNpmNodeLauncher();
+      try {
+        const result = await execCli(launcher, ['--model', 'test%PATH%"arg']);
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+        expect(execFileMock.mock.calls[0][0]).toBe('node');
         expect(execFileMock.mock.calls[0][1]).toEqual([target, '--model', 'test%PATH%"arg']);
         expect(execMock).not.toHaveBeenCalled();
         expect(result.stdout).toBe('ok');

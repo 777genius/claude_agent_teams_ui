@@ -171,22 +171,22 @@ export class TmuxInstallStrategyResolver {
     if (input.effective.available) {
       return input.effective.location === 'wsl'
         ? 'tmux is available inside WSL on Windows.'
-        : 'tmux is available for persistent teammate runtime.';
+        : 'tmux is available as an optional pane transport for teammate sessions.';
     }
 
     if (input.platform === 'darwin') {
-      return 'You can keep using the app, but tmux improves persistent teammate reliability and restart behavior.';
+      return 'You can keep using the app without tmux. Install tmux only if you want optional pane transport.';
     }
     if (input.platform === 'linux') {
-      return 'You can keep using the app, but tmux improves long-running teammate stability and cleaner recovery.';
+      return 'You can keep using the app without tmux. Install tmux only if you want optional pane transport.';
     }
     if (input.platform === 'win32') {
       return (
         input.wsl?.statusDetail ??
-        'You can keep using the app, but tmux on Windows goes through WSL for the best teammate experience.'
+        'You can keep using the app without tmux. On Windows, tmux setup uses WSL and is only needed for optional pane transport.'
       );
     }
-    return 'You can keep using the app, but tmux improves persistent teammate reliability.';
+    return 'You can keep using the app without tmux. Install tmux only if you want optional pane transport.';
   }
 
   #buildCommand(
@@ -329,7 +329,7 @@ export class TmuxInstallStrategyResolver {
     if (status.wslInstalled && !status.distroName) {
       this.#prependUniqueHint(manualHints, {
         title: 'Install Ubuntu',
-        description: 'Recommended WSL distro for the tmux runtime path.',
+        description: 'Recommended WSL distro for optional tmux pane transport.',
         command: 'wsl --install -d Ubuntu --no-launch',
       });
     }

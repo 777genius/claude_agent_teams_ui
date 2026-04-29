@@ -1,4 +1,8 @@
-import { getMcpConfigsBasePath, getMcpServerBasePath } from '@main/utils/pathDecoder';
+import {
+  getClaudeBasePath,
+  getMcpConfigsBasePath,
+  getMcpServerBasePath,
+} from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
 import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
@@ -13,6 +17,7 @@ export interface McpLaunchSpec {
 }
 
 const MCP_SERVER_NAME = 'agent-teams';
+const MCP_CLAUDE_DIR_ENV = 'AGENT_TEAMS_MCP_CLAUDE_DIR';
 const logger = createLogger('Service:TeamMcpConfigBuilder');
 const MCP_CONFIG_PREFIX = 'agent-teams-mcp-';
 const MCP_CONFIG_REMOVE_RETRY_DELAYS_MS = [25, 75, 150] as const;
@@ -273,6 +278,9 @@ export class TeamMcpConfigBuilder {
       [MCP_SERVER_NAME]: {
         command: launchSpec.command,
         args: launchSpec.args,
+        env: {
+          [MCP_CLAUDE_DIR_ENV]: getClaudeBasePath(),
+        },
       },
     };
 
