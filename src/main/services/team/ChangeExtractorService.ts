@@ -9,11 +9,12 @@ import {
 } from '@shared/utils/taskChangeState';
 import { createHash } from 'crypto';
 import { existsSync } from 'fs';
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
+import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 
 import { JsonTaskChangeSummaryCacheRepository } from './cache/JsonTaskChangeSummaryCacheRepository';
+import { OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION } from './opencode/bridge/OpenCodeBridgeCommandContract';
 import {
   getOpenCodeLaneScopedRuntimeFilePath,
   getOpenCodeTeamRuntimeDirectory,
@@ -46,7 +47,7 @@ import type { AgentChangeSet, ChangeStats, TaskChangeSetV2 } from '@shared/types
 
 const logger = createLogger('Service:ChangeExtractorService');
 const OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE = 'strict-delivery' as const;
-const OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE = 'chain-only' as const;
+const OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE = 'opencode-session-snapshot-v1' as const;
 const OPEN_CODE_MAX_DISCOVERED_LANES = 500;
 
 /** Кеш-запись: данные + mtime файла + время протухания */
@@ -71,9 +72,20 @@ interface OpenCodeBackfillCacheEntry {
   expiresAt: number;
 }
 
+interface OpenCodeBackfillAttempt {
+  attempted: boolean;
+  backfilled: boolean;
+}
+
 interface OpenCodeDeliveryContextTempFile {
   filePath: string | null;
+  hash: string | null;
   cleanup: () => Promise<void>;
+}
+
+interface OpenCodeDeliveryContextPayload {
+  rawContext: string;
+  hash: string;
 }
 
 export class ChangeExtractorService {
@@ -82,7 +94,7 @@ export class ChangeExtractorService {
   private taskChangeSummaryInFlight = new Map<string, Promise<TaskChangeSetV2>>();
   private taskChangeSummaryVersionByTask = new Map<string, number>();
   private taskChangeSummaryValidationInFlight = new Set<string>();
-  private openCodeBackfillInFlight = new Map<string, Promise<boolean>>();
+  private openCodeBackfillInFlight = new Map<string, Promise<OpenCodeBackfillAttempt>>();
   private openCodeBackfillCache = new Map<string, OpenCodeBackfillCacheEntry>();
   private openCodeTeamEligibilityCache = new Map<string, { value: boolean; expiresAt: number }>();
   private readonly cacheTtl = 30 * 1000; // 30 сек — shorter TTL to reduce stale data risk
@@ -210,7 +222,8 @@ export class ChangeExtractorService {
       return ledgerResult;
     }
 
-    if (await this.tryBackfillOpenCodeLedger(resolvedInput)) {
+    const openCodeBackfill = await this.tryBackfillOpenCodeLedger(resolvedInput);
+    if (openCodeBackfill.backfilled || openCodeBackfill.attempted) {
       const backfilledLedgerResult = await this.readLedgerTaskChanges(resolvedInput);
       if (backfilledLedgerResult) {
         await this.recordTaskChangePresence(
@@ -379,15 +392,17 @@ export class ChangeExtractorService {
     }
   }
 
-  private async tryBackfillOpenCodeLedger(input: ResolvedTaskChangeComputeInput): Promise<boolean> {
+  private async tryBackfillOpenCodeLedger(
+    input: ResolvedTaskChangeComputeInput
+  ): Promise<OpenCodeBackfillAttempt> {
     if (!this.openCodeLedgerBackfillPort) {
-      return false;
+      return { attempted: false, backfilled: false };
     }
     if (!(await this.isOpenCodeTeamCandidate(input.teamName))) {
-      return false;
+      return { attempted: false, backfilled: false };
     }
     if (typeof this.logsFinder.getLogSourceWatchContext !== 'function') {
-      return false;
+      return { attempted: false, backfilled: false };
     }
 
     const context = await this.logsFinder
@@ -401,7 +416,7 @@ export class ChangeExtractorService {
       !path.isAbsolute(projectDir) ||
       !path.isAbsolute(workspaceRoot)
     ) {
-      return false;
+      return { attempted: false, backfilled: false };
     }
 
     const sourceGeneration = this.teamLogSourceTracker
@@ -414,8 +429,16 @@ export class ChangeExtractorService {
       input.teamName,
       input.taskId
     );
-    const deliveryContextFingerprint =
-      this.hashOpenCodeDeliveryContextRecords(deliveryContextRecords);
+    const deliveryContextPayload = this.buildOpenCodeDeliveryContextPayload(
+      input.teamName,
+      input.taskId,
+      deliveryContextRecords
+    );
+    const backfillMemberName = this.resolveOpenCodeBackfillMemberName(
+      input.effectiveOptions.owner,
+      deliveryContextRecords
+    );
+    const deliveryContextFingerprint = deliveryContextPayload.hash;
 
     const cacheKey = this.buildOpenCodeBackfillCacheKey({
       teamName: input.teamName,
@@ -426,12 +449,12 @@ export class ChangeExtractorService {
       sourceGeneration,
       deliveryContextFingerprint,
       attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
-      evidenceMode: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE,
+      evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
     });
     const now = Date.now();
     const cached = this.openCodeBackfillCache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
-      return cached.backfilledAt > 0;
+      return { attempted: false, backfilled: cached.backfilledAt > 0 };
     }
     this.openCodeBackfillCache.delete(cacheKey);
 
@@ -446,15 +469,16 @@ export class ChangeExtractorService {
         teamName: input.teamName,
         taskId: input.taskId,
         displayId: input.taskMeta?.displayId ?? null,
-        memberName: input.effectiveOptions.owner ?? null,
+        memberName: backfillMemberName ?? input.effectiveOptions.owner ?? null,
         projectDir,
         workspaceRoot,
         sourceGeneration,
         deliveryRecordCount: 0,
         deliveryContextFingerprint,
         attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
+        evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
       }).catch(() => undefined);
-      return false;
+      return { attempted: false, backfilled: false };
     }
 
     const existing = this.openCodeBackfillInFlight.get(cacheKey);
@@ -468,7 +492,9 @@ export class ChangeExtractorService {
       workspaceRoot,
       cacheKey,
       deliveryContextRecords,
-      sourceGeneration
+      deliveryContextPayload,
+      sourceGeneration,
+      backfillMemberName
     ).finally(() => {
       this.openCodeBackfillInFlight.delete(cacheKey);
     });
@@ -484,12 +510,15 @@ export class ChangeExtractorService {
     deliveryContextRecords: Awaited<
       ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>
     >,
-    sourceGeneration: string | null
-  ): Promise<boolean> {
+    deliveryContextPayload: OpenCodeDeliveryContextPayload,
+    sourceGeneration: string | null,
+    backfillMemberName?: string
+  ): Promise<OpenCodeBackfillAttempt> {
     const deliveryContext = await this.createOpenCodeDeliveryContextTempFile(
       input.teamName,
       input.taskId,
-      deliveryContextRecords
+      deliveryContextRecords,
+      deliveryContextPayload
     );
     try {
       const result = await this.openCodeLedgerBackfillPort!.backfillOpenCodeTaskLedger({
@@ -497,26 +526,48 @@ export class ChangeExtractorService {
         teamName: input.teamName,
         taskId: input.taskId,
         taskDisplayId: input.taskMeta?.displayId,
-        memberName: input.effectiveOptions.owner,
         projectDir,
         workspaceRoot,
         attributionMode: OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
-        evidenceMode: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE,
-        ...(deliveryContext.filePath ? { deliveryContextPath: deliveryContext.filePath } : {}),
+        ...(backfillMemberName ? { memberName: backfillMemberName } : {}),
+        ...(deliveryContext.filePath
+          ? {
+              deliveryContextPath: deliveryContext.filePath,
+              deliveryContextHash: deliveryContext.hash ?? undefined,
+            }
+          : {}),
       });
+      const evidenceContractVersion =
+        typeof result.opencodeTaskLedgerEvidenceContractVersion === 'number' &&
+        Number.isInteger(result.opencodeTaskLedgerEvidenceContractVersion)
+          ? result.opencodeTaskLedgerEvidenceContractVersion
+          : 0;
+      const hasExpectedEvidenceContract =
+        evidenceContractVersion >= OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION;
+      const diagnostics = hasExpectedEvidenceContract
+        ? (result.diagnostics ?? [])
+        : [
+            `OpenCode task ledger evidence contract is unsupported or missing: ${evidenceContractVersion}.`,
+            ...(result.diagnostics ?? []),
+          ];
       void appendOpenCodeTaskChangeDiag({
         event: 'backfill_result',
-        reason: this.classifyOpenCodeBackfillResult(result),
+        reason:
+          !hasExpectedEvidenceContract && result.importedEvents <= 0
+            ? 'unsupported-evidence-contract'
+            : this.classifyOpenCodeBackfillResult(result),
         teamName: input.teamName,
         taskId: input.taskId,
         displayId: input.taskMeta?.displayId ?? null,
-        memberName: input.effectiveOptions.owner ?? null,
+        memberName: backfillMemberName ?? input.effectiveOptions.owner ?? null,
         projectDir,
         workspaceRoot,
         sourceGeneration,
         deliveryRecordCount: deliveryContextRecords.length,
-        deliveryContextFingerprint: this.hashOpenCodeDeliveryContextRecords(deliveryContextRecords),
+        deliveryContextFingerprint: deliveryContextPayload.hash,
+        evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
         result: {
+          opencodeTaskLedgerEvidenceContractVersion: evidenceContractVersion,
           attributionMode: result.attributionMode ?? OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE,
           outcome: result.outcome,
           dryRun: result.dryRun,
@@ -526,13 +577,14 @@ export class ChangeExtractorService {
           importedEvents: result.importedEvents,
           skippedEvents: result.skippedEvents,
         },
-        diagnostics: (result.diagnostics ?? []).slice(0, 25),
+        diagnostics: diagnostics.slice(0, 25),
         notices: (result.notices ?? []).slice(0, 25),
       }).catch(() => undefined);
       const backfilled =
         result.importedEvents > 0 ||
-        result.outcome === 'imported' ||
-        (result.outcome === 'duplicates-only' && result.candidateEvents > 0);
+        (hasExpectedEvidenceContract &&
+          (result.outcome === 'imported' ||
+            (result.outcome === 'duplicates-only' && result.candidateEvents > 0)));
 
       if (result.importedEvents > 0) {
         await this.invalidateTaskChangeSummaries(input.teamName, [input.taskId], {
@@ -540,7 +592,7 @@ export class ChangeExtractorService {
         });
       }
 
-      if (backfilled || deliveryContextRecords.length === 0) {
+      if ((hasExpectedEvidenceContract && backfilled) || deliveryContextRecords.length === 0) {
         this.openCodeBackfillCache.set(cacheKey, {
           backfilledAt: backfilled ? Date.now() : 0,
           expiresAt: Date.now() + this.openCodeBackfillCacheTtl,
@@ -549,12 +601,12 @@ export class ChangeExtractorService {
         this.openCodeBackfillCache.delete(cacheKey);
       }
 
-      if (result.diagnostics.length > 0 && result.outcome !== 'no-history') {
+      if (diagnostics.length > 0 && result.outcome !== 'no-history') {
         logger.debug(
-          `OpenCode ledger backfill for ${input.teamName}/${input.taskId}: ${result.outcome}; ${result.diagnostics.join('; ')}`
+          `OpenCode ledger backfill for ${input.teamName}/${input.taskId}: ${result.outcome}; ${diagnostics.join('; ')}`
         );
       }
-      return backfilled;
+      return { attempted: true, backfilled };
     } catch (error) {
       logger.warn(
         `OpenCode ledger backfill failed for ${input.teamName}/${input.taskId}: ${error instanceof Error ? error.message : String(error)}`
@@ -565,11 +617,12 @@ export class ChangeExtractorService {
         teamName: input.teamName,
         taskId: input.taskId,
         displayId: input.taskMeta?.displayId ?? null,
-        memberName: input.effectiveOptions.owner ?? null,
+        memberName: backfillMemberName ?? input.effectiveOptions.owner ?? null,
         projectDir,
         workspaceRoot,
         deliveryRecordCount: deliveryContextRecords.length,
-        deliveryContextFingerprint: this.hashOpenCodeDeliveryContextRecords(deliveryContextRecords),
+        deliveryContextFingerprint: deliveryContextPayload.hash,
+        evidencePipeline: OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE,
         error: error instanceof Error ? error.message : String(error),
       }).catch(() => undefined);
       if (deliveryContextRecords.length === 0) {
@@ -580,7 +633,7 @@ export class ChangeExtractorService {
       } else {
         this.openCodeBackfillCache.delete(cacheKey);
       }
-      return false;
+      return { attempted: true, backfilled: false };
     } finally {
       await deliveryContext.cleanup();
     }
@@ -647,33 +700,44 @@ export class ChangeExtractorService {
   private async createOpenCodeDeliveryContextTempFile(
     teamName: string,
     taskId: string,
-    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
+    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>,
+    payload = this.buildOpenCodeDeliveryContextPayload(teamName, taskId, records)
   ): Promise<OpenCodeDeliveryContextTempFile> {
     if (records.length === 0) {
-      return { filePath: null, cleanup: async () => undefined };
+      return { filePath: null, hash: null, cleanup: async () => undefined };
     }
 
     const dir = await mkdtemp(path.join(os.tmpdir(), 'claude-team-opencode-ledger-context-'));
+    await chmod(dir, 0o700).catch(() => undefined);
     const filePath = path.join(dir, 'delivery-context.json');
-    await writeFile(
-      filePath,
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          teamName,
-          taskId,
-          records,
-        },
-        null,
-        2
-      )}\n`,
-      { encoding: 'utf8', mode: 0o600 }
-    );
+    await writeFile(filePath, payload.rawContext, { encoding: 'utf8', mode: 0o600 });
     return {
       filePath,
+      hash: payload.hash,
       cleanup: async () => {
         await rm(dir, { recursive: true, force: true }).catch(() => undefined);
       },
+    };
+  }
+
+  private buildOpenCodeDeliveryContextPayload(
+    teamName: string,
+    taskId: string,
+    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
+  ): OpenCodeDeliveryContextPayload {
+    const rawContext = `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        teamName,
+        taskId,
+        records,
+      },
+      null,
+      2
+    )}\n`;
+    return {
+      hash: createHash('sha256').update(rawContext).digest('hex'),
+      rawContext,
     };
   }
 
@@ -748,6 +812,18 @@ export class ChangeExtractorService {
     return records.slice(-200);
   }
 
+  private resolveOpenCodeBackfillMemberName(
+    owner: string | undefined,
+    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
+  ): string | undefined {
+    const members = [...new Set(records.map((record) => record.memberName.trim()).filter(Boolean))];
+    const normalizedOwner = owner?.trim();
+    if (normalizedOwner && members.includes(normalizedOwner)) {
+      return normalizedOwner;
+    }
+    return members.length === 1 ? members[0] : undefined;
+  }
+
   private async readOpenCodeRuntimeLaneIdsFromDisk(
     teamsBasePath: string,
     teamName: string
@@ -768,50 +844,6 @@ export class ChangeExtractorService {
       if (laneIds.length >= OPEN_CODE_MAX_DISCOVERED_LANES) break;
     }
     return laneIds.sort((left, right) => left.localeCompare(right));
-  }
-
-  private hashOpenCodeDeliveryContextRecords(
-    records: Awaited<ReturnType<ChangeExtractorService['readOpenCodeDeliveryContextRecords']>>
-  ): string {
-    const stableRecords = records
-      .map((record) => ({
-        memberName: record.memberName,
-        laneId: record.laneId ?? '',
-        runtimeSessionId: record.runtimeSessionId ?? '',
-        inboxMessageId: record.inboxMessageId ?? '',
-        deliveredUserMessageId: record.deliveredUserMessageId ?? '',
-        taskRefs: record.taskRefs
-          .map((taskRef) => ({
-            taskId: taskRef.taskId,
-            displayId: taskRef.displayId,
-            teamName: taskRef.teamName,
-          }))
-          .sort((left, right) =>
-            `${left.teamName}\0${left.taskId}\0${left.displayId}`.localeCompare(
-              `${right.teamName}\0${right.taskId}\0${right.displayId}`
-            )
-          ),
-      }))
-      .sort((left, right) =>
-        [
-          left.laneId,
-          left.memberName,
-          left.runtimeSessionId,
-          left.inboxMessageId,
-          left.deliveredUserMessageId,
-        ]
-          .join('\0')
-          .localeCompare(
-            [
-              right.laneId,
-              right.memberName,
-              right.runtimeSessionId,
-              right.inboxMessageId,
-              right.deliveredUserMessageId,
-            ].join('\0')
-          )
-      );
-    return createHash('sha256').update(JSON.stringify(stableRecords)).digest('hex');
   }
 
   private async readOpenCodePromptDeliveryLedgerRecords(
@@ -841,7 +873,7 @@ export class ChangeExtractorService {
     sourceGeneration?: string | null;
     deliveryContextFingerprint: string;
     attributionMode: typeof OPEN_CODE_AUTO_BACKFILL_ATTRIBUTION_MODE;
-    evidenceMode: typeof OPEN_CODE_AUTO_BACKFILL_EVIDENCE_MODE;
+    evidencePipeline: typeof OPEN_CODE_AUTO_BACKFILL_EVIDENCE_PIPELINE;
   }): string {
     return JSON.stringify({
       teamName: input.teamName,
@@ -852,7 +884,7 @@ export class ChangeExtractorService {
       sourceGeneration: input.sourceGeneration ?? '',
       deliveryContextFingerprint: input.deliveryContextFingerprint,
       attributionMode: input.attributionMode,
-      evidenceMode: input.evidenceMode,
+      evidencePipeline: input.evidencePipeline,
     });
   }
 

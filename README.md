@@ -308,7 +308,6 @@ pnpm dist            # macOS + Windows + Linux
 
 - [ ] Planning mode to organize agent plans before execution
 - [ ] Visual workflow editor ([@xyflow/react](https://github.com/xyflow/xyflow)) for building and orchestrating agent pipelines with drag & drop
-- [ ] Support more models/providers (including local) e.g OpenCode (with many providers)
 - [ ] Remote agent execution via SSH: launch and manage agent teams on remote machines over SSH (stream-json protocol over SSH channel, SFTP-based file monitoring for tasks/inboxes/config)
 - [ ] CLI runtime: Run not only on a local PC but in any headless/console environment (web UI), e.g. VPS, remote server, etc.
 - [ ] 2 modes: current (agent teams), and a new mode: regular subagents (no communication between them)
@@ -322,6 +321,7 @@ pnpm dist            # macOS + Windows + Linux
 - [ ] Monitor agents processes/stats
 - [ ] Reusable agents with SOUL.md
 - [ ] Сommunicate via messenger
+- [ ] SDK to programmatically launch agents
 
 ---
 

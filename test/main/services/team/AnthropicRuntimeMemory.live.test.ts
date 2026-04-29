@@ -29,6 +29,7 @@ liveDescribe('Anthropic runtime memory live e2e', () => {
   let previousDisableRuntimeBootstrap: string | undefined;
   let previousHome: string | undefined;
   let previousUserProfile: string | undefined;
+  let previousNodeEnv: string | undefined;
   let svc: TeamProvisioningService | null;
   let teamName: string | null;
 
@@ -45,8 +46,10 @@ liveDescribe('Anthropic runtime memory live e2e', () => {
     previousDisableRuntimeBootstrap = process.env.CLAUDE_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP;
     previousHome = process.env.HOME;
     previousUserProfile = process.env.USERPROFILE;
+    previousNodeEnv = process.env.NODE_ENV;
     process.env.HOME = tempHome;
     process.env.USERPROFILE = tempHome;
+    process.env.NODE_ENV = 'production';
     process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH =
       process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
     process.env.CLAUDE_TEAM_CLI_FLAVOR = 'agent_teams_orchestrator';
@@ -67,7 +70,13 @@ liveDescribe('Anthropic runtime memory live e2e', () => {
     restoreEnv('CLAUDE_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP', previousDisableRuntimeBootstrap);
     restoreEnv('HOME', previousHome);
     restoreEnv('USERPROFILE', previousUserProfile);
-    await fs.rm(tempDir, { recursive: true, force: true });
+    restoreEnv('NODE_ENV', previousNodeEnv);
+    if (process.env.ANTHROPIC_RUNTIME_MEMORY_LIVE_KEEP_TEMP === '1') {
+      // Live-debug only: preserve process/runtime logs for failed Windows liveness triage.
+      process.stderr.write(`Preserving Anthropic runtime memory live temp dir: ${tempDir}\n`);
+      return;
+    }
+    await removeTempDirWithRetries(tempDir);
   });
 
   it('creates a real Anthropic team and reports teammate RSS in the runtime snapshot', async () => {
@@ -79,6 +88,7 @@ liveDescribe('Anthropic runtime memory live e2e', () => {
     teamName = `anthropic-memory-live-${Date.now()}`;
     const projectPath = path.join(tempDir, 'project');
     await fs.mkdir(projectPath, { recursive: true });
+    await writeTrustedClaudeConfig(tempClaudeRoot, projectPath);
     await fs.writeFile(
       path.join(projectPath, 'README.md'),
       '# Anthropic runtime memory live e2e\n',
@@ -133,7 +143,7 @@ liveDescribe('Anthropic runtime memory live e2e', () => {
         typeof alice.rssBytes === 'number' &&
         alice.rssBytes > 0
       );
-    }, 60_000);
+    }, 180_000, 1_000, () => JSON.stringify(snapshot, null, 2));
 
     expect(snapshot!.members.alice).toMatchObject({
       alive: true,
@@ -158,10 +168,53 @@ async function assertExecutable(filePath: string): Promise<void> {
   await fs.access(filePath, fsConstants.X_OK);
 }
 
+async function writeTrustedClaudeConfig(configDir: string, projectPath: string): Promise<void> {
+  const normalizedProjectPath = path.normalize(projectPath).replace(/\\/g, '/');
+  const approvedApiKeySuffix = process.env.ANTHROPIC_API_KEY?.trim().slice(-20);
+  const config: {
+    projects: Record<string, { hasTrustDialogAccepted: true }>;
+    customApiKeyResponses?: { approved: string[]; rejected: string[] };
+  } = {
+    projects: {
+      [normalizedProjectPath]: {
+        hasTrustDialogAccepted: true,
+      },
+    },
+  };
+  if (approvedApiKeySuffix) {
+    config.customApiKeyResponses = {
+      approved: [approvedApiKeySuffix],
+      rejected: [],
+    };
+  }
+  await fs.writeFile(
+    path.join(configDir, '.claude.json'),
+    `${JSON.stringify(config, null, 2)}\n`,
+    'utf8'
+  );
+}
+
+async function removeTempDirWithRetries(dirPath: string): Promise<void> {
+  const attempts = process.platform === 'win32' ? 20 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await fs.rm(dirPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if ((code !== 'EBUSY' && code !== 'EPERM') || attempt === attempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 async function waitUntil(
   predicate: () => Promise<boolean>,
   timeoutMs: number,
-  pollMs = 1_000
+  pollMs = 1_000,
+  describeState?: () => string
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
@@ -178,7 +231,8 @@ async function waitUntil(
   }
   const suffix =
     lastError instanceof Error && lastError.message ? ` Last error: ${lastError.message}` : '';
-  throw new Error(`Timed out after ${timeoutMs}ms waiting for condition.${suffix}`);
+  const state = describeState ? ` Last state: ${describeState()}` : '';
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for condition.${suffix}${state}`);
 }
 
 function formatProgressDump(progressEvents: TeamProvisioningProgress[]): string {

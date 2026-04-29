@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createHash } from 'crypto';
 import { structuredPatch } from 'diff';
+import { computeDiffContextHash } from '@shared/utils/diffContextHash';
 
 import type { SnippetDiff } from '@shared/types';
 
@@ -985,7 +986,8 @@ describe('ReviewApplierService', () => {
           {
             filePath,
             fileDecision: 'pending',
-            hunkDecisions: { 0: 'rejected' },
+            hunkDecisions: { 0: 'rejected', 1: 'pending' },
+            hunkContextHashes: buildHunkContextHashes(original, modified),
           },
         ],
       },
@@ -1034,8 +1036,99 @@ describe('ReviewApplierService', () => {
     expect(res).toMatchObject({ applied: 1, conflicts: 0 });
     expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8');
   });
+
+  it('ledger partial reject refuses stale hunk context instead of falling back to index', async () => {
+    const fsPromises = await import('fs/promises');
+    const readFile = fsPromises.readFile as unknown as ReturnType<typeof vi.fn>;
+    const writeFile = fsPromises.writeFile as unknown as ReturnType<typeof vi.fn>;
+
+    const filePath = '/tmp/stale-ledger.ts';
+    const original = 'const value = 1;\nconst keep = true;\n';
+    const modified = 'const value = 2;\nconst keep = true;\n';
+    readFile.mockResolvedValue(modified);
+
+    const { ReviewApplierService } = await import('@main/services/team/ReviewApplierService');
+    const svc = new ReviewApplierService();
+
+    const res = await svc.applyReviewDecisions(
+      {
+        teamName: 'team',
+        decisions: [
+          {
+            filePath,
+            fileDecision: 'pending',
+            hunkDecisions: { 0: 'rejected', 1: 'pending' },
+            hunkContextHashes: { 0: 'stale-context-hash' },
+          },
+        ],
+      },
+      new Map([
+        [
+          filePath,
+          {
+            filePath,
+            relativePath: 'stale-ledger.ts',
+            snippets: [
+              {
+                toolUseId: 'ledger-1',
+                filePath,
+                toolName: 'Edit',
+                type: 'edit',
+                oldString: 'const value = 1;\n',
+                newString: 'const value = 2;\n',
+                replaceAll: false,
+                timestamp: '2026-03-01T10:00:00.000Z',
+                isError: false,
+                ledger: {
+                  eventId: 'event-1',
+                  source: 'ledger-exact',
+                  confidence: 'exact',
+                  originalFullContent: original,
+                  modifiedFullContent: modified,
+                  beforeHash: sha(original),
+                  afterHash: sha(modified),
+                  operation: 'modify',
+                  beforeState: { exists: true, sha256: sha(original) },
+                  afterState: { exists: true, sha256: sha(modified) },
+                },
+              },
+            ],
+            linesAdded: 1,
+            linesRemoved: 1,
+            isNewFile: false,
+            originalFullContent: original,
+            modifiedFullContent: modified,
+            contentSource: 'ledger-exact',
+          },
+        ],
+      ])
+    );
+
+    expect(res.applied).toBe(0);
+    expect(res.conflicts).toBe(1);
+    expect(res.errors[0]?.code).toBe('conflict');
+    expect(writeFile).not.toHaveBeenCalled();
+  });
 });
 
 function sha(content: string): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+function buildHunkContextHashes(original: string, modified: string): Record<number, string> {
+  const patch = structuredPatch('file', 'file', original, modified);
+  const out: Record<number, string> = {};
+  for (let i = 0; i < patch.hunks.length; i++) {
+    const hunk = patch.hunks[i]!;
+    const oldSideContent = hunk.lines
+      .filter((line) => !line.startsWith('+'))
+      .map((line) => line.slice(1))
+      .join('\n');
+    const newSideContent = hunk.lines
+      .filter((line) => !line.startsWith('-'))
+      .map((line) => line.slice(1))
+      .join('\n');
+    out[i] = computeDiffContextHash(oldSideContent, newSideContent);
+  }
+  return out;
 }

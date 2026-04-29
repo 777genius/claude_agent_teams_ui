@@ -10,7 +10,13 @@ import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 
 import type { MemberDraft } from './membersEditorTypes';
 import type { MentionSuggestion } from '@renderer/types/mention';
-import type { EffortLevel, TeamProviderId, TeamProvisioningMemberInput } from '@shared/types';
+import type {
+  EffortLevel,
+  TeamFastMode,
+  TeamProviderBackendId,
+  TeamProviderId,
+  TeamProvisioningMemberInput,
+} from '@shared/types';
 
 export function validateMemberNameInline(name: string): string | null {
   const trimmed = name.trim();
@@ -34,8 +40,10 @@ export function createMemberDraft(initial?: Partial<MemberDraft>): MemberDraft {
     workflow: initial?.workflow,
     isolation: initial?.isolation === 'worktree' ? 'worktree' : undefined,
     providerId,
+    providerBackendId: initial?.providerBackendId,
     model: normalizeExplicitTeamModelForUi(providerId, initial?.model ?? ''),
     effort: initial?.effort,
+    fastMode: initial?.fastMode,
     removedAt: initial?.removedAt,
   };
 }
@@ -47,8 +55,10 @@ export function createMemberDraftsFromInputs(
     role?: string;
     workflow?: string;
     providerId?: TeamProviderId;
+    providerBackendId?: TeamProviderBackendId;
     model?: string;
     effort?: EffortLevel;
+    fastMode?: TeamFastMode;
     isolation?: 'worktree';
     removedAt?: number | string | null;
   }[]
@@ -67,8 +77,10 @@ export function createMemberDraftsFromInputs(
         workflow: member.workflow,
         isolation: member.isolation === 'worktree' ? 'worktree' : undefined,
         providerId: normalizeOptionalTeamProviderId(member.providerId),
+        providerBackendId: member.providerBackendId,
         model: member.model ?? '',
         effort: normalizeDraftEffort(member.effort),
+        fastMode: member.fastMode,
         removedAt: member.removedAt,
       });
     });
@@ -84,8 +96,10 @@ export function clearMemberModelOverrides(member: MemberDraft): MemberDraft {
   return {
     ...member,
     providerId: undefined,
+    providerBackendId: undefined,
     model: '',
     effort: undefined,
+    fastMode: undefined,
   };
 }
 
@@ -125,7 +139,9 @@ export function normalizeMemberDraftForProviderMode(
     return {
       ...member,
       providerId: normalizedProviderId,
+      providerBackendId: undefined,
       model: '',
+      fastMode: undefined,
     };
   }
   return member;
@@ -253,6 +269,9 @@ export function buildMembersFromDrafts(members: MemberDraft[]): TeamProvisioning
       if (providerId) {
         result.providerId = providerId;
       }
+      if (member.providerBackendId) {
+        result.providerBackendId = member.providerBackendId;
+      }
       const model = member.model?.trim();
       if (model) {
         result.model = normalizeExplicitTeamModelForUi(providerId, model);
@@ -260,6 +279,9 @@ export function buildMembersFromDrafts(members: MemberDraft[]): TeamProvisioning
       const effort = normalizeDraftEffort(member.effort);
       if (effort) {
         result.effort = effort;
+      }
+      if (member.fastMode) {
+        result.fastMode = member.fastMode;
       }
       return result;
     })

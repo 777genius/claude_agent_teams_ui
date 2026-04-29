@@ -1,4 +1,6 @@
-import { validateTeamName } from '@main/ipc/guards';
+import { validateTeammateName, validateTeamName } from '@main/ipc/guards';
+import { getTeamsBasePath } from '@main/utils/pathDecoder';
+import { extractUserFlags, PROTECTED_CLI_FLAGS } from '@shared/utils/cliArgsParser';
 import {
   formatEffortLevelListForProvider,
   isTeamEffortLevelForProvider,
@@ -7,24 +9,42 @@ import { getErrorMessage } from '@shared/utils/errorHandling';
 import { createLogger } from '@shared/utils/logger';
 import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isTeamProviderId } from '@shared/utils/teamProvider';
-import { isAbsolute } from 'path';
+import { constants as fsConstants } from 'fs';
+import { access } from 'fs/promises';
+import { isAbsolute, join } from 'path';
 
 import type { HttpServices } from './index';
-import type { EffortLevel, TeamFastMode, TeamLaunchRequest } from '@shared/types/team';
+import type {
+  EffortLevel,
+  TeamCreateConfigRequest,
+  TeamCreateRequest,
+  TeamFastMode,
+  TeamLaunchRequest,
+} from '@shared/types/team';
 import type { FastifyInstance } from 'fastify';
 
 const logger = createLogger('HTTP:teams');
 
 type LaunchBody = Omit<TeamLaunchRequest, 'teamName'>;
+type CreateTeamBody = TeamCreateConfigRequest;
 
 class HttpBadRequestError extends Error {}
 class HttpFeatureUnavailableError extends Error {}
 
-function getTeamProvisioningService(services: HttpServices) {
+function getTeamProvisioningService(
+  services: HttpServices
+): NonNullable<HttpServices['teamProvisioningService']> {
   if (!services.teamProvisioningService) {
     throw new HttpFeatureUnavailableError('Team runtime control is not available in this mode');
   }
   return services.teamProvisioningService;
+}
+
+function getTeamDataService(services: HttpServices): NonNullable<HttpServices['teamDataService']> {
+  if (!services.teamDataService) {
+    throw new HttpFeatureUnavailableError('Team data control is not available in this mode');
+  }
+  return services.teamDataService;
 }
 
 function getStatusCode(error: unknown, fallback: number = 500): number {
@@ -37,11 +57,35 @@ function getStatusCode(error: unknown, fallback: number = 500): number {
   if (error instanceof Error && error.name === 'RuntimeStaleEvidenceError') {
     return 409;
   }
+  if (error instanceof Error && error.message.startsWith('Team not found')) {
+    return 404;
+  }
+  if (error instanceof Error && error.message.startsWith('Team already exists')) {
+    return 409;
+  }
   return fallback;
 }
 
 function shouldLogError(error: unknown): boolean {
-  return !(error instanceof HttpBadRequestError) && !(error instanceof HttpFeatureUnavailableError);
+  const statusCode = getStatusCode(error);
+  return (
+    statusCode >= 500 &&
+    !(error instanceof HttpBadRequestError) &&
+    !(error instanceof HttpFeatureUnavailableError)
+  );
+}
+
+function assertProvisioningTeamName(value: unknown): string {
+  const validated = validateTeamName(value);
+  if (!validated.valid) {
+    throw new HttpBadRequestError(validated.error ?? 'Invalid teamName');
+  }
+  const teamName = validated.value!;
+  const parts = teamName.split('-');
+  if (teamName.length > 64 || !parts.every((part) => /^[a-z0-9]+$/.test(part))) {
+    throw new HttpBadRequestError('teamName must be kebab-case [a-z0-9-], max 64 chars');
+  }
+  return teamName;
 }
 
 function assertAbsoluteCwd(cwd: unknown): string {
@@ -82,6 +126,40 @@ function assertOptionalBoolean(value: unknown, fieldName: string): boolean | und
   return value;
 }
 
+function assertOptionalCwd(value: unknown): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const cwd = assertOptionalString(value, 'cwd');
+  if (!cwd) {
+    return undefined;
+  }
+  if (!isAbsolute(cwd)) {
+    throw new HttpBadRequestError('cwd must be an absolute path');
+  }
+  return cwd;
+}
+
+function assertOptionalExtraCliArgs(value: unknown): string | undefined {
+  const extraCliArgs = assertOptionalString(value, 'extraCliArgs');
+  if (!extraCliArgs) {
+    return undefined;
+  }
+  if (extraCliArgs.length > 1024) {
+    throw new HttpBadRequestError('extraCliArgs too long (max 1024)');
+  }
+
+  const protectedFlags = extractUserFlags(extraCliArgs).filter((flag) =>
+    PROTECTED_CLI_FLAGS.has(flag)
+  );
+  if (protectedFlags.length > 0) {
+    throw new HttpBadRequestError(
+      `extraCliArgs contains app-managed flags: ${[...new Set(protectedFlags)].join(', ')}`
+    );
+  }
+  return extraCliArgs;
+}
+
 function assertOptionalEffort(
   value: unknown,
   providerId: TeamLaunchRequest['providerId']
@@ -111,33 +189,92 @@ function assertOptionalFastMode(value: unknown): TeamFastMode | undefined {
   return value;
 }
 
-function parseLaunchRequest(teamName: string, body: unknown): TeamLaunchRequest {
-  const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-  const providerId =
-    payload.providerId == null
-      ? 'anthropic'
-      : isTeamProviderId(payload.providerId)
-        ? payload.providerId
-        : (() => {
-            throw new HttpBadRequestError(
-              'providerId must be anthropic, codex, gemini, or opencode'
-            );
-          })();
-  const prompt = assertOptionalString(payload.prompt, 'prompt');
-  const rawProviderBackendId = assertOptionalString(payload.providerBackendId, 'providerBackendId');
+function parseProviderId(value: unknown): TeamLaunchRequest['providerId'] {
+  if (value == null) {
+    return 'anthropic';
+  }
+  if (isTeamProviderId(value)) {
+    return value;
+  }
+  throw new HttpBadRequestError('providerId must be anthropic, codex, gemini, or opencode');
+}
+
+function parseProviderBackendId(
+  providerId: TeamLaunchRequest['providerId'],
+  value: unknown
+): TeamLaunchRequest['providerBackendId'] | undefined {
+  const rawProviderBackendId = assertOptionalString(value, 'providerBackendId');
   const providerBackendId = migrateProviderBackendId(providerId, rawProviderBackendId);
   if (rawProviderBackendId && !providerBackendId) {
     throw new HttpBadRequestError(
       'providerBackendId must be one of auto, adapter, api, cli-sdk, or codex-native'
     );
   }
+  return providerBackendId;
+}
+
+function parseCreateMembers(payloadMembers: unknown): TeamCreateConfigRequest['members'] {
+  if (payloadMembers == null) {
+    return [];
+  }
+  if (!Array.isArray(payloadMembers)) {
+    throw new HttpBadRequestError('members must be an array');
+  }
+
+  const seenNames = new Set<string>();
+  return payloadMembers.map((member) => {
+    if (!member || typeof member !== 'object') {
+      throw new HttpBadRequestError('member must be object');
+    }
+    const rawMember = member as Record<string, unknown>;
+    const nameValidation = validateTeammateName(rawMember.name);
+    if (!nameValidation.valid) {
+      throw new HttpBadRequestError(nameValidation.error ?? 'Invalid member name');
+    }
+    const name = nameValidation.value!;
+    if (seenNames.has(name)) {
+      throw new HttpBadRequestError('member names must be unique');
+    }
+    seenNames.add(name);
+
+    const role = assertOptionalString(rawMember.role, 'member role');
+    const workflow = assertOptionalString(rawMember.workflow, 'member workflow');
+    if (rawMember.isolation !== undefined && rawMember.isolation !== 'worktree') {
+      throw new HttpBadRequestError('member isolation must be "worktree" when provided');
+    }
+    const providerId =
+      rawMember.providerId == null ? undefined : parseProviderId(rawMember.providerId);
+    const providerBackendId = parseProviderBackendId(providerId, rawMember.providerBackendId);
+    const model = assertOptionalString(rawMember.model, 'member model');
+    const effort = assertOptionalEffort(rawMember.effort, providerId);
+    const fastMode = assertOptionalFastMode(rawMember.fastMode);
+
+    return {
+      name,
+      ...(role ? { role } : {}),
+      ...(workflow ? { workflow } : {}),
+      ...(rawMember.isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
+      ...(providerId ? { providerId } : {}),
+      ...(providerBackendId ? { providerBackendId } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      ...(fastMode ? { fastMode } : {}),
+    };
+  });
+}
+
+function parseLaunchRequest(teamName: string, body: unknown): TeamLaunchRequest {
+  const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const providerId = parseProviderId(payload.providerId);
+  const prompt = assertOptionalString(payload.prompt, 'prompt');
+  const providerBackendId = parseProviderBackendId(providerId, payload.providerBackendId);
   const model = assertOptionalString(payload.model, 'model');
   const effort = assertOptionalEffort(payload.effort, providerId);
   const fastMode = assertOptionalFastMode(payload.fastMode);
   const clearContext = assertOptionalBoolean(payload.clearContext, 'clearContext');
   const skipPermissions = assertOptionalBoolean(payload.skipPermissions, 'skipPermissions');
   const worktree = assertOptionalString(payload.worktree, 'worktree');
-  const extraCliArgs = assertOptionalString(payload.extraCliArgs, 'extraCliArgs');
+  const extraCliArgs = assertOptionalExtraCliArgs(payload.extraCliArgs);
 
   return {
     teamName,
@@ -173,6 +310,150 @@ function parseLaunchRequest(teamName: string, body: unknown): TeamLaunchRequest 
   };
 }
 
+function parseCreateTeamRequest(body: unknown): TeamCreateConfigRequest {
+  const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const teamName = assertProvisioningTeamName(payload.teamName);
+  const providerId = payload.providerId == null ? undefined : parseProviderId(payload.providerId);
+  const providerBackendId = parseProviderBackendId(providerId, payload.providerBackendId);
+  const displayName = assertOptionalString(payload.displayName, 'displayName');
+  const description = assertOptionalString(payload.description, 'description');
+  const color = assertOptionalString(payload.color, 'color');
+  const cwd = assertOptionalCwd(payload.cwd);
+  const prompt = assertOptionalString(payload.prompt, 'prompt');
+  const model = assertOptionalString(payload.model, 'model');
+  const effort = assertOptionalEffort(payload.effort, providerId);
+  const fastMode = assertOptionalFastMode(payload.fastMode);
+  const limitContext = assertOptionalBoolean(payload.limitContext, 'limitContext');
+  const skipPermissions = assertOptionalBoolean(payload.skipPermissions, 'skipPermissions');
+  const worktree = assertOptionalString(payload.worktree, 'worktree');
+  const extraCliArgs = assertOptionalExtraCliArgs(payload.extraCliArgs);
+
+  return {
+    teamName,
+    members: parseCreateMembers(payload.members),
+    ...(displayName ? { displayName } : {}),
+    ...(description ? { description } : {}),
+    ...(color ? { color } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(prompt ? { prompt } : {}),
+    ...(providerId ? { providerId } : {}),
+    ...(providerBackendId ? { providerBackendId } : {}),
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(fastMode ? { fastMode } : {}),
+    ...(limitContext !== undefined ? { limitContext } : {}),
+    ...(skipPermissions !== undefined ? { skipPermissions } : {}),
+    ...(worktree ? { worktree } : {}),
+    ...(extraCliArgs ? { extraCliArgs } : {}),
+  };
+}
+
+function getObjectPayload(body: unknown): Record<string, unknown> {
+  return body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+}
+
+function pickOptionalString(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback: string | undefined,
+  fieldName: string
+): string | undefined {
+  return Object.hasOwn(payload, key) ? assertOptionalString(payload[key], fieldName) : fallback;
+}
+
+function pickOptionalBoolean(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback: boolean | undefined,
+  fieldName: string
+): boolean | undefined {
+  return Object.hasOwn(payload, key) ? assertOptionalBoolean(payload[key], fieldName) : fallback;
+}
+
+function parseDraftLaunchCreateRequest(
+  savedRequest: TeamCreateRequest,
+  body: unknown
+): TeamCreateRequest {
+  const payload = getObjectPayload(body);
+  const cwd = Object.hasOwn(payload, 'cwd') ? assertAbsoluteCwd(payload.cwd) : savedRequest.cwd;
+  if (!cwd) {
+    throw new HttpBadRequestError('cwd is required');
+  }
+
+  const providerId = Object.hasOwn(payload, 'providerId')
+    ? parseProviderId(payload.providerId)
+    : (savedRequest.providerId ?? 'anthropic');
+  const providerBackendId = parseProviderBackendId(
+    providerId,
+    Object.hasOwn(payload, 'providerBackendId')
+      ? payload.providerBackendId
+      : savedRequest.providerBackendId
+  );
+  const effort = assertOptionalEffort(
+    Object.hasOwn(payload, 'effort') ? payload.effort : savedRequest.effort,
+    providerId
+  );
+  const fastMode = Object.hasOwn(payload, 'fastMode')
+    ? assertOptionalFastMode(payload.fastMode)
+    : savedRequest.fastMode;
+  const extraCliArgs = Object.hasOwn(payload, 'extraCliArgs')
+    ? assertOptionalExtraCliArgs(payload.extraCliArgs)
+    : savedRequest.extraCliArgs;
+  if (extraCliArgs) {
+    assertOptionalExtraCliArgs(extraCliArgs);
+  }
+
+  return {
+    teamName: savedRequest.teamName,
+    displayName: savedRequest.displayName,
+    description: savedRequest.description,
+    color: savedRequest.color,
+    members: savedRequest.members,
+    cwd,
+    prompt: pickOptionalString(payload, 'prompt', savedRequest.prompt, 'prompt'),
+    providerId,
+    ...(providerBackendId ? { providerBackendId } : {}),
+    model: pickOptionalString(payload, 'model', savedRequest.model, 'model'),
+    ...(effort ? { effort } : {}),
+    ...(fastMode ? { fastMode } : {}),
+    limitContext: pickOptionalBoolean(
+      payload,
+      'limitContext',
+      savedRequest.limitContext,
+      'limitContext'
+    ),
+    skipPermissions: pickOptionalBoolean(
+      payload,
+      'skipPermissions',
+      savedRequest.skipPermissions,
+      'skipPermissions'
+    ),
+    worktree: pickOptionalString(payload, 'worktree', savedRequest.worktree, 'worktree'),
+    ...(extraCliArgs ? { extraCliArgs } : {}),
+  };
+}
+
+async function getDraftSavedRequest(
+  services: HttpServices,
+  teamName: string
+): Promise<TeamCreateRequest | null> {
+  if (!services.teamDataService) {
+    return null;
+  }
+
+  const configPath = join(getTeamsBasePath(), teamName, 'config.json');
+  try {
+    await access(configPath, fsConstants.F_OK);
+    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  return getTeamDataService(services).getSavedRequest(teamName);
+}
+
 function withRuntimeTeamName(teamName: string, body: unknown): Record<string, unknown> {
   const payload =
     body && typeof body === 'object' && !Array.isArray(body)
@@ -186,6 +467,56 @@ function withRuntimeTeamName(teamName: string, body: unknown): Record<string, un
 }
 
 export function registerTeamRoutes(app: FastifyInstance, services: HttpServices): void {
+  app.get('/api/teams', async (_request, reply) => {
+    try {
+      return reply.send(await getTeamDataService(services).listTeams());
+    } catch (error) {
+      if (shouldLogError(error)) {
+        logger.error('Error in GET /api/teams:', getErrorMessage(error));
+      }
+      return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: CreateTeamBody }>('/api/teams', async (request, reply) => {
+    try {
+      const createRequest = parseCreateTeamRequest(request.body);
+      await getTeamDataService(services).createTeamConfig(createRequest);
+      return reply.status(201).send({ teamName: createRequest.teamName });
+    } catch (error) {
+      if (shouldLogError(error)) {
+        logger.error('Error in POST /api/teams:', getErrorMessage(error));
+      }
+      return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { teamName: string } }>('/api/teams/:teamName', async (request, reply) => {
+    try {
+      const validatedTeamName = validateTeamName(request.params.teamName);
+      if (!validatedTeamName.valid) {
+        return reply.status(400).send({ error: validatedTeamName.error });
+      }
+
+      const teamName = validatedTeamName.value!;
+      const draftSavedRequest = await getDraftSavedRequest(services, teamName);
+      if (draftSavedRequest) {
+        return reply.send({
+          teamName,
+          pendingCreate: true,
+          savedRequest: draftSavedRequest,
+        });
+      }
+
+      return reply.send(await getTeamDataService(services).getTeamData(teamName));
+    } catch (error) {
+      if (shouldLogError(error)) {
+        logger.error(`Error in GET /api/teams/${request.params.teamName}:`, getErrorMessage(error));
+      }
+      return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+    }
+  });
+
   app.post<{ Params: { teamName: string }; Body: LaunchBody }>(
     '/api/teams/:teamName/launch',
     async (request, reply) => {
@@ -195,11 +526,17 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
           return reply.status(400).send({ error: validatedTeamName.error });
         }
 
-        const launchRequest = parseLaunchRequest(validatedTeamName.value!, request.body);
-        const response = await getTeamProvisioningService(services).launchTeam(
-          launchRequest,
-          () => undefined
-        );
+        const teamName = validatedTeamName.value!;
+        const draftSavedRequest = await getDraftSavedRequest(services, teamName);
+        const response = draftSavedRequest
+          ? await getTeamProvisioningService(services).createTeam(
+              parseDraftLaunchCreateRequest(draftSavedRequest, request.body),
+              () => undefined
+            )
+          : await getTeamProvisioningService(services).launchTeam(
+              parseLaunchRequest(teamName, request.body),
+              () => undefined
+            );
         return reply.send(response);
       } catch (error) {
         const statusCode = getStatusCode(error);

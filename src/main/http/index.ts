@@ -33,6 +33,7 @@ import type {
   UpdaterService,
 } from '../services';
 import type { SshConnectionManager } from '../services/infrastructure/SshConnectionManager';
+import type { TeamDataService } from '../services/team/TeamDataService';
 import type { TeamProvisioningService } from '../services/team/TeamProvisioningService';
 import type { FastifyInstance } from 'fastify';
 
@@ -47,6 +48,7 @@ export interface HttpServices {
   recentProjectsFeature?: RecentProjectsFeatureFacade;
   updaterService: UpdaterService;
   sshConnectionManager: SshConnectionManager;
+  teamDataService?: TeamDataService;
   teamProvisioningService?: TeamProvisioningService;
 }
 
@@ -59,7 +61,7 @@ export function registerHttpRoutes(
   registerSessionRoutes(app, services);
   registerSearchRoutes(app, services);
   registerSubagentRoutes(app, services);
-  if (services.teamProvisioningService) {
+  if (services.teamProvisioningService || services.teamDataService) {
     registerTeamRoutes(app, services);
   }
   registerNotificationRoutes(app);

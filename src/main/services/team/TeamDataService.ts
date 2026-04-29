@@ -85,6 +85,7 @@ import type {
   TaskRef,
   TeamConfig,
   TeamCreateConfigRequest,
+  TeamCreateRequest,
   TeamMember,
   TeamMemberActivityMeta,
   TeamMemberSnapshot,
@@ -852,6 +853,50 @@ export class TeamDataService {
 
   async listTeams(): Promise<TeamSummary[]> {
     return this.configReader.listTeams();
+  }
+
+  async getSavedRequest(teamName: string): Promise<TeamCreateRequest | null> {
+    const meta = await this.teamMetaStore.getMeta(teamName);
+    if (!meta) {
+      return null;
+    }
+
+    const membersMeta = await this.membersMetaStore.getMeta(teamName);
+    const members = membersMeta?.members ?? [];
+    const resolvedProviderId = meta.providerId ?? 'anthropic';
+
+    return {
+      teamName,
+      displayName: meta.displayName,
+      description: meta.description,
+      color: meta.color,
+      cwd: meta.cwd,
+      prompt: meta.prompt,
+      providerId: resolvedProviderId,
+      providerBackendId: migrateProviderBackendId(
+        resolvedProviderId,
+        meta.providerBackendId ?? membersMeta?.providerBackendId
+      ),
+      model: meta.model,
+      effort: meta.effort as TeamCreateRequest['effort'],
+      fastMode: meta.fastMode,
+      skipPermissions: meta.skipPermissions,
+      worktree: meta.worktree,
+      extraCliArgs: meta.extraCliArgs,
+      limitContext: meta.limitContext,
+      members: members.map((member) => ({
+        name: member.name,
+        role: member.role,
+        workflow: member.workflow,
+        isolation: member.isolation,
+        cwd: member.cwd,
+        providerId: member.providerId,
+        providerBackendId: member.providerBackendId,
+        model: member.model,
+        effort: member.effort,
+        fastMode: member.fastMode,
+      })),
+    };
   }
 
   async listAliveProcessTeams(): Promise<string[]> {
@@ -2792,8 +2837,16 @@ export class TeamDataService {
       description: request.description,
       color: request.color,
       cwd: request.cwd?.trim() || '',
+      prompt: request.prompt,
+      providerId: request.providerId,
       providerBackendId: request.providerBackendId,
+      model: request.model,
+      effort: request.effort,
       fastMode: request.fastMode,
+      skipPermissions: request.skipPermissions,
+      worktree: request.worktree,
+      extraCliArgs: request.extraCliArgs,
+      limitContext: request.limitContext,
       createdAt: joinedAt,
     });
 
@@ -2823,8 +2876,10 @@ export class TeamDataService {
         workflow: member.workflow?.trim() || undefined,
         isolation: member.isolation === 'worktree' ? ('worktree' as const) : undefined,
         providerId: normalizeOptionalTeamProviderId(member.providerId),
+        providerBackendId: member.providerBackendId,
         model: member.model?.trim() || undefined,
         effort: isTeamEffortLevel(member.effort) ? member.effort : undefined,
+        fastMode: member.fastMode,
         agentType: 'general-purpose' as const,
         joinedAt,
       }))

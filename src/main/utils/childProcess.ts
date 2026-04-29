@@ -137,7 +137,7 @@ function resolveGeneratedBunLauncher(
 }
 
 function resolveNpmNodeShim(content: string, launcherDir: string): DirectWindowsLauncher | null {
-  const scriptMatch = /"%_prog%"\s+"([^"]+\.(?:cjs|mjs|js))"\s+%\*/i.exec(content);
+  const scriptMatch = /"%_prog%"\s+"([^"]+(?:\.(?:cjs|mjs|js))?)"\s+%\*/i.exec(content);
   const scriptTemplate = scriptMatch?.[1];
   if (!scriptTemplate) {
     return null;

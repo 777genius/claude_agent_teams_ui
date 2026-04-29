@@ -83,14 +83,14 @@ export class TmuxInstallerBannerAdapter {
       snapshot.message ??
       status?.effective.detail ??
       status?.wsl?.statusDetail ??
-      'tmux improves persistent teammate reliability and cleaner recovery for long-running tasks.';
+      'tmux is optional. Install it only if you want pane-based terminal transport for long-running teammate sessions.';
     const benefitsBody =
       status && !status.effective.available ? formatTmuxOptionalBenefits(status.platform) : null;
     const runtimeReadyLabel = status
       ? status.effective.runtimeReady
-        ? 'Ready for persistent teammates'
+        ? 'Pane transport ready'
         : status.effective.available
-          ? 'Installed, but not active yet'
+          ? 'Installed, optional transport inactive'
           : null
       : null;
     const versionLabel =

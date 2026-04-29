@@ -4,22 +4,44 @@ import { describe, expect, it, vi } from 'vitest';
 import { registerTeamRoutes } from '@main/http/teams';
 import type { HttpServices } from '@main/http';
 import type {
+  TeamCreateConfigRequest,
+  TeamCreateRequest,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamProvisioningProgress,
   TeamRuntimeState,
+  TeamSummary,
+  TeamViewSnapshot,
 } from '@shared/types/team';
 
 describe('HTTP team runtime routes', () => {
   function createServicesMock() {
-    const launchTeam = vi.fn<
-      (request: TeamLaunchRequest, onProgress: (progress: TeamProvisioningProgress) => void) => Promise<TeamLaunchResponse>
-    >();
+    const launchTeam =
+      vi.fn<
+        (
+          request: TeamLaunchRequest,
+          onProgress: (progress: TeamProvisioningProgress) => void
+        ) => Promise<TeamLaunchResponse>
+      >();
     const getRuntimeState = vi.fn<(teamName: string) => Promise<TeamRuntimeState>>();
     const getProvisioningStatus = vi.fn<(runId: string) => Promise<TeamProvisioningProgress>>();
     const stopTeam = vi.fn<(teamName: string) => Promise<void>>(() => Promise.resolve());
     const getAliveTeams = vi.fn<() => string[]>();
+    const createTeam =
+      vi.fn<
+        (
+          request: TeamCreateRequest,
+          onProgress: (progress: TeamProvisioningProgress) => void
+        ) => Promise<TeamLaunchResponse>
+      >();
+    const listTeams = vi.fn<() => Promise<TeamSummary[]>>();
+    const getTeamData = vi.fn<(teamName: string) => Promise<TeamViewSnapshot>>();
+    const getSavedRequest = vi.fn<(teamName: string) => Promise<TeamCreateRequest | null>>();
+    const createTeamConfig = vi.fn<(request: TeamCreateConfigRequest) => Promise<void>>(() =>
+      Promise.resolve()
+    );
     const teamProvisioningService = {
+      createTeam,
       launchTeam,
       getRuntimeState,
       getProvisioningStatus,
@@ -27,8 +49,22 @@ describe('HTTP team runtime routes', () => {
       getAliveTeams,
     } as Pick<
       NonNullable<HttpServices['teamProvisioningService']>,
-      'launchTeam' | 'getRuntimeState' | 'getProvisioningStatus' | 'stopTeam' | 'getAliveTeams'
+      | 'createTeam'
+      | 'launchTeam'
+      | 'getRuntimeState'
+      | 'getProvisioningStatus'
+      | 'stopTeam'
+      | 'getAliveTeams'
     > as HttpServices['teamProvisioningService'];
+    const teamDataService = {
+      listTeams,
+      getTeamData,
+      getSavedRequest,
+      createTeamConfig,
+    } as Pick<
+      NonNullable<HttpServices['teamDataService']>,
+      'listTeams' | 'getTeamData' | 'getSavedRequest' | 'createTeamConfig'
+    > as HttpServices['teamDataService'];
 
     const services = {
       projectScanner: {} as HttpServices['projectScanner'],
@@ -38,6 +74,7 @@ describe('HTTP team runtime routes', () => {
       dataCache: {} as HttpServices['dataCache'],
       updaterService: {} as HttpServices['updaterService'],
       sshConnectionManager: {} as HttpServices['sshConnectionManager'],
+      teamDataService,
       teamProvisioningService,
     } satisfies HttpServices;
 
@@ -48,6 +85,11 @@ describe('HTTP team runtime routes', () => {
       getProvisioningStatus,
       stopTeam,
       getAliveTeams,
+      createTeam,
+      listTeams,
+      getTeamData,
+      getSavedRequest,
+      createTeamConfig,
     };
   }
 
@@ -59,6 +101,87 @@ describe('HTTP team runtime routes', () => {
     return { app, ...mocks };
   }
 
+  it('lists, gets, and creates draft teams through team data service', async () => {
+    const { app, listTeams, getTeamData, createTeamConfig } = await createApp();
+    listTeams.mockResolvedValue([
+      {
+        teamName: 'demo-team',
+        displayName: 'Demo Team',
+        description: 'Demo',
+        memberCount: 1,
+        taskCount: 0,
+        lastActivity: null,
+        pendingCreate: true,
+      },
+    ]);
+    getTeamData.mockResolvedValue({
+      teamName: 'demo-team',
+      config: null,
+      tasks: [],
+      messages: [],
+      processes: [],
+      kanban: null,
+    } as unknown as TeamViewSnapshot);
+
+    try {
+      const listResponse = await app.inject({
+        method: 'GET',
+        url: '/api/teams',
+      });
+      expect(listResponse.statusCode).toBe(200);
+      expect(listResponse.json()[0]).toMatchObject({
+        teamName: 'demo-team',
+        pendingCreate: true,
+      });
+
+      const getResponse = await app.inject({
+        method: 'GET',
+        url: '/api/teams/demo-team',
+      });
+      expect(getResponse.statusCode).toBe(200);
+      expect(getTeamData).toHaveBeenCalledWith('demo-team');
+
+      const createResponse = await app.inject({
+        method: 'POST',
+        url: '/api/teams',
+        payload: {
+          teamName: 'new-team',
+          displayName: 'New Team',
+          members: [{ name: 'builder', role: 'Engineer', providerId: 'codex' }],
+          cwd: '/Users/test/project',
+          providerId: 'codex',
+          model: 'gpt-5.2',
+          effort: 'high',
+          fastMode: 'on',
+          limitContext: true,
+        },
+      });
+      expect(createResponse.statusCode).toBe(201);
+      expect(createResponse.json()).toEqual({ teamName: 'new-team' });
+      expect(createTeamConfig).toHaveBeenCalledWith({
+        teamName: 'new-team',
+        displayName: 'New Team',
+        members: [
+          {
+            name: 'builder',
+            role: 'Engineer',
+            providerId: 'codex',
+            providerBackendId: 'codex-native',
+          },
+        ],
+        cwd: '/Users/test/project',
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.2',
+        effort: 'high',
+        fastMode: 'on',
+        limitContext: true,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('launches a team with validated request payload', async () => {
     const { app, launchTeam } = await createApp();
     launchTeam.mockResolvedValue({ runId: 'run-1' });
@@ -68,7 +191,7 @@ describe('HTTP team runtime routes', () => {
         method: 'POST',
         url: '/api/teams/demo-team/launch',
         payload: {
-          cwd: '/tmp/project',
+          cwd: '/Users/test/project',
           prompt: 'Resume work',
           skipPermissions: false,
           clearContext: true,
@@ -80,7 +203,7 @@ describe('HTTP team runtime routes', () => {
       expect(launchTeam).toHaveBeenCalledWith(
         {
           teamName: 'demo-team',
-          cwd: '/tmp/project',
+          cwd: '/Users/test/project',
           prompt: 'Resume work',
           providerId: 'anthropic',
           skipPermissions: false,
@@ -88,6 +211,97 @@ describe('HTTP team runtime routes', () => {
         },
         expect.any(Function)
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('routes draft team launch through createTeam with saved metadata', async () => {
+    const { app, createTeam, getSavedRequest, launchTeam } = await createApp();
+    getSavedRequest.mockResolvedValue({
+      teamName: 'draft-team',
+      displayName: 'Draft Team',
+      description: 'Saved draft',
+      color: '#3366ff',
+      cwd: '/Users/test/saved-project',
+      prompt: 'Saved prompt',
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.2',
+      effort: 'medium',
+      fastMode: 'on',
+      limitContext: true,
+      members: [{ name: 'builder', role: 'Engineer', providerId: 'codex' }],
+    });
+    createTeam.mockResolvedValue({ runId: 'run-draft' });
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/teams/draft-team/launch',
+        payload: {
+          cwd: '/Users/test/project',
+          effort: 'high',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ runId: 'run-draft' });
+      expect(launchTeam).not.toHaveBeenCalled();
+      expect(createTeam).toHaveBeenCalledWith(
+        {
+          teamName: 'draft-team',
+          displayName: 'Draft Team',
+          description: 'Saved draft',
+          color: '#3366ff',
+          members: [{ name: 'builder', role: 'Engineer', providerId: 'codex' }],
+          cwd: '/Users/test/project',
+          prompt: 'Saved prompt',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.2',
+          effort: 'high',
+          fastMode: 'on',
+          limitContext: true,
+        },
+        expect.any(Function)
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns saved metadata for draft team get without requiring config.json', async () => {
+    const { app, getSavedRequest, getTeamData } = await createApp();
+    getSavedRequest.mockResolvedValue({
+      teamName: 'draft-team',
+      displayName: 'Draft Team',
+      cwd: '/Users/test/project',
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      members: [{ name: 'builder', role: 'Engineer', providerId: 'codex' }],
+    });
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/teams/draft-team',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        teamName: 'draft-team',
+        pendingCreate: true,
+        savedRequest: {
+          teamName: 'draft-team',
+          displayName: 'Draft Team',
+          cwd: '/Users/test/project',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          members: [{ name: 'builder', role: 'Engineer', providerId: 'codex' }],
+        },
+      });
+      expect(getTeamData).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }
@@ -114,7 +328,8 @@ describe('HTTP team runtime routes', () => {
   });
 
   it('returns runtime state, provisioning status, and stop results', async () => {
-    const { app, getRuntimeState, getProvisioningStatus, stopTeam, getAliveTeams } = await createApp();
+    const { app, getRuntimeState, getProvisioningStatus, stopTeam, getAliveTeams } =
+      await createApp();
     getRuntimeState
       .mockResolvedValueOnce({
         teamName: 'demo-team',
@@ -213,18 +428,15 @@ describe('HTTP team runtime routes', () => {
 
   it('returns 501 when team runtime routes are registered without a runtime service', async () => {
     const app = Fastify();
-    registerTeamRoutes(
-      app,
-      {
-        projectScanner: {} as HttpServices['projectScanner'],
-        sessionParser: {} as HttpServices['sessionParser'],
-        subagentResolver: {} as HttpServices['subagentResolver'],
-        chunkBuilder: {} as HttpServices['chunkBuilder'],
-        dataCache: {} as HttpServices['dataCache'],
-        updaterService: {} as HttpServices['updaterService'],
-        sshConnectionManager: {} as HttpServices['sshConnectionManager'],
-      } satisfies HttpServices
-    );
+    registerTeamRoutes(app, {
+      projectScanner: {} as HttpServices['projectScanner'],
+      sessionParser: {} as HttpServices['sessionParser'],
+      subagentResolver: {} as HttpServices['subagentResolver'],
+      chunkBuilder: {} as HttpServices['chunkBuilder'],
+      dataCache: {} as HttpServices['dataCache'],
+      updaterService: {} as HttpServices['updaterService'],
+      sshConnectionManager: {} as HttpServices['sshConnectionManager'],
+    } satisfies HttpServices);
     await app.ready();
 
     try {
@@ -234,7 +446,9 @@ describe('HTTP team runtime routes', () => {
       });
 
       expect(response.statusCode).toBe(501);
-      expect(response.json()).toEqual({ error: 'Team runtime control is not available in this mode' });
+      expect(response.json()).toEqual({
+        error: 'Team runtime control is not available in this mode',
+      });
     } finally {
       await app.close();
     }

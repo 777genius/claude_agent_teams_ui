@@ -24,7 +24,7 @@ export function buildTmuxEffectiveAvailability(
         binaryPath: input.wsl.tmuxBinaryPath,
         runtimeReady: false,
         detail:
-          'tmux is available inside WSL, but the persistent teammate runtime still needs native Windows pane support.',
+          'tmux is available inside WSL. On Windows it is optional and is not required for teammate runtime startup.',
       };
     }
 
@@ -36,7 +36,7 @@ export function buildTmuxEffectiveAvailability(
         binaryPath: input.host.binaryPath,
         runtimeReady: false,
         detail:
-          'tmux was found on Windows, but the app currently relies on a WSL-backed tmux runtime for the most reliable teammate path.',
+          'tmux was found on Windows. Native process teammates do not require it; tmux remains optional for pane-based terminal transport.',
       };
     }
 
@@ -49,7 +49,7 @@ export function buildTmuxEffectiveAvailability(
         runtimeReady: false,
         detail:
           input.wsl?.statusDetail ??
-          'You can keep using the app, but Windows needs WSL before tmux can improve teammate reliability.',
+          'You can keep using the app without tmux. Install WSL only if you want optional tmux pane transport.',
       };
     }
 
@@ -61,7 +61,7 @@ export function buildTmuxEffectiveAvailability(
       runtimeReady: false,
       detail:
         input.wsl?.statusDetail ??
-        'WSL is available, but tmux is not ready there yet. Finish the Linux setup, install tmux, then re-check.',
+        'WSL is available, but tmux is not ready there yet. Install tmux only if you want optional pane transport.',
     };
   }
 
@@ -72,7 +72,7 @@ export function buildTmuxEffectiveAvailability(
       version: input.host.version,
       binaryPath: input.host.binaryPath,
       runtimeReady: input.nativeSupported,
-      detail: 'tmux is available for the persistent teammate runtime.',
+      detail: 'tmux is available as an optional pane transport for teammate sessions.',
     };
   }
 
@@ -84,9 +84,9 @@ export function buildTmuxEffectiveAvailability(
     runtimeReady: false,
     detail:
       input.platform === 'darwin'
-        ? 'You can keep using the app, but tmux improves persistent teammate reliability and restart behavior.'
+        ? 'You can keep using the app without tmux. Install tmux only if you want optional pane transport.'
         : input.platform === 'linux'
-          ? 'You can keep using the app, but tmux improves long-running teammate stability and cleaner recovery.'
-          : 'You can keep using the app, but tmux improves persistent teammate reliability.',
+          ? 'You can keep using the app without tmux. Install tmux only if you want optional pane transport.'
+          : 'You can keep using the app without tmux. Install tmux only if you want optional pane transport.',
   };
 }

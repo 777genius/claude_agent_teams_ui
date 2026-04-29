@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 export const OPEN_CODE_BRIDGE_SCHEMA_VERSION = 1 as const;
+export const OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION = 1 as const;
 
 export type OpenCodeBridgeCommandName =
   | 'opencode.handshake'
@@ -239,18 +240,12 @@ export interface OpenCodeBackfillTaskLedgerCommandBody {
   projectDir?: string;
   workspaceRoot?: string;
   deliveryContextPath?: string;
+  deliveryContextHash?: string;
   attributionMode?: OpenCodeBackfillTaskLedgerAttributionMode;
-  evidenceMode?: OpenCodeBackfillTaskLedgerEvidenceMode;
   dryRun?: boolean;
 }
 
 export type OpenCodeBackfillTaskLedgerAttributionMode = 'strict-delivery' | 'compatible';
-export type OpenCodeBackfillTaskLedgerEvidenceMode =
-  | 'off'
-  | 'metadata-only'
-  | 'chain-only'
-  | 'snapshot-probe'
-  | 'snapshot-auto';
 
 export type OpenCodeBackfillTaskLedgerOutcome =
   | 'imported'
@@ -265,13 +260,13 @@ export type OpenCodeBackfillTaskLedgerOutcome =
 export interface OpenCodeBackfillTaskLedgerCommandData {
   schemaVersion: 1;
   providerId: 'opencode';
+  opencodeTaskLedgerEvidenceContractVersion?: number;
   teamName: string;
   taskId?: string;
   projectDir?: string;
   workspaceRoot?: string;
   dryRun: boolean;
   attributionMode?: OpenCodeBackfillTaskLedgerAttributionMode;
-  evidenceMode?: OpenCodeBackfillTaskLedgerEvidenceMode;
   strictWindowCandidateCount?: number;
   openCodeDbFingerprint?: string;
   deliveryLedgerFingerprint?: string;
@@ -369,6 +364,7 @@ export interface OpenCodeBridgePeerIdentity {
     minVersion: number;
     currentVersion: number;
     supportedCommands: OpenCodeBridgeCommandName[];
+    opencodeTaskLedgerEvidenceContractVersion?: number;
   };
   runtime: {
     providerId: 'opencode';
@@ -853,7 +849,10 @@ function isPeerIdentity(value: unknown): value is OpenCodeBridgePeerIdentity {
     (bridgeProtocol.minVersion as number) < 1 ||
     (bridgeProtocol.currentVersion as number) < (bridgeProtocol.minVersion as number) ||
     !Array.isArray(bridgeProtocol.supportedCommands) ||
-    !bridgeProtocol.supportedCommands.every(isOpenCodeBridgeCommandName)
+    !bridgeProtocol.supportedCommands.every(isOpenCodeBridgeCommandName) ||
+    (bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion !== undefined &&
+      (!Number.isInteger(bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion) ||
+        (bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion as number) < 1))
   ) {
     return false;
   }

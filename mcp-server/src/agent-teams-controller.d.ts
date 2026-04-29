@@ -8,7 +8,20 @@ declare module 'agent-teams-controller' {
   export interface ControllerTaskApi {
     createTask(flags: Record<string, unknown>): unknown;
     getTask(taskId: string): unknown;
-    getTaskComment(taskId: string, commentId: string): { comment: Record<string, unknown>; task: { id: string; displayId: string; subject: string; status: string; owner: string | null; commentCount: number } };
+    getTaskComment(
+      taskId: string,
+      commentId: string
+    ): {
+      comment: Record<string, unknown>;
+      task: {
+        id: string;
+        displayId: string;
+        subject: string;
+        status: string;
+        owner: string | null;
+        commentCount: number;
+      };
+    };
     listTasks(): unknown[];
     listTaskInventory(filters?: Record<string, unknown>): unknown[];
     listDeletedTasks(): unknown[];
@@ -77,6 +90,9 @@ declare module 'agent-teams-controller' {
   }
 
   export interface ControllerRuntimeApi {
+    listTeams(flags?: Record<string, unknown>): Promise<unknown>;
+    getTeam(flags?: Record<string, unknown>): Promise<unknown>;
+    createTeam(flags: Record<string, unknown>): Promise<unknown>;
     launchTeam(flags: Record<string, unknown>): Promise<unknown>;
     stopTeam(flags?: Record<string, unknown>): Promise<unknown>;
     getRuntimeState(flags?: Record<string, unknown>): Promise<unknown>;

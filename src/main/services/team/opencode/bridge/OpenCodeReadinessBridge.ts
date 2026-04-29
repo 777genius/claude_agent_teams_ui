@@ -308,7 +308,6 @@ export class OpenCodeReadinessBridge implements OpenCodeTeamRuntimeBridgePort {
       ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot } : {}),
       dryRun: input.dryRun === true,
       ...(input.attributionMode ? { attributionMode: input.attributionMode } : {}),
-      ...(input.evidenceMode ? { evidenceMode: input.evidenceMode } : {}),
       scannedSessions: 0,
       scannedToolparts: 0,
       candidateEvents: 0,

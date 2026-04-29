@@ -45,7 +45,7 @@ vi.mock('@main/utils/pathDecoder', async (importOriginal) => {
   };
 });
 
-import { setAppDataBasePath } from '@main/utils/pathDecoder';
+import { setAppDataBasePath, setClaudeBasePathOverride } from '@main/utils/pathDecoder';
 import { TeamMcpConfigBuilder } from '@main/services/team/TeamMcpConfigBuilder';
 
 describe('TeamMcpConfigBuilder', () => {
@@ -77,10 +77,10 @@ describe('TeamMcpConfigBuilder', () => {
 
   function readGeneratedServer(
     configPath: string
-  ): { command?: string; args?: string[] } | undefined {
+  ): { command?: string; args?: string[]; env?: Record<string, string> } | undefined {
     const raw = fs.readFileSync(configPath, 'utf8');
     const parsed = JSON.parse(raw) as {
-      mcpServers?: Record<string, { command?: string; args?: string[] }>;
+      mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }>;
     };
     return parsed.mcpServers?.['agent-teams'];
   }
@@ -180,6 +180,7 @@ describe('TeamMcpConfigBuilder', () => {
 
   afterEach(() => {
     setAppDataBasePath(null);
+    setClaudeBasePathOverride(null);
     setPackagedMode(false);
     setResourcesPath(originalResourcesPath);
     moduleInternal._load = originalModuleLoad;
@@ -368,6 +369,20 @@ describe('TeamMcpConfigBuilder', () => {
     };
 
     expectTsxEntry(parsed.mcpServers['agent-teams'], sourceEntry);
+  });
+
+  it('passes the configured Claude root to the MCP server', async () => {
+    const claudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-mcp-claude-root-'));
+    createdDirs.push(claudeRoot);
+    setClaudeBasePathOverride(claudeRoot);
+
+    const builder = new TeamMcpConfigBuilder();
+    const configPath = await builder.writeConfigFile();
+    createdPaths.push(configPath);
+
+    expect(readGeneratedServer(configPath)?.env).toMatchObject({
+      AGENT_TEAMS_MCP_CLAUDE_DIR: claudeRoot,
+    });
   });
 
   it('ignores malformed user MCP file', async () => {

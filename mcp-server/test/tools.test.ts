@@ -224,6 +224,108 @@ describe('agent-teams-mcp tools', () => {
     }
   });
 
+  it('lists, gets, and creates teams through the local control API', async () => {
+    const claudeDir = makeClaudeDir();
+    const calls: Array<{ method?: string; url?: string; body?: unknown }> = [];
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+
+      if (method === 'GET' && url === '/api/teams') {
+        return {
+          body: [
+            {
+              teamName: 'alpha',
+              displayName: 'Alpha',
+              description: '',
+              memberCount: 1,
+              taskCount: 0,
+              lastActivity: null,
+              pendingCreate: true,
+            },
+          ],
+        };
+      }
+      if (method === 'GET' && url === '/api/teams/alpha') {
+        return {
+          body: {
+            teamName: 'alpha',
+            members: [{ name: 'builder', role: 'Engineer' }],
+            tasks: [],
+          },
+        };
+      }
+      if (method === 'POST' && url === '/api/teams') {
+        return { statusCode: 201, body: { teamName: 'alpha' } };
+      }
+
+      return { statusCode: 404, body: { error: `Unhandled ${method} ${url}` } };
+    });
+
+    try {
+      const listed = parseJsonToolResult(
+        await getTool('team_list').execute({
+          claudeDir,
+          controlUrl: server.baseUrl,
+        })
+      );
+      expect(listed[0].teamName).toBe('alpha');
+
+      const fetched = parseJsonToolResult(
+        await getTool('team_get').execute({
+          claudeDir,
+          teamName: 'alpha',
+          controlUrl: server.baseUrl,
+        })
+      );
+      expect(fetched.teamName).toBe('alpha');
+
+      const created = parseJsonToolResult(
+        await getTool('team_create').execute({
+          claudeDir,
+          teamName: 'alpha',
+          controlUrl: server.baseUrl,
+          displayName: 'Alpha',
+          members: [{ name: 'builder', role: 'Engineer', providerId: 'codex' }],
+          cwd: '/tmp/project',
+          providerId: 'codex',
+          model: 'gpt-5.2',
+          effort: 'high',
+          fastMode: 'on',
+        })
+      );
+      expect(created.teamName).toBe('alpha');
+
+      expect(calls).toEqual([
+        {
+          method: 'GET',
+          url: '/api/teams',
+          body: undefined,
+        },
+        {
+          method: 'GET',
+          url: '/api/teams/alpha',
+          body: undefined,
+        },
+        {
+          method: 'POST',
+          url: '/api/teams',
+          body: {
+            teamName: 'alpha',
+            displayName: 'Alpha',
+            members: [{ name: 'builder', role: 'Engineer', providerId: 'codex' }],
+            cwd: '/tmp/project',
+            providerId: 'codex',
+            model: 'gpt-5.2',
+            effort: 'high',
+            fastMode: 'on',
+          },
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('forwards OpenCode runtime MCP tools through the runtime control bridge', async () => {
     const claudeDir = makeClaudeDir();
     writeTeamConfig(claudeDir, 'alpha', {
@@ -1317,7 +1419,9 @@ describe('agent-teams-mcp tools', () => {
     ).rejects.toThrow('Unknown team "typo-team"');
 
     expect(fs.existsSync(path.join(claudeDir, 'teams', 'typo-team'))).toBe(false);
-    expect(fs.existsSync(path.join(claudeDir, 'teams', 'real-team', 'inboxes', 'lead.json'))).toBe(false);
+    expect(fs.existsSync(path.join(claudeDir, 'teams', 'real-team', 'inboxes', 'lead.json'))).toBe(
+      false
+    );
   });
 
   it('exposes zod schemas that reject obviously invalid payloads', () => {

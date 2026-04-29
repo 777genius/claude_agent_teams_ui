@@ -293,6 +293,7 @@ export class ReviewApplierService {
         decision.fileDecision === 'rejected',
         allHunksRejected,
         rejectedHunkIndices,
+        decision.hunkContextHashes,
         fileContent.snippets
       );
       if (ledgerOutcome.handled) {
@@ -450,6 +451,7 @@ export class ReviewApplierService {
     fileRejected: boolean,
     allHunksRejected: boolean,
     rejectedHunkIndices: number[],
+    hunkContextHashes: Record<number, string> | undefined,
     snippets: SnippetDiff[]
   ): Promise<LedgerApplyOutcome> {
     const ledgerSnippets = snippets.filter((snippet) => snippet.ledger && !snippet.isError);
@@ -497,6 +499,20 @@ export class ReviewApplierService {
           error: 'Ledger full text is unavailable; partial reject requires manual review.',
         };
       }
+      const strictHunks = mapRejectedHunkIndicesByHashStrict(
+        original,
+        modified,
+        rejectedHunkIndices,
+        hunkContextHashes
+      );
+      if (!strictHunks.ok) {
+        return {
+          handled: true,
+          status: strictHunks.code === 'conflict' ? 'conflict' : 'error',
+          code: strictHunks.code,
+          error: strictHunks.error,
+        };
+      }
       const guard = await this.checkLedgerCurrentHash(
         filePath,
         lastLedger.afterState?.sha256 ?? lastLedger.afterHash ?? undefined
@@ -504,7 +520,7 @@ export class ReviewApplierService {
       if (!guard.ok) {
         return guard.outcome;
       }
-      const patchResult = this.tryHunkLevelReject(original, modified, rejectedHunkIndices);
+      const patchResult = this.tryStrictHunkLevelReject(original, modified, strictHunks.indices);
       if (!patchResult) {
         return {
           handled: true,
@@ -1035,6 +1051,46 @@ export class ReviewApplierService {
       hadConflicts: false,
     };
   }
+
+  private tryStrictHunkLevelReject(
+    original: string,
+    modified: string,
+    hunkIndices: number[]
+  ): RejectResult | null {
+    const patch = structuredPatch('file', 'file', original, modified);
+
+    if (!patch.hunks || patch.hunks.length === 0) return null;
+
+    const validIndices = hunkIndices.filter((idx) => idx >= 0 && idx < patch.hunks.length);
+    if (validIndices.length !== hunkIndices.length || validIndices.length === 0) return null;
+
+    const inversedHunks: StructuredPatchHunk[] = [];
+    for (const idx of validIndices) {
+      const hunk = patch.hunks[idx];
+      if (!hunk) return null;
+      inversedHunks.push(invertHunk(hunk));
+    }
+
+    const inversePatch = {
+      oldFileName: 'file',
+      newFileName: 'file',
+      oldHeader: undefined,
+      newHeader: undefined,
+      hunks: inversedHunks,
+    };
+
+    const result = applyPatch(modified, inversePatch, { fuzzFactor: 0 });
+    if (result === false) {
+      logger.debug('Strict ledger hunk-level inverse patch не удался');
+      return null;
+    }
+
+    return {
+      success: true,
+      newContent: result,
+      hadConflicts: false,
+    };
+  }
 }
 
 function buildHunkHashIndexMap(original: string, modified: string): Map<string, number[]> {
@@ -1084,6 +1140,54 @@ function mapRejectedHunkIndicesByHash(
   }
 
   return [...out].sort((a, b) => a - b);
+}
+
+function mapRejectedHunkIndicesByHashStrict(
+  original: string,
+  modified: string,
+  rejectedIndices: number[],
+  hunkContextHashes: Record<number, string> | undefined
+): { ok: true; indices: number[] } | { ok: false; code: ApplyErrorCode; error: string } {
+  if (rejectedIndices.length === 0) {
+    return { ok: true, indices: [] };
+  }
+  if (!hunkContextHashes || Object.keys(hunkContextHashes).length === 0) {
+    return {
+      ok: false,
+      code: 'manual-review-required',
+      error: 'Ledger partial reject requires stable hunk context hashes.',
+    };
+  }
+
+  const hashMap = buildHunkHashIndexMap(original, modified);
+  const out = new Set<number>();
+  for (const idx of rejectedIndices) {
+    const hash = hunkContextHashes[idx];
+    if (!hash) {
+      return {
+        ok: false,
+        code: 'manual-review-required',
+        error: 'Ledger partial reject is missing a hunk context hash.',
+      };
+    }
+    const candidates = hashMap.get(hash);
+    if (!candidates || candidates.length === 0) {
+      return {
+        ok: false,
+        code: 'conflict',
+        error: 'Ledger partial reject hunk context changed; please re-review.',
+      };
+    }
+    if (candidates.length > 1) {
+      return {
+        ok: false,
+        code: 'conflict',
+        error: 'Ledger partial reject hunk context is ambiguous; please re-review.',
+      };
+    }
+    out.add(candidates[0]!);
+  }
+  return { ok: true, indices: [...out].sort((a, b) => a - b) };
 }
 
 // ── Module-level helpers ──

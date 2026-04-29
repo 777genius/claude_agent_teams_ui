@@ -177,7 +177,7 @@ export class TmuxInstallerRunnerAdapter
       strategy: 'wsl',
       message: 'Preparing the Windows WSL tmux setup...',
       detail:
-        'The app can keep working without tmux, but WSL-backed tmux gives the most reliable persistent teammate path on Windows.',
+        'The app can keep working without tmux. WSL-backed tmux is optional and only adds pane-based terminal transport on Windows.',
       error: null,
       canCancel: true,
       acceptsInput: false,
