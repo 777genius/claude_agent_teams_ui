@@ -15,6 +15,10 @@ export class MemberWorkSyncStorePaths {
     return join(this.getTeamDir(teamName), 'pending-reports.json');
   }
 
+  getOutboxPath(teamName: string): string {
+    return join(this.getTeamDir(teamName), 'outbox.json');
+  }
+
   getReportTokenSecretPath(teamName: string): string {
     return join(this.getTeamDir(teamName), 'report-token-secret.json');
   }

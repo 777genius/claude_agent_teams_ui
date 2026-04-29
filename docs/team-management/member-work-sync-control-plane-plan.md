@@ -34,6 +34,7 @@ Current implementation note:
 - Phase 1 is intentionally shadow-only: it computes agendas, fingerprints, report tokens, reports, persisted status, passive queue reconciliation, startup replay, diagnostics, metrics, and a neutral read-only member details surface.
 - Phase 1 does not insert inbox messages, send nudges, mark tasks/messages read, or change `TeamTaskStallMonitor` semantics.
 - Phase 1.5 exposes a machine-readable `phase2Readiness` assessment from shadow metrics. It can say `collecting_shadow_data`, `blocked`, or `shadow_ready`; it still does not dispatch nudges.
+- Phase 2 storage foundation is implemented as an inert durable outbox: idempotency key, payload hash conflict checks, claim generation fencing, retry/terminal states. It is not wired to dispatch inbox nudges yet.
 - Phase 2 must not start until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
 
 Patterns used:

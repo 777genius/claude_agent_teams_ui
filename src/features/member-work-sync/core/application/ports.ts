@@ -2,6 +2,13 @@ import type {
   MemberWorkSyncAgenda,
   MemberWorkSyncTeamMetrics,
   MemberWorkSyncProviderId,
+  MemberWorkSyncOutboxClaimInput,
+  MemberWorkSyncOutboxEnsureInput,
+  MemberWorkSyncOutboxEnsureResult,
+  MemberWorkSyncOutboxItem,
+  MemberWorkSyncOutboxMarkDeliveredInput,
+  MemberWorkSyncOutboxMarkFailedInput,
+  MemberWorkSyncOutboxMarkSupersededInput,
   MemberWorkSyncReport,
   MemberWorkSyncReportIntent,
   MemberWorkSyncReportIntentStatus,
@@ -87,12 +94,21 @@ export interface MemberWorkSyncReportStorePort {
   ): Promise<void>;
 }
 
+export interface MemberWorkSyncOutboxStorePort {
+  ensurePending(input: MemberWorkSyncOutboxEnsureInput): Promise<MemberWorkSyncOutboxEnsureResult>;
+  claimDue(input: MemberWorkSyncOutboxClaimInput): Promise<MemberWorkSyncOutboxItem[]>;
+  markDelivered(input: MemberWorkSyncOutboxMarkDeliveredInput): Promise<void>;
+  markSuperseded(input: MemberWorkSyncOutboxMarkSupersededInput): Promise<void>;
+  markFailed(input: MemberWorkSyncOutboxMarkFailedInput): Promise<void>;
+}
+
 export interface MemberWorkSyncUseCaseDeps {
   clock: MemberWorkSyncClockPort;
   hash: MemberWorkSyncHashPort;
   agendaSource: MemberWorkSyncAgendaSourcePort;
   statusStore: MemberWorkSyncStatusStorePort;
   reportStore?: MemberWorkSyncReportStorePort;
+  outboxStore?: MemberWorkSyncOutboxStorePort;
   reportToken?: MemberWorkSyncReportTokenPort;
   lifecycle?: MemberWorkSyncLifecyclePort;
   logger?: MemberWorkSyncLoggerPort;

@@ -5,6 +5,13 @@ import { mkdir, readFile, rename } from 'fs/promises';
 import { withFileLock } from '@main/services/team/fileLock';
 import type {
   MemberWorkSyncMetricEvent,
+  MemberWorkSyncOutboxClaimInput,
+  MemberWorkSyncOutboxEnsureInput,
+  MemberWorkSyncOutboxEnsureResult,
+  MemberWorkSyncOutboxItem,
+  MemberWorkSyncOutboxMarkDeliveredInput,
+  MemberWorkSyncOutboxMarkFailedInput,
+  MemberWorkSyncOutboxMarkSupersededInput,
   MemberWorkSyncReportIntent,
   MemberWorkSyncReportRequest,
   MemberWorkSyncStatus,
@@ -13,6 +20,7 @@ import type {
 } from '../../contracts';
 import { assessMemberWorkSyncPhase2Readiness } from '../../core/domain';
 import type {
+  MemberWorkSyncOutboxStorePort,
   MemberWorkSyncReportStorePort,
   MemberWorkSyncStatusStorePort,
 } from '../../core/application';
@@ -29,6 +37,11 @@ interface StoreFile {
 interface PendingReportFile {
   schemaVersion: 1;
   intents: Record<string, MemberWorkSyncReportIntent>;
+}
+
+interface OutboxFile {
+  schemaVersion: 1;
+  items: Record<string, MemberWorkSyncOutboxItem>;
 }
 
 function normalizeMemberKey(memberName: string): string {
@@ -66,6 +79,31 @@ function isPendingReportFile(value: unknown): value is PendingReportFile {
     typeof (value as PendingReportFile).intents === 'object' &&
     !Array.isArray((value as PendingReportFile).intents)
   );
+}
+
+function isOutboxFile(value: unknown): value is OutboxFile {
+  return (
+    value != null &&
+    typeof value === 'object' &&
+    (value as OutboxFile).schemaVersion === 1 &&
+    (value as OutboxFile).items != null &&
+    typeof (value as OutboxFile).items === 'object' &&
+    !Array.isArray((value as OutboxFile).items)
+  );
+}
+
+function isOutboxTerminal(status: MemberWorkSyncOutboxItem['status']): boolean {
+  return status === 'delivered' || status === 'superseded' || status === 'failed_terminal';
+}
+
+function canClaimOutboxItem(item: MemberWorkSyncOutboxItem, nowIso: string): boolean {
+  if (item.status !== 'pending' && item.status !== 'failed_retryable') {
+    return false;
+  }
+  if (!item.nextAttemptAt) {
+    return true;
+  }
+  return item.nextAttemptAt <= nowIso;
 }
 
 function stableStringify(value: unknown): string {
@@ -194,7 +232,10 @@ async function quarantineFile(filePath: string): Promise<void> {
 }
 
 export class JsonMemberWorkSyncStore
-  implements MemberWorkSyncStatusStorePort, MemberWorkSyncReportStorePort
+  implements
+    MemberWorkSyncStatusStorePort,
+    MemberWorkSyncReportStorePort,
+    MemberWorkSyncOutboxStorePort
 {
   private readonly writeQueues = new Map<string, Promise<void>>();
 
@@ -317,6 +358,161 @@ export class JsonMemberWorkSyncStore
     });
   }
 
+  async ensurePending(
+    input: MemberWorkSyncOutboxEnsureInput
+  ): Promise<MemberWorkSyncOutboxEnsureResult> {
+    let result: MemberWorkSyncOutboxEnsureResult | null = null;
+    await this.enqueue(input.teamName, async () => {
+      await withFileLock(this.paths.getOutboxPath(input.teamName), async () => {
+        const existing = await this.readOutboxFile(input.teamName);
+        const current = existing.items[input.id];
+        if (current) {
+          if (current.payloadHash !== input.payloadHash) {
+            result = {
+              ok: false,
+              outcome: 'payload_conflict',
+              item: current,
+              existingPayloadHash: current.payloadHash,
+              requestedPayloadHash: input.payloadHash,
+            };
+            return;
+          }
+
+          if (!isOutboxTerminal(current.status) && current.status !== 'pending') {
+            const next: MemberWorkSyncOutboxItem = {
+              ...current,
+              status: 'pending',
+              updatedAt: input.nowIso,
+            };
+            const nextAttemptAt = input.nextAttemptAt ?? current.nextAttemptAt;
+            if (nextAttemptAt) {
+              next.nextAttemptAt = nextAttemptAt;
+            } else {
+              delete next.nextAttemptAt;
+            }
+            delete next.claimedBy;
+            delete next.claimedAt;
+            delete next.lastError;
+            existing.items[input.id] = next;
+            await this.writeOutboxFile(input.teamName, existing);
+            result = { ok: true, outcome: 'existing', item: existing.items[input.id] };
+            return;
+          }
+
+          result = { ok: true, outcome: 'existing', item: current };
+          return;
+        }
+
+        const item: MemberWorkSyncOutboxItem = {
+          id: input.id,
+          teamName: input.teamName,
+          memberName: input.memberName,
+          agendaFingerprint: input.agendaFingerprint,
+          payloadHash: input.payloadHash,
+          payload: input.payload,
+          status: 'pending',
+          attemptGeneration: 0,
+          ...(input.nextAttemptAt ? { nextAttemptAt: input.nextAttemptAt } : {}),
+          createdAt: input.nowIso,
+          updatedAt: input.nowIso,
+        };
+        existing.items[input.id] = item;
+        await this.writeOutboxFile(input.teamName, existing);
+        result = { ok: true, outcome: 'created', item };
+      });
+    });
+
+    if (!result) {
+      throw new Error('Member work sync outbox write did not produce a result');
+    }
+    return result;
+  }
+
+  async claimDue(input: MemberWorkSyncOutboxClaimInput): Promise<MemberWorkSyncOutboxItem[]> {
+    const claimed: MemberWorkSyncOutboxItem[] = [];
+    await this.enqueue(input.teamName, async () => {
+      await withFileLock(this.paths.getOutboxPath(input.teamName), async () => {
+        const existing = await this.readOutboxFile(input.teamName);
+        const due = Object.values(existing.items)
+          .filter((item) => canClaimOutboxItem(item, input.nowIso))
+          .sort((left, right) => {
+            const leftTime = left.nextAttemptAt ?? left.updatedAt;
+            const rightTime = right.nextAttemptAt ?? right.updatedAt;
+            return leftTime.localeCompare(rightTime);
+          })
+          .slice(0, Math.max(0, input.limit));
+
+        for (const item of due) {
+          const next: MemberWorkSyncOutboxItem = {
+            ...item,
+            status: 'claimed',
+            attemptGeneration: item.attemptGeneration + 1,
+            claimedBy: input.claimedBy,
+            claimedAt: input.nowIso,
+            updatedAt: input.nowIso,
+          };
+          delete next.lastError;
+          existing.items[item.id] = next;
+          claimed.push(next);
+        }
+
+        if (due.length > 0) {
+          await this.writeOutboxFile(input.teamName, existing);
+        }
+      });
+    });
+    return claimed;
+  }
+
+  async markDelivered(input: MemberWorkSyncOutboxMarkDeliveredInput): Promise<void> {
+    await this.updateOutboxItem(input.teamName, input.id, (current) => {
+      if (!current || current.attemptGeneration !== input.attemptGeneration) {
+        return current;
+      }
+      const next: MemberWorkSyncOutboxItem = {
+        ...current,
+        status: 'delivered',
+        deliveredMessageId: input.deliveredMessageId,
+        updatedAt: input.nowIso,
+      };
+      delete next.lastError;
+      return next;
+    });
+  }
+
+  async markSuperseded(input: MemberWorkSyncOutboxMarkSupersededInput): Promise<void> {
+    await this.updateOutboxItem(input.teamName, input.id, (current) => {
+      if (!current || isOutboxTerminal(current.status)) {
+        return current;
+      }
+      return {
+        ...current,
+        status: 'superseded',
+        lastError: input.reason,
+        updatedAt: input.nowIso,
+      };
+    });
+  }
+
+  async markFailed(input: MemberWorkSyncOutboxMarkFailedInput): Promise<void> {
+    await this.updateOutboxItem(input.teamName, input.id, (current) => {
+      if (!current || current.attemptGeneration !== input.attemptGeneration) {
+        return current;
+      }
+      const next: MemberWorkSyncOutboxItem = {
+        ...current,
+        status: input.retryable ? 'failed_retryable' : 'failed_terminal',
+        lastError: input.error,
+        ...(input.retryable && input.nextAttemptAt ? { nextAttemptAt: input.nextAttemptAt } : {}),
+        updatedAt: input.nowIso,
+      };
+      if (!input.retryable) {
+        delete next.nextAttemptAt;
+      }
+      return next;
+    });
+  }
+
   private async readFile(teamName: string): Promise<StoreFile> {
     const filePath = this.paths.getStatusPath(teamName);
     try {
@@ -349,6 +545,48 @@ export class JsonMemberWorkSyncStore
       }
     }
     return { schemaVersion: 1, intents: {} };
+  }
+
+  private async readOutboxFile(teamName: string): Promise<OutboxFile> {
+    const filePath = this.paths.getOutboxPath(teamName);
+    try {
+      const raw = await readFile(filePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (isOutboxFile(parsed)) {
+        return parsed;
+      }
+      await quarantineFile(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        await quarantineFile(filePath);
+      }
+    }
+    return { schemaVersion: 1, items: {} };
+  }
+
+  private async writeOutboxFile(teamName: string, file: OutboxFile): Promise<void> {
+    await mkdir(this.paths.getTeamDir(teamName), { recursive: true });
+    await atomicWriteAsync(this.paths.getOutboxPath(teamName), JSON.stringify(file, null, 2));
+  }
+
+  private async updateOutboxItem(
+    teamName: string,
+    id: string,
+    updater: (
+      current: MemberWorkSyncOutboxItem | undefined
+    ) => MemberWorkSyncOutboxItem | undefined
+  ): Promise<void> {
+    await this.enqueue(teamName, async () => {
+      await withFileLock(this.paths.getOutboxPath(teamName), async () => {
+        const existing = await this.readOutboxFile(teamName);
+        const next = updater(existing.items[id]);
+        if (!next) {
+          return;
+        }
+        existing.items[id] = next;
+        await this.writeOutboxFile(teamName, existing);
+      });
+    });
   }
 
   private async writePendingFile(teamName: string, file: PendingReportFile): Promise<void> {

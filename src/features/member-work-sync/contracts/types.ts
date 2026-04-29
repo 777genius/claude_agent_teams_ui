@@ -205,3 +205,96 @@ export interface MemberWorkSyncStatusRequest {
 export interface MemberWorkSyncMetricsRequest {
   teamName: string;
 }
+
+export type MemberWorkSyncOutboxStatus =
+  | 'pending'
+  | 'claimed'
+  | 'delivered'
+  | 'superseded'
+  | 'failed_retryable'
+  | 'failed_terminal';
+
+export interface MemberWorkSyncNudgePayload {
+  from: 'system';
+  to: string;
+  messageKind: 'member_work_sync_nudge';
+  source: 'member-work-sync';
+  actionMode: 'do';
+  text: string;
+  taskRefs: Array<{
+    taskId: string;
+    displayId: string;
+    teamName: string;
+  }>;
+}
+
+export interface MemberWorkSyncOutboxItem {
+  id: string;
+  teamName: string;
+  memberName: string;
+  agendaFingerprint: string;
+  payloadHash: string;
+  payload: MemberWorkSyncNudgePayload;
+  status: MemberWorkSyncOutboxStatus;
+  attemptGeneration: number;
+  claimedBy?: string;
+  claimedAt?: string;
+  deliveredMessageId?: string;
+  lastError?: string;
+  nextAttemptAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MemberWorkSyncOutboxEnsureResult =
+  | { ok: true; outcome: 'created' | 'existing'; item: MemberWorkSyncOutboxItem }
+  | {
+      ok: false;
+      outcome: 'payload_conflict';
+      item: MemberWorkSyncOutboxItem;
+      existingPayloadHash: string;
+      requestedPayloadHash: string;
+    };
+
+export interface MemberWorkSyncOutboxEnsureInput {
+  id: string;
+  teamName: string;
+  memberName: string;
+  agendaFingerprint: string;
+  payloadHash: string;
+  payload: MemberWorkSyncNudgePayload;
+  nowIso: string;
+  nextAttemptAt?: string;
+}
+
+export interface MemberWorkSyncOutboxClaimInput {
+  teamName: string;
+  claimedBy: string;
+  nowIso: string;
+  limit: number;
+}
+
+export interface MemberWorkSyncOutboxMarkDeliveredInput {
+  teamName: string;
+  id: string;
+  attemptGeneration: number;
+  deliveredMessageId: string;
+  nowIso: string;
+}
+
+export interface MemberWorkSyncOutboxMarkSupersededInput {
+  teamName: string;
+  id: string;
+  reason: string;
+  nowIso: string;
+}
+
+export interface MemberWorkSyncOutboxMarkFailedInput {
+  teamName: string;
+  id: string;
+  attemptGeneration: number;
+  error: string;
+  retryable: boolean;
+  nowIso: string;
+  nextAttemptAt?: string;
+}
