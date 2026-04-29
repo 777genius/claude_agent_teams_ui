@@ -1136,7 +1136,7 @@ Validation result contract:
 
 ```ts
 export type MemberWorkSyncReportValidationReason =
-  | 'feature_disabled'
+  | 'capability_unavailable'
   | 'team_inactive'
   | 'member_inactive'
   | 'reserved_author'
@@ -1866,26 +1866,26 @@ Rules:
 - In Phase 1, missing `member_work_sync_report` must not block team launch.
 - If the tool is missing, omit work-sync instructions from `task_briefing`/`member_briefing`.
 - If the tool exists but app validation bridge is unavailable, return `pending_validation`.
-- If app says feature disabled, return `feature_disabled`.
-- OpenCode readiness tests should prove old required tools still gate launch, while work-sync tool is optional unless `CLAUDE_TEAM_MEMBER_WORK_SYNC_REQUIRE_MCP_TOOL=true`.
+- Do not add a runtime/env flag to require the tool in Phase 1.
+- OpenCode readiness tests should prove old required tools still gate launch, while work-sync tools remain optional compatibility capabilities.
 
-Suggested rollout gate:
+Important distinction:
 
 ```text
-CLAUDE_TEAM_MEMBER_WORK_SYNC_REQUIRE_MCP_TOOL=false
+capability-gated means "use it if both sides expose it".
+feature-flagged means "runtime branch changes behavior based on env/config".
 ```
 
-Default `false` until Phase 1 has shipped across both repos.
+Phase 1 uses capability gating only. That avoids permanent `new vs legacy` branches while still supporting mixed repo versions during development.
 
 Compatibility matrix:
 
 | claude_team | orchestrator/controller | Expected behavior |
 |---|---|---|
 | no feature | no tool | no work-sync surface |
-| feature enabled | no tool | status/reconcile only, no report instruction |
-| feature enabled | tool exists, no app bridge | pending intent only |
-| feature enabled | tool exists, app bridge live | full report validation |
-| feature disabled | tool exists | tool returns `feature_disabled`, no writes |
+| app has feature | no tool | status/reconcile only, no report instruction |
+| app has feature | tool exists, no app bridge | pending intent only |
+| app has feature | tool exists, app bridge live | full report validation |
 
 ### 13.1 Current Agenda Read Surface
 
@@ -2869,8 +2869,7 @@ Details dialog can show:
 - missing `member_work_sync_report` does not fail OpenCode readiness in Phase 1;
 - work-sync instructions are omitted when the tool is unavailable;
 - tool available + app bridge unavailable returns `pending_validation`;
-- feature disabled returns `feature_disabled` and writes no intents;
-- optional require-tool gate can fail readiness when explicitly enabled.
+- no runtime flag is needed to require the tool in Phase 1.
 
 ### 20.4 Controller Tests
 
@@ -2888,7 +2887,7 @@ In `agent-teams-controller`:
 - returns structured stale fingerprint response;
 - returns `pendingValidation` instead of accepted lease when app validator is unavailable;
 - pending validation intent replay does not update lease until app accepts;
-- disabled feature returns `feature_disabled` and does not write intents;
+- capability unavailable returns `capability_unavailable` and does not write accepted reports;
 - exposes current fingerprint through the chosen read surface;
 - does not write task comments or messages.
 
@@ -3014,55 +3013,49 @@ No accelerator is proof.
 
 ---
 
-## 22. Feature Gates
+## 22. Runtime Defaults And No Feature Flags
 
-Phase 1:
+Phase 1 should ship without feature flags.
 
-```text
-CLAUDE_TEAM_MEMBER_WORK_SYNC_ENABLED=true
-CLAUDE_TEAM_MEMBER_WORK_SYNC_SHADOW_ONLY=true
+Reason:
+
+- Phase 1 has no nudges, no inbox writes, no task mutation, and no runtime restart behavior.
+- Adding feature flags for passive status/report validation creates extra branches and makes failures harder to reason about.
+- The safe boundary is architectural, not configurational: Phase 1 code simply does not contain the side-effect dispatcher.
+
+Phase 1 defaults:
+
+| Behavior | Default | Why |
+|---|---:|---|
+| agenda/fingerprint/status computation | on | passive, deterministic, app-owned |
+| `member_work_sync_status` | on | read-only diagnostics |
+| `member_work_sync_report` | on | server-validated, no board mutation |
+| pending report intent fallback | on only when identity is not terminally invalid | compatibility with old app/runtime boundaries |
+| nudges/outbox/inbox writes | not implemented | avoids hidden flag branches |
+
+Do not add:
+
+- `CLAUDE_TEAM_MEMBER_WORK_SYNC_ENABLED`
+- `CLAUDE_TEAM_MEMBER_WORK_SYNC_SHADOW_ONLY`
+- `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED`
+
+If Phase 1 needs to be disabled during development, revert or patch the narrow composition wiring. Do not add a permanent product branch for a passive feature.
+
+Phase 2 policy:
+
+- Phase 2 is a separate implementation, not a disabled code path hidden behind a flag in Phase 1.
+- If Phase 2 adds nudges, it must add dispatcher/outbox code in its own cut after metrics review.
+- Phase 2 may use constants/configuration for rate limits and timing, but not a broad "new vs legacy" branch.
+
+Phase 2 runtime constants can be normal typed defaults, not feature gates:
+
+```ts
+const MEMBER_WORK_SYNC_QUIET_WINDOW_MS = 90_000;
+const MEMBER_WORK_SYNC_STILL_WORKING_LEASE_MS = 10 * 60_000;
+const MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR = 2;
 ```
 
-Defaults:
-
-- enabled can default `true` only if Phase 1 is read/status-only;
-- shadow-only must default `true`;
-- Phase 2 nudges default `false` until explicitly validated.
-
-Gate behavior:
-
-- `CLAUDE_TEAM_MEMBER_WORK_SYNC_ENABLED=false` disables queue, reconcile, status writes, and report acceptance. The MCP report tool should return `feature_disabled`.
-- `CLAUDE_TEAM_MEMBER_WORK_SYNC_SHADOW_ONLY=true` allows reconcile/status/report validation but forbids outbox and inbox writes.
-- `CLAUDE_TEAM_MEMBER_WORK_SYNC_SHADOW_ONLY=false` is allowed only after Phase 2 implementation and metrics review.
-- Report intent recording should also honor `ENABLED=false`; do not write intent files when the feature is explicitly disabled.
-- Read surfaces can include `"feature": "disabled"` when disabled, but should not instruct agents to call the report tool.
-
-Phase 2:
-
-```text
-CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED=false
-CLAUDE_TEAM_MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR=2
-CLAUDE_TEAM_MEMBER_WORK_SYNC_QUIET_WINDOW_MS=90000
-CLAUDE_TEAM_MEMBER_WORK_SYNC_STILL_WORKING_LEASE_MS=600000
-```
-
-Recommended defaults by phase:
-
-| Gate | Phase 1 default | Phase 2 default after metrics |
-|---|---:|---:|
-| `CLAUDE_TEAM_MEMBER_WORK_SYNC_ENABLED` | `true` | `true` |
-| `CLAUDE_TEAM_MEMBER_WORK_SYNC_SHADOW_ONLY` | `true` | `false` only after manual enable |
-| `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED` | `false` | `false` until explicitly flipped |
-| report tool enabled | `true` when feature enabled | `true` |
-| report intent fallback | `true` when feature enabled | `true` |
-
-Kill-switch expectations:
-
-- turning `ENABLED=false` should stop queue processing within one event-loop tick;
-- pending outbox items must not dispatch while disabled;
-- report tool should return a structured disabled response;
-- status read APIs may still return last known status marked stale/disabled;
-- no feature flag should change task board state directly.
+If we ever need an emergency kill switch for production nudges, it must only wrap the Phase 2 dispatcher. It must not disable agenda/status/report validation.
 
 ---
 
@@ -3401,7 +3394,7 @@ Step order:
 2. Extend current agenda read surface.
    - Prefer `task_briefing.workSync`.
    - Include compact agenda preview, `agendaFingerprint`, state, and `reportToken`.
-   - Omit report instructions when tool is unavailable or feature disabled.
+   - Omit report instructions when tool or app validation capability is unavailable.
    - Keep old `task_briefing` fields unchanged.
 
 3. Implement report validator.
