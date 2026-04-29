@@ -73,6 +73,7 @@ export function createMemberWorkSyncFeature(deps: {
     agendaSource,
     statusStore: store,
     reportStore: store,
+    outboxStore: store,
     reportToken,
     ...(deps.isTeamActive ? { lifecycle: { isTeamActive: deps.isTeamActive } } : {}),
     logger: deps.logger,

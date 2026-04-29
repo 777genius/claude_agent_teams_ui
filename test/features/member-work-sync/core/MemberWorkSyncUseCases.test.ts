@@ -5,14 +5,22 @@ import {
   MemberWorkSyncPendingReportIntentReplayer,
   MemberWorkSyncReporter,
   type MemberWorkSyncAgendaSourceResult,
+  type MemberWorkSyncOutboxStorePort,
   type MemberWorkSyncStatusStorePort,
   type MemberWorkSyncUseCaseDeps,
 } from '@features/member-work-sync/core/application';
 import type {
   MemberWorkSyncActionableWorkItem,
+  MemberWorkSyncOutboxEnsureInput,
+  MemberWorkSyncOutboxItem,
+  MemberWorkSyncOutboxMarkDeliveredInput,
+  MemberWorkSyncOutboxMarkFailedInput,
+  MemberWorkSyncOutboxMarkSupersededInput,
+  MemberWorkSyncPhase2ReadinessState,
   MemberWorkSyncReportIntent,
   MemberWorkSyncReportRequest,
   MemberWorkSyncStatus,
+  MemberWorkSyncTeamMetrics,
 } from '@features/member-work-sync/contracts';
 
 const workItem: MemberWorkSyncActionableWorkItem = {
@@ -45,6 +53,7 @@ class InMemoryStatusStore implements MemberWorkSyncStatusStorePort {
   readonly writes: MemberWorkSyncStatus[] = [];
   readonly pendingReports: Array<{ request: MemberWorkSyncReportRequest; reason: string }> = [];
   readonly pendingIntents = new Map<string, MemberWorkSyncReportIntent>();
+  phase2ReadinessState: MemberWorkSyncPhase2ReadinessState = 'collecting_shadow_data';
 
   async read(): Promise<MemberWorkSyncStatus | null> {
     return this.writes.at(-1) ?? null;
@@ -76,6 +85,74 @@ class InMemoryStatusStore implements MemberWorkSyncStatusStorePort {
       this.pendingIntents.set(id, { ...current, ...result });
     }
   }
+
+  async readTeamMetrics(teamName: string): Promise<MemberWorkSyncTeamMetrics> {
+    return {
+      teamName,
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      memberCount: 1,
+      stateCounts: {
+        caught_up: 0,
+        needs_sync: 1,
+        still_working: 0,
+        blocked: 0,
+        inactive: 0,
+        unknown: 0,
+      },
+      actionableItemCount: this.writes.at(-1)?.agenda.items.length ?? 0,
+      wouldNudgeCount: 1,
+      fingerprintChangeCount: 0,
+      reportAcceptedCount: 0,
+      reportRejectedCount: 0,
+      recentEvents: [],
+      phase2Readiness: {
+        state: this.phase2ReadinessState,
+        reasons: [],
+        thresholds: {
+          minObservedMembers: 1,
+          minStatusEvents: 20,
+          minObservationHours: 1,
+          maxWouldNudgesPerMemberHour: 2,
+          maxFingerprintChangesPerMemberHour: 1,
+          maxReportRejectionRate: 0.2,
+        },
+        rates: {
+          observationHours: 2,
+          statusEventCount: 30,
+          wouldNudgesPerMemberHour: 0.5,
+          fingerprintChangesPerMemberHour: 0,
+          reportRejectionRate: 0,
+        },
+        diagnostics: [],
+      },
+    };
+  }
+}
+
+class InMemoryOutboxStore implements MemberWorkSyncOutboxStorePort {
+  readonly ensures: MemberWorkSyncOutboxEnsureInput[] = [];
+
+  async ensurePending(input: MemberWorkSyncOutboxEnsureInput) {
+    this.ensures.push(input);
+    const item: MemberWorkSyncOutboxItem = {
+      ...input,
+      status: 'pending',
+      attemptGeneration: 0,
+      createdAt: input.nowIso,
+      updatedAt: input.nowIso,
+    };
+    return { ok: true as const, outcome: 'created' as const, item };
+  }
+
+  async claimDue(): Promise<MemberWorkSyncOutboxItem[]> {
+    return [];
+  }
+
+  async markDelivered(_input: MemberWorkSyncOutboxMarkDeliveredInput): Promise<void> {}
+
+  async markSuperseded(_input: MemberWorkSyncOutboxMarkSupersededInput): Promise<void> {}
+
+  async markFailed(_input: MemberWorkSyncOutboxMarkFailedInput): Promise<void> {}
 }
 
 function createDeps(options?: {
@@ -84,6 +161,7 @@ function createDeps(options?: {
   inactive?: boolean;
   teamActive?: boolean;
   providerId?: 'opencode' | 'codex';
+  outboxStore?: MemberWorkSyncOutboxStorePort;
 }) {
   const clock = new MutableClock();
   const store = new InMemoryStatusStore();
@@ -110,6 +188,7 @@ function createDeps(options?: {
     },
     statusStore: store,
     reportStore: store,
+    ...(options?.outboxStore ? { outboxStore: options.outboxStore } : {}),
     reportToken: {
       create: async (input) => ({
         token: `token:${input.teamName}:${input.memberName}:${input.agendaFingerprint}`,
@@ -275,6 +354,45 @@ describe('MemberWorkSync use cases', () => {
     });
     expect(changed.shadow?.previousFingerprint).toMatch(/^agenda:v1:/);
     expect(changed.state).toBe('needs_sync');
+  });
+
+  it('does not create outbox nudges until shadow readiness is green', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const { deps } = createDeps({ outboxStore: outbox });
+
+    await new MemberWorkSyncDiagnosticsReader(deps).execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+    });
+
+    expect(outbox.ensures).toEqual([]);
+  });
+
+  it('creates one idempotent outbox nudge intent when Phase 2 readiness is green', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const { deps, store } = createDeps({ outboxStore: outbox });
+    store.phase2ReadinessState = 'shadow_ready';
+
+    const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+    });
+
+    expect(outbox.ensures).toHaveLength(1);
+    expect(outbox.ensures[0]).toMatchObject({
+      id: `member-work-sync:team-a:bob:${status.agenda.fingerprint}`,
+      teamName: 'team-a',
+      memberName: 'bob',
+      agendaFingerprint: status.agenda.fingerprint,
+      payload: {
+        from: 'system',
+        to: 'bob',
+        messageKind: 'member_work_sync_nudge',
+        source: 'member-work-sync',
+        actionMode: 'do',
+        taskRefs: [{ teamName: 'team-a', taskId: 'task-1', displayId: '11111111' }],
+      },
+    });
   });
 
   it('rejects invalid report tokens without recording replayable intents', async () => {

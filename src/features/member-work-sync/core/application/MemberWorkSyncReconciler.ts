@@ -6,6 +6,7 @@ import {
 } from '../domain';
 import type { MemberWorkSyncStatus, MemberWorkSyncStatusRequest } from '../../contracts';
 import type { MemberWorkSyncAgendaSourceResult, MemberWorkSyncUseCaseDeps } from './ports';
+import { MemberWorkSyncNudgeOutboxPlanner } from './MemberWorkSyncNudgeOutboxPlanner';
 
 export interface MemberWorkSyncReconcileContext {
   reconciledBy?: 'request' | 'queue';
@@ -33,7 +34,11 @@ export function finalizeMemberWorkSyncAgenda(
 }
 
 export class MemberWorkSyncReconciler {
-  constructor(private readonly deps: MemberWorkSyncUseCaseDeps) {}
+  private readonly nudgeOutboxPlanner: MemberWorkSyncNudgeOutboxPlanner;
+
+  constructor(private readonly deps: MemberWorkSyncUseCaseDeps) {
+    this.nudgeOutboxPlanner = new MemberWorkSyncNudgeOutboxPlanner(deps);
+  }
 
   async execute(
     request: MemberWorkSyncStatusRequest,
@@ -82,7 +87,20 @@ export class MemberWorkSyncReconciler {
     });
 
     await this.deps.statusStore.write(status);
+    await this.planNudgeOutbox(status);
     return status;
+  }
+
+  private async planNudgeOutbox(status: MemberWorkSyncStatus): Promise<void> {
+    const result = await this.nudgeOutboxPlanner.plan(status);
+    if (result.code !== 'outbox_unavailable' && result.code !== 'status_not_nudgeable') {
+      this.deps.logger?.debug('member work sync nudge outbox planning result', {
+        teamName: status.teamName,
+        memberName: status.memberName,
+        code: result.code,
+        planned: result.planned,
+      });
+    }
   }
 }
 
