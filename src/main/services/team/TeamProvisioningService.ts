@@ -4447,6 +4447,25 @@ export class TeamProvisioningService {
     }
   }
 
+  private async buildRuntimeTurnSettledEnvironmentForMembers(
+    primaryProviderId: TeamProviderId | undefined,
+    memberSpecs: TeamCreateRequest['members']
+  ): Promise<Record<string, string>> {
+    const resolvedPrimaryProviderId = resolveTeamProviderId(primaryProviderId);
+    const needsCodexTurnSettledEnv = memberSpecs.some((member) => {
+      const memberProviderId = resolveTeamProviderId(
+        normalizeTeamMemberProviderId(member.providerId) ?? resolvedPrimaryProviderId
+      );
+      return memberProviderId === 'codex';
+    });
+
+    if (!needsCodexTurnSettledEnv) {
+      return {};
+    }
+
+    return this.buildRuntimeTurnSettledEnvironment('codex');
+  }
+
   private async readRuntimeProviderLaunchFacts(params: {
     claudePath: string;
     cwd: string;
@@ -12861,6 +12880,13 @@ export class TeamProvisioningService {
         leadProviderId: request.providerId,
         members: materializedMemberSpecs,
       });
+      Object.assign(
+        shellEnv,
+        await this.buildRuntimeTurnSettledEnvironmentForMembers(
+          request.providerId,
+          allEffectiveMemberSpecs
+        )
+      );
       const lanePlan = this.planRuntimeLanesOrThrow(request.providerId, allEffectiveMemberSpecs);
       const primaryMemberNames = new Set(lanePlan.primaryMembers.map((member) => member.name));
       const effectiveMemberSpecs = allEffectiveMemberSpecs.filter((member) =>
@@ -13916,6 +13942,13 @@ export class TeamProvisioningService {
         leadProviderId: request.providerId,
         members: materializedMemberSpecs,
       });
+      Object.assign(
+        shellEnv,
+        await this.buildRuntimeTurnSettledEnvironmentForMembers(
+          request.providerId,
+          allEffectiveMemberSpecs
+        )
+      );
       const lanePlan = this.planRuntimeLanesOrThrow(request.providerId, allEffectiveMemberSpecs);
       const primaryMemberNames = new Set(lanePlan.primaryMembers.map((member) => member.name));
       const effectiveMemberSpecs = allEffectiveMemberSpecs.filter((member) =>

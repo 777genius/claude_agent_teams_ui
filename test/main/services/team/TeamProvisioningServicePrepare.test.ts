@@ -1970,6 +1970,40 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     expect(result.env.AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT).toBe('/tmp/runtime-hooks');
   });
 
+  it('adds Codex turn-settled env when Codex is only a secondary member provider', async () => {
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeTurnSettledEnvironmentProvider(async ({ provider }) =>
+      provider === 'codex'
+        ? { AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks' }
+        : null
+    );
+
+    const result = await (svc as any).buildRuntimeTurnSettledEnvironmentForMembers('anthropic', [
+      { name: 'alice', providerId: 'anthropic' },
+      { name: 'jack', providerId: 'codex' },
+    ]);
+
+    expect(result).toEqual({
+      AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks',
+    });
+  });
+
+  it('does not add Codex turn-settled env when no member uses Codex', async () => {
+    const svc = new TeamProvisioningService();
+    const provider = vi.fn(async () => ({
+      AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks',
+    }));
+    svc.setRuntimeTurnSettledEnvironmentProvider(provider);
+
+    const result = await (svc as any).buildRuntimeTurnSettledEnvironmentForMembers('anthropic', [
+      { name: 'alice', providerId: 'anthropic' },
+      { name: 'bob', providerId: 'gemini' },
+    ]);
+
+    expect(result).toEqual({});
+    expect(provider).not.toHaveBeenCalled();
+  });
+
   it('allows help-env resolution to continue even when provisioning env warns', async () => {
     const svc = new TeamProvisioningService();
     vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
