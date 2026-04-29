@@ -57,6 +57,14 @@ liveDescribe('Member work sync Codex live e2e', () => {
   let previousNudgeFlag: string | undefined;
   let previousCodexHome: string | undefined;
   let codexHomeDir: string;
+  let ownsCodexHomeDir: boolean;
+  let codexAccountFeature: {
+    getSnapshot(): Promise<unknown>;
+    dispose(): Promise<void>;
+  } | null;
+  let providerConnectionService: {
+    setCodexAccountFeature(feature: { getSnapshot(): Promise<unknown> } | null): void;
+  } | null;
   let svc: {
     stopTeam(teamName: string): Promise<unknown>;
     isTeamAlive(teamName: string): boolean;
@@ -89,9 +97,17 @@ liveDescribe('Member work sync Codex live e2e', () => {
     previousNudgeFlag = process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED;
     previousCodexHome = process.env.CODEX_HOME;
 
-    const codexHomeRoot = path.resolve('temp', 'member-work-sync-codex-live');
-    await fs.mkdir(codexHomeRoot, { recursive: true });
-    codexHomeDir = await fs.mkdtemp(path.join(codexHomeRoot, 'codex-home-'));
+    const shouldUseConnectedAccountHome = allowConnectedChatGptAccount && !hasLiveCodexApiKey();
+    if (shouldUseConnectedAccountHome) {
+      codexHomeDir = resolveConnectedCodexHome(previousCodexHome);
+      ownsCodexHomeDir = false;
+      await fs.access(codexHomeDir);
+    } else {
+      const codexHomeRoot = path.resolve('temp', 'member-work-sync-codex-live');
+      await fs.mkdir(codexHomeRoot, { recursive: true });
+      codexHomeDir = await fs.mkdtemp(path.join(codexHomeRoot, 'codex-home-'));
+      ownsCodexHomeDir = true;
+    }
 
     process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH =
       process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
@@ -99,6 +115,8 @@ liveDescribe('Member work sync Codex live e2e', () => {
     process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED = '0';
     process.env.CODEX_HOME = codexHomeDir;
 
+    codexAccountFeature = null;
+    providerConnectionService = null;
     svc = null;
     feature = null;
     controlServer = null;
@@ -110,7 +128,9 @@ liveDescribe('Member work sync Codex live e2e', () => {
       await svc.stopTeam(teamName).catch(() => undefined);
     }
     svc?.setControlApiBaseUrlResolver(null);
+    providerConnectionService?.setCodexAccountFeature(null);
     await feature?.dispose().catch(() => undefined);
+    await codexAccountFeature?.dispose().catch(() => undefined);
     await controlServer?.close().catch(() => undefined);
 
     restoreEnv('CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH', previousCliPath);
@@ -124,7 +144,9 @@ liveDescribe('Member work sync Codex live e2e', () => {
       console.info(`[MemberWorkSyncCodex.live] preserved CODEX_HOME: ${codexHomeDir}`);
     } else {
       await fs.rm(tempDir, { recursive: true, force: true });
-      await fs.rm(codexHomeDir, { recursive: true, force: true });
+      if (ownsCodexHomeDir) {
+        await fs.rm(codexHomeDir, { recursive: true, force: true });
+      }
     }
   });
 
@@ -155,6 +177,8 @@ liveDescribe('Member work sync Codex live e2e', () => {
         { TeamTaskReader },
         { TeamKanbanManager },
         { TeamMembersMetaStore },
+        { createCodexAccountFeature },
+        { ProviderConnectionService },
       ] = await Promise.all([
         import('../../../../src/main/services/team/TeamProvisioningService'),
         import('../../../../src/main/services/team/TeamDataService'),
@@ -162,7 +186,28 @@ liveDescribe('Member work sync Codex live e2e', () => {
         import('../../../../src/main/services/team/TeamTaskReader'),
         import('../../../../src/main/services/team/TeamKanbanManager'),
         import('../../../../src/main/services/team/TeamMembersMetaStore'),
+        import('../../../../src/features/codex-account/main/composition/createCodexAccountFeature'),
+        import('../../../../src/main/services/runtime/ProviderConnectionService'),
       ]);
+
+      codexAccountFeature = createCodexAccountFeature({
+        logger: {
+          info: () => undefined,
+          warn: () => undefined,
+          error: () => undefined,
+        },
+        configManager: {
+          getConfig: () => ({
+            providerConnections: {
+              codex: {
+                preferredAuthMode: hasLiveCodexApiKey() ? 'auto' : ('chatgpt' as const),
+              },
+            },
+          }),
+        },
+      });
+      providerConnectionService = ProviderConnectionService.getInstance();
+      providerConnectionService.setCodexAccountFeature(codexAccountFeature);
 
       svc = new TeamProvisioningService();
       const activeService = svc;
@@ -335,4 +380,20 @@ async function readFatalRuntimeMessage(teamName: string): Promise<string | null>
     }
   }
   return null;
+}
+
+function hasLiveCodexApiKey(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.CODEX_API_KEY?.trim());
+}
+
+function resolveConnectedCodexHome(previousCodexHome: string | undefined): string {
+  const explicit = process.env.MEMBER_WORK_SYNC_CODEX_CONNECTED_HOME?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+  const previous = previousCodexHome?.trim();
+  if (previous) {
+    return path.resolve(previous);
+  }
+  return path.join(os.userInfo().homedir, '.codex');
 }
