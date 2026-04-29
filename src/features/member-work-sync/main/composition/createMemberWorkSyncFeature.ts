@@ -28,6 +28,7 @@ import {
 } from '../infrastructure/MemberWorkSyncEventQueue';
 import { JsonMemberWorkSyncStore } from '../infrastructure/JsonMemberWorkSyncStore';
 import { MemberWorkSyncStorePaths } from '../infrastructure/MemberWorkSyncStorePaths';
+import { MemberWorkSyncNudgeDispatchScheduler } from '../infrastructure/MemberWorkSyncNudgeDispatchScheduler';
 import { MemberWorkSyncToolActivityBusySignal } from '../infrastructure/MemberWorkSyncToolActivityBusySignal';
 import { NodeHashAdapter } from '../infrastructure/NodeHashAdapter';
 import { SystemClockAdapter } from '../infrastructure/SystemClockAdapter';
@@ -58,6 +59,7 @@ export function createMemberWorkSyncFeature(deps: {
   kanbanManager: TeamKanbanManager;
   membersMetaStore: TeamMembersMetaStore;
   isTeamActive?: (teamName: string) => Promise<boolean> | boolean;
+  listActiveTeamNames?: () => Promise<string[]>;
   logger?: MemberWorkSyncLoggerPort;
 }): MemberWorkSyncFeatureFacade {
   const clock = new SystemClockAdapter();
@@ -108,6 +110,18 @@ export function createMemberWorkSyncFeature(deps: {
     logger: deps.logger,
   });
   const router = new MemberWorkSyncTeamChangeRouter(agendaSource, queue);
+  const nudgeDispatchScheduler = deps.listActiveTeamNames
+    ? new MemberWorkSyncNudgeDispatchScheduler({
+        listActiveTeamNames: deps.listActiveTeamNames,
+        dispatchDue: (teamNames) =>
+          nudgeDispatcher.dispatchDue({
+            teamNames,
+            claimedBy: `member-work-sync:${process.pid}:scheduled`,
+          }),
+        logger: deps.logger,
+      })
+    : null;
+  nudgeDispatchScheduler?.start();
 
   return {
     getStatus: (request) => diagnosticsReader.execute(request),
@@ -139,6 +153,8 @@ export function createMemberWorkSyncFeature(deps: {
     dispatchDueNudges: (teamNames) =>
       nudgeDispatcher.dispatchDue({ teamNames, claimedBy: `member-work-sync:${process.pid}` }),
     getQueueDiagnostics: () => queue.getDiagnostics(),
-    dispose: () => queue.stop(),
+    dispose: async () => {
+      await Promise.allSettled([queue.stop(), nudgeDispatchScheduler?.dispose()]);
+    },
   };
 }

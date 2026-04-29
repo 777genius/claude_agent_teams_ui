@@ -1236,6 +1236,10 @@ async function initializeServices(): Promise<void> {
     isTeamActive: (teamName) =>
       teamProvisioningService.isTeamAlive(teamName) ||
       teamProvisioningService.hasProvisioningRun(teamName),
+    listActiveTeamNames: async () =>
+      (await teamDataService.listTeams())
+        .filter((team) => !team.deletedAt)
+        .map((team) => team.teamName),
     logger: createLogger('Feature:MemberWorkSync'),
   });
   void teamDataService
