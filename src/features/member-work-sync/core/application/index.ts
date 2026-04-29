@@ -6,3 +6,5 @@ export * from './MemberWorkSyncPendingReportIntentReplayer';
 export * from './MemberWorkSyncReconciler';
 export * from './MemberWorkSyncReporter';
 export * from './ports';
+export * from './RuntimeTurnSettledIngestor';
+export * from './RuntimeTurnSettledPorts';

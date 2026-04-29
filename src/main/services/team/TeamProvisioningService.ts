@@ -2,6 +2,7 @@ import {
   resolveAnthropicFastMode,
   resolveAnthropicRuntimeSelection,
 } from '@features/anthropic-runtime-profile/main';
+import type { RuntimeTurnSettledProvider } from '@features/member-work-sync/core/domain';
 import {
   buildCodexFastModeArgs,
   resolveCodexFastMode,
@@ -4320,6 +4321,9 @@ export class TeamProvisioningService {
   private inFlightResponses = new Set<string>();
   private runtimeAdapterRegistry: TeamRuntimeAdapterRegistry | null = null;
   private controlApiBaseUrlResolver: (() => Promise<string | null>) | null = null;
+  private runtimeTurnSettledHookSettingsProvider:
+    | ((input: { provider: RuntimeTurnSettledProvider }) => Promise<Record<string, unknown> | null>)
+    | null = null;
   private readonly stoppedTeamOpenCodeRuntimeCleanupInFlight = new Map<string, Promise<number>>();
   private readonly cleanedStoppedTeamOpenCodeRuntimeLanes = new Set<string>();
   private crossTeamSender:
@@ -4379,6 +4383,36 @@ export class TeamProvisioningService {
 
   setControlApiBaseUrlResolver(resolver: (() => Promise<string | null>) | null): void {
     this.controlApiBaseUrlResolver = resolver;
+  }
+
+  setRuntimeTurnSettledHookSettingsProvider(
+    provider:
+      | ((input: {
+          provider: RuntimeTurnSettledProvider;
+        }) => Promise<Record<string, unknown> | null>)
+      | null
+  ): void {
+    this.runtimeTurnSettledHookSettingsProvider = provider;
+  }
+
+  private async buildRuntimeTurnSettledHookSettingsArgs(
+    providerId: TeamProviderId
+  ): Promise<string[]> {
+    if (providerId !== 'anthropic' || !this.runtimeTurnSettledHookSettingsProvider) {
+      return [];
+    }
+
+    try {
+      const settings = await this.runtimeTurnSettledHookSettingsProvider({ provider: 'claude' });
+      return settings ? ['--settings', JSON.stringify(settings)] : [];
+    } catch (error) {
+      logger.warn(
+        `Failed to build member work sync Stop hook settings: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return [];
+    }
   }
 
   private async readRuntimeProviderLaunchFacts(params: {
@@ -9869,6 +9903,8 @@ export class TeamProvisioningService {
       input.leadName
     );
     const bootstrapExpectedAfter = nowIso();
+    const runtimeTurnSettledHookArgs =
+      await this.buildRuntimeTurnSettledHookSettingsArgs(providerId);
 
     const runtimeArgs = mergeJsonSettingsArgs([
       '--agent-id',
@@ -9894,6 +9930,7 @@ export class TeamProvisioningService {
         : ['--permission-prompt-tool', 'stdio', '--permission-mode', 'default']),
       ...(input.configuredMember.model ? ['--model', input.configuredMember.model] : []),
       ...(input.configuredMember.effort ? ['--effort', input.configuredMember.effort] : []),
+      ...runtimeTurnSettledHookArgs,
       ...(provisioningEnv.providerArgs ?? []),
     ]);
     const command = buildDirectTmuxRestartCommand({
@@ -12970,6 +13007,8 @@ export class TeamProvisioningService {
       );
       const resolvedProviderId = resolveTeamProviderId(request.providerId);
       const providerFastModeArgs = buildProviderFastModeArgs(resolvedProviderId, launchIdentity);
+      const runtimeTurnSettledHookArgs =
+        await this.buildRuntimeTurnSettledHookSettingsArgs(resolvedProviderId);
       const spawnArgs = mergeJsonSettingsArgs([
         '--input-format',
         'stream-json',
@@ -12995,6 +13034,7 @@ export class TeamProvisioningService {
         ...(launchModelArg ? ['--model', launchModelArg] : []),
         ...(launchIdentity.resolvedEffort ? ['--effort', launchIdentity.resolvedEffort] : []),
         ...providerFastModeArgs,
+        ...runtimeTurnSettledHookArgs,
         ...(request.worktree ? ['--worktree', request.worktree] : []),
         ...buildDesktopTeammateModeCliArgs(teammateModeDecision),
         ...parseCliArgs(request.extraCliArgs),
@@ -14102,6 +14142,8 @@ export class TeamProvisioningService {
       );
       const resolvedProviderId = resolveTeamProviderId(request.providerId);
       const providerFastModeArgs = buildProviderFastModeArgs(resolvedProviderId, launchIdentity);
+      const runtimeTurnSettledHookArgs =
+        await this.buildRuntimeTurnSettledHookSettingsArgs(resolvedProviderId);
       if (launchModelArg) {
         launchArgs.push('--model', launchModelArg);
       }
@@ -14109,6 +14151,7 @@ export class TeamProvisioningService {
         launchArgs.push('--effort', launchIdentity.resolvedEffort);
       }
       launchArgs.push(...providerFastModeArgs);
+      launchArgs.push(...runtimeTurnSettledHookArgs);
       if (request.worktree) {
         launchArgs.push('--worktree', request.worktree);
       }
@@ -22885,6 +22928,7 @@ export class TeamProvisioningService {
     for (const providerId of crossProviderIds) {
       try {
         const env = await this.buildProvisioningEnv(providerId);
+        args.push(...(await this.buildRuntimeTurnSettledHookSettingsArgs(providerId)));
         if (env.providerArgs) {
           args.push(...env.providerArgs);
         }

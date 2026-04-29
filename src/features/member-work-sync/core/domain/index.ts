@@ -5,4 +5,6 @@ export * from './memberName';
 export * from './MemberWorkSyncPhase2Readiness';
 export * from './MemberWorkSyncNudge';
 export * from './MemberWorkSyncReportValidator';
+export * from './RuntimeTurnSettledEvent';
+export * from './RuntimeTurnSettledProvider';
 export * from './SyncDecisionPolicy';

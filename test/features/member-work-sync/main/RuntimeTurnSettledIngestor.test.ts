@@ -1,0 +1,143 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { RuntimeTurnSettledIngestor } from '@features/member-work-sync/core/application';
+import { ClaudeStopHookPayloadNormalizer } from '@features/member-work-sync/main/infrastructure/ClaudeStopHookPayloadNormalizer';
+import { NodeHashAdapter } from '@features/member-work-sync/main/infrastructure/NodeHashAdapter';
+
+import type {
+  RuntimeTurnSettledClaimedPayload,
+  RuntimeTurnSettledEventStorePort,
+  RuntimeTurnSettledInvalidResult,
+  RuntimeTurnSettledProcessedResult,
+  RuntimeTurnSettledTargetResolverPort,
+} from '@features/member-work-sync/core/application';
+
+function makePayload(raw: string): RuntimeTurnSettledClaimedPayload {
+  return {
+    id: 'event-1.claude.json',
+    fileName: 'event-1.claude.json',
+    filePath: '/tmp/event-1.claude.json',
+    provider: 'claude',
+    raw,
+    claimedAt: '2026-04-29T12:00:00.000Z',
+  };
+}
+
+describe('RuntimeTurnSettledIngestor', () => {
+  it('normalizes Claude Stop payloads and enqueues resolved member reconcile', async () => {
+    const payload = makePayload(
+      JSON.stringify({
+        hook_event_name: 'Stop',
+        session_id: 'ses-1',
+        transcript_path: '/tmp/ses-1.jsonl',
+      })
+    );
+    const processed: RuntimeTurnSettledProcessedResult[] = [];
+    const store: RuntimeTurnSettledEventStorePort = {
+      claimPending: vi.fn(async () => [payload]),
+      markProcessed: vi.fn(async (_payload, result) => {
+        processed.push(result);
+      }),
+      markInvalid: vi.fn(),
+    };
+    const resolver: RuntimeTurnSettledTargetResolverPort = {
+      resolve: vi.fn(async () => ({ ok: true as const, teamName: 'team-a', memberName: 'alice' })),
+    };
+    const enqueueRuntimeTurnSettled = vi.fn();
+
+    const ingestor = new RuntimeTurnSettledIngestor({
+      eventStore: store,
+      normalizer: new ClaudeStopHookPayloadNormalizer(new NodeHashAdapter()),
+      targetResolver: resolver,
+      reconcileQueue: { enqueueRuntimeTurnSettled },
+      clock: { now: () => new Date('2026-04-29T12:01:00.000Z') },
+    });
+
+    await expect(ingestor.drainPending()).resolves.toEqual({
+      claimed: 1,
+      enqueued: 1,
+      unresolved: 0,
+      invalid: 0,
+      failed: 0,
+    });
+    expect(enqueueRuntimeTurnSettled).toHaveBeenCalledWith({
+      teamName: 'team-a',
+      memberName: 'alice',
+      event: expect.objectContaining({
+        provider: 'claude',
+        hookEventName: 'Stop',
+        sessionId: 'ses-1',
+        transcriptPath: '/tmp/ses-1.jsonl',
+      }),
+    });
+    expect(processed[0]).toMatchObject({
+      outcome: 'enqueued',
+      teamName: 'team-a',
+      memberName: 'alice',
+    });
+  });
+
+  it('quarantines malformed payloads without enqueueing reconcile', async () => {
+    const payload = makePayload('not-json');
+    const invalid: RuntimeTurnSettledInvalidResult[] = [];
+    const store: RuntimeTurnSettledEventStorePort = {
+      claimPending: vi.fn(async () => [payload]),
+      markProcessed: vi.fn(),
+      markInvalid: vi.fn(async (_payload, result) => {
+        invalid.push(result);
+      }),
+    };
+
+    const ingestor = new RuntimeTurnSettledIngestor({
+      eventStore: store,
+      normalizer: new ClaudeStopHookPayloadNormalizer(new NodeHashAdapter()),
+      targetResolver: { resolve: vi.fn() },
+      reconcileQueue: { enqueueRuntimeTurnSettled: vi.fn() },
+      clock: { now: () => new Date('2026-04-29T12:01:00.000Z') },
+    });
+
+    await expect(ingestor.drainPending()).resolves.toMatchObject({
+      claimed: 1,
+      invalid: 1,
+      enqueued: 0,
+    });
+    expect(invalid[0]).toMatchObject({ reason: 'invalid_json' });
+  });
+
+  it('records unresolved Stop events as processed diagnostics', async () => {
+    const payload = makePayload(
+      JSON.stringify({ hook_event_name: 'Stop', transcript_path: '/tmp/unknown.jsonl' })
+    );
+    const processed: RuntimeTurnSettledProcessedResult[] = [];
+    const store: RuntimeTurnSettledEventStorePort = {
+      claimPending: vi.fn(async () => [payload]),
+      markProcessed: vi.fn(async (_payload, result) => {
+        processed.push(result);
+      }),
+      markInvalid: vi.fn(),
+    };
+
+    const ingestor = new RuntimeTurnSettledIngestor({
+      eventStore: store,
+      normalizer: new ClaudeStopHookPayloadNormalizer(new NodeHashAdapter()),
+      targetResolver: {
+        resolve: vi.fn(async () => ({
+          ok: false as const,
+          reason: 'no_matching_member_session',
+        })),
+      },
+      reconcileQueue: { enqueueRuntimeTurnSettled: vi.fn() },
+      clock: { now: () => new Date('2026-04-29T12:01:00.000Z') },
+    });
+
+    await expect(ingestor.drainPending()).resolves.toMatchObject({
+      claimed: 1,
+      unresolved: 1,
+      enqueued: 0,
+    });
+    expect(processed[0]).toMatchObject({
+      outcome: 'unresolved',
+      reason: 'no_matching_member_session',
+    });
+  });
+});

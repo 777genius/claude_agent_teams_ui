@@ -24,8 +24,11 @@ function getHookEntryDedupeKey(value: unknown): string | null {
     return null;
   }
 
-  const commands = value.hooks
-    .map((hook) => (isJsonObject(hook) && typeof hook.command === 'string' ? hook.command : null))
+  const hooks = Array.isArray(value.hooks) ? value.hooks : [];
+  const commands = hooks
+    .map((hook: unknown) =>
+      isJsonObject(hook) && typeof hook.command === 'string' ? hook.command : null
+    )
     .filter((command): command is string => Boolean(command));
   if (commands.length === 0) {
     return null;

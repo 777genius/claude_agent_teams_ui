@@ -1130,6 +1130,7 @@ export interface TeamChangeEvent {
     | 'lead-context'
     | 'lead-message'
     | 'tool-activity'
+    | 'member-turn-settled'
     | 'process'
     | 'member-spawn';
   teamName: string;

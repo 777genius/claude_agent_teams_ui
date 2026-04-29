@@ -4,6 +4,12 @@ import type {
 } from '../../infrastructure/MemberWorkSyncEventQueue';
 import type { TeamChangeEvent, ToolActivityEventPayload } from '@shared/types';
 
+interface MemberTurnSettledEventPayload {
+  memberName?: string;
+  sourceId?: string;
+  provider?: string;
+}
+
 interface MemberWorkSyncRosterSource {
   loadActiveMemberNames(teamName: string): Promise<string[]>;
 }
@@ -31,6 +37,18 @@ function parseToolActivity(detail: string | undefined): ToolActivityEventPayload
   }
   try {
     const parsed = JSON.parse(detail) as ToolActivityEventPayload;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseMemberTurnSettled(detail: string | undefined): MemberTurnSettledEventPayload | null {
+  if (!detail) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(detail) as MemberTurnSettledEventPayload;
     return parsed && typeof parsed === 'object' ? parsed : null;
   } catch {
     return null;
@@ -77,6 +95,19 @@ export class MemberWorkSyncTeamChangeRouter {
           teamName: event.teamName,
           memberName: payload.memberName,
           triggerReason: 'tool_finished',
+        });
+      }
+      return;
+    }
+
+    if (event.type === 'member-turn-settled') {
+      const payload = parseMemberTurnSettled(event.detail);
+      const memberName = payload?.memberName?.trim();
+      if (memberName) {
+        this.queue.enqueue({
+          teamName: event.teamName,
+          memberName,
+          triggerReason: 'turn_settled',
         });
       }
       return;

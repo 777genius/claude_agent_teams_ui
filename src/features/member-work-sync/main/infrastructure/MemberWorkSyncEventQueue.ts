@@ -9,6 +9,7 @@ export type MemberWorkSyncTriggerReason =
   | 'member_spawned'
   | 'tool_finished'
   | 'runtime_activity'
+  | 'turn_settled'
   | 'manual_refresh';
 
 export interface MemberWorkSyncQueueDiagnostics {

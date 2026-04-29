@@ -67,4 +67,32 @@ describe('MemberWorkSyncTeamChangeRouter', () => {
     expect(queue.dropTeam).toHaveBeenCalledWith('team-a');
     expect(queue.enqueue).not.toHaveBeenCalled();
   });
+
+  it('routes member-turn-settled events to one member reconcile', () => {
+    const { queue, router } = createRouter();
+
+    router.noteTeamChange({
+      type: 'member-turn-settled',
+      teamName: 'team-a',
+      detail: JSON.stringify({ memberName: 'alice', sourceId: 'source-1', provider: 'claude' }),
+    });
+
+    expect(queue.enqueue).toHaveBeenCalledWith({
+      teamName: 'team-a',
+      memberName: 'alice',
+      triggerReason: 'turn_settled',
+    });
+  });
+
+  it('ignores malformed member-turn-settled details', () => {
+    const { queue, router } = createRouter();
+
+    router.noteTeamChange({
+      type: 'member-turn-settled',
+      teamName: 'team-a',
+      detail: 'not-json',
+    });
+
+    expect(queue.enqueue).not.toHaveBeenCalled();
+  });
 });
