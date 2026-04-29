@@ -14,6 +14,7 @@ import { access } from 'fs/promises';
 import { isAbsolute, join } from 'path';
 
 import type { HttpServices } from './index';
+import type { MemberWorkSyncReportState } from '@features/member-work-sync/contracts';
 import type {
   EffortLevel,
   TeamCreateConfigRequest,
@@ -30,6 +31,10 @@ type CreateTeamBody = TeamCreateConfigRequest;
 
 class HttpBadRequestError extends Error {}
 class HttpFeatureUnavailableError extends Error {}
+
+function isMemberWorkSyncReportState(value: string): value is MemberWorkSyncReportState {
+  return value === 'still_working' || value === 'blocked' || value === 'caught_up';
+}
 
 function getTeamProvisioningService(
   services: HttpServices
@@ -466,6 +471,15 @@ function withRuntimeTeamName(teamName: string, body: unknown): Record<string, un
   return { ...payload, teamName };
 }
 
+function getMemberWorkSyncFeature(
+  services: HttpServices
+): NonNullable<HttpServices['memberWorkSyncFeature']> {
+  if (!services.memberWorkSyncFeature) {
+    throw new HttpBadRequestError('Member work sync feature is unavailable');
+  }
+  return services.memberWorkSyncFeature;
+}
+
 export function registerTeamRoutes(app: FastifyInstance, services: HttpServices): void {
   app.get('/api/teams', async (_request, reply) => {
     try {
@@ -729,6 +743,87 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
         if (shouldLogError(error)) {
           logger.error(
             `Error in POST /api/teams/${request.params.teamName}/opencode/runtime/heartbeat:`,
+            getErrorMessage(error)
+          );
+        }
+        return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+      }
+    }
+  );
+
+  app.get<{ Params: { teamName: string; memberName: string } }>(
+    '/api/teams/:teamName/member-work-sync/:memberName',
+    async (request, reply) => {
+      try {
+        const validatedTeamName = validateTeamName(request.params.teamName);
+        if (!validatedTeamName.valid) {
+          return reply.status(400).send({ error: validatedTeamName.error });
+        }
+        const memberName = request.params.memberName?.trim();
+        if (!memberName) {
+          return reply.status(400).send({ error: 'memberName is required' });
+        }
+        return reply.send(
+          await getMemberWorkSyncFeature(services).getStatus({
+            teamName: validatedTeamName.value!,
+            memberName,
+          })
+        );
+      } catch (error) {
+        if (shouldLogError(error)) {
+          logger.error(
+            `Error in GET /api/teams/${request.params.teamName}/member-work-sync/${request.params.memberName}:`,
+            getErrorMessage(error)
+          );
+        }
+        return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+      }
+    }
+  );
+
+  app.post<{ Params: { teamName: string }; Body: Record<string, unknown> }>(
+    '/api/teams/:teamName/member-work-sync/report',
+    async (request, reply) => {
+      try {
+        const validatedTeamName = validateTeamName(request.params.teamName);
+        if (!validatedTeamName.valid) {
+          return reply.status(400).send({ error: validatedTeamName.error });
+        }
+        const payload = withRuntimeTeamName(validatedTeamName.value!, request.body);
+        const memberName = typeof payload.memberName === 'string' ? payload.memberName.trim() : '';
+        const state = typeof payload.state === 'string' ? payload.state.trim() : '';
+        const agendaFingerprint =
+          typeof payload.agendaFingerprint === 'string' ? payload.agendaFingerprint.trim() : '';
+        if (!memberName || !state || !agendaFingerprint) {
+          return reply.status(400).send({
+            error: 'memberName, state, and agendaFingerprint are required',
+          });
+        }
+        if (!isMemberWorkSyncReportState(state)) {
+          return reply
+            .status(400)
+            .send({ error: 'state must be still_working, blocked, or caught_up' });
+        }
+        const taskIds = Array.isArray(payload.taskIds)
+          ? payload.taskIds.filter((taskId): taskId is string => typeof taskId === 'string')
+          : undefined;
+        return reply.send(
+          await getMemberWorkSyncFeature(services).report({
+            teamName: validatedTeamName.value!,
+            memberName,
+            state,
+            agendaFingerprint,
+            ...(taskIds ? { taskIds } : {}),
+            ...(typeof payload.note === 'string' ? { note: payload.note } : {}),
+            ...(typeof payload.reportedAt === 'string' ? { reportedAt: payload.reportedAt } : {}),
+            ...(typeof payload.leaseTtlMs === 'number' ? { leaseTtlMs: payload.leaseTtlMs } : {}),
+            source: 'mcp',
+          })
+        );
+      } catch (error) {
+        if (shouldLogError(error)) {
+          logger.error(
+            `Error in POST /api/teams/${request.params.teamName}/member-work-sync/report:`,
             getErrorMessage(error)
           );
         }

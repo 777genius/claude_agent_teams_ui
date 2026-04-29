@@ -37,6 +37,12 @@ import {
   removeRecentProjectsIpc,
 } from '@features/recent-projects/main';
 import {
+  createMemberWorkSyncFeature,
+  type MemberWorkSyncFeatureFacade,
+  registerMemberWorkSyncIpc,
+  removeMemberWorkSyncIpc,
+} from '@features/member-work-sync/main';
+import {
   createRuntimeProviderManagementFeature,
   registerRuntimeProviderManagementIpc,
   removeRuntimeProviderManagementIpc,
@@ -178,11 +184,14 @@ import {
   TeamMemberLogsFinder,
   TeamProvisioningService,
   TeamRuntimeAdapterRegistry,
+  TeamKanbanManager,
+  TeamMembersMetaStore,
   TeamTaskStallJournal,
   TeamTaskStallMonitor,
   TeamTaskStallNotifier,
   TeamTaskStallPolicy,
   TeamTaskStallSnapshotSource,
+  TeamTaskReader,
   UpdaterService,
 } from './services';
 
@@ -558,6 +567,7 @@ let codexAccountFeature: CodexAccountFeatureFacade | null = null;
 let codexModelCatalogFeature: CodexModelCatalogFeatureFacade | null = null;
 let recentProjectsFeature: RecentProjectsFeatureFacade;
 let runtimeProviderManagementFeature: RuntimeProviderManagementFeatureFacade;
+let memberWorkSyncFeature: MemberWorkSyncFeatureFacade;
 let teamDataService: TeamDataService;
 let teamProvisioningService: TeamProvisioningService;
 let cliInstallerService: CliInstallerService;
@@ -1215,6 +1225,14 @@ async function initializeServices(): Promise<void> {
     logger: createLogger('Feature:RecentProjects'),
   });
   runtimeProviderManagementFeature = createRuntimeProviderManagementFeature();
+  memberWorkSyncFeature = createMemberWorkSyncFeature({
+    teamsBasePath: getTeamsBasePath(),
+    configReader: new TeamConfigReader(),
+    taskReader: new TeamTaskReader(),
+    kanbanManager: new TeamKanbanManager(),
+    membersMetaStore: new TeamMembersMetaStore(),
+    logger: createLogger('Feature:MemberWorkSync'),
+  });
   codexAccountFeature = createCodexAccountFeature({
     logger: createLogger('Feature:CodexAccount'),
     configManager,
@@ -1282,6 +1300,7 @@ async function initializeServices(): Promise<void> {
   registerCodexAccountIpc(ipcMain, codexAccountFeature);
   registerRecentProjectsIpc(ipcMain, recentProjectsFeature);
   registerRuntimeProviderManagementIpc(ipcMain, runtimeProviderManagementFeature);
+  registerMemberWorkSyncIpc(ipcMain, memberWorkSyncFeature);
 
   // Forward SSH state changes to renderer and HTTP SSE clients
   sshConnectionManager.on('state-change', (status: unknown) => {
@@ -1335,6 +1354,7 @@ async function startHttpServer(
         chunkBuilder: activeContext.chunkBuilder,
         dataCache: activeContext.dataCache,
         recentProjectsFeature,
+        memberWorkSyncFeature,
         updaterService,
         sshConnectionManager,
         teamDataService,
@@ -1467,6 +1487,7 @@ async function shutdownServices(): Promise<void> {
       removeCodexAccountIpc(ipcMain);
       removeRecentProjectsIpc(ipcMain);
       removeRuntimeProviderManagementIpc(ipcMain);
+      removeMemberWorkSyncIpc(ipcMain);
     });
 
     await runShutdownStep('team backup dispose', () => teamBackupService?.dispose());

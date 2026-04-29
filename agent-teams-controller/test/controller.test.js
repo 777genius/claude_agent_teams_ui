@@ -148,6 +148,7 @@ describe('agent-teams-controller API', () => {
     expect(briefing).toContain('Task briefing for bob:');
     expect(briefing).toContain('Use task_briefing as your primary working queue whenever you need to see assigned work.');
     expect(briefing).toContain('Use task_list only to search/browse inventory rows, not as your working queue.');
+    expect(briefing).toContain('member_work_sync_status and member_work_sync_report');
     expect(briefing).toContain(
       'Awareness items are watch-only context and do not authorize you to start work unless the lead reroutes the task or you become the actionOwner.'
     );
@@ -2245,6 +2246,80 @@ describe('agent-teams-controller API', () => {
         memberName: 'bob',
         runtimeSessionId: 'ses-1',
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('forwards member work sync status and reports to the app validator', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      if (method === 'GET' && url === '/api/teams/my-team/member-work-sync/bob') {
+        return {
+          body: {
+            teamName: 'my-team',
+            memberName: 'bob',
+            state: 'needs_sync',
+            agenda: {
+              teamName: 'my-team',
+              memberName: 'bob',
+              generatedAt: '2026-04-29T00:00:00.000Z',
+              fingerprint: 'agenda:v1:abc',
+              items: [],
+              diagnostics: [],
+            },
+            evaluatedAt: '2026-04-29T00:00:00.000Z',
+            diagnostics: ['no_current_report'],
+          },
+        };
+      }
+      if (method === 'POST' && url === '/api/teams/my-team/member-work-sync/report') {
+        return { body: { accepted: true, code: 'accepted', status: body } };
+      }
+      return { statusCode: 404, body: { error: `Unhandled ${method} ${url}` } };
+    });
+
+    try {
+      const status = await controller.workSync.memberWorkSyncStatus({
+        controlUrl: server.baseUrl,
+        from: 'bob',
+      });
+      const report = await controller.workSync.memberWorkSyncReport({
+        controlUrl: server.baseUrl,
+        memberName: 'bob',
+        state: 'still_working',
+        agendaFingerprint: 'agenda:v1:abc',
+        taskIds: ['task-1'],
+        note: 'Continuing work',
+        leaseTtlMs: 120000,
+      });
+
+      expect(status.state).toBe('needs_sync');
+      expect(report.accepted).toBe(true);
+      expect(calls).toEqual([
+        {
+          method: 'GET',
+          url: '/api/teams/my-team/member-work-sync/bob',
+          body: undefined,
+        },
+        {
+          method: 'POST',
+          url: '/api/teams/my-team/member-work-sync/report',
+          body: {
+            teamName: 'my-team',
+            memberName: 'bob',
+            state: 'still_working',
+            agendaFingerprint: 'agenda:v1:abc',
+            taskIds: ['task-1'],
+            note: 'Continuing work',
+            leaseTtlMs: 120000,
+          },
+        },
+      ]);
     } finally {
       await server.close();
     }

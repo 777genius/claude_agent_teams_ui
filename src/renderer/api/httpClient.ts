@@ -82,7 +82,7 @@ import type {
   WaterfallData,
   WslClaudeRootCandidate,
 } from '@shared/types';
-import type { AgentConfig } from '@shared/types/api';
+import type { AgentConfig, MemberWorkSyncElectronApi } from '@shared/types/api';
 import type { EditorAPI, ProjectAPI } from '@shared/types/editor';
 import type { TerminalAPI } from '@shared/types/terminal';
 
@@ -1287,6 +1287,20 @@ export class HttpAPIClient implements ElectronAPI {
         recoverable: true,
       },
     }),
+  };
+
+  memberWorkSync: MemberWorkSyncElectronApi = {
+    getStatus: (request) =>
+      this.get(
+        `/api/teams/${encodeURIComponent(request.teamName)}/member-work-sync/${encodeURIComponent(
+          request.memberName
+        )}`
+      ),
+    report: (request) =>
+      this.post(
+        `/api/teams/${encodeURIComponent(request.teamName)}/member-work-sync/report`,
+        request
+      ),
   };
 
   tmux: TmuxAPI = {

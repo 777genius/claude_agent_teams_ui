@@ -1,0 +1,78 @@
+import type {
+  MemberWorkSyncReport,
+  MemberWorkSyncReportRequest,
+  MemberWorkSyncReportResult,
+} from '../../contracts';
+import { validateMemberWorkSyncReport } from '../domain';
+import { finalizeMemberWorkSyncAgenda, MemberWorkSyncReconciler } from './MemberWorkSyncReconciler';
+import type { MemberWorkSyncUseCaseDeps } from './ports';
+
+export class MemberWorkSyncReporter {
+  private readonly reconciler: MemberWorkSyncReconciler;
+
+  constructor(private readonly deps: MemberWorkSyncUseCaseDeps) {
+    this.reconciler = new MemberWorkSyncReconciler(deps);
+  }
+
+  async execute(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult> {
+    const source = await this.deps.agendaSource.loadAgenda(request);
+    const agenda = finalizeMemberWorkSyncAgenda(this.deps, source);
+    const nowIso = (
+      request.reportedAt ? new Date(request.reportedAt) : this.deps.clock.now()
+    ).toISOString();
+    const validation = validateMemberWorkSyncReport({
+      request,
+      agenda,
+      nowIso,
+      activeMemberNames: source.activeMemberNames,
+    });
+
+    if (!validation.ok) {
+      const status = await this.reconciler.execute(request);
+      await this.deps.reportStore?.appendPendingReport?.(request, validation.code);
+      return {
+        accepted: false,
+        code: validation.code,
+        message: validation.message,
+        status,
+      };
+    }
+
+    const report: MemberWorkSyncReport = {
+      teamName: agenda.teamName,
+      memberName: agenda.memberName,
+      state: request.state,
+      agendaFingerprint: agenda.fingerprint,
+      reportedAt: nowIso,
+      ...(validation.expiresAt ? { expiresAt: validation.expiresAt } : {}),
+      ...(request.taskIds ? { taskIds: [...request.taskIds] } : {}),
+      ...(request.note ? { note: request.note } : {}),
+      source: request.source ?? 'app',
+      accepted: true,
+    };
+
+    const status = {
+      teamName: agenda.teamName,
+      memberName: agenda.memberName,
+      state:
+        report.state === 'caught_up'
+          ? ('caught_up' as const)
+          : report.state === 'blocked'
+            ? ('blocked' as const)
+            : ('still_working' as const),
+      agenda,
+      report,
+      evaluatedAt: nowIso,
+      diagnostics: [...agenda.diagnostics, 'report_accepted'],
+      ...(source.providerId ? { providerId: source.providerId } : {}),
+    };
+
+    await this.deps.statusStore.write(status);
+    return {
+      accepted: true,
+      code: 'accepted',
+      message: validation.message,
+      status,
+    };
+  }
+}

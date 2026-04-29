@@ -98,6 +98,12 @@ import type { CodexAccountElectronApi } from '@features/codex-account/contracts'
 import type { RecentProjectsElectronApi } from '@features/recent-projects/contracts';
 import type { RuntimeProviderManagementApi } from '@features/runtime-provider-management/contracts';
 import type {
+  MemberWorkSyncReportRequest,
+  MemberWorkSyncReportResult,
+  MemberWorkSyncStatus,
+  MemberWorkSyncStatusRequest,
+} from '@features/member-work-sync/contracts';
+import type {
   ConversationGroup,
   FileChangeEvent,
   PaginatedSessionsResult,
@@ -604,6 +610,11 @@ export interface TeamsAPI {
   readFileForToolApproval: (filePath: string) => Promise<ToolApprovalFileContent>;
 }
 
+export interface MemberWorkSyncElectronApi {
+  getStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
+  report(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult>;
+}
+
 // =============================================================================
 // Cross-Team Communication API
 // =============================================================================
@@ -875,6 +886,9 @@ export interface ElectronAPI extends RecentProjectsElectronApi, CodexAccountElec
 
   // Runtime nested provider management API
   runtimeProviderManagement: RuntimeProviderManagementApi;
+
+  // Member actionable-work sync diagnostics API
+  memberWorkSync: MemberWorkSyncElectronApi;
 
   // tmux runtime diagnostics API
   tmux: TmuxAPI;

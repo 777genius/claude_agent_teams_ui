@@ -102,6 +102,11 @@ declare module 'agent-teams-controller' {
     runtimeHeartbeat(flags: Record<string, unknown>): Promise<unknown>;
   }
 
+  export interface ControllerWorkSyncApi {
+    memberWorkSyncStatus(flags: Record<string, unknown>): Promise<unknown>;
+    memberWorkSyncReport(flags: Record<string, unknown>): Promise<unknown>;
+  }
+
   export interface AgentTeamsController {
     tasks: ControllerTaskApi;
     kanban: ControllerKanbanApi;
@@ -111,6 +116,7 @@ declare module 'agent-teams-controller' {
     maintenance: ControllerMaintenanceApi;
     crossTeam: ControllerCrossTeamApi;
     runtime: ControllerRuntimeApi;
+    workSync: ControllerWorkSyncApi;
   }
 
   export function createController(options: ControllerContextOptions): AgentTeamsController;
@@ -143,6 +149,7 @@ declare module 'agent-teams-controller' {
     | 'message'
     | 'process'
     | 'runtime'
+    | 'workSync'
     | 'crossTeam';
 
   export interface AgentTeamsMcpToolGroup {
@@ -159,6 +166,7 @@ declare module 'agent-teams-controller' {
   export const AGENT_TEAMS_PROCESS_TOOL_NAMES: readonly string[];
   export const AGENT_TEAMS_KANBAN_TOOL_NAMES: readonly string[];
   export const AGENT_TEAMS_RUNTIME_TOOL_NAMES: readonly string[];
+  export const AGENT_TEAMS_WORK_SYNC_TOOL_NAMES: readonly string[];
   export const AGENT_TEAMS_MCP_TOOL_GROUPS: readonly AgentTeamsMcpToolGroup[];
   export const AGENT_TEAMS_REGISTERED_TOOL_NAMES: readonly string[];
   export const AGENT_TEAMS_TEAMMATE_OPERATIONAL_TOOL_NAMES: readonly string[];

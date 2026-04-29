@@ -9,6 +9,7 @@ import {
   type RecentProjectsFeatureFacade,
   registerRecentProjectsHttp,
 } from '@features/recent-projects/main';
+import type { MemberWorkSyncFeatureFacade } from '@features/member-work-sync/main';
 import { createLogger } from '@shared/utils/logger';
 
 import { registerConfigRoutes } from './config';
@@ -46,6 +47,7 @@ export interface HttpServices {
   chunkBuilder: ChunkBuilder;
   dataCache: DataCache;
   recentProjectsFeature?: RecentProjectsFeatureFacade;
+  memberWorkSyncFeature?: MemberWorkSyncFeatureFacade;
   updaterService: UpdaterService;
   sshConnectionManager: SshConnectionManager;
   teamDataService?: TeamDataService;

@@ -7,6 +7,7 @@ const processes = require('./internal/processes.js');
 const maintenance = require('./internal/maintenance.js');
 const crossTeam = require('./internal/crossTeam.js');
 const runtime = require('./internal/runtime.js');
+const workSync = require('./internal/workSync.js');
 const agentBlocks = require('./internal/agentBlocks.js');
 
 function bindModule(context, moduleApi) {
@@ -31,6 +32,7 @@ function createController(options) {
     maintenance: bindModule(context, maintenance),
     crossTeam: bindModule(context, crossTeam),
     runtime: bindModule(context, runtime),
+    workSync: bindModule(context, workSync),
   };
 }
 
@@ -51,4 +53,5 @@ module.exports = {
   maintenance,
   crossTeam,
   runtime,
+  workSync,
 };

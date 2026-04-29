@@ -63,6 +63,8 @@ const AGENT_TEAMS_RUNTIME_TOOL_NAMES = [
   'runtime_heartbeat',
 ];
 
+const AGENT_TEAMS_WORK_SYNC_TOOL_NAMES = ['member_work_sync_status', 'member_work_sync_report'];
+
 const AGENT_TEAMS_MCP_TOOL_GROUPS = [
   {
     id: 'team',
@@ -105,6 +107,11 @@ const AGENT_TEAMS_MCP_TOOL_GROUPS = [
     toolNames: AGENT_TEAMS_RUNTIME_TOOL_NAMES,
   },
   {
+    id: 'workSync',
+    teammateOperational: true,
+    toolNames: AGENT_TEAMS_WORK_SYNC_TOOL_NAMES,
+  },
+  {
     id: 'crossTeam',
     teammateOperational: true,
     toolNames: AGENT_TEAMS_CROSS_TEAM_TOOL_NAMES,
@@ -141,6 +148,7 @@ module.exports = {
   AGENT_TEAMS_PROCESS_TOOL_NAMES,
   AGENT_TEAMS_KANBAN_TOOL_NAMES,
   AGENT_TEAMS_RUNTIME_TOOL_NAMES,
+  AGENT_TEAMS_WORK_SYNC_TOOL_NAMES,
   AGENT_TEAMS_MCP_TOOL_GROUPS,
   AGENT_TEAMS_REGISTERED_TOOL_NAMES,
   AGENT_TEAMS_TEAMMATE_OPERATIONAL_TOOL_NAMES,
