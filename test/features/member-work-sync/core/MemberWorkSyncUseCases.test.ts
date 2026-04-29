@@ -4,6 +4,7 @@ import {
   MemberWorkSyncDiagnosticsReader,
   MemberWorkSyncNudgeDispatcher,
   MemberWorkSyncPendingReportIntentReplayer,
+  MemberWorkSyncReconciler,
   MemberWorkSyncReporter,
   type MemberWorkSyncAgendaSourceResult,
   type MemberWorkSyncInboxNudgePort,
@@ -429,6 +430,22 @@ describe('MemberWorkSync use cases', () => {
     const outbox = new InMemoryOutboxStore();
     const { deps } = createDeps({ outboxStore: outbox });
 
+    await new MemberWorkSyncReconciler(deps).execute(
+      {
+        teamName: 'team-a',
+        memberName: 'bob',
+      },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
+
+    expect(outbox.ensures).toEqual([]);
+  });
+
+  it('does not create outbox nudges from read-only diagnostics requests', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const { deps, store } = createDeps({ outboxStore: outbox });
+    store.phase2ReadinessState = 'shadow_ready';
+
     await new MemberWorkSyncDiagnosticsReader(deps).execute({
       teamName: 'team-a',
       memberName: 'bob',
@@ -442,10 +459,13 @@ describe('MemberWorkSync use cases', () => {
     const { deps, store } = createDeps({ outboxStore: outbox });
     store.phase2ReadinessState = 'shadow_ready';
 
-    const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
-      teamName: 'team-a',
-      memberName: 'bob',
-    });
+    const status = await new MemberWorkSyncReconciler(deps).execute(
+      {
+        teamName: 'team-a',
+        memberName: 'bob',
+      },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
 
     expect(outbox.ensures).toHaveLength(1);
     expect(outbox.ensures[0]).toMatchObject({
@@ -470,10 +490,13 @@ describe('MemberWorkSync use cases', () => {
     const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
     store.phase2ReadinessState = 'shadow_ready';
 
-    const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
-      teamName: 'team-a',
-      memberName: 'bob',
-    });
+    const status = await new MemberWorkSyncReconciler(deps).execute(
+      {
+        teamName: 'team-a',
+        memberName: 'bob',
+      },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
     const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
       teamNames: ['team-a'],
       claimedBy: 'test-dispatcher',
@@ -498,9 +521,12 @@ describe('MemberWorkSync use cases', () => {
     const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
     store.phase2ReadinessState = 'shadow_ready';
 
-    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reconciler = new MemberWorkSyncReconciler(deps);
     const reporter = new MemberWorkSyncReporter(deps);
-    const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
+    const current = await reconciler.execute(
+      { teamName: 'team-a', memberName: 'bob' },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
     await reporter.execute({
       teamName: 'team-a',
       memberName: 'bob',
@@ -530,10 +556,13 @@ describe('MemberWorkSync use cases', () => {
     const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
     store.phase2ReadinessState = 'shadow_ready';
 
-    const current = await new MemberWorkSyncDiagnosticsReader(deps).execute({
-      teamName: 'team-a',
-      memberName: 'bob',
-    });
+    const current = await new MemberWorkSyncReconciler(deps).execute(
+      {
+        teamName: 'team-a',
+        memberName: 'bob',
+      },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
     const firstId = `member-work-sync:team-a:bob:${current.agenda.fingerprint}:old-1`;
     const secondId = `member-work-sync:team-a:bob:${current.agenda.fingerprint}:old-2`;
     const baseItem = outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`);
@@ -569,10 +598,13 @@ describe('MemberWorkSync use cases', () => {
     const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
     store.phase2ReadinessState = 'shadow_ready';
 
-    const current = await new MemberWorkSyncDiagnosticsReader(deps).execute({
-      teamName: 'team-a',
-      memberName: 'bob',
-    });
+    const current = await new MemberWorkSyncReconciler(deps).execute(
+      {
+        teamName: 'team-a',
+        memberName: 'bob',
+      },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
     const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
       teamNames: ['team-a'],
       claimedBy: 'test-dispatcher',

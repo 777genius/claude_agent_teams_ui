@@ -1,6 +1,6 @@
 # Member Work Sync Control Plane Plan
 
-**Status:** Phase 1 and Phase 1.5 observability implemented, minimal read-only member details surface wired, Phase 2 deferred until shadow metrics are reviewed
+**Status:** Phase 1, Phase 1.5 observability, minimal read-only member details surface, and readiness-gated Phase 2 nudge outbox/dispatcher implemented
 **Scope:** Team management, task work synchronization, agent work coordination  
 **Primary repo:** `claude_team`  
 **Secondary write-boundary repo:** `agent_teams_orchestrator` / `agent-teams-controller`  
@@ -34,11 +34,11 @@ Current implementation note:
 - Phase 1 is intentionally shadow-only: it computes agendas, fingerprints, report tokens, reports, persisted status, passive queue reconciliation, startup replay, diagnostics, metrics, and a neutral read-only member details surface.
 - Phase 1 does not insert inbox messages, send nudges, mark tasks/messages read, or change `TeamTaskStallMonitor` semantics.
 - Phase 1.5 exposes a machine-readable `phase2Readiness` assessment from shadow metrics. It can say `collecting_shadow_data`, `blocked`, or `shadow_ready`; it still does not dispatch nudges.
-- Phase 2 storage foundation is implemented as an inert durable outbox: idempotency key, payload hash conflict checks, claim generation fencing, retry/terminal states. It is not wired to dispatch inbox nudges yet.
-- Reconciler can plan a Phase 2 outbox item only when `phase2Readiness=shadow_ready`; otherwise it records normal shadow status and does nothing. This preserves the anti-spam gate before any dispatcher exists.
+- Phase 2 storage foundation is implemented as a durable outbox: idempotency key, payload hash conflict checks, claim generation fencing, retry/terminal states.
+- Queue reconciles can plan a Phase 2 outbox item only when `phase2Readiness=shadow_ready`; read-only diagnostics never create outbox intents. This preserves the anti-spam gate and keeps UI/status reads passive.
 - Dispatcher use case runs after queued reconcile and is also exposed through the facade. It claims due outbox rows, revalidates active team/status/current fingerprint/readiness/busy/watchdog cooldown, then writes one idempotent inbox nudge through a narrow port.
 - Dispatcher applies per-member hourly rate limiting and bounded deterministic retry backoff with jitter before retrying failed nudge attempts.
-- Phase 2 must not start until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
+- Phase 2 dispatch stays blocked until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
 
 Patterns used:
 

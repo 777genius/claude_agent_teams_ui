@@ -87,7 +87,9 @@ export class MemberWorkSyncReconciler {
     });
 
     await this.deps.statusStore.write(status);
-    await this.planNudgeOutbox(status);
+    if ((context.reconciledBy ?? 'request') === 'queue') {
+      await this.planNudgeOutbox(status);
+    }
     return status;
   }
 
