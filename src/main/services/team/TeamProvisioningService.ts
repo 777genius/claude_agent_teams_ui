@@ -4453,10 +4453,13 @@ export class TeamProvisioningService {
   ): Promise<Record<string, string>> {
     const resolvedPrimaryProviderId = resolveTeamProviderId(primaryProviderId);
     const needsCodexTurnSettledEnv = memberSpecs.some((member) => {
-      const memberProviderId = resolveTeamProviderId(
-        normalizeTeamMemberProviderId(member.providerId) ?? resolvedPrimaryProviderId
+      const configuredProviderId = normalizeTeamMemberProviderId(member.providerId);
+      const inferredProviderId = inferTeamProviderIdFromModel(member.model);
+      return (
+        resolvedPrimaryProviderId === 'codex' ||
+        configuredProviderId === 'codex' ||
+        inferredProviderId === 'codex'
       );
-      return memberProviderId === 'codex';
     });
 
     if (!needsCodexTurnSettledEnv) {

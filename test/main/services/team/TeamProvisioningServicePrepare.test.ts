@@ -1988,6 +1988,24 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     });
   });
 
+  it('adds Codex turn-settled env when a secondary member infers Codex from model', async () => {
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeTurnSettledEnvironmentProvider(async ({ provider }) =>
+      provider === 'codex'
+        ? { AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks' }
+        : null
+    );
+
+    const result = await (svc as any).buildRuntimeTurnSettledEnvironmentForMembers('anthropic', [
+      { name: 'alice', providerId: 'anthropic' },
+      { name: 'jack', model: 'gpt-5.4' },
+    ]);
+
+    expect(result).toEqual({
+      AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks',
+    });
+  });
+
   it('does not add Codex turn-settled env when no member uses Codex', async () => {
     const svc = new TeamProvisioningService();
     const provider = vi.fn(async () => ({
