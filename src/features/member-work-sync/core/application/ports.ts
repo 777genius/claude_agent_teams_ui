@@ -102,6 +102,34 @@ export interface MemberWorkSyncOutboxStorePort {
   markFailed(input: MemberWorkSyncOutboxMarkFailedInput): Promise<void>;
 }
 
+export interface MemberWorkSyncInboxNudgePort {
+  insertIfAbsent(input: {
+    teamName: string;
+    memberName: string;
+    messageId: string;
+    payloadHash: string;
+    payload: MemberWorkSyncOutboxItem['payload'];
+    timestamp: string;
+  }): Promise<{ inserted: boolean; messageId: string; conflict?: boolean }>;
+}
+
+export interface MemberWorkSyncWatchdogCooldownPort {
+  hasRecentNudge(input: {
+    teamName: string;
+    memberName: string;
+    taskIds: string[];
+    nowIso: string;
+  }): Promise<boolean>;
+}
+
+export interface MemberWorkSyncBusySignalPort {
+  isBusy(input: {
+    teamName: string;
+    memberName: string;
+    nowIso: string;
+  }): Promise<{ busy: boolean; reason?: string; retryAfterIso?: string }>;
+}
+
 export interface MemberWorkSyncUseCaseDeps {
   clock: MemberWorkSyncClockPort;
   hash: MemberWorkSyncHashPort;
@@ -109,6 +137,9 @@ export interface MemberWorkSyncUseCaseDeps {
   statusStore: MemberWorkSyncStatusStorePort;
   reportStore?: MemberWorkSyncReportStorePort;
   outboxStore?: MemberWorkSyncOutboxStorePort;
+  inboxNudge?: MemberWorkSyncInboxNudgePort;
+  watchdogCooldown?: MemberWorkSyncWatchdogCooldownPort;
+  busySignal?: MemberWorkSyncBusySignalPort;
   reportToken?: MemberWorkSyncReportTokenPort;
   lifecycle?: MemberWorkSyncLifecyclePort;
   logger?: MemberWorkSyncLoggerPort;

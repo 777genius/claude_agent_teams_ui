@@ -413,7 +413,8 @@ export type InboxMessageKind =
   | 'default'
   | 'slash_command'
   | 'slash_command_result'
-  | 'task_comment_notification';
+  | 'task_comment_notification'
+  | 'member_work_sync_nudge';
 
 export interface SlashCommandMeta {
   name: string;

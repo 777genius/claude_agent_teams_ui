@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MemberWorkSyncDiagnosticsReader,
+  MemberWorkSyncNudgeDispatcher,
   MemberWorkSyncPendingReportIntentReplayer,
   MemberWorkSyncReporter,
   type MemberWorkSyncAgendaSourceResult,
+  type MemberWorkSyncInboxNudgePort,
   type MemberWorkSyncOutboxStorePort,
   type MemberWorkSyncStatusStorePort,
   type MemberWorkSyncUseCaseDeps,
@@ -131,9 +133,14 @@ class InMemoryStatusStore implements MemberWorkSyncStatusStorePort {
 
 class InMemoryOutboxStore implements MemberWorkSyncOutboxStorePort {
   readonly ensures: MemberWorkSyncOutboxEnsureInput[] = [];
+  readonly items = new Map<string, MemberWorkSyncOutboxItem>();
 
   async ensurePending(input: MemberWorkSyncOutboxEnsureInput) {
     this.ensures.push(input);
+    const current = this.items.get(input.id);
+    if (current) {
+      return { ok: true as const, outcome: 'existing' as const, item: current };
+    }
     const item: MemberWorkSyncOutboxItem = {
       ...input,
       status: 'pending',
@@ -141,18 +148,59 @@ class InMemoryOutboxStore implements MemberWorkSyncOutboxStorePort {
       createdAt: input.nowIso,
       updatedAt: input.nowIso,
     };
+    this.items.set(input.id, item);
     return { ok: true as const, outcome: 'created' as const, item };
   }
 
   async claimDue(): Promise<MemberWorkSyncOutboxItem[]> {
-    return [];
+    const due = [...this.items.values()].filter((item) => item.status === 'pending');
+    for (const item of due) {
+      this.items.set(item.id, {
+        ...item,
+        status: 'claimed',
+        attemptGeneration: item.attemptGeneration + 1,
+      });
+    }
+    return due.map((item) => this.items.get(item.id) as MemberWorkSyncOutboxItem);
   }
 
-  async markDelivered(_input: MemberWorkSyncOutboxMarkDeliveredInput): Promise<void> {}
+  async markDelivered(input: MemberWorkSyncOutboxMarkDeliveredInput): Promise<void> {
+    const current = this.items.get(input.id);
+    if (current?.attemptGeneration === input.attemptGeneration) {
+      this.items.set(input.id, {
+        ...current,
+        status: 'delivered',
+        deliveredMessageId: input.deliveredMessageId,
+      });
+    }
+  }
 
-  async markSuperseded(_input: MemberWorkSyncOutboxMarkSupersededInput): Promise<void> {}
+  async markSuperseded(input: MemberWorkSyncOutboxMarkSupersededInput): Promise<void> {
+    const current = this.items.get(input.id);
+    if (current) {
+      this.items.set(input.id, { ...current, status: 'superseded', lastError: input.reason });
+    }
+  }
 
-  async markFailed(_input: MemberWorkSyncOutboxMarkFailedInput): Promise<void> {}
+  async markFailed(input: MemberWorkSyncOutboxMarkFailedInput): Promise<void> {
+    const current = this.items.get(input.id);
+    if (current?.attemptGeneration === input.attemptGeneration) {
+      this.items.set(input.id, {
+        ...current,
+        status: input.retryable ? 'failed_retryable' : 'failed_terminal',
+        lastError: input.error,
+      });
+    }
+  }
+}
+
+class InMemoryInboxNudge implements MemberWorkSyncInboxNudgePort {
+  readonly inserted: Array<Parameters<MemberWorkSyncInboxNudgePort['insertIfAbsent']>[0]> = [];
+
+  async insertIfAbsent(input: Parameters<MemberWorkSyncInboxNudgePort['insertIfAbsent']>[0]) {
+    this.inserted.push(input);
+    return { inserted: true, messageId: input.messageId };
+  }
 }
 
 function createDeps(options?: {
@@ -162,6 +210,7 @@ function createDeps(options?: {
   teamActive?: boolean;
   providerId?: 'opencode' | 'codex';
   outboxStore?: MemberWorkSyncOutboxStorePort;
+  inboxNudge?: MemberWorkSyncInboxNudgePort;
 }) {
   const clock = new MutableClock();
   const store = new InMemoryStatusStore();
@@ -189,6 +238,7 @@ function createDeps(options?: {
     statusStore: store,
     reportStore: store,
     ...(options?.outboxStore ? { outboxStore: options.outboxStore } : {}),
+    ...(options?.inboxNudge ? { inboxNudge: options.inboxNudge } : {}),
     reportToken: {
       create: async (input) => ({
         token: `token:${input.teamName}:${input.memberName}:${input.agendaFingerprint}`,
@@ -392,6 +442,66 @@ describe('MemberWorkSync use cases', () => {
         actionMode: 'do',
         taskRefs: [{ teamName: 'team-a', taskId: 'task-1', displayId: '11111111' }],
       },
+    });
+  });
+
+  it('dispatches due nudges only after revalidating current status and readiness', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const inbox = new InMemoryInboxNudge();
+    const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
+    store.phase2ReadinessState = 'shadow_ready';
+
+    const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+    });
+    const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
+      teamNames: ['team-a'],
+      claimedBy: 'test-dispatcher',
+    });
+
+    expect(summary).toMatchObject({ claimed: 1, delivered: 1, superseded: 0 });
+    expect(inbox.inserted).toHaveLength(1);
+    expect(inbox.inserted[0]).toMatchObject({
+      teamName: 'team-a',
+      memberName: 'bob',
+      messageId: `member-work-sync:team-a:bob:${status.agenda.fingerprint}`,
+    });
+    expect(outbox.items.get(`member-work-sync:team-a:bob:${status.agenda.fingerprint}`)).toMatchObject({
+      status: 'delivered',
+      deliveredMessageId: `member-work-sync:team-a:bob:${status.agenda.fingerprint}`,
+    });
+  });
+
+  it('does not dispatch stale outbox items after the member reports still working', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const inbox = new InMemoryInboxNudge();
+    const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
+    store.phase2ReadinessState = 'shadow_ready';
+
+    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reporter = new MemberWorkSyncReporter(deps);
+    const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
+    await reporter.execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+      state: 'still_working',
+      agendaFingerprint: current.agenda.fingerprint,
+      reportToken: current.reportToken,
+      leaseTtlMs: 120_000,
+      source: 'test',
+    });
+
+    const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
+      teamNames: ['team-a'],
+      claimedBy: 'test-dispatcher',
+    });
+
+    expect(summary).toMatchObject({ claimed: 1, delivered: 0, superseded: 1 });
+    expect(inbox.inserted).toEqual([]);
+    expect(outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)).toMatchObject({
+      status: 'superseded',
+      lastError: 'status_no_longer_matches_outbox',
     });
   });
 

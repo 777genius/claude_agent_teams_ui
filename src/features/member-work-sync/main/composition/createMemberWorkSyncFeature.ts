@@ -9,6 +9,8 @@ import type {
 import {
   MemberWorkSyncDiagnosticsReader,
   MemberWorkSyncMetricsReader,
+  MemberWorkSyncNudgeDispatcher,
+  type MemberWorkSyncNudgeDispatchSummary,
   MemberWorkSyncPendingReportIntentReplayer,
   type MemberWorkSyncPendingReportReplaySummary,
   MemberWorkSyncReconciler,
@@ -16,6 +18,7 @@ import {
   type MemberWorkSyncReconcileContext,
 } from '../../core/application';
 import { MemberWorkSyncTeamChangeRouter } from '../adapters/input/MemberWorkSyncTeamChangeRouter';
+import { TeamInboxMemberWorkSyncNudgeSink } from '../adapters/output/TeamInboxMemberWorkSyncNudgeSink';
 import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
 import { HmacMemberWorkSyncReportTokenAdapter } from '../infrastructure/HmacMemberWorkSyncReportTokenAdapter';
 import {
@@ -41,6 +44,7 @@ export interface MemberWorkSyncFeatureFacade {
   noteTeamChange(event: TeamChangeEvent): void;
   enqueueStartupScan(teamNames: string[]): Promise<void>;
   replayPendingReports(teamNames: string[]): Promise<MemberWorkSyncPendingReportReplaySummary>;
+  dispatchDueNudges(teamNames: string[]): Promise<MemberWorkSyncNudgeDispatchSummary>;
   getQueueDiagnostics(): MemberWorkSyncQueueDiagnostics;
   dispose(): Promise<void>;
 }
@@ -67,6 +71,7 @@ export function createMemberWorkSyncFeature(deps: {
   const storePaths = new MemberWorkSyncStorePaths(deps.teamsBasePath);
   const store = new JsonMemberWorkSyncStore(storePaths);
   const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);
+  const inboxNudge = new TeamInboxMemberWorkSyncNudgeSink();
   const useCaseDeps = {
     clock,
     hash,
@@ -74,6 +79,7 @@ export function createMemberWorkSyncFeature(deps: {
     statusStore: store,
     reportStore: store,
     outboxStore: store,
+    inboxNudge,
     reportToken,
     ...(deps.isTeamActive ? { lifecycle: { isTeamActive: deps.isTeamActive } } : {}),
     logger: deps.logger,
@@ -83,6 +89,7 @@ export function createMemberWorkSyncFeature(deps: {
   const reporter = new MemberWorkSyncReporter(useCaseDeps);
   const reconciler = new MemberWorkSyncReconciler(useCaseDeps);
   const pendingReportReplayer = new MemberWorkSyncPendingReportIntentReplayer(useCaseDeps);
+  const nudgeDispatcher = new MemberWorkSyncNudgeDispatcher(useCaseDeps);
   const queue = new MemberWorkSyncEventQueue({
     reconcile: async (request, context: MemberWorkSyncReconcileContext) => {
       await reconciler.execute(request, context);
@@ -116,6 +123,8 @@ export function createMemberWorkSyncFeature(deps: {
         { processed: 0, accepted: 0, rejected: 0, superseded: 0 }
       );
     },
+    dispatchDueNudges: (teamNames) =>
+      nudgeDispatcher.dispatchDue({ teamNames, claimedBy: `member-work-sync:${process.pid}` }),
     getQueueDiagnostics: () => queue.getDiagnostics(),
     dispose: () => queue.stop(),
   };
