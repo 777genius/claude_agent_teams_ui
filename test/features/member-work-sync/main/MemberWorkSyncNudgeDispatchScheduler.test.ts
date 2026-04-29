@@ -13,7 +13,7 @@ describe('MemberWorkSyncNudgeDispatchScheduler', () => {
       return { claimed: 1, delivered: 1, superseded: 0, retryable: 0, terminal: 0 };
     });
     const scheduler = new MemberWorkSyncNudgeDispatchScheduler({
-      listActiveTeamNames: async () => ['team-a', 'team-a', ' ', 'team-b'],
+      listLifecycleActiveTeamNames: async () => ['team-a', 'team-a', ' ', 'team-b'],
       dispatchDue,
     });
 
@@ -31,7 +31,7 @@ describe('MemberWorkSyncNudgeDispatchScheduler', () => {
   it('skips dispatch when there are no active teams', async () => {
     const dispatchDue = vi.fn();
     const scheduler = new MemberWorkSyncNudgeDispatchScheduler({
-      listActiveTeamNames: async () => [],
+      listLifecycleActiveTeamNames: async () => [],
       dispatchDue,
     });
 
@@ -43,7 +43,7 @@ describe('MemberWorkSyncNudgeDispatchScheduler', () => {
   it('logs and survives list failures without throwing', async () => {
     const warn = vi.fn();
     const scheduler = new MemberWorkSyncNudgeDispatchScheduler({
-      listActiveTeamNames: async () => {
+      listLifecycleActiveTeamNames: async () => {
         throw new Error('list failed');
       },
       dispatchDue: vi.fn(),

@@ -14,7 +14,7 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
 }
 
 export interface MemberWorkSyncNudgeDispatchSchedulerDeps {
-  listActiveTeamNames(): Promise<string[]>;
+  listLifecycleActiveTeamNames(): Promise<string[]>;
   dispatchDue(teamNames: string[]): Promise<MemberWorkSyncNudgeDispatchSummary>;
   intervalMs?: number;
   logger?: MemberWorkSyncLoggerPort;
@@ -84,7 +84,7 @@ export class MemberWorkSyncNudgeDispatchScheduler {
 
   private async dispatchOnce(): Promise<void> {
     try {
-      const teamNames = uniqueNonEmpty(await this.deps.listActiveTeamNames());
+      const teamNames = uniqueNonEmpty(await this.deps.listLifecycleActiveTeamNames());
       if (teamNames.length === 0) {
         return;
       }

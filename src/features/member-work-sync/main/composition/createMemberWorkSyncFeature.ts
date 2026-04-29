@@ -59,7 +59,7 @@ export function createMemberWorkSyncFeature(deps: {
   kanbanManager: TeamKanbanManager;
   membersMetaStore: TeamMembersMetaStore;
   isTeamActive?: (teamName: string) => Promise<boolean> | boolean;
-  listActiveTeamNames?: () => Promise<string[]>;
+  listLifecycleActiveTeamNames?: () => Promise<string[]>;
   logger?: MemberWorkSyncLoggerPort;
 }): MemberWorkSyncFeatureFacade {
   const clock = new SystemClockAdapter();
@@ -110,9 +110,9 @@ export function createMemberWorkSyncFeature(deps: {
     logger: deps.logger,
   });
   const router = new MemberWorkSyncTeamChangeRouter(agendaSource, queue);
-  const nudgeDispatchScheduler = deps.listActiveTeamNames
+  const nudgeDispatchScheduler = deps.listLifecycleActiveTeamNames
     ? new MemberWorkSyncNudgeDispatchScheduler({
-        listActiveTeamNames: deps.listActiveTeamNames,
+        listLifecycleActiveTeamNames: deps.listLifecycleActiveTeamNames,
         dispatchDue: (teamNames) =>
           nudgeDispatcher.dispatchDue({
             teamNames,

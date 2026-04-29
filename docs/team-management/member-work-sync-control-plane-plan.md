@@ -3045,15 +3045,15 @@ Current implementation:
 
 ## 22. Runtime Defaults And No Feature Flags
 
-Phase 1 should ship without feature flags.
+Phase 1 shipped without feature flags.
 
 Reason:
 
 - Phase 1 has no nudges, no inbox writes, no task mutation, and no runtime restart behavior.
 - Adding feature flags for passive status/report validation creates extra branches and makes failures harder to reason about.
-- The safe boundary is architectural, not configurational: Phase 1 code simply does not contain the side-effect dispatcher.
+- The safe boundary is architectural, not configurational: passive status/report validation stays independent from Phase 2 side effects.
 
-Phase 1 defaults:
+Runtime defaults:
 
 | Behavior | Default | Why |
 |---|---:|---|
@@ -3061,7 +3061,9 @@ Phase 1 defaults:
 | `member_work_sync_status` | on | read-only diagnostics |
 | `member_work_sync_report` | on | server-validated, no board mutation |
 | pending report intent fallback | on only when identity is not terminally invalid | compatibility with old app/runtime boundaries |
-| nudges/outbox/inbox writes | not implemented | avoids hidden flag branches |
+| outbox planning | on only for queued reconciles and only when `phase2Readiness=shadow_ready` | prevents status reads from causing side effects |
+| scheduled nudge dispatch | on only for lifecycle-active teams | stopped teams must not claim or supersede pending nudges |
+| inbox nudge writes | guarded by dispatcher revalidation | lifecycle, current fingerprint, readiness, busy signal, rate limit, and watchdog cooldown are checked immediately before write |
 
 Do not add:
 
@@ -3073,9 +3075,9 @@ If Phase 1 needs to be disabled during development, revert or patch the narrow c
 
 Phase 2 policy:
 
-- Phase 2 is a separate implementation, not a disabled code path hidden behind a flag in Phase 1.
-- If Phase 2 adds nudges, it must add dispatcher/outbox code in its own cut after metrics review.
-- Phase 2 may use constants/configuration for rate limits and timing, but not a broad "new vs legacy" branch.
+- Phase 2 is implemented as a separate outbox/dispatcher/scheduler path, not as hidden branching inside passive diagnostics.
+- Phase 2 does not bypass shadow readiness. If metrics are noisy, the planner returns `phase2_not_ready`.
+- Phase 2 uses constants/configuration for rate limits and timing, but not a broad "new vs legacy" branch.
 
 Phase 2 runtime constants can be normal typed defaults, not feature gates:
 

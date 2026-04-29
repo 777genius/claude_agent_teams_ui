@@ -1236,7 +1236,7 @@ async function initializeServices(): Promise<void> {
     isTeamActive: (teamName) =>
       teamProvisioningService.isTeamAlive(teamName) ||
       teamProvisioningService.hasProvisioningRun(teamName),
-    listActiveTeamNames: async () => {
+    listLifecycleActiveTeamNames: async () => {
       const teams = await teamDataService.listTeams();
       return teams
         .filter(
