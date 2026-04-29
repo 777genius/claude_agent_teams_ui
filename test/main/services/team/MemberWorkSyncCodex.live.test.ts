@@ -14,6 +14,7 @@ import {
 } from '../../../../src/main/utils/pathDecoder';
 import {
   assertExecutable,
+  FatalWaitError,
   formatMemberWorkSyncDiagnostics,
   formatProgressDump,
   restoreEnv,
@@ -255,6 +256,10 @@ liveDescribe('Member work sync Codex live e2e', () => {
       }, 30_000);
 
       await waitUntil(async () => {
+        const fatalRuntimeMessage = await readFatalRuntimeMessage(teamName!);
+        if (fatalRuntimeMessage) {
+          throw new FatalWaitError(fatalRuntimeMessage);
+        }
         await feature!.replayPendingReports([teamName!]);
         const status = await feature!.getStatus({ teamName: teamName!, memberName });
         if (status.report?.accepted && status.report.state === 'still_working') {
@@ -293,3 +298,41 @@ liveDescribe('Member work sync Codex live e2e', () => {
     360_000
   );
 });
+
+async function readFatalRuntimeMessage(teamName: string): Promise<string | null> {
+  const sentMessagesPath = path.join(getTeamsBasePath(), teamName, 'sentMessages.json');
+  let raw: string;
+  try {
+    raw = await fs.readFile(sentMessagesPath, 'utf8');
+  } catch {
+    return null;
+  }
+
+  let messages: unknown;
+  try {
+    messages = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(messages)) {
+    return null;
+  }
+
+  for (const message of messages) {
+    if (!message || typeof message !== 'object') {
+      continue;
+    }
+    const text = (message as { text?: unknown }).text;
+    if (typeof text !== 'string') {
+      continue;
+    }
+    if (
+      text.includes('Codex native exec exited') ||
+      text.includes('Codex native error:') ||
+      text.includes('Codex native turn failed:')
+    ) {
+      return text;
+    }
+  }
+  return null;
+}
