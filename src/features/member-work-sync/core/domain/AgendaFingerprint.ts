@@ -19,7 +19,7 @@ export interface AgendaFingerprintPayload {
   version: 1;
   teamName: string;
   memberName: string;
-  items: Array<{
+  items: {
     taskId: string;
     displayId?: string;
     subject: string;
@@ -27,7 +27,7 @@ export interface AgendaFingerprintPayload {
     assignee: string;
     priority: string;
     evidence: MemberWorkSyncActionableWorkItem['evidence'];
-  }>;
+  }[];
   sourceRevision?: string;
 }
 

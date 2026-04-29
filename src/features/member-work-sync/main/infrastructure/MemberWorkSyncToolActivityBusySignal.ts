@@ -1,5 +1,4 @@
 import type { MemberWorkSyncBusySignalPort } from '../../core/application';
-
 import type { TeamChangeEvent, ToolActivityEventPayload } from '@shared/types';
 
 const DEFAULT_TOOL_ACTIVITY_BUSY_GRACE_MS = 90_000;

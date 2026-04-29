@@ -1,9 +1,10 @@
+import { isReservedMemberName, normalizeMemberName, sameMemberName } from './memberName';
+
 import type {
   MemberWorkSyncAgenda,
   MemberWorkSyncReportRequest,
   MemberWorkSyncReportState,
 } from '../../contracts';
-import { isReservedMemberName, normalizeMemberName, sameMemberName } from './memberName';
 
 export interface MemberWorkSyncReportValidation {
   ok: boolean;

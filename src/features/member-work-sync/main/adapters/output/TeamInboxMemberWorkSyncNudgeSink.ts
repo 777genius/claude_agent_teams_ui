@@ -1,5 +1,6 @@
 import { TeamInboxReader } from '@main/services/team/TeamInboxReader';
 import { TeamInboxWriter } from '@main/services/team/TeamInboxWriter';
+
 import type { MemberWorkSyncInboxNudgePort } from '../../../core/application';
 
 export class TeamInboxMemberWorkSyncNudgeSink implements MemberWorkSyncInboxNudgePort {

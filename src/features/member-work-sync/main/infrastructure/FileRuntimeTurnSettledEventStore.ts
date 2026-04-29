@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promis
 import path from 'path';
 
 import { isRuntimeTurnSettledProvider } from '../../core/domain';
+
 import type {
   RuntimeTurnSettledClaimedPayload,
   RuntimeTurnSettledEventStorePort,
@@ -131,7 +132,11 @@ export class FileRuntimeTurnSettledEventStore implements RuntimeTurnSettledEvent
   ): Promise<void> {
     const processedPath = path.join(this.deps.paths.getProcessedDir(), payload.fileName);
     await moveFileBestEffort(payload.filePath, processedPath);
-    await writeFile(buildMetaFilePath(processedPath), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+    await writeFile(
+      buildMetaFilePath(processedPath),
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    );
     await this.cleanupDirectory(this.deps.paths.getProcessedDir());
   }
 
@@ -164,9 +169,7 @@ export class FileRuntimeTurnSettledEventStore implements RuntimeTurnSettledEvent
       entries
         .filter(
           (entry) =>
-            entry.isFile() &&
-            !entry.name.startsWith('.') &&
-            !entry.name.endsWith('.meta.json')
+            entry.isFile() && !entry.name.startsWith('.') && !entry.name.endsWith('.meta.json')
         )
         .map(async (entry) => {
           const processingPath = path.join(this.deps.paths.getProcessingDir(), entry.name);

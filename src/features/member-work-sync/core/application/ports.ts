@@ -1,7 +1,5 @@
 import type {
   MemberWorkSyncAgenda,
-  MemberWorkSyncTeamMetrics,
-  MemberWorkSyncProviderId,
   MemberWorkSyncOutboxClaimInput,
   MemberWorkSyncOutboxCountRecentDeliveredInput,
   MemberWorkSyncOutboxEnsureInput,
@@ -10,11 +8,13 @@ import type {
   MemberWorkSyncOutboxMarkDeliveredInput,
   MemberWorkSyncOutboxMarkFailedInput,
   MemberWorkSyncOutboxMarkSupersededInput,
+  MemberWorkSyncProviderId,
   MemberWorkSyncReport,
   MemberWorkSyncReportIntent,
   MemberWorkSyncReportIntentStatus,
   MemberWorkSyncReportRequest,
   MemberWorkSyncStatus,
+  MemberWorkSyncTeamMetrics,
 } from '../../contracts';
 
 export interface MemberWorkSyncClockPort {

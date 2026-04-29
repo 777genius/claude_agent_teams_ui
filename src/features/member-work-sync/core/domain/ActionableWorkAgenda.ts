@@ -1,8 +1,3 @@
-import type {
-  MemberWorkSyncActionableWorkItem,
-  MemberWorkSyncAgenda,
-  MemberWorkSyncProviderId,
-} from '../../contracts';
 import {
   buildAgendaFingerprintPayload,
   canonicalizeAgendaFingerprintPayload,
@@ -10,6 +5,12 @@ import {
 } from './AgendaFingerprint';
 import { resolveCurrentReviewOwner, type ReviewHistoryEventLike } from './currentReviewCycle';
 import { isReservedMemberName, normalizeMemberName, sameMemberName } from './memberName';
+
+import type {
+  MemberWorkSyncActionableWorkItem,
+  MemberWorkSyncAgenda,
+  MemberWorkSyncProviderId,
+} from '../../contracts';
 
 export interface MemberWorkSyncTaskLike {
   id: string;

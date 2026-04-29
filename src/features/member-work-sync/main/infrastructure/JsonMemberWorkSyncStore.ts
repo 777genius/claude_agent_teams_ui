@@ -1,8 +1,10 @@
+import { withFileLock } from '@main/services/team/fileLock';
 import { atomicWriteAsync } from '@main/utils/atomicWrite';
 import { createHash } from 'crypto';
 import { mkdir, readFile, rename } from 'fs/promises';
 
-import { withFileLock } from '@main/services/team/fileLock';
+import { assessMemberWorkSyncPhase2Readiness } from '../../core/domain';
+
 import type {
   MemberWorkSyncMetricEvent,
   MemberWorkSyncOutboxClaimInput,
@@ -19,7 +21,6 @@ import type {
   MemberWorkSyncStatusState,
   MemberWorkSyncTeamMetrics,
 } from '../../contracts';
-import { assessMemberWorkSyncPhase2Readiness } from '../../core/domain';
 import type {
   MemberWorkSyncOutboxStorePort,
   MemberWorkSyncReportStorePort,
@@ -288,13 +289,10 @@ export class JsonMemberWorkSyncStore
       stateCounts,
       actionableItemCount,
       wouldNudgeCount: recentEvents.filter((event) => event.kind === 'would_nudge').length,
-      fingerprintChangeCount: recentEvents.filter(
-        (event) => event.kind === 'fingerprint_changed'
-      ).length,
-      reportAcceptedCount: recentEvents.filter((event) => event.kind === 'report_accepted')
+      fingerprintChangeCount: recentEvents.filter((event) => event.kind === 'fingerprint_changed')
         .length,
-      reportRejectedCount: recentEvents.filter((event) => event.kind === 'report_rejected')
-        .length,
+      reportAcceptedCount: recentEvents.filter((event) => event.kind === 'report_accepted').length,
+      reportRejectedCount: recentEvents.filter((event) => event.kind === 'report_rejected').length,
       recentEvents,
     };
     return {
@@ -349,7 +347,7 @@ export class JsonMemberWorkSyncStore
       await withFileLock(this.paths.getPendingReportsPath(teamName), async () => {
         const existing = await this.readPendingFile(teamName);
         const current = existing.intents[id];
-        if (!current || current.status !== 'pending') {
+        if (current?.status !== 'pending') {
           return;
         }
         existing.intents[id] = {
@@ -471,7 +469,7 @@ export class JsonMemberWorkSyncStore
 
   async markDelivered(input: MemberWorkSyncOutboxMarkDeliveredInput): Promise<void> {
     await this.updateOutboxItem(input.teamName, input.id, (current) => {
-      if (!current || current.attemptGeneration !== input.attemptGeneration) {
+      if (current?.attemptGeneration !== input.attemptGeneration) {
         return current;
       }
       const next: MemberWorkSyncOutboxItem = {
@@ -501,7 +499,7 @@ export class JsonMemberWorkSyncStore
 
   async markFailed(input: MemberWorkSyncOutboxMarkFailedInput): Promise<void> {
     await this.updateOutboxItem(input.teamName, input.id, (current) => {
-      if (!current || current.attemptGeneration !== input.attemptGeneration) {
+      if (current?.attemptGeneration !== input.attemptGeneration) {
         return current;
       }
       const next: MemberWorkSyncOutboxItem = {
@@ -589,9 +587,7 @@ export class JsonMemberWorkSyncStore
   private async updateOutboxItem(
     teamName: string,
     id: string,
-    updater: (
-      current: MemberWorkSyncOutboxItem | undefined
-    ) => MemberWorkSyncOutboxItem | undefined
+    updater: (current: MemberWorkSyncOutboxItem | undefined) => MemberWorkSyncOutboxItem | undefined
   ): Promise<void> {
     await this.enqueue(teamName, async () => {
       await withFileLock(this.paths.getOutboxPath(teamName), async () => {

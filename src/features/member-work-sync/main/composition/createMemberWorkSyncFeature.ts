@@ -1,3 +1,43 @@
+import {
+  MemberWorkSyncDiagnosticsReader,
+  MemberWorkSyncMetricsReader,
+  MemberWorkSyncNudgeDispatcher,
+  type MemberWorkSyncNudgeDispatchSummary,
+  MemberWorkSyncPendingReportIntentReplayer,
+  type MemberWorkSyncPendingReportReplaySummary,
+  type MemberWorkSyncReconcileContext,
+  MemberWorkSyncReconciler,
+  MemberWorkSyncReporter,
+  type RuntimeTurnSettledDrainSummary,
+  RuntimeTurnSettledIngestor,
+  type RuntimeTurnSettledTargetResolverPort,
+} from '../../core/application';
+import { MemberWorkSyncTeamChangeRouter } from '../adapters/input/MemberWorkSyncTeamChangeRouter';
+import { TeamInboxMemberWorkSyncNudgeSink } from '../adapters/output/TeamInboxMemberWorkSyncNudgeSink';
+import { TeamRuntimeTurnSettledTargetResolver } from '../adapters/output/TeamRuntimeTurnSettledTargetResolver';
+import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
+import { TeamTaskStallJournalWorkSyncCooldown } from '../adapters/output/TeamTaskStallJournalWorkSyncCooldown';
+import { ClaudeStopHookPayloadNormalizer } from '../infrastructure/ClaudeStopHookPayloadNormalizer';
+import { CodexNativeTurnSettledPayloadNormalizer } from '../infrastructure/CodexNativeTurnSettledPayloadNormalizer';
+import { CompositeRuntimeTurnSettledPayloadNormalizer } from '../infrastructure/CompositeRuntimeTurnSettledPayloadNormalizer';
+import { FileRuntimeTurnSettledEventStore } from '../infrastructure/FileRuntimeTurnSettledEventStore';
+import { HmacMemberWorkSyncReportTokenAdapter } from '../infrastructure/HmacMemberWorkSyncReportTokenAdapter';
+import { JsonMemberWorkSyncStore } from '../infrastructure/JsonMemberWorkSyncStore';
+import {
+  MemberWorkSyncEventQueue,
+  type MemberWorkSyncQueueDiagnostics,
+} from '../infrastructure/MemberWorkSyncEventQueue';
+import { MemberWorkSyncNudgeDispatchScheduler } from '../infrastructure/MemberWorkSyncNudgeDispatchScheduler';
+import { MemberWorkSyncStorePaths } from '../infrastructure/MemberWorkSyncStorePaths';
+import { MemberWorkSyncToolActivityBusySignal } from '../infrastructure/MemberWorkSyncToolActivityBusySignal';
+import { NodeHashAdapter } from '../infrastructure/NodeHashAdapter';
+import { RuntimeTurnSettledDrainScheduler } from '../infrastructure/RuntimeTurnSettledDrainScheduler';
+import { buildRuntimeTurnSettledEnvironment } from '../infrastructure/runtimeTurnSettledEnvironment';
+import { buildRuntimeTurnSettledHookSettings } from '../infrastructure/runtimeTurnSettledHookSettings';
+import { RuntimeTurnSettledSpoolPaths } from '../infrastructure/RuntimeTurnSettledSpoolPaths';
+import { ShellRuntimeTurnSettledHookScriptInstaller } from '../infrastructure/ShellRuntimeTurnSettledHookScriptInstaller';
+import { SystemClockAdapter } from '../infrastructure/SystemClockAdapter';
+
 import type {
   MemberWorkSyncMetricsRequest,
   MemberWorkSyncReportRequest,
@@ -6,53 +46,13 @@ import type {
   MemberWorkSyncStatusRequest,
   MemberWorkSyncTeamMetrics,
 } from '../../contracts';
-import {
-  MemberWorkSyncDiagnosticsReader,
-  MemberWorkSyncMetricsReader,
-  MemberWorkSyncNudgeDispatcher,
-  type MemberWorkSyncNudgeDispatchSummary,
-  MemberWorkSyncPendingReportIntentReplayer,
-  type MemberWorkSyncPendingReportReplaySummary,
-  MemberWorkSyncReconciler,
-  MemberWorkSyncReporter,
-  type MemberWorkSyncReconcileContext,
-  RuntimeTurnSettledIngestor,
-  type RuntimeTurnSettledDrainSummary,
-  type RuntimeTurnSettledTargetResolverPort,
-} from '../../core/application';
-import { MemberWorkSyncTeamChangeRouter } from '../adapters/input/MemberWorkSyncTeamChangeRouter';
-import { TeamInboxMemberWorkSyncNudgeSink } from '../adapters/output/TeamInboxMemberWorkSyncNudgeSink';
-import { TeamTaskStallJournalWorkSyncCooldown } from '../adapters/output/TeamTaskStallJournalWorkSyncCooldown';
-import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
-import { TeamRuntimeTurnSettledTargetResolver } from '../adapters/output/TeamRuntimeTurnSettledTargetResolver';
-import { ClaudeStopHookPayloadNormalizer } from '../infrastructure/ClaudeStopHookPayloadNormalizer';
-import { CodexNativeTurnSettledPayloadNormalizer } from '../infrastructure/CodexNativeTurnSettledPayloadNormalizer';
-import { CompositeRuntimeTurnSettledPayloadNormalizer } from '../infrastructure/CompositeRuntimeTurnSettledPayloadNormalizer';
-import { FileRuntimeTurnSettledEventStore } from '../infrastructure/FileRuntimeTurnSettledEventStore';
-import { HmacMemberWorkSyncReportTokenAdapter } from '../infrastructure/HmacMemberWorkSyncReportTokenAdapter';
-import {
-  MemberWorkSyncEventQueue,
-  type MemberWorkSyncQueueDiagnostics,
-} from '../infrastructure/MemberWorkSyncEventQueue';
-import { JsonMemberWorkSyncStore } from '../infrastructure/JsonMemberWorkSyncStore';
-import { MemberWorkSyncStorePaths } from '../infrastructure/MemberWorkSyncStorePaths';
-import { MemberWorkSyncNudgeDispatchScheduler } from '../infrastructure/MemberWorkSyncNudgeDispatchScheduler';
-import { MemberWorkSyncToolActivityBusySignal } from '../infrastructure/MemberWorkSyncToolActivityBusySignal';
-import { NodeHashAdapter } from '../infrastructure/NodeHashAdapter';
-import { RuntimeTurnSettledDrainScheduler } from '../infrastructure/RuntimeTurnSettledDrainScheduler';
-import { RuntimeTurnSettledSpoolPaths } from '../infrastructure/RuntimeTurnSettledSpoolPaths';
-import { ShellRuntimeTurnSettledHookScriptInstaller } from '../infrastructure/ShellRuntimeTurnSettledHookScriptInstaller';
-import { buildRuntimeTurnSettledEnvironment } from '../infrastructure/runtimeTurnSettledEnvironment';
-import { buildRuntimeTurnSettledHookSettings } from '../infrastructure/runtimeTurnSettledHookSettings';
-import { SystemClockAdapter } from '../infrastructure/SystemClockAdapter';
-
+import type { MemberWorkSyncLoggerPort } from '../../core/application';
+import type { RuntimeTurnSettledProvider } from '../../core/domain';
 import type { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import type { TeamKanbanManager } from '@main/services/team/TeamKanbanManager';
 import type { TeamMembersMetaStore } from '@main/services/team/TeamMembersMetaStore';
 import type { TeamTaskReader } from '@main/services/team/TeamTaskReader';
 import type { TeamChangeEvent } from '@shared/types';
-import type { MemberWorkSyncLoggerPort } from '../../core/application';
-import type { RuntimeTurnSettledProvider } from '../../core/domain';
 
 export const MEMBER_WORK_SYNC_NUDGE_SIDE_EFFECTS_ENV =
   'CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED';
@@ -208,17 +208,18 @@ export function createMemberWorkSyncFeature(deps: {
     drain: () => runtimeTurnSettledIngestor.drainPending(),
     logger: deps.logger,
   });
-  const nudgeDispatchScheduler = nudgeSideEffectsEnabled && deps.listLifecycleActiveTeamNames
-    ? new MemberWorkSyncNudgeDispatchScheduler({
-        listLifecycleActiveTeamNames: deps.listLifecycleActiveTeamNames,
-        dispatchDue: (teamNames) =>
-          nudgeDispatcher.dispatchDue({
-            teamNames,
-            claimedBy: `member-work-sync:${process.pid}:scheduled`,
-          }),
-        logger: deps.logger,
-      })
-    : null;
+  const nudgeDispatchScheduler =
+    nudgeSideEffectsEnabled && deps.listLifecycleActiveTeamNames
+      ? new MemberWorkSyncNudgeDispatchScheduler({
+          listLifecycleActiveTeamNames: deps.listLifecycleActiveTeamNames,
+          dispatchDue: (teamNames) =>
+            nudgeDispatcher.dispatchDue({
+              teamNames,
+              claimedBy: `member-work-sync:${process.pid}:scheduled`,
+            }),
+          logger: deps.logger,
+        })
+      : null;
   runtimeTurnSettledDrainScheduler.start();
   nudgeDispatchScheduler?.start();
 

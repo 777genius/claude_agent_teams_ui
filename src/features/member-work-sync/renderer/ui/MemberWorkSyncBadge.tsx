@@ -1,18 +1,19 @@
 import { Badge } from '@renderer/components/ui/badge';
 import { cn } from '@renderer/lib/utils';
-import type React from 'react';
 
-import type { MemberWorkSyncStatus } from '../../contracts';
 import {
-  toMemberWorkSyncStatusViewModel,
   type MemberWorkSyncStatusViewModel,
+  toMemberWorkSyncStatusViewModel,
 } from '../adapters/memberWorkSyncStatusViewModel';
 
-interface MemberWorkSyncBadgeProps {
+import type { MemberWorkSyncStatus } from '../../contracts';
+import type React from 'react';
+
+type MemberWorkSyncBadgeProps = Readonly<{
   status?: MemberWorkSyncStatus | null;
   viewModel?: MemberWorkSyncStatusViewModel;
   className?: string;
-}
+}>;
 
 const toneClassName: Record<MemberWorkSyncStatusViewModel['tone'], string> = {
   neutral: 'border-[var(--color-border)] text-[var(--color-text-muted)]',
@@ -32,7 +33,11 @@ export function MemberWorkSyncBadge({
   return (
     <Badge
       variant="outline"
-      className={cn('cursor-default whitespace-nowrap font-medium', toneClassName[resolved.tone], className)}
+      className={cn(
+        'cursor-default whitespace-nowrap font-medium',
+        toneClassName[resolved.tone],
+        className
+      )}
       title={resolved.tooltip}
     >
       {resolved.label}

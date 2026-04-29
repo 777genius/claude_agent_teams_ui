@@ -79,8 +79,10 @@ describe('runtime turn-settled hook settings', () => {
     expect(fs.existsSync(paths.getProcessedDir())).toBe(true);
     expect(fs.existsSync(paths.getInvalidDir())).toBe(true);
 
-    const stat = fs.statSync(result.scriptPath);
-    expect(stat.mode & 0o111).toBeGreaterThan(0);
+    if (process.platform !== 'win32') {
+      const stat = fs.statSync(result.scriptPath);
+      expect(stat.mode & 0o111).toBeGreaterThan(0);
+    }
     expect(fs.readFileSync(result.scriptPath, 'utf8')).toContain('dd bs="$max_bytes"');
   });
 });

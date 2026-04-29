@@ -1,16 +1,16 @@
-import path from 'path';
-
-import { isReservedMemberName, normalizeMemberName } from '../../../core/domain';
-import type {
-  RuntimeTurnSettledTargetResolution,
-  RuntimeTurnSettledTargetResolverPort,
-} from '../../../core/application';
 import { TeamMemberLogsFinder } from '@main/services/team/TeamMemberLogsFinder';
 import {
   inferTeamProviderIdFromModel,
   normalizeOptionalTeamProviderId,
 } from '@shared/utils/teamProvider';
+import path from 'path';
 
+import { isReservedMemberName, normalizeMemberName } from '../../../core/domain';
+
+import type {
+  RuntimeTurnSettledTargetResolution,
+  RuntimeTurnSettledTargetResolverPort,
+} from '../../../core/application';
 import type { RuntimeTurnSettledEvent } from '../../../core/domain';
 import type { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import type { TeamMembersMetaStore } from '@main/services/team/TeamMembersMetaStore';
@@ -69,9 +69,7 @@ function normalizePath(value: string | undefined): string | null {
   return path.resolve(value.trim());
 }
 
-export class TeamRuntimeTurnSettledTargetResolver
-  implements RuntimeTurnSettledTargetResolverPort
-{
+export class TeamRuntimeTurnSettledTargetResolver implements RuntimeTurnSettledTargetResolverPort {
   private readonly memberLogsFinder: AttributedMemberFileSource;
   private readonly maxTeamsToScan: number;
 
@@ -99,12 +97,12 @@ export class TeamRuntimeTurnSettledTargetResolver
       .filter((team) => !team.deletedAt)
       .slice(0, this.maxTeamsToScan);
 
-    const candidates: Array<{
+    const candidates: {
       teamName: string;
       memberName: string;
       exactPath: boolean;
       mtimeMs: number;
-    }> = [];
+    }[] = [];
 
     for (const team of teams) {
       const attributedFiles = await this.memberLogsFinder

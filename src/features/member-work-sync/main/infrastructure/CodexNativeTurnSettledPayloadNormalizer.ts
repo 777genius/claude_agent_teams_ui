@@ -2,6 +2,7 @@ import {
   buildRuntimeTurnSettledSourceId,
   type RuntimeTurnSettledProvider,
 } from '../../core/domain';
+
 import type {
   MemberWorkSyncHashPort,
   RuntimeTurnSettledPayloadNormalization,
@@ -28,9 +29,7 @@ function getString(record: Record<string, unknown>, ...keys: string[]): string |
   return undefined;
 }
 
-export class CodexNativeTurnSettledPayloadNormalizer
-  implements RuntimeTurnSettledPayloadNormalizerPort
-{
+export class CodexNativeTurnSettledPayloadNormalizer implements RuntimeTurnSettledPayloadNormalizerPort {
   constructor(private readonly hash: MemberWorkSyncHashPort) {}
 
   normalize(input: {

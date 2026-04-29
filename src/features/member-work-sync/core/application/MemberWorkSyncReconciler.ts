@@ -4,9 +4,11 @@ import {
   decideMemberWorkSyncStatus,
   formatAgendaFingerprint,
 } from '../domain';
+
+import { MemberWorkSyncNudgeOutboxPlanner } from './MemberWorkSyncNudgeOutboxPlanner';
+
 import type { MemberWorkSyncStatus, MemberWorkSyncStatusRequest } from '../../contracts';
 import type { MemberWorkSyncAgendaSourceResult, MemberWorkSyncUseCaseDeps } from './ports';
-import { MemberWorkSyncNudgeOutboxPlanner } from './MemberWorkSyncNudgeOutboxPlanner';
 
 export interface MemberWorkSyncReconcileContext {
   reconciledBy?: 'request' | 'queue';

@@ -1,3 +1,5 @@
+import { createLogger } from '@shared/utils/logger';
+
 import {
   MEMBER_WORK_SYNC_GET_METRICS,
   MEMBER_WORK_SYNC_GET_STATUS,
@@ -9,7 +11,6 @@ import {
   type MemberWorkSyncStatusRequest,
   type MemberWorkSyncTeamMetrics,
 } from '../../../contracts';
-import { createLogger } from '@shared/utils/logger';
 
 import type { MemberWorkSyncFeatureFacade } from '../../composition/createMemberWorkSyncFeature';
 import type { IpcMain } from 'electron';

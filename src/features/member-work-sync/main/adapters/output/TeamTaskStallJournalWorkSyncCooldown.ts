@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+
 import type { MemberWorkSyncWatchdogCooldownPort } from '../../../core/application';
 
 const DEFAULT_WATCHDOG_COOLDOWN_MS = 10 * 60_000;
@@ -54,10 +55,7 @@ export class TeamTaskStallJournalWorkSyncCooldown implements MemberWorkSyncWatch
         return alertedAt != null && now - alertedAt <= this.cooldownMs;
       });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return false;
-      }
-      return true;
+      return (error as NodeJS.ErrnoException).code !== 'ENOENT';
     }
   }
 }

@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 
-import { RuntimeTurnSettledSpoolPaths } from './RuntimeTurnSettledSpoolPaths';
+import type { RuntimeTurnSettledSpoolPaths } from './RuntimeTurnSettledSpoolPaths';
 
 const HOOK_SCRIPT_CONTENT = `#!/bin/sh
 set +e
@@ -58,6 +58,7 @@ export class ShellRuntimeTurnSettledHookScriptInstaller {
 
     const scriptPath = this.paths.getHookScriptPath();
     await fs.writeFile(scriptPath, HOOK_SCRIPT_CONTENT, 'utf8');
+    // eslint-disable-next-line sonarjs/file-permissions -- the hook script must be executable on POSIX hosts.
     await fs.chmod(scriptPath, 0o755);
 
     return {

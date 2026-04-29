@@ -221,11 +221,11 @@ export interface MemberWorkSyncNudgePayload {
   source: 'member-work-sync';
   actionMode: 'do';
   text: string;
-  taskRefs: Array<{
+  taskRefs: {
     taskId: string;
     displayId: string;
     teamName: string;
-  }>;
+  }[];
 }
 
 export interface MemberWorkSyncOutboxItem {

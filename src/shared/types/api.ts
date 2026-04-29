@@ -95,8 +95,6 @@ import type { TerminalAPI } from './terminal';
 import type { TmuxAPI } from './tmux';
 import type { WaterfallData } from './visualization';
 import type { CodexAccountElectronApi } from '@features/codex-account/contracts';
-import type { RecentProjectsElectronApi } from '@features/recent-projects/contracts';
-import type { RuntimeProviderManagementApi } from '@features/runtime-provider-management/contracts';
 import type {
   MemberWorkSyncMetricsRequest,
   MemberWorkSyncReportRequest,
@@ -105,6 +103,8 @@ import type {
   MemberWorkSyncStatusRequest,
   MemberWorkSyncTeamMetrics,
 } from '@features/member-work-sync/contracts';
+import type { RecentProjectsElectronApi } from '@features/recent-projects/contracts';
+import type { RuntimeProviderManagementApi } from '@features/runtime-provider-management/contracts';
 import type {
   ConversationGroup,
   FileChangeEvent,

@@ -1,5 +1,6 @@
-import type { MemberWorkSyncStatus } from '../../contracts';
 import { buildMemberWorkSyncOutboxEnsureInput } from '../domain';
+
+import type { MemberWorkSyncStatus } from '../../contracts';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
 export interface MemberWorkSyncNudgeOutboxPlanResult {

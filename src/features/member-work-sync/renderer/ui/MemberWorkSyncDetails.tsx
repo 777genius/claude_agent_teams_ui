@@ -1,12 +1,14 @@
-import { MemberWorkSyncBadge } from './MemberWorkSyncBadge';
-import type { MemberWorkSyncStatus } from '../../contracts';
 import { toMemberWorkSyncStatusViewModel } from '../adapters/memberWorkSyncStatusViewModel';
+
+import { MemberWorkSyncBadge } from './MemberWorkSyncBadge';
+
+import type { MemberWorkSyncStatus } from '../../contracts';
 import type React from 'react';
 
-interface MemberWorkSyncDetailsProps {
+type MemberWorkSyncDetailsProps = Readonly<{
   status: MemberWorkSyncStatus | null;
   showDiagnostics?: boolean;
-}
+}>;
 
 function shortFingerprint(fingerprint?: string): string {
   if (!fingerprint) {

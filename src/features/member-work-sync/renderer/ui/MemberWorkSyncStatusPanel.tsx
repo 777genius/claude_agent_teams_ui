@@ -1,15 +1,16 @@
-import type React from 'react';
+import { useMemberWorkSyncStatus } from '../hooks/useMemberWorkSyncStatus';
 
 import { MemberWorkSyncBadge } from './MemberWorkSyncBadge';
 import { MemberWorkSyncDetails } from './MemberWorkSyncDetails';
-import { useMemberWorkSyncStatus } from '../hooks/useMemberWorkSyncStatus';
 
-interface MemberWorkSyncStatusPanelProps {
+import type React from 'react';
+
+type MemberWorkSyncStatusPanelProps = Readonly<{
   teamName: string;
   memberName: string;
   enabled?: boolean;
   showDiagnostics?: boolean;
-}
+}>;
 
 export function MemberWorkSyncStatusPanel({
   teamName,

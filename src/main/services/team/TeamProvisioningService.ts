@@ -2,7 +2,6 @@ import {
   resolveAnthropicFastMode,
   resolveAnthropicRuntimeSelection,
 } from '@features/anthropic-runtime-profile/main';
-import type { RuntimeTurnSettledProvider } from '@features/member-work-sync/core/domain';
 import {
   buildCodexFastModeArgs,
   resolveCodexFastMode,
@@ -239,6 +238,7 @@ import type {
   TeamRuntimePrepareResult,
   TeamRuntimeStopInput,
 } from './runtime';
+import type { RuntimeTurnSettledProvider } from '@features/member-work-sync/main';
 
 /**
  * Kill a team CLI process using SIGKILL (uncatchable).

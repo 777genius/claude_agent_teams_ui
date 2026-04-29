@@ -1,5 +1,6 @@
-import type { MemberWorkSyncMetricsRequest, MemberWorkSyncTeamMetrics } from '../../contracts';
 import { assessMemberWorkSyncPhase2Readiness } from '../domain';
+
+import type { MemberWorkSyncMetricsRequest, MemberWorkSyncTeamMetrics } from '../../contracts';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
 function emptyMetrics(teamName: string, generatedAt: string): MemberWorkSyncTeamMetrics {

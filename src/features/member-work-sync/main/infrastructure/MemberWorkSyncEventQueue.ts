@@ -1,5 +1,5 @@
-import type { MemberWorkSyncReconcileContext } from '../../core/application/MemberWorkSyncReconciler';
 import type { MemberWorkSyncLoggerPort } from '../../core/application';
+import type { MemberWorkSyncReconcileContext } from '../../core/application/MemberWorkSyncReconciler';
 
 export type MemberWorkSyncTriggerReason =
   | 'startup_scan'

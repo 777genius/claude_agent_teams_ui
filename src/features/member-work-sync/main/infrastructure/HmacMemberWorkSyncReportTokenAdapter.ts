@@ -6,8 +6,8 @@ import { atomicWriteAsync } from '@main/utils/atomicWrite';
 import type {
   MemberWorkSyncReportTokenCreateInput,
   MemberWorkSyncReportTokenPort,
-  MemberWorkSyncReportTokenVerifyInput,
   MemberWorkSyncReportTokenVerification,
+  MemberWorkSyncReportTokenVerifyInput,
 } from '../../core/application';
 import type { MemberWorkSyncStorePaths } from './MemberWorkSyncStorePaths';
 

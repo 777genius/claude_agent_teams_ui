@@ -1,19 +1,20 @@
 import {
+  inferTeamProviderIdFromModel,
+  normalizeOptionalTeamProviderId,
+} from '@shared/utils/teamProvider';
+
+import {
   buildActionableWorkAgenda,
   isReservedMemberName,
-  normalizeMemberName,
   type MemberWorkSyncMemberLike,
+  normalizeMemberName,
 } from '../../../core/domain';
+
 import type {
   MemberWorkSyncAgendaSourcePort,
   MemberWorkSyncAgendaSourceResult,
   MemberWorkSyncHashPort,
 } from '../../../core/application';
-import {
-  inferTeamProviderIdFromModel,
-  normalizeOptionalTeamProviderId,
-} from '@shared/utils/teamProvider';
-
 import type { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import type { TeamKanbanManager } from '@main/services/team/TeamKanbanManager';
 import type { TeamMembersMetaStore } from '@main/services/team/TeamMembersMetaStore';

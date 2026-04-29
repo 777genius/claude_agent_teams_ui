@@ -1,15 +1,17 @@
+import { validateMemberWorkSyncReport } from '../domain';
+
+import {
+  attachMemberWorkSyncReportToken,
+  finalizeMemberWorkSyncAgenda,
+  MemberWorkSyncReconciler,
+} from './MemberWorkSyncReconciler';
+
 import type {
   MemberWorkSyncReport,
   MemberWorkSyncReportRequest,
   MemberWorkSyncReportResult,
   MemberWorkSyncStatus,
 } from '../../contracts';
-import { validateMemberWorkSyncReport } from '../domain';
-import {
-  attachMemberWorkSyncReportToken,
-  finalizeMemberWorkSyncAgenda,
-  MemberWorkSyncReconciler,
-} from './MemberWorkSyncReconciler';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
 export class MemberWorkSyncReporter {
@@ -28,7 +30,11 @@ export class MemberWorkSyncReporter {
       : true;
     if (!teamActive) {
       const status = await this.reconciler.execute(request);
-      const rejectedStatus = await this.recordRejectedReport(status, request, 'team_runtime_inactive');
+      const rejectedStatus = await this.recordRejectedReport(
+        status,
+        request,
+        'team_runtime_inactive'
+      );
       return {
         accepted: false,
         code: 'team_runtime_inactive',

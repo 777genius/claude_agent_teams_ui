@@ -1,5 +1,6 @@
-import type { MemberWorkSyncStatus, MemberWorkSyncStatusRequest } from '../../contracts';
 import { MemberWorkSyncReconciler } from './MemberWorkSyncReconciler';
+
+import type { MemberWorkSyncStatus, MemberWorkSyncStatusRequest } from '../../contracts';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
 export class MemberWorkSyncDiagnosticsReader {

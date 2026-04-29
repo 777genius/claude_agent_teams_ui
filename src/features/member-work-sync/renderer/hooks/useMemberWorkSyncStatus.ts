@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 
 import { api } from '@renderer/api';
 
-import type { MemberWorkSyncStatus } from '../../contracts';
 import {
-  toMemberWorkSyncStatusViewModel,
   type MemberWorkSyncStatusViewModel,
+  toMemberWorkSyncStatusViewModel,
 } from '../adapters/memberWorkSyncStatusViewModel';
+
+import type { MemberWorkSyncStatus } from '../../contracts';
 
 export interface UseMemberWorkSyncStatusOptions {
   teamName?: string | null;

@@ -31,17 +31,17 @@ import {
   createCodexModelCatalogFeature,
 } from '@features/codex-model-catalog/main';
 import {
-  createRecentProjectsFeature,
-  type RecentProjectsFeatureFacade,
-  registerRecentProjectsIpc,
-  removeRecentProjectsIpc,
-} from '@features/recent-projects/main';
-import {
   createMemberWorkSyncFeature,
   type MemberWorkSyncFeatureFacade,
   registerMemberWorkSyncIpc,
   removeMemberWorkSyncIpc,
 } from '@features/member-work-sync/main';
+import {
+  createRecentProjectsFeature,
+  type RecentProjectsFeatureFacade,
+  registerRecentProjectsIpc,
+  removeRecentProjectsIpc,
+} from '@features/recent-projects/main';
 import {
   createRuntimeProviderManagementFeature,
   registerRuntimeProviderManagementIpc,
@@ -179,19 +179,19 @@ import {
   SshConnectionManager,
   TaskBoundaryParser,
   TeamDataService,
+  TeamKanbanManager,
   TeamLogSourceTracker,
   TeammateToolTracker,
   TeamMemberLogsFinder,
+  TeamMembersMetaStore,
   TeamProvisioningService,
   TeamRuntimeAdapterRegistry,
-  TeamKanbanManager,
-  TeamMembersMetaStore,
+  TeamTaskReader,
   TeamTaskStallJournal,
   TeamTaskStallMonitor,
   TeamTaskStallNotifier,
   TeamTaskStallPolicy,
   TeamTaskStallSnapshotSource,
-  TeamTaskReader,
   UpdaterService,
 } from './services';
 

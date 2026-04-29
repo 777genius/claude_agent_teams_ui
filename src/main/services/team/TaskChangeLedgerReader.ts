@@ -1152,7 +1152,7 @@ export class TaskChangeLedgerReader {
       string,
       { event: LedgerEvent; index: number; rank: number }
     >();
-    const passthrough: Array<{ event: LedgerEvent; index: number }> = [];
+    const passthrough: { event: LedgerEvent; index: number }[] = [];
 
     events.forEach((event, index) => {
       const sourceImportKey = this.sourceImportKeyForEvent(event);

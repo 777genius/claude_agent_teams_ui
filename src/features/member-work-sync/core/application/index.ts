@@ -5,6 +5,6 @@ export * from './MemberWorkSyncNudgeOutboxPlanner';
 export * from './MemberWorkSyncPendingReportIntentReplayer';
 export * from './MemberWorkSyncReconciler';
 export * from './MemberWorkSyncReporter';
-export * from './ports';
+export type * from './ports';
 export * from './RuntimeTurnSettledIngestor';
-export * from './RuntimeTurnSettledPorts';
+export type * from './RuntimeTurnSettledPorts';

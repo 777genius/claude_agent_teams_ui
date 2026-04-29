@@ -1,5 +1,6 @@
-import type { MemberWorkSyncReportIntentStatus } from '../../contracts';
 import { MemberWorkSyncReporter } from './MemberWorkSyncReporter';
+
+import type { MemberWorkSyncReportIntentStatus } from '../../contracts';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
 export interface MemberWorkSyncPendingReportReplaySummary {
