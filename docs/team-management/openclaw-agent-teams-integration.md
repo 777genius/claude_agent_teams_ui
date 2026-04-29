@@ -1,77 +1,180 @@
 # OpenClaw Integration With Agent Teams
 
-**Status:** Local-first integration guide  
-**Audience:** OpenClaw or any external AI client that can call MCP tools or local HTTP APIs  
-**Primary use case:** Let an outside AI create, inspect, launch, and coordinate Agent Teams for complex work and cross-checking
+- **Status:** local-first integration guide
+- **Audience:** OpenClaw or any outside AI client that can run MCP tools or call a local REST API
+- **Primary use case:** let an outside AI create, inspect, launch, and cross-check Agent Teams work
+- **Recommended first implementation:** MCP-first, REST as a lifecycle/debug fallback
 
-## 1. Short Answer
+## 1. Executive Summary
 
-Yes, this is feasible.
+Yes, this integration is feasible.
 
-The integration has two layers:
+The clean local architecture is:
 
-1. **Agent Teams Desktop App HTTP control API**
-   - Runs locally on the same machine as the desktop app.
+```text
+OpenClaw
+  starts agent-teams-mcp over stdio
+    calls Agent Teams desktop HTTP control API
+      controls shared Agent Teams runtime and shared ~/.claude state
+```
+
+There are two integration surfaces:
+
+1. **MCP surface**
+   - Best fit for an AI agent like OpenClaw.
+   - OpenClaw starts `agent-teams-mcp` as a child process.
+   - The MCP server exposes tools such as `team_list`, `team_create`, `team_get`, `team_launch`, `task_create`, `message_send`, `review_request`, and more.
+
+2. **REST control API**
+   - Best fit for lifecycle automation, health checks, debugging, and simple wrappers.
+   - Runs inside the Agent Teams desktop app.
    - Defaults to `http://127.0.0.1:3456`.
-   - Exposes REST endpoints for teams and runtime lifecycle.
+   - Currently covers team lifecycle/runtime control. It does not replace the full board/message MCP tool surface.
 
-2. **`agent-teams-mcp` stdio MCP server**
-   - Does not listen on a port.
-   - Is started by each MCP client as a normal child process.
-   - Forwards runtime/team operations to the local HTTP control API.
-
-For OpenClaw, the preferred path is:
+For the original request - "can OpenClaw call Agent Teams for complex tasks and cross-checking?" - the answer is:
 
 ```text
-OpenClaw -> stdio MCP process: agent-teams-mcp -> local Agent Teams HTTP API -> Desktop runtime
+Use MCP for normal AI-to-Agent-Teams interaction.
+Use REST for lifecycle/debug or if OpenClaw cannot use MCP yet.
 ```
 
-Direct REST is also possible:
+## 2. The Mental Model
+
+### 2.1 What Runs Where
 
 ```text
-OpenClaw -> http://127.0.0.1:3456/api/... -> Desktop runtime
+Mac mini or local Mac
+
+Agent Teams Desktop App
+  - owns Electron UI
+  - owns team runtime process management
+  - owns local HTTP control API
+  - writes current control API URL to ~/.claude/team-control-api.json
+
+agent-teams-mcp
+  - stdio MCP server process
+  - started by each MCP client that needs it
+  - does not listen on a port
+  - forwards lifecycle operations to the desktop HTTP control API
+  - uses ~/.claude for team/task/message controller state
+
+OpenClaw
+  - external AI client
+  - can start agent-teams-mcp as an MCP server
+  - can optionally call REST directly
 ```
 
-## 2. Important Architecture Notes
+### 2.2 One Control Plane, Many MCP Processes
 
-### 2.1 Multiple MCP Processes Are Expected
-
-It is safe for multiple agents and OpenClaw to each start their own `agent-teams-mcp` process.
-
-This works because `agent-teams-mcp` uses **stdio transport**:
-
-- it does not bind a TCP port;
-- it does not own team state;
-- it does not create a separate control plane;
-- it reads/writes through the shared Agent Teams runtime and shared Claude data directory.
-
-Example:
+Multiple MCP processes are expected and safe.
 
 ```text
 Agent 1 MCP process \
-Agent 2 MCP process  -> Agent Teams Desktop HTTP API -> shared teams/tasks/runtime
+Agent 2 MCP process  -> one Agent Teams desktop HTTP API -> shared teams/tasks/runtime
 OpenClaw MCP process/
 ```
 
-The MCP processes are many. The control plane is one.
+This is safe because `agent-teams-mcp` is a stdio process:
 
-### 2.2 The MCP Server Has No URL
+- it does not bind a port;
+- it does not own global runtime state;
+- it does not create a second app server;
+- it uses the shared desktop app control API for lifecycle operations;
+- it uses the shared Claude data directory for team/task/message state.
 
-Do not look for an MCP URL.
+The thing that must be singular is the **desktop control plane**, not the MCP process.
 
-`agent-teams-mcp` is launched by the MCP client:
+### 2.3 What Can Conflict
+
+MCP processes themselves should not conflict.
+
+Possible conflicts are logical, not port/process conflicts:
+
+- two clients create the same `teamName`;
+- two clients launch or stop the same team at the same time;
+- two clients edit the same task concurrently;
+- one client changes the board while another client is using stale state.
+
+These are normal shared-state coordination issues. They are not caused by multiple MCP servers.
+
+## 3. Recommended Integration Choice
+
+### Option A: MCP-first integration
+
+Scores: 🎯 9/10 🛡️ 8/10 🧠 4/10
+
+Expected OpenClaw changes: roughly `20-80 LOC` plus configuration.
+
+Use this if OpenClaw supports stdio MCP servers.
+
+Why it is the recommended path:
+
+- it matches how AI clients naturally call tools;
+- it exposes the richer board/task/message/review surface;
+- each OpenClaw run can start its own MCP process safely;
+- it avoids writing a custom task/message client against internal files;
+- it keeps OpenClaw integration close to the tools Agent Teams already gives team agents.
+
+Use REST only for health checks and debugging in this option.
+
+### Option B: REST-first lifecycle integration
+
+Scores: 🎯 7/10 🛡️ 7/10 🧠 5/10
+
+Expected OpenClaw changes: roughly `80-180 LOC`.
+
+Use this if OpenClaw cannot run MCP yet.
+
+Important limitation:
 
 ```text
-client starts process -> client speaks JSON-RPC over stdin/stdout
+REST currently covers team lifecycle/runtime control.
+It is not the full board/task/message/review control surface.
 ```
 
-The URL belongs to the desktop app HTTP control API, not to MCP.
+REST can:
 
-### 2.3 The HTTP Control API Is Localhost Only
+- list teams;
+- create draft team configs;
+- get team snapshots;
+- launch teams;
+- stop teams;
+- poll runtime/provisioning state.
 
-The desktop HTTP server binds to `127.0.0.1` by default.
+REST should not be treated as the full replacement for task/message MCP tools.
 
-Default base URL:
+### Option C: Hybrid integration
+
+Scores: 🎯 8/10 🛡️ 8/10 🧠 7/10
+
+Expected OpenClaw changes: roughly `120-260 LOC`.
+
+Use MCP for normal AI tool calls, and REST for operational checks.
+
+Good split:
+
+- MCP: team operations, task creation, messages, reviews, process registry.
+- REST: "is the desktop app alive?", "what is the runtime state?", "what is the current run status?"
+
+This is the best long-term shape if OpenClaw needs both agentic workflows and a supervisory dashboard.
+
+## 4. Local Setup Checklist
+
+### 4.1 Start Agent Teams Desktop App
+
+The desktop app must be running. It owns the runtime and local HTTP API.
+
+### 4.2 Enable Browser Access / Server Mode
+
+In the desktop app:
+
+```text
+Settings -> Browser Access -> Enable server mode
+```
+
+When enabled, the app starts a local Fastify HTTP server.
+
+Default:
 
 ```text
 http://127.0.0.1:3456
@@ -79,7 +182,9 @@ http://127.0.0.1:3456
 
 If port `3456` is busy, the app tries the next ports.
 
-The current URL is published to:
+### 4.3 Discover the Current Control API URL
+
+The desktop app writes the active URL to:
 
 ```text
 ~/.claude/team-control-api.json
@@ -95,42 +200,69 @@ Example:
 }
 ```
 
-### 2.4 Remote OpenClaw Needs a Tunnel
-
-If OpenClaw runs on the same Mac as the desktop app, no tunnel is needed.
-
-If OpenClaw runs on another server, it cannot directly reach `127.0.0.1` on the Mac. Use one of:
-
-- SSH tunnel;
-- reverse tunnel;
-- VPN;
-- a future authenticated remote control endpoint.
-
-Do not expose the local HTTP API to the public internet without authentication and transport security.
-
-## 3. Prerequisites
-
-1. Agent Teams desktop app is running.
-2. HTTP server is enabled in Agent Teams settings.
-3. OpenClaw runs on the same machine, or has a secure tunnel to the machine.
-4. Node.js 20+ is available if OpenClaw will launch the MCP server from source or build output.
-
-To confirm the HTTP control API is available:
+Check it:
 
 ```bash
 cat ~/.claude/team-control-api.json
+```
+
+Then verify REST:
+
+```bash
 curl -s http://127.0.0.1:3456/api/teams
 ```
 
-If the app selected a different port, use the `baseUrl` from `team-control-api.json`.
+If the file shows a different port, use that `baseUrl`.
 
-## 4. Recommended Integration: MCP
+### 4.4 Local vs Remote OpenClaw
 
-Use MCP if OpenClaw supports external MCP servers. MCP gives OpenClaw a tool surface instead of forcing it to hand-roll REST calls.
+If OpenClaw runs on the same Mac:
 
-### 4.1 Dev Workspace MCP Config
+```text
+No tunnel needed.
+Use http://127.0.0.1:<port>.
+```
 
-When running from this repository:
+If OpenClaw runs on another machine:
+
+```text
+127.0.0.1 points to the OpenClaw machine, not to the Mac running Agent Teams.
+Use an SSH tunnel, reverse tunnel, VPN, or another secure local-network setup.
+```
+
+Basic SSH tunnel example:
+
+```bash
+ssh -N -L 3456:127.0.0.1:3456 user@mac-mini-host
+```
+
+Then OpenClaw can use:
+
+```text
+http://127.0.0.1:3456
+```
+
+from the machine where the tunnel is open.
+
+## 5. MCP Integration
+
+### 5.1 What OpenClaw Needs To Do
+
+OpenClaw should register `agent-teams-mcp` as a stdio MCP server.
+
+That means OpenClaw starts a process and speaks MCP JSON-RPC over stdin/stdout.
+
+OpenClaw does **not** connect to an MCP URL.
+
+The URL belongs to the desktop HTTP control API and is passed to MCP through:
+
+- `CLAUDE_TEAM_CONTROL_URL`, or
+- `~/.claude/team-control-api.json`, or
+- per-tool `controlUrl`.
+
+### 5.2 Dev Checkout MCP Config
+
+Use this while testing from the repository checkout:
 
 ```json
 {
@@ -147,22 +279,21 @@ When running from this repository:
 }
 ```
 
-Notes:
+Adjust:
 
-- Adjust the paths for the user's machine.
-- `AGENT_TEAMS_MCP_CLAUDE_DIR` tells MCP which Claude data directory to use.
-- `CLAUDE_TEAM_CONTROL_URL` is optional if `~/.claude/team-control-api.json` exists, but it is useful for explicit setup.
-- If the HTTP server is on another port, update `CLAUDE_TEAM_CONTROL_URL`.
+- repo path;
+- Claude data directory;
+- control URL port.
 
-### 4.2 Built MCP Config
+### 5.3 Built MCP Config
 
-For a built MCP server:
+Build:
 
 ```bash
 pnpm --filter agent-teams-mcp build
 ```
 
-Then configure OpenClaw like:
+Configure OpenClaw:
 
 ```json
 {
@@ -179,21 +310,81 @@ Then configure OpenClaw like:
 }
 ```
 
-### 4.3 Packaged App Config
+### 5.4 If OpenClaw Supports `cwd`
 
-In a packaged app, the app resolves its bundled MCP entrypoint internally for teams it launches. For an external client like OpenClaw, give it either:
+Some MCP clients allow a `cwd` field. If OpenClaw supports it, this is cleaner:
 
-- the packaged `agent-teams-mcp/dist/index.js` path, if available;
-- or a separately installed copy of `agent-teams-mcp`;
-- or a dev checkout path while testing.
+```json
+{
+  "mcpServers": {
+    "agent-teams": {
+      "command": "pnpm",
+      "args": ["dev"],
+      "cwd": "/Users/belief/dev/projects/claude/claude_team/mcp-server",
+      "env": {
+        "AGENT_TEAMS_MCP_CLAUDE_DIR": "/Users/belief/.claude",
+        "CLAUDE_TEAM_CONTROL_URL": "http://127.0.0.1:3456"
+      }
+    }
+  }
+}
+```
 
-The MCP client still starts it as a stdio process.
+If OpenClaw does not support `cwd`, use the `pnpm --dir ... dev` form.
 
-## 5. MCP Tool Flow Examples
+### 5.5 MCP URL Discovery Order
 
-The exact UI for tool calls depends on OpenClaw, but the calls are conceptually:
+For lifecycle tools such as `team_list`, `team_get`, `team_create`, and `team_launch`, the control URL is resolved in this order:
 
-### 5.1 List Teams
+1. tool argument `controlUrl`;
+2. `~/.claude/team-control-api.json`;
+3. environment variable `CLAUDE_TEAM_CONTROL_URL`.
+
+Passing `CLAUDE_TEAM_CONTROL_URL` is the most explicit OpenClaw setup.
+
+Passing `controlUrl` per tool call is useful for debugging or tunnels.
+
+### 5.6 MCP Tool Surface
+
+Current tool groups:
+
+| Group             | Tools                                                                                                                                                                                                                                                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Team lifecycle    | `team_list`, `team_get`, `team_create`                                                                                                                                                                                                                                                                                                   |
+| Runtime lifecycle | `team_launch`, `team_stop`                                                                                                                                                                                                                                                                                                               |
+| Task board        | `task_create`, `task_create_from_message`, `task_get`, `task_get_comment`, `task_list`, `task_start`, `task_complete`, `task_set_owner`, `task_set_status`, `task_add_comment`, `task_link`, `task_unlink`, `task_set_clarification`, `task_restore`, `task_attach_file`, `task_attach_comment_file`, `task_briefing`, `member_briefing` |
+| Lead briefing     | `lead_briefing`                                                                                                                                                                                                                                                                                                                          |
+| Review            | `review_request`, `review_start`, `review_approve`, `review_request_changes`                                                                                                                                                                                                                                                             |
+| Messages          | `message_send`                                                                                                                                                                                                                                                                                                                           |
+| Cross-team        | `cross_team_send`, `cross_team_list_targets`, `cross_team_get_outbox`                                                                                                                                                                                                                                                                    |
+| Kanban            | `kanban_get`, `kanban_set_column`, `kanban_clear`, `kanban_list_reviewers`, `kanban_add_reviewer`, `kanban_remove_reviewer`                                                                                                                                                                                                              |
+| Process registry  | `process_register`, `process_list`, `process_stop`, `process_unregister`                                                                                                                                                                                                                                                                 |
+| Runtime bridge    | `runtime_bootstrap_checkin`, `runtime_deliver_message`, `runtime_task_event`, `runtime_heartbeat`                                                                                                                                                                                                                                        |
+
+Most OpenClaw integrations need:
+
+```text
+team_list
+team_get
+team_create
+team_launch
+team_stop
+task_create
+task_list
+task_get
+message_send
+review_request
+review_request_changes
+review_approve
+```
+
+The `runtime_*` tools are low-level OpenCode runtime bridge tools. Do not use them for ordinary user/team messaging.
+
+## 6. MCP Workflow Examples
+
+The exact call UI depends on OpenClaw. The examples below show the arguments conceptually.
+
+### 6.1 List Teams
 
 Tool:
 
@@ -209,9 +400,29 @@ Arguments:
 }
 ```
 
-`controlUrl` can be omitted if `~/.claude/team-control-api.json` is available.
+`controlUrl` can be omitted if `~/.claude/team-control-api.json` exists and points to the running desktop app.
 
-### 5.2 Create a Draft Team
+### 6.2 Get a Team
+
+Tool:
+
+```text
+team_get
+```
+
+Arguments:
+
+```json
+{
+  "teamName": "openclaw-review"
+}
+```
+
+For a draft team, the response includes `pendingCreate` and `savedRequest`.
+
+For a configured team, the response is the normal team snapshot.
+
+### 6.3 Create a Draft Review Team
 
 Tool:
 
@@ -238,7 +449,7 @@ Arguments:
     {
       "name": "reviewer",
       "role": "Reviewer",
-      "workflow": "Review OpenClaw's work for bugs, missing tests, incorrect assumptions, and integration risks.",
+      "workflow": "Review OpenClaw work for bugs, missing tests, incorrect assumptions, and integration risks.",
       "providerId": "codex",
       "providerBackendId": "codex-native",
       "model": "gpt-5.4",
@@ -257,27 +468,15 @@ Arguments:
 }
 ```
 
-This creates a **draft** team. It does not launch the runtime yet.
+This creates a draft team config. It does not start the runtime.
 
-### 5.3 Inspect a Team
+Important:
 
-Tool:
+- Put provider/backend/model/fast-mode defaults into `team_create`.
+- MCP `team_launch` currently accepts a smaller runtime override shape.
+- When launching a draft through MCP, saved draft fields are reused.
 
-```text
-team_get
-```
-
-Arguments:
-
-```json
-{
-  "teamName": "openclaw-review"
-}
-```
-
-For a draft team, the response includes draft/saved request data. For a launched/configured team, it returns the team snapshot.
-
-### 5.4 Launch a Team
+### 6.4 Launch the Team
 
 Tool:
 
@@ -291,7 +490,7 @@ Arguments:
 {
   "teamName": "openclaw-review",
   "cwd": "/Users/belief/dev/projects/example-project",
-  "prompt": "Cross-check OpenClaw's latest changes. Focus on regressions, missing tests, and risky assumptions. Report actionable findings.",
+  "prompt": "Cross-check OpenClaw latest work. Focus on bugs, missing tests, and architectural risks. Return concise actionable findings.",
   "waitForReady": true,
   "waitTimeoutMs": 180000
 }
@@ -300,9 +499,78 @@ Arguments:
 `team_launch` works for:
 
 - a draft team created by `team_create`;
-- an existing configured team already known to Agent Teams.
+- an existing configured team.
 
-### 5.5 Stop a Team
+Current MCP `team_launch` launch overrides are intentionally smaller than `team_create`:
+
+```text
+cwd
+prompt
+model
+effort: low | medium | high
+clearContext
+skipPermissions
+worktree
+extraCliArgs
+waitForReady
+waitTimeoutMs
+```
+
+Do not pass `providerId`, `providerBackendId`, `fastMode`, or `limitContext` to MCP `team_launch`.
+Put those into `team_create` so the saved draft can be reused at launch time.
+
+If `waitForReady` is true, the tool waits for provisioning to reach `ready` or fail.
+
+### 6.5 Create a Review Task After Launch
+
+Use this if OpenClaw wants the team to track review work on the board.
+
+Tool:
+
+```text
+task_create
+```
+
+Arguments:
+
+```json
+{
+  "teamName": "openclaw-review",
+  "subject": "Review OpenClaw latest patch",
+  "description": "Check correctness, tests, edge cases, and integration risks. Report concrete findings only.",
+  "owner": "reviewer",
+  "createdBy": "openclaw",
+  "startImmediately": true
+}
+```
+
+`task_create` requires a configured team, so launch the team first.
+
+### 6.6 Send a Message To the Team
+
+Tool:
+
+```text
+message_send
+```
+
+Arguments:
+
+```json
+{
+  "teamName": "openclaw-review",
+  "to": "reviewer",
+  "from": "openclaw",
+  "text": "Please review the latest changes. Focus on regressions and missing tests.",
+  "summary": "Review request from OpenClaw"
+}
+```
+
+Use `message_send` for normal visible messages.
+
+Do not use `runtime_deliver_message` for ordinary OpenClaw-to-team communication.
+
+### 6.7 Stop the Team
 
 Tool:
 
@@ -319,49 +587,88 @@ Arguments:
 }
 ```
 
-## 6. Suggested OpenClaw Policy
+## 7. Suggested OpenClaw Policy
 
-OpenClaw can use Agent Teams only for work that benefits from parallel review or specialized team behavior.
+OpenClaw should not call Agent Teams for every small task. Use it when parallel review or team behavior matters.
 
-Suggested routing:
-
-1. For small edits, OpenClaw works alone.
-2. For risky changes, OpenClaw calls `team_create` if the review team does not exist.
-3. OpenClaw calls `team_launch` with a focused review prompt.
-4. OpenClaw waits for team readiness.
-5. OpenClaw uses the existing MCP board/message tools to create tasks or collect results, if needed.
-6. OpenClaw treats Agent Teams feedback as review input, not as automatically trusted output.
-
-Example instruction for OpenClaw:
+Suggested policy:
 
 ```text
-When the task is complex, high-risk, or needs cross-checking, use the agent-teams MCP server.
+Use the agent-teams MCP server when the task is complex, high-risk, user-visible, or needs independent cross-checking.
 
-Prefer reusing an existing team named "openclaw-review".
-If it does not exist, create it with team_create.
-Launch it with team_launch and a focused review prompt.
-Use team_get to inspect team state.
+Prefer the existing team "openclaw-review".
+Call team_get first.
+If it does not exist, call team_create.
+Call team_launch with a focused prompt.
+If the review should be tracked, create a task with task_create.
+Use message_send for visible follow-up messages.
 Do not create duplicate teams with the same purpose.
-Do not expose the local control API outside localhost unless the user explicitly configured a secure tunnel.
+Do not call runtime_* tools unless implementing an OpenCode runtime bridge.
+Do not expose the local control API outside localhost without a secure tunnel.
 ```
 
-## 7. Direct REST API Integration
+Recommended task routing:
 
-Use REST if OpenClaw cannot use MCP, or if you want a very small integration without MCP tool registration.
+1. Small code change: OpenClaw handles it alone.
+2. Medium risk: OpenClaw launches `openclaw-review` for cross-checking.
+3. High risk: OpenClaw creates explicit review tasks for multiple reviewers.
+4. Release/blocking work: OpenClaw uses task/review tools and waits for explicit review outcome.
 
-Base URL:
+## 8. Direct REST API Integration
+
+REST is useful when:
+
+- OpenClaw cannot run MCP yet;
+- you need a simple health/lifecycle wrapper;
+- you are debugging the desktop control API;
+- you want a non-agent script to create or launch teams.
+
+REST is **not** currently the full board/message/review surface.
+
+Use MCP for task board and messaging operations.
+
+### 8.1 Base URL
+
+Default:
 
 ```text
 http://127.0.0.1:3456
 ```
 
-Discover the current base URL:
+Discover current:
 
 ```bash
 cat ~/.claude/team-control-api.json
 ```
 
-### 7.1 REST Endpoint Summary
+Use:
+
+```bash
+BASE_URL="$(
+  node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+
+const statePath = path.join(process.env.HOME, '.claude', 'team-control-api.json');
+
+if (fs.existsSync(statePath)) {
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  console.log(state.baseUrl || 'http://127.0.0.1:3456');
+} else {
+  console.log('http://127.0.0.1:3456');
+}
+NODE
+)"
+echo "$BASE_URL"
+```
+
+Or set manually:
+
+```bash
+BASE_URL="http://127.0.0.1:3456"
+```
+
+### 8.2 REST Endpoint Summary
 
 | Method | Path                             | Purpose                           |
 | ------ | -------------------------------- | --------------------------------- |
@@ -374,7 +681,7 @@ cat ~/.claude/team-control-api.json
 | `GET`  | `/api/teams/provisioning/:runId` | Poll launch/provisioning status   |
 | `GET`  | `/api/teams/runtime/alive`       | List alive team runtime states    |
 
-Advanced OpenCode runtime bridge endpoints also exist:
+Advanced OpenCode runtime bridge endpoints:
 
 | Method | Path                                                      |
 | ------ | --------------------------------------------------------- |
@@ -383,19 +690,19 @@ Advanced OpenCode runtime bridge endpoints also exist:
 | `POST` | `/api/teams/:teamName/opencode/runtime/task-event`        |
 | `POST` | `/api/teams/:teamName/opencode/runtime/heartbeat`         |
 
-Most OpenClaw integrations should not need the OpenCode runtime bridge endpoints.
+Do not use the OpenCode runtime bridge endpoints for normal OpenClaw user/team messages.
 
-### 7.2 List Teams
+### 8.3 List Teams
 
 ```bash
-curl -s http://127.0.0.1:3456/api/teams | jq .
+curl -s "$BASE_URL/api/teams" | jq .
 ```
 
-### 7.3 Create a Draft Team
+### 8.4 Create a Draft Team
 
 ```bash
 curl -s \
-  -X POST http://127.0.0.1:3456/api/teams \
+  -X POST "$BASE_URL/api/teams" \
   -H 'content-type: application/json' \
   -d '{
     "teamName": "openclaw-review",
@@ -431,13 +738,13 @@ Expected response:
 }
 ```
 
-### 7.4 Get a Draft or Existing Team
+### 8.5 Get a Draft or Existing Team
 
 ```bash
-curl -s http://127.0.0.1:3456/api/teams/openclaw-review | jq .
+curl -s "$BASE_URL/api/teams/openclaw-review" | jq .
 ```
 
-Draft response shape:
+Draft shape:
 
 ```json
 {
@@ -446,18 +753,24 @@ Draft response shape:
   "savedRequest": {
     "teamName": "openclaw-review",
     "cwd": "/Users/belief/dev/projects/example-project",
-    "members": []
+    "providerId": "codex",
+    "members": [
+      {
+        "name": "reviewer",
+        "role": "Reviewer"
+      }
+    ]
   }
 }
 ```
 
-Configured team response shape is the normal Agent Teams team data snapshot.
+Configured teams return the normal Agent Teams team snapshot.
 
-### 7.5 Launch a Team
+### 8.6 Launch a Team
 
 ```bash
 curl -s \
-  -X POST http://127.0.0.1:3456/api/teams/openclaw-review/launch \
+  -X POST "$BASE_URL/api/teams/openclaw-review/launch" \
   -H 'content-type: application/json' \
   -d '{
     "cwd": "/Users/belief/dev/projects/example-project",
@@ -467,7 +780,6 @@ curl -s \
     "model": "gpt-5.4",
     "effort": "high",
     "fastMode": "inherit",
-    "limitContext": true,
     "skipPermissions": false
   }' | jq .
 ```
@@ -480,21 +792,28 @@ Expected response:
 }
 ```
 
-### 7.6 Poll Launch Status
+For draft teams, missing launch fields fall back to the saved draft request where supported.
+
+For existing configured teams, the launch payload is the runtime override for this launch.
+
+⚠️ `limitContext` should be set during `team_create` for this integration path.
+Do not depend on it as a configured-team REST launch override unless the route parser is extended.
+
+### 8.7 Poll Launch Status
 
 ```bash
 RUN_ID="paste-run-id-here"
-curl -s "http://127.0.0.1:3456/api/teams/provisioning/$RUN_ID" | jq .
+curl -s "$BASE_URL/api/teams/provisioning/$RUN_ID" | jq .
 ```
 
-Ready states:
+Terminal states:
 
 - `ready`
 - `failed`
 - `disconnected`
 - `cancelled`
 
-A successful launch reaches:
+Successful launch:
 
 ```json
 {
@@ -502,24 +821,26 @@ A successful launch reaches:
 }
 ```
 
-### 7.7 Get Runtime State
+### 8.8 Get Runtime State
 
 ```bash
-curl -s http://127.0.0.1:3456/api/teams/openclaw-review/runtime | jq .
+curl -s "$BASE_URL/api/teams/openclaw-review/runtime" | jq .
 ```
 
-### 7.8 Stop a Team
+### 8.9 Stop a Team
 
 ```bash
 curl -s \
-  -X POST http://127.0.0.1:3456/api/teams/openclaw-review/stop \
+  -X POST "$BASE_URL/api/teams/openclaw-review/stop" \
   -H 'content-type: application/json' \
   -d '{}' | jq .
 ```
 
-## 8. JavaScript REST Client Example
+## 9. JavaScript REST Client Example
 
-This is a minimal OpenClaw-side helper.
+This is a minimal lifecycle-only helper for OpenClaw.
+
+It does not implement task/message/review operations. Use MCP for those.
 
 ```js
 import fs from 'node:fs/promises';
@@ -558,15 +879,23 @@ async function requestJson(pathname, options = {}) {
   return payload;
 }
 
-export async function ensureReviewTeam() {
-  const teamName = 'openclaw-review';
-
+async function teamExists(teamName) {
   try {
-    return await requestJson(`/api/teams/${teamName}`);
+    return await requestJson(`/api/teams/${encodeURIComponent(teamName)}`);
   } catch (error) {
-    if (!String(error.message).includes('not found')) {
-      throw error;
+    const message = String(error.message || '').toLowerCase();
+    if (message.includes('not found')) {
+      return null;
     }
+    throw error;
+  }
+}
+
+export async function ensureReviewTeam({ cwd = process.cwd() } = {}) {
+  const teamName = 'openclaw-review';
+  const existing = await teamExists(teamName);
+  if (existing) {
+    return existing;
   }
 
   await requestJson('/api/teams', {
@@ -574,11 +903,15 @@ export async function ensureReviewTeam() {
     body: {
       teamName,
       displayName: 'OpenClaw Review',
-      cwd: process.cwd(),
+      description: 'Team used by OpenClaw to cross-check complex work',
+      cwd,
       providerId: 'codex',
       providerBackendId: 'codex-native',
       model: 'gpt-5.4',
       effort: 'high',
+      fastMode: 'inherit',
+      limitContext: true,
+      skipPermissions: false,
       members: [
         {
           name: 'reviewer',
@@ -588,41 +921,73 @@ export async function ensureReviewTeam() {
           providerBackendId: 'codex-native',
           model: 'gpt-5.4',
           effort: 'high',
+          fastMode: 'inherit',
         },
       ],
     },
   });
 
-  return requestJson(`/api/teams/${teamName}`);
+  return requestJson(`/api/teams/${encodeURIComponent(teamName)}`);
 }
 
-export async function launchReviewTeam(prompt) {
+export async function launchReviewTeam({ cwd = process.cwd(), prompt }) {
   const teamName = 'openclaw-review';
-  await ensureReviewTeam();
-  const launch = await requestJson(`/api/teams/${teamName}/launch`, {
+  await ensureReviewTeam({ cwd });
+
+  const launch = await requestJson(`/api/teams/${encodeURIComponent(teamName)}/launch`, {
     method: 'POST',
     body: {
-      cwd: process.cwd(),
+      cwd,
       prompt,
       providerId: 'codex',
       providerBackendId: 'codex-native',
       model: 'gpt-5.4',
       effort: 'high',
+      fastMode: 'inherit',
       skipPermissions: false,
     },
   });
+
   return launch;
+}
+
+export async function waitForReady(runId, { timeoutMs = 180000, pollMs = 1000 } = {}) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const status = await requestJson(`/api/teams/provisioning/${encodeURIComponent(runId)}`);
+    if (status.state === 'ready') {
+      return status;
+    }
+    if (['failed', 'disconnected', 'cancelled'].includes(status.state)) {
+      throw new Error(`Team launch ended in ${status.state}: ${status.error || 'no details'}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  throw new Error(`Timed out waiting for run ${runId}`);
 }
 ```
 
-## 9. Validation and Error Behavior
+Example use:
 
-### 9.1 Team Names
+```js
+const launch = await launchReviewTeam({
+  cwd: '/Users/belief/dev/projects/example-project',
+  prompt: 'Cross-check the latest OpenClaw changes. Return concrete bugs and missing tests.',
+});
+
+await waitForReady(launch.runId);
+```
+
+## 10. Validation Rules
+
+### 10.1 Team Names
 
 Team names must be kebab-case:
 
 ```text
-[a-z0-9-], max 64 chars
+lowercase alphanumeric segments separated by single hyphens, max 64 chars
 ```
 
 Good:
@@ -639,18 +1004,19 @@ Bad:
 OpenClaw Review
 openclaw_review
 review team
+review--team
+-review
+review-
 ```
 
-### 9.2 Member Names
-
-Member names are validated by Agent Teams.
+### 10.2 Member Names
 
 Avoid reserved names:
 
 - `user`
 - `team-lead`
 
-Use simple names:
+Good:
 
 ```text
 reviewer
@@ -659,7 +1025,57 @@ tester
 architect
 ```
 
-### 9.3 Common HTTP Status Codes
+### 10.3 Providers and Runtime Fields
+
+Provider IDs:
+
+```text
+anthropic
+codex
+gemini
+opencode
+```
+
+Provider backend IDs:
+
+```text
+auto
+adapter
+api
+cli-sdk
+codex-native
+```
+
+Fast mode:
+
+```text
+inherit
+on
+off
+```
+
+Effort values are provider-dependent. Common values include:
+
+```text
+low
+medium
+high
+```
+
+Codex-oriented create flows may also use values such as:
+
+```text
+none
+minimal
+xhigh
+max
+```
+
+Use values supported by the selected provider/runtime.
+
+## 11. Error Behavior
+
+Common REST status codes:
 
 | Status | Meaning                                                             |
 | ------ | ------------------------------------------------------------------- |
@@ -669,143 +1085,128 @@ architect
 | `501`  | Team control service is not available in this mode                  |
 | `500`  | Unexpected server/runtime error                                     |
 
-## 10. Recommended Choice
+Common MCP failures:
 
-### Option A: MCP-first integration
+| Symptom                             | Likely cause                                                                                         |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Control API unavailable             | Desktop app not running, server mode disabled, wrong `CLAUDE_TEAM_CONTROL_URL`, or wrong `~/.claude` |
+| `team_create` conflict              | Team already exists                                                                                  |
+| `team_launch` timeout               | Runtime auth/model/cwd/provisioning issue                                                            |
+| Task tools fail after `team_create` | Team is still a draft. Launch it first                                                               |
+| Remote OpenClaw cannot connect      | Missing tunnel or wrong host mapping                                                                 |
 
-Confidence: `9/10`. Reliability: `8/10`. Complexity: `4/10`. Roughly `20-60 LOC` of OpenClaw config/glue.
+## 12. Troubleshooting
 
-Use this when OpenClaw supports MCP. It is the cleanest integration because OpenClaw sees tools like `team_create`, `team_get`, and `team_launch`.
-
-Pros:
-
-- idiomatic for AI clients;
-- no custom HTTP client needed;
-- multiple MCP processes are safe;
-- automatically uses the same team/task tool surface that Agent Teams already gives agents.
-
-Cons:
-
-- OpenClaw must support stdio MCP servers;
-- debugging involves MCP logs plus desktop logs.
-
-### Option B: REST-first integration
-
-Confidence: `8/10`. Reliability: `7/10`. Complexity: `5/10`. Roughly `80-180 LOC` of OpenClaw code.
-
-Use this when OpenClaw does not support MCP or when you want direct lifecycle control.
-
-Pros:
-
-- easy to call from any language;
-- simple to debug with curl;
-- no MCP client integration needed.
-
-Cons:
-
-- only exposes HTTP routes currently implemented;
-- OpenClaw must implement retries/polling;
-- task/message/board workflows are richer through MCP.
-
-### Option C: Hybrid MCP + REST
-
-Confidence: `8/10`. Reliability: `8/10`. Complexity: `7/10`. Roughly `120-260 LOC`.
-
-Use MCP for normal AI tool calls and REST for health checks, diagnostics, or non-agent automation.
-
-Pros:
-
-- best operational visibility;
-- can recover from MCP-client-specific issues;
-- useful for dashboards or service wrappers.
-
-Cons:
-
-- more moving parts;
-- more integration surface to test.
-
-Recommended starting point: **Option A, MCP-first**.
-
-## 11. Troubleshooting
-
-### MCP tool says the control API is unavailable
-
-Check:
+### 12.1 Confirm Desktop Control API
 
 ```bash
 cat ~/.claude/team-control-api.json
-curl -s http://127.0.0.1:3456/api/teams
+curl -s http://127.0.0.1:3456/api/teams | jq .
 ```
 
-Fix:
+If the file has another port, use that port.
 
-- start the Agent Teams desktop app;
-- enable the HTTP server in settings;
-- pass `CLAUDE_TEAM_CONTROL_URL` explicitly in OpenClaw MCP config.
+### 12.2 Confirm MCP Starts
 
-### OpenClaw starts MCP, but tool calls fail
-
-Possible causes:
-
-- wrong `AGENT_TEAMS_MCP_CLAUDE_DIR`;
-- desktop app is using a different Claude root;
-- HTTP server is disabled;
-- port changed because `3456` was busy;
-- OpenClaw runs on another machine without a tunnel.
-
-### `team_create` returns conflict
-
-The team already exists. Use `team_get` and either reuse it or choose a new name.
-
-### `team_launch` hangs or times out
-
-Check provisioning status:
+From the repo:
 
 ```bash
-curl -s http://127.0.0.1:3456/api/teams/provisioning/<runId> | jq .
+pnpm --dir /Users/belief/dev/projects/claude/claude_team/mcp-server dev
 ```
 
-Possible causes:
+This starts the stdio server and waits for MCP JSON-RPC input. It will not print a normal HTTP URL.
 
-- model/provider unavailable;
-- runtime auth missing;
-- working directory is invalid;
-- app-side provisioning failed;
-- team is already in a conflicting runtime state.
+In a real OpenClaw setup, OpenClaw starts this process itself.
 
-### Remote OpenClaw cannot connect
+### 12.3 MCP Starts But Tool Calls Fail
 
-This is expected if it is not on the same machine. The API is local-only by default.
+Check:
 
-Use an SSH tunnel, for example:
+- `AGENT_TEAMS_MCP_CLAUDE_DIR` points to the same Claude root as the app;
+- `CLAUDE_TEAM_CONTROL_URL` points to the app's current local HTTP URL;
+- Agent Teams desktop app is running;
+- Browser Access / server mode is enabled;
+- OpenClaw is on the same machine or has a working tunnel.
 
-```bash
-ssh -N -L 3456:127.0.0.1:3456 user@mac-mini-host
-```
+### 12.4 `team_create` Says Team Already Exists
 
-Then OpenClaw can use:
+Use:
 
 ```text
-http://127.0.0.1:3456
+team_get
 ```
 
-from its own machine if the tunnel is established there.
+Then reuse the existing team, or pick another `teamName`.
 
-## 12. Security Notes
+### 12.5 `team_launch` Hangs
 
-- The current control API is intended for local use.
-- It should not be bound to public interfaces without authentication.
-- Prefer SSH tunnels for remote access.
-- Treat access to the control API as access to team runtime control.
+With REST, poll:
+
+```bash
+curl -s "$BASE_URL/api/teams/provisioning/<runId>" | jq .
+```
+
+With MCP, use `waitForReady: true` and a larger `waitTimeoutMs`.
+
+Possible causes:
+
+- model unavailable;
+- provider authentication missing;
+- invalid working directory;
+- provisioning failure;
+- already-running/stale runtime state.
+
+### 12.6 Remote OpenClaw Cannot Connect
+
+This is expected without a tunnel.
+
+The desktop API binds to `127.0.0.1`, so a remote process cannot see it directly.
+
+Use SSH tunnel or VPN. Do not publish the control API to a public interface without authentication.
+
+## 13. Security Notes
+
+- Treat the control API as runtime control access.
+- Keep it local by default.
+- Prefer SSH tunnels for remote use.
+- Do not expose it publicly without authentication and transport security.
 - Do not share `~/.claude` with untrusted processes.
+- Remember that an AI client with this MCP server can create, launch, stop, and coordinate teams.
 
-## 13. Summary for the Original Request
+## 14. What To Tell The User
 
-The requested integration is realistic:
+Use this short explanation:
 
-- OpenClaw can call Agent Teams through MCP.
-- OpenClaw can also call the local REST API directly.
-- Each agent/OpenClaw can run its own stdio MCP process.
-- Those MCP processes do not conflict because they do not bind ports.
-- The single shared control point is the Agent Teams desktop HTTP API.
-- For local Mac mini usage, this is the right initial architecture.
+```text
+Yes, this is feasible.
+
+Agent Teams can expose a local control API from the desktop app, and an outside AI like OpenClaw can access it through the agent-teams MCP server.
+
+OpenClaw would start agent-teams-mcp as a stdio MCP server. That MCP process does not listen on a port, so it is fine if multiple agents and OpenClaw each start their own copy. They all point back to the same local Agent Teams desktop control API and shared ~/.claude state.
+
+For a local Mac mini setup, this is straightforward:
+1. Run the Agent Teams desktop app.
+2. Enable Browser Access / server mode.
+3. Configure OpenClaw with the agent-teams MCP server.
+4. Let OpenClaw call team_list, team_get, team_create, and team_launch.
+5. Use task/message/review MCP tools for deeper coordination.
+
+REST is also available for lifecycle calls like list/create/get/launch/stop, but MCP is the better integration surface for actual AI-to-team work.
+```
+
+## 15. Final Recommendation
+
+Start with MCP-first local integration.
+
+Use this minimum viable flow:
+
+```text
+1. OpenClaw starts agent-teams-mcp.
+2. OpenClaw calls team_get("openclaw-review").
+3. If missing, OpenClaw calls team_create(...).
+4. OpenClaw calls team_launch(..., waitForReady: true).
+5. OpenClaw creates a review task with task_create or sends a message with message_send.
+6. OpenClaw reads results via task_get/task_list/message flow.
+```
+
+This gives OpenClaw the team coordination behavior without inventing a separate orchestration layer.
