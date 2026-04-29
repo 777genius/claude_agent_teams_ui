@@ -1,6 +1,6 @@
 # Member Work Sync OpenCode Turn-Settled Plan
 
-- **Status:** implemented in `feat/member-work-sync-opencode-turn-settled`
+- **Status:** implemented and live-verified in `feat/member-work-sync-opencode-turn-settled`
 - **Scope:** `member-work-sync`, OpenCode runtime turn-settled signal, OpenCode SSE observer
 - **Primary repo:** `claude_team`
 - **Secondary repo:** `agent_teams_orchestrator`
@@ -11,8 +11,9 @@ Implemented verification:
 
 - `claude_team`: `pnpm exec vitest run test/features/member-work-sync/main/OpenCodeTurnSettledPayloadNormalizer.test.ts test/features/member-work-sync/main/CodexNativeTurnSettledPayloadNormalizer.test.ts test/features/member-work-sync/main/TeamRuntimeTurnSettledTargetResolver.test.ts test/features/member-work-sync/main/FileRuntimeTurnSettledEventStore.test.ts test/features/member-work-sync/main/createMemberWorkSyncFeature.test.ts`
 - `claude_team`: `pnpm typecheck --pretty false`
-- `agent_teams_orchestrator`: `bun test src/services/opencode/OpenCodeSseEventStream.test.ts src/services/opencode/OpenCodeTurnSettledObserver.test.ts src/services/opencode/OpenCodeRuntimeTurnSettledEmitter.test.ts src/services/opencode/OpenCodeTurnSettledEmissionCoordinator.test.ts src/services/opencode/OpenCodeSessionBridge.test.ts src/services/opencode/OpenCodeBridgeCommandHandler.test.ts`
+- `agent_teams_orchestrator`: `bun test src/services/opencode/OpenCodeSseEventStream.test.ts src/services/opencode/OpenCodePreviewObserver.test.ts src/services/opencode/OpenCodeTurnSettledObserver.test.ts src/services/opencode/OpenCodeRuntimeTurnSettledEmitter.test.ts src/services/opencode/OpenCodeTurnSettledEmissionCoordinator.test.ts src/services/opencode/OpenCodeSessionBridge.test.ts src/services/opencode/OpenCodeBridgeCommandHandler.test.ts`
 - `agent_teams_orchestrator`: `bun run build`
+- `agent_teams_orchestrator`: `OPENCODE_E2E=1 OPENCODE_TURN_SETTLED_LIVE=1 bun test src/services/opencode/OpenCodeTurnSettledObserver.live-e2e.test.ts`
 - both repos: `git diff --check`
 
 ---
