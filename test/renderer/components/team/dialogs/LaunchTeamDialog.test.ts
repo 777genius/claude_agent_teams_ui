@@ -124,8 +124,10 @@ vi.mock('@renderer/components/team/members/MembersEditorSection', () => ({
       customRole?: string;
       workflow?: string;
       providerId?: string;
+      providerBackendId?: string;
       model?: string;
       effort?: string;
+      fastMode?: string;
     }>
   ) =>
     drafts.map((draft) => ({
@@ -133,8 +135,10 @@ vi.mock('@renderer/components/team/members/MembersEditorSection', () => ({
       role: draft.customRole || undefined,
       workflow: draft.workflow,
       providerId: draft.providerId as 'anthropic' | 'codex' | 'gemini' | undefined,
+      providerBackendId: draft.providerBackendId as 'codex-native' | undefined,
       model: draft.model,
       effort: draft.effort as 'low' | 'medium' | 'high' | undefined,
+      fastMode: draft.fastMode as 'inherit' | 'on' | 'off' | undefined,
     })),
   clearMemberModelOverrides: (member: unknown) => member,
   createMemberDraftsFromInputs: (
@@ -143,8 +147,10 @@ vi.mock('@renderer/components/team/members/MembersEditorSection', () => ({
       role?: string;
       workflow?: string;
       providerId?: string;
+      providerBackendId?: string;
       model?: string;
       effort?: string;
+      fastMode?: string;
       isolation?: 'worktree';
     }>
   ) =>
@@ -157,8 +163,10 @@ vi.mock('@renderer/components/team/members/MembersEditorSection', () => ({
       workflow: member.workflow ?? '',
       isolation: member.isolation,
       providerId: member.providerId,
+      providerBackendId: member.providerBackendId,
       model: member.model ?? '',
       effort: member.effort,
+      fastMode: member.fastMode,
     })),
   filterEditableMemberInputs: (members: unknown) => members,
   normalizeLeadProviderForMode: (providerId: unknown) =>
@@ -580,6 +588,82 @@ describe('LaunchTeamDialog', () => {
       'draft-0':
         'This teammate will continue from its existing worktree: /tmp/project/.worktrees/jack',
     });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('preserves hidden teammate backend and fast mode metadata before draft launch', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.mocked(api.teams.getSavedRequest).mockResolvedValueOnce({
+      teamName: 'team-alpha',
+      cwd: '/tmp/project',
+      providerId: 'anthropic',
+      model: 'opus',
+      members: [
+        {
+          name: 'alice',
+          role: 'Reviewer',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          effort: 'medium',
+          fastMode: 'on',
+        },
+      ],
+    } as any);
+    const onLaunch = vi.fn(async () => {});
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(LaunchTeamDialog, {
+          mode: 'launch',
+          open: true,
+          teamName: 'team-alpha',
+          members: [],
+          defaultProjectPath: '/tmp/project',
+          provisioningError: null,
+          clearProvisioningError: vi.fn(),
+          activeTeams: [],
+          onClose: vi.fn(),
+          onLaunch,
+        })
+      );
+      await flush();
+      await flush();
+    });
+
+    const submitButton = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Launch team'
+    );
+    expect(submitButton).toBeTruthy();
+
+    await act(async () => {
+      submitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(vi.mocked(api.teams.replaceMembers).mock.calls[0]?.[1]).toMatchObject({
+      members: [
+        {
+          name: 'alice',
+          role: 'Reviewer',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          effort: 'medium',
+          fastMode: 'on',
+        },
+      ],
+    });
+    expect(onLaunch).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       root.unmount();

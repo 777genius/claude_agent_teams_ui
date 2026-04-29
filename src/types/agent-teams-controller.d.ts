@@ -90,6 +90,9 @@ declare module 'agent-teams-controller' {
   }
 
   export interface ControllerRuntimeApi {
+    listTeams(flags?: Record<string, unknown>): Promise<unknown>;
+    getTeam(flags?: Record<string, unknown>): Promise<unknown>;
+    createTeam(flags: Record<string, unknown>): Promise<unknown>;
     launchTeam(flags: Record<string, unknown>): Promise<unknown>;
     stopTeam(flags?: Record<string, unknown>): Promise<unknown>;
     getRuntimeState(flags?: Record<string, unknown>): Promise<unknown>;

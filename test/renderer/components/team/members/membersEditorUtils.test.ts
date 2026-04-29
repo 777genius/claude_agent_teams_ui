@@ -72,6 +72,37 @@ describe('members editor editable input filtering', () => {
     });
   });
 
+  it('round-trips hidden teammate backend and fast mode metadata', () => {
+    const drafts = createMemberDraftsFromInputs(
+      filterEditableMemberInputs([
+        {
+          name: 'alice',
+          agentType: 'reviewer',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4-mini',
+          effort: 'medium',
+          fastMode: 'on',
+        },
+      ] as any)
+    );
+
+    expect(drafts[0]).toMatchObject({
+      providerBackendId: 'codex-native',
+      fastMode: 'on',
+    });
+    expect(buildMembersFromDrafts(drafts)).toEqual([
+      expect.objectContaining({
+        name: 'alice',
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.4-mini',
+        effort: 'medium',
+        fastMode: 'on',
+      }),
+    ]);
+  });
+
   it('preserves explicit codex models when exporting member inputs', () => {
     const drafts = createMemberDraftsFromInputs(
       filterEditableMemberInputs([

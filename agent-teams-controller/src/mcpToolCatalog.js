@@ -1,3 +1,5 @@
+const AGENT_TEAMS_TEAM_TOOL_NAMES = ['team_list', 'team_get', 'team_create'];
+
 const AGENT_TEAMS_TASK_TOOL_NAMES = [
   'member_briefing',
   'task_add_comment',
@@ -63,6 +65,11 @@ const AGENT_TEAMS_RUNTIME_TOOL_NAMES = [
 
 const AGENT_TEAMS_MCP_TOOL_GROUPS = [
   {
+    id: 'team',
+    teammateOperational: false,
+    toolNames: AGENT_TEAMS_TEAM_TOOL_NAMES,
+  },
+  {
     id: 'task',
     teammateOperational: true,
     toolNames: AGENT_TEAMS_TASK_TOOL_NAMES,
@@ -120,10 +127,12 @@ const AGENT_TEAMS_LEAD_BOOTSTRAP_TOOL_NAMES = [
   ...AGENT_TEAMS_LEAD_TOOL_NAMES,
 ];
 
-const AGENT_TEAMS_NAMESPACED_LEAD_BOOTSTRAP_TOOL_NAMES =
-  AGENT_TEAMS_LEAD_BOOTSTRAP_TOOL_NAMES.map((toolName) => `mcp__agent-teams__${toolName}`);
+const AGENT_TEAMS_NAMESPACED_LEAD_BOOTSTRAP_TOOL_NAMES = AGENT_TEAMS_LEAD_BOOTSTRAP_TOOL_NAMES.map(
+  (toolName) => `mcp__agent-teams__${toolName}`
+);
 
 module.exports = {
+  AGENT_TEAMS_TEAM_TOOL_NAMES,
   AGENT_TEAMS_TASK_TOOL_NAMES,
   AGENT_TEAMS_LEAD_TOOL_NAMES,
   AGENT_TEAMS_REVIEW_TOOL_NAMES,

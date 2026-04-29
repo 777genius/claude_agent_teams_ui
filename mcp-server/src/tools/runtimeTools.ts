@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { getController } from '../controller';
 import { jsonTextContent } from '../utils/format';
-import { assertConfiguredTeam } from '../utils/teamConfig';
+import { assertConfiguredOrDraftTeam, assertConfiguredTeam } from '../utils/teamConfig';
 
 const toolContextSchema = {
   teamName: z.string().min(1),
@@ -59,7 +59,7 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
       extraCliArgs,
       waitForReady,
     }) => {
-      assertConfiguredTeam(teamName, claudeDir);
+      assertConfiguredOrDraftTeam(teamName, claudeDir);
       return jsonTextContent(
         await getController(teamName, claudeDir).runtime.launchTeam({
           cwd,
@@ -99,7 +99,8 @@ export function registerRuntimeTools(server: Pick<FastMCP, 'addTool'>) {
 
   server.addTool({
     name: 'runtime_bootstrap_checkin',
-    description: 'Confirm that an OpenCode team member runtime reached the app MCP bootstrap boundary',
+    description:
+      'Confirm that an OpenCode team member runtime reached the app MCP bootstrap boundary',
     parameters: z.object({
       ...runtimeIdentitySchema,
       observedAt: z.string().min(1).optional(),

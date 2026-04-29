@@ -1222,8 +1222,9 @@ function isValidEffort(value: unknown, providerId?: TeamProviderId | null): valu
   return isTeamEffortLevelForProvider(value, providerId);
 }
 
-function parseOptionalMemberProviderId(
-  value: unknown
+function parseOptionalProviderId(
+  value: unknown,
+  fieldName: string
 ): { valid: true; value: TeamProviderId | undefined } | { valid: false; error: string } {
   if (value === undefined || value === null || value === '') {
     return { valid: true, value: undefined };
@@ -1231,7 +1232,19 @@ function parseOptionalMemberProviderId(
   if (isTeamProviderId(value)) {
     return { valid: true, value };
   }
-  return { valid: false, error: 'member providerId must be anthropic, codex, gemini, or opencode' };
+  return { valid: false, error: `${fieldName} must be anthropic, codex, gemini, or opencode` };
+}
+
+function parseOptionalMemberProviderId(
+  value: unknown
+): { valid: true; value: TeamProviderId | undefined } | { valid: false; error: string } {
+  return parseOptionalProviderId(value, 'member providerId');
+}
+
+function parseOptionalTeamProviderId(
+  value: unknown
+): { valid: true; value: TeamProviderId | undefined } | { valid: false; error: string } {
+  return parseOptionalProviderId(value, 'providerId');
 }
 
 function parseOptionalProviderBackendId(
@@ -1611,6 +1624,13 @@ async function validateProvisioningRequest(
     if (!providerValidation.valid) {
       return { valid: false, error: providerValidation.error };
     }
+    const providerBackendValidation = parseOptionalProviderBackendId(
+      (member as { providerBackendId?: unknown }).providerBackendId,
+      providerValidation.value
+    );
+    if (!providerBackendValidation.valid) {
+      return { valid: false, error: providerBackendValidation.error };
+    }
     const model = (member as { model?: unknown }).model;
     if (model !== undefined && typeof model !== 'string') {
       return { valid: false, error: 'member model must be string' };
@@ -1622,14 +1642,22 @@ async function validateProvisioningRequest(
     if (!effortValidation.valid) {
       return { valid: false, error: effortValidation.error };
     }
+    const fastModeValidation = parseOptionalTeamFastMode(
+      (member as { fastMode?: unknown }).fastMode
+    );
+    if (!fastModeValidation.valid) {
+      return { valid: false, error: fastModeValidation.error };
+    }
     members.push({
       name: memberName,
       role: typeof role === 'string' ? role.trim() : undefined,
       workflow: typeof workflow === 'string' ? workflow.trim() : undefined,
       isolation: isolation === 'worktree' ? ('worktree' as const) : undefined,
       providerId: providerValidation.value,
+      providerBackendId: providerBackendValidation.value,
       model: typeof model === 'string' ? model.trim() || undefined : undefined,
       effort: effortValidation.value,
+      fastMode: fastModeValidation.value,
     });
   }
 
@@ -1858,61 +1886,60 @@ async function handleLaunchTeam(
   }
 
   if (isDraft) {
-    const meta = await teamMetaStore.getMeta(tn);
-    const membersStore = new TeamMembersMetaStore();
-    const membersMeta = await membersStore.getMeta(tn);
-    const members = membersMeta?.members ?? [];
+    const savedRequest = await getTeamDataService().getSavedRequest(tn);
+    if (!savedRequest) {
+      return { success: false, error: `Missing saved request for draft team: ${tn}` };
+    }
 
-    const resolvedProviderId =
-      providerId === 'codex' || providerId === 'gemini'
-        ? providerId
-        : meta?.providerId === 'codex'
-          ? 'codex'
-          : meta?.providerId === 'gemini'
-            ? 'gemini'
-            : 'anthropic';
-    const effortValidation = parseOptionalTeamEffort(payload.effort, resolvedProviderId);
+    const resolvedProviderId = explicitProviderId ?? savedRequest.providerId ?? providerId;
+    const effortValidation = parseOptionalTeamEffort(
+      payload.effort ?? savedRequest.effort,
+      resolvedProviderId
+    );
     if (!effortValidation.valid) {
       return { success: false, error: effortValidation.error };
     }
-    const fastModeValidation = parseOptionalTeamFastMode(payload.fastMode);
+    const fastModeValidation = parseOptionalTeamFastMode(payload.fastMode ?? savedRequest.fastMode);
     if (!fastModeValidation.valid) {
       return { success: false, error: fastModeValidation.error };
     }
 
     const createRequest: TeamCreateRequest = {
       teamName: tn,
-      displayName: meta?.displayName,
-      description: meta?.description,
-      color: meta?.color,
+      displayName: savedRequest.displayName,
+      description: savedRequest.description,
+      color: savedRequest.color,
       cwd,
-      prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
+      prompt:
+        typeof payload.prompt === 'string'
+          ? payload.prompt.trim() || undefined
+          : savedRequest.prompt,
       providerId: resolvedProviderId,
       providerBackendId: migrateProviderBackendId(
         resolvedProviderId,
-        providerBackendValidation.value ?? meta?.providerBackendId ?? membersMeta?.providerBackendId
+        providerBackendValidation.value ?? savedRequest.providerBackendId
       ),
-      model: typeof payload.model === 'string' ? payload.model.trim() || undefined : undefined,
+      model:
+        typeof payload.model === 'string' ? payload.model.trim() || undefined : savedRequest.model,
       effort: effortValidation.value,
-      fastMode: fastModeValidation.value ?? meta?.fastMode,
-      limitContext: typeof payload.limitContext === 'boolean' ? payload.limitContext : undefined,
+      fastMode: fastModeValidation.value,
+      limitContext:
+        typeof payload.limitContext === 'boolean'
+          ? payload.limitContext
+          : savedRequest.limitContext,
       skipPermissions:
-        typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
+        typeof payload.skipPermissions === 'boolean'
+          ? payload.skipPermissions
+          : savedRequest.skipPermissions,
       worktree:
-        typeof payload.worktree === 'string' ? payload.worktree.trim() || undefined : undefined,
+        typeof payload.worktree === 'string'
+          ? payload.worktree.trim() || undefined
+          : savedRequest.worktree,
       extraCliArgs:
         typeof payload.extraCliArgs === 'string'
           ? payload.extraCliArgs.trim() || undefined
-          : undefined,
-      members: members.map((m) => ({
-        name: m.name,
-        role: m.role,
-        workflow: m.workflow,
-        isolation: m.isolation,
-        providerId: m.providerId,
-        model: m.model,
-        effort: m.effort,
-      })),
+          : savedRequest.extraCliArgs,
+      members: savedRequest.members,
     };
 
     return wrapTeamHandler('create', () =>
@@ -3147,13 +3174,68 @@ async function handleCreateConfig(
       return { success: false, error: 'cwd must be an absolute path' };
     }
   }
-  const providerBackendValidation = parseOptionalProviderBackendId(payload.providerBackendId);
+  if (payload.prompt !== undefined && typeof payload.prompt !== 'string') {
+    return { success: false, error: 'prompt must be a string' };
+  }
+  const providerValidation = parseOptionalTeamProviderId(payload.providerId);
+  if (!providerValidation.valid) {
+    return { success: false, error: providerValidation.error };
+  }
+  const providerBackendValidation = parseOptionalProviderBackendId(
+    payload.providerBackendId,
+    providerValidation.value
+  );
   if (!providerBackendValidation.valid) {
     return { success: false, error: providerBackendValidation.error };
+  }
+  if (payload.model !== undefined && typeof payload.model !== 'string') {
+    return { success: false, error: 'model must be a string' };
+  }
+  const effortValidation = parseOptionalTeamEffort(payload.effort, providerValidation.value);
+  if (!effortValidation.valid) {
+    return { success: false, error: effortValidation.error };
   }
   const fastModeValidation = parseOptionalTeamFastMode(payload.fastMode);
   if (!fastModeValidation.valid) {
     return { success: false, error: fastModeValidation.error };
+  }
+  if (payload.limitContext !== undefined && typeof payload.limitContext !== 'boolean') {
+    return { success: false, error: 'limitContext must be a boolean' };
+  }
+  if (payload.skipPermissions !== undefined && typeof payload.skipPermissions !== 'boolean') {
+    return { success: false, error: 'skipPermissions must be a boolean' };
+  }
+  if (payload.worktree !== undefined) {
+    if (typeof payload.worktree !== 'string') {
+      return { success: false, error: 'worktree must be a string' };
+    }
+    const worktree = payload.worktree.trim();
+    if (worktree.length > 128) {
+      return { success: false, error: 'worktree name too long (max 128)' };
+    }
+    if (worktree && !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(worktree)) {
+      return {
+        success: false,
+        error: 'worktree name: start with alphanumeric, use [a-zA-Z0-9._-]',
+      };
+    }
+  }
+  if (payload.extraCliArgs !== undefined) {
+    if (typeof payload.extraCliArgs !== 'string') {
+      return { success: false, error: 'extraCliArgs must be a string' };
+    }
+    if (payload.extraCliArgs.length > 1024) {
+      return { success: false, error: 'extraCliArgs too long (max 1024)' };
+    }
+    const protectedFlags = extractUserFlags(payload.extraCliArgs).filter((flag) =>
+      PROTECTED_CLI_FLAGS.has(flag)
+    );
+    if (protectedFlags.length > 0) {
+      return {
+        success: false,
+        error: `extraCliArgs contains app-managed flags: ${[...new Set(protectedFlags)].join(', ')}`,
+      };
+    }
   }
 
   const seenNames = new Set<string>();
@@ -3190,6 +3272,13 @@ async function handleCreateConfig(
     if (!providerValidation.valid) {
       return { success: false, error: providerValidation.error };
     }
+    const providerBackendValidation = parseOptionalProviderBackendId(
+      (member as { providerBackendId?: unknown }).providerBackendId,
+      providerValidation.value
+    );
+    if (!providerBackendValidation.valid) {
+      return { success: false, error: providerBackendValidation.error };
+    }
     const model = (member as { model?: unknown }).model;
     if (model !== undefined && typeof model !== 'string') {
       return { success: false, error: 'member model must be string' };
@@ -3201,14 +3290,22 @@ async function handleCreateConfig(
     if (!effortValidation.valid) {
       return { success: false, error: effortValidation.error };
     }
+    const fastModeValidation = parseOptionalTeamFastMode(
+      (member as { fastMode?: unknown }).fastMode
+    );
+    if (!fastModeValidation.valid) {
+      return { success: false, error: fastModeValidation.error };
+    }
     members.push({
       name: memberName,
       role: typeof role === 'string' ? role.trim() : undefined,
       workflow: typeof workflow === 'string' ? workflow.trim() : undefined,
       isolation: isolation === 'worktree' ? ('worktree' as const) : undefined,
       providerId: providerValidation.value,
+      providerBackendId: providerBackendValidation.value,
       model: typeof model === 'string' ? model.trim() || undefined : undefined,
       effort: effortValidation.value,
+      fastMode: fastModeValidation.value,
     });
   }
 
@@ -3220,8 +3317,23 @@ async function handleCreateConfig(
       color: typeof payload.color === 'string' ? payload.color.trim() || undefined : undefined,
       members,
       cwd: typeof payload.cwd === 'string' ? payload.cwd.trim() || undefined : undefined,
+      prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
+      providerId: providerValidation.value,
       providerBackendId: providerBackendValidation.value,
+      model: typeof payload.model === 'string' ? payload.model.trim() || undefined : undefined,
+      effort: effortValidation.value,
       fastMode: fastModeValidation.value,
+      limitContext: typeof payload.limitContext === 'boolean' ? payload.limitContext : undefined,
+      skipPermissions:
+        typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
+      worktree:
+        typeof payload.worktree === 'string' && payload.worktree.trim()
+          ? payload.worktree.trim()
+          : undefined,
+      extraCliArgs:
+        typeof payload.extraCliArgs === 'string' && payload.extraCliArgs.trim()
+          ? payload.extraCliArgs.trim()
+          : undefined,
     })
   );
 }
@@ -4696,52 +4808,9 @@ async function handleGetSavedRequest(
   if (!validated.valid) {
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
-  const tn = validated.value!;
-
-  const meta = await teamMetaStore.getMeta(tn);
-  if (!meta) {
-    return { success: true, data: null };
-  }
-
-  const membersStore = new TeamMembersMetaStore();
-  const membersMeta = await membersStore.getMeta(tn);
-  const members = membersMeta?.members ?? [];
-
-  const resolvedProviderId = meta.providerId ?? 'anthropic';
-
-  return {
-    success: true,
-    data: {
-      teamName: tn,
-      displayName: meta.displayName,
-      description: meta.description,
-      color: meta.color,
-      cwd: meta.cwd,
-      prompt: meta.prompt,
-      providerId: resolvedProviderId,
-      providerBackendId: migrateProviderBackendId(
-        resolvedProviderId,
-        meta.providerBackendId ?? membersMeta?.providerBackendId
-      ),
-      model: meta.model,
-      effort: meta.effort as TeamCreateRequest['effort'],
-      fastMode: meta.fastMode,
-      skipPermissions: meta.skipPermissions,
-      worktree: meta.worktree,
-      extraCliArgs: meta.extraCliArgs,
-      limitContext: meta.limitContext,
-      members: members.map((m) => ({
-        name: m.name,
-        role: m.role,
-        workflow: m.workflow,
-        isolation: m.isolation,
-        cwd: m.cwd,
-        providerId: m.providerId,
-        model: m.model,
-        effort: m.effort,
-      })),
-    },
-  };
+  return wrapTeamHandler('getSavedRequest', async () => {
+    return getTeamDataService().getSavedRequest(validated.value!);
+  });
 }
 
 async function handleDeleteDraft(

@@ -1611,8 +1611,16 @@ export const CreateTeamDialog = ({
             color: request.color,
             members: request.members,
             cwd: effectiveCwd || undefined,
+            prompt: request.prompt,
+            providerId: request.providerId,
             providerBackendId: request.providerBackendId,
+            model: request.model,
+            effort: request.effort,
             fastMode: request.fastMode,
+            limitContext: request.limitContext,
+            skipPermissions: request.skipPermissions,
+            worktree: request.worktree,
+            extraCliArgs: request.extraCliArgs,
           });
           onOpenTeam(request.teamName, effectiveCwd || undefined);
           resetFormState();

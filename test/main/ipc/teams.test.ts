@@ -2,6 +2,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setClaudeBasePathOverride } from '@main/utils/pathDecoder';
 import type {
   BoardTaskActivityDetailResult,
   BoardTaskActivityEntry,
@@ -30,7 +31,9 @@ vi.mock('@preload/constants/ipcChannels', async (importOriginal) => {
 
 // Mock NotificationManager — handleShowMessageNotification calls addTeamNotification
 const { mockAddTeamNotification } = vi.hoisted(() => ({
-  mockAddTeamNotification: vi.fn().mockResolvedValue({ id: 'n1', isRead: false, createdAt: Date.now() }),
+  mockAddTeamNotification: vi
+    .fn()
+    .mockResolvedValue({ id: 'n1', isRead: false, createdAt: Date.now() }),
 }));
 const { mockGetMembersMeta } = vi.hoisted(() => ({
   mockGetMembersMeta: vi.fn(),
@@ -147,25 +150,29 @@ describe('ipc teams handlers', () => {
 
   const service = {
     listTeams: vi.fn(async () => [{ teamName: 'my-team', displayName: 'My Team' }]),
-    getTeamData: vi.fn(async (): Promise<TeamViewSnapshot & { messages?: InboxMessage[] }> => ({
-      teamName: 'my-team',
-      config: { name: 'My Team' },
-      tasks: [],
-      members: [],
-      kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
-      processes: [],
-    })),
+    getTeamData: vi.fn(
+      async (): Promise<TeamViewSnapshot & { messages?: InboxMessage[] }> => ({
+        teamName: 'my-team',
+        config: { name: 'My Team' },
+        tasks: [],
+        members: [],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      })
+    ),
     getMessageFeed: vi.fn(async () => ({
       teamName: 'my-team',
       feedRevision: 'rev-1',
       messages: [] as InboxMessage[],
     })),
-    getMessagesPage: vi.fn(async (..._args: unknown[]): Promise<MessagesPage> => ({
-      messages: [] as InboxMessage[],
-      nextCursor: null,
-      hasMore: false,
-      feedRevision: 'rev-1',
-    })),
+    getMessagesPage: vi.fn(
+      async (..._args: unknown[]): Promise<MessagesPage> => ({
+        messages: [] as InboxMessage[],
+        nextCursor: null,
+        hasMore: false,
+        feedRevision: 'rev-1',
+      })
+    ),
     getMemberActivityMeta: vi.fn(async () => ({
       teamName: 'my-team',
       computedAt: '2026-03-12T10:00:00.000Z',
@@ -207,6 +214,7 @@ describe('ipc teams handlers', () => {
     removeTaskRelationship: vi.fn(async () => undefined),
     replaceMembers: vi.fn(async () => undefined),
     createTeamConfig: vi.fn(async () => undefined),
+    getSavedRequest: vi.fn(async (): Promise<TeamCreateRequest | null> => null),
   };
   const provisioningService = {
     prepareForProvisioning: vi.fn(async () => ({
@@ -265,24 +273,26 @@ describe('ipc teams handlers', () => {
     getTaskActivity: vi.fn<() => Promise<BoardTaskActivityEntry[]>>(async () => []),
   };
   const boardTaskActivityDetailService = {
-    getTaskActivityDetail:
-      vi.fn<() => Promise<BoardTaskActivityDetailResult>>(async () => ({ status: 'missing' })),
+    getTaskActivityDetail: vi.fn<() => Promise<BoardTaskActivityDetailResult>>(async () => ({
+      status: 'missing',
+    })),
   };
   const boardTaskLogStreamService = {
-    getTaskLogStream:
-      vi.fn<() => Promise<BoardTaskLogStreamResponse>>(async () => ({
-        participants: [],
-        defaultFilter: 'all',
-        segments: [],
-      })),
+    getTaskLogStream: vi.fn<() => Promise<BoardTaskLogStreamResponse>>(async () => ({
+      participants: [],
+      defaultFilter: 'all',
+      segments: [],
+    })),
   };
   const boardTaskExactLogsService = {
-    getTaskExactLogSummaries:
-      vi.fn<() => Promise<BoardTaskExactLogSummariesResponse>>(async () => ({ items: [] })),
+    getTaskExactLogSummaries: vi.fn<() => Promise<BoardTaskExactLogSummariesResponse>>(
+      async () => ({ items: [] })
+    ),
   };
   const boardTaskExactLogDetailService = {
-    getTaskExactLogDetail:
-      vi.fn<() => Promise<BoardTaskExactLogDetailResult>>(async () => ({ status: 'missing' })),
+    getTaskExactLogDetail: vi.fn<() => Promise<BoardTaskExactLogDetailResult>>(async () => ({
+      status: 'missing',
+    })),
   };
 
   beforeEach(() => {
@@ -316,13 +326,14 @@ describe('ipc teams handlers', () => {
       boardTaskActivityDetailService as never,
       boardTaskLogStreamService as never,
       boardTaskExactLogsService as never,
-      boardTaskExactLogDetailService as never,
+      boardTaskExactLogDetailService as never
     );
     registerTeamHandlers(ipcMain as never);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    setClaudeBasePathOverride(null);
   });
 
   it('registers all expected handlers', () => {
@@ -417,12 +428,7 @@ describe('ipc teams handlers', () => {
 
     const taskId = 'task-js';
     const attachmentId = 'att-js';
-    const attachmentDir = path.join(
-      getAppDataPath(),
-      'task-attachments',
-      'my-team',
-      taskId
-    );
+    const attachmentDir = path.join(getAppDataPath(), 'task-attachments', 'my-team', taskId);
     await fs.promises.rm(attachmentDir, { recursive: true, force: true });
     await fs.promises.mkdir(attachmentDir, { recursive: true });
     await fs.promises.writeFile(
@@ -778,7 +784,9 @@ describe('ipc teams handlers', () => {
     );
     expect(provisioningService.sendMessageToTeam).toHaveBeenCalledWith(
       'my-team',
-      expect.stringContaining('FORBIDDEN: editing files, changing code, changing task/board state, delegating work, launching Agent/subagents'),
+      expect.stringContaining(
+        'FORBIDDEN: editing files, changing code, changing task/board state, delegating work, launching Agent/subagents'
+      ),
       undefined
     );
     expect(service.sendDirectToLead).toHaveBeenCalledWith(
@@ -814,7 +822,9 @@ describe('ipc teams handlers', () => {
     );
     expect(provisioningService.sendMessageToTeam).toHaveBeenCalledWith(
       'my-team',
-      expect.stringContaining('Persistent teammates currently configured: alice (reviewer), jack (developer)'),
+      expect.stringContaining(
+        'Persistent teammates currently configured: alice (reviewer), jack (developer)'
+      ),
       undefined
     );
     expect(provisioningService.sendMessageToTeam).toHaveBeenCalledWith(
@@ -842,7 +852,9 @@ describe('ipc teams handlers', () => {
     );
     expect(provisioningService.sendMessageToTeam).toHaveBeenCalledWith(
       'my-team',
-      expect.stringContaining('Make the acknowledgement at least 40 characters so it is preserved in the Messages panel.'),
+      expect.stringContaining(
+        'Make the acknowledgement at least 40 characters so it is preserved in the Messages panel.'
+      ),
       undefined
     );
   });
@@ -887,9 +899,10 @@ describe('ipc teams handlers', () => {
       '/COMPACT keep kanban',
       undefined
     );
-    const compactCall = vi.mocked(provisioningService.sendMessageToTeam).mock
-      .calls as unknown[][];
-    expect(String(compactCall[0]?.[1] ?? '')).not.toContain('You received a direct message from the user');
+    const compactCall = vi.mocked(provisioningService.sendMessageToTeam).mock.calls as unknown[][];
+    expect(String(compactCall[0]?.[1] ?? '')).not.toContain(
+      'You received a direct message from the user'
+    );
     expect(String(compactCall[0]?.[1] ?? '')).not.toContain('Current durable team context:');
     expect(service.sendDirectToLead).toHaveBeenCalledWith(
       'my-team',
@@ -1933,7 +1946,9 @@ describe('ipc teams handlers', () => {
       );
       expect(provisioningService.sendMessageToTeam).toHaveBeenCalledWith(
         'my-team',
-        expect.stringContaining('Do NOT start work, claim tasks, or improvise workflow/task/process rules')
+        expect.stringContaining(
+          'Do NOT start work, claim tasks, or improvise workflow/task/process rules'
+        )
       );
       expect(provisioningService.sendMessageToTeam).toHaveBeenCalledWith(
         'my-team',
@@ -2516,7 +2531,9 @@ describe('ipc teams handlers', () => {
       })) as { success: boolean; error?: string };
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Live member migration between OpenCode and the primary runtime owner');
+      expect(result.error).toContain(
+        'Live member migration between OpenCode and the primary runtime owner'
+      );
       expect(result.error).toContain('alice');
       expect(service.replaceMembers).not.toHaveBeenCalled();
       expect(provisioningService.reattachOpenCodeOwnedMemberLane).not.toHaveBeenCalled();
@@ -2562,7 +2579,9 @@ describe('ipc teams handlers', () => {
       })) as { success: boolean; error?: string };
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Live member migration between OpenCode and the primary runtime owner');
+      expect(result.error).toContain(
+        'Live member migration between OpenCode and the primary runtime owner'
+      );
       expect(result.error).toContain('alice');
       expect(service.replaceMembers).not.toHaveBeenCalled();
       expect(provisioningService.reattachOpenCodeOwnedMemberLane).not.toHaveBeenCalled();
@@ -2843,6 +2862,42 @@ describe('ipc teams handlers', () => {
       expect(callArg.members).toEqual([]);
     });
 
+    it('createTeam preserves teammate backend and fast mode metadata', async () => {
+      const handler = handlers.get(TEAM_CREATE)!;
+      const result = (await handler({ sender: { send: vi.fn() } } as never, {
+        teamName: 'runtime-team',
+        members: [
+          {
+            name: 'builder',
+            role: 'Engineer',
+            providerId: 'codex',
+            providerBackendId: 'codex-native',
+            model: 'gpt-5.4',
+            effort: 'high',
+            fastMode: 'on',
+          },
+        ],
+        cwd: os.tmpdir(),
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+      })) as { success: boolean };
+
+      expect(result.success).toBe(true);
+      expect(provisioningService.createTeam.mock.calls[0][0].members).toEqual([
+        {
+          name: 'builder',
+          role: 'Engineer',
+          workflow: undefined,
+          isolation: undefined,
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.4',
+          effort: 'high',
+          fastMode: 'on',
+        },
+      ]);
+    });
+
     it('handleCreateConfig accepts members: []', async () => {
       const handler = handlers.get(TEAM_CREATE_CONFIG)!;
       const result = (await handler({} as never, {
@@ -2851,6 +2906,161 @@ describe('ipc teams handlers', () => {
         cwd: os.tmpdir(),
       })) as { success: boolean };
       expect(result.success).toBe(true);
+    });
+
+    it('handleCreateConfig preserves draft launch metadata', async () => {
+      const handler = handlers.get(TEAM_CREATE_CONFIG)!;
+      const result = (await handler({} as never, {
+        teamName: 'draft-team',
+        displayName: ' Draft Team ',
+        description: ' Saved draft ',
+        color: '#3366ff',
+        members: [
+          {
+            name: 'builder',
+            role: ' Engineer ',
+            workflow: ' Ship focused patches ',
+            providerId: 'codex',
+            providerBackendId: 'codex-native',
+            model: ' gpt-5.2 ',
+            effort: 'high',
+            fastMode: 'on',
+          },
+        ],
+        cwd: '/Users/test/project',
+        prompt: ' Saved prompt ',
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: ' gpt-5.2 ',
+        effort: 'high',
+        fastMode: 'on',
+        limitContext: true,
+        skipPermissions: false,
+        worktree: 'feature-x',
+        extraCliArgs: '--max-turns 5',
+      })) as { success: boolean };
+
+      expect(result.success).toBe(true);
+      expect(service.createTeamConfig).toHaveBeenCalledWith({
+        teamName: 'draft-team',
+        displayName: 'Draft Team',
+        description: 'Saved draft',
+        color: '#3366ff',
+        members: [
+          {
+            name: 'builder',
+            role: 'Engineer',
+            workflow: 'Ship focused patches',
+            providerId: 'codex',
+            providerBackendId: 'codex-native',
+            model: 'gpt-5.2',
+            effort: 'high',
+            fastMode: 'on',
+          },
+        ],
+        cwd: '/Users/test/project',
+        prompt: 'Saved prompt',
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.2',
+        effort: 'high',
+        fastMode: 'on',
+        limitContext: true,
+        skipPermissions: false,
+        worktree: 'feature-x',
+        extraCliArgs: '--max-turns 5',
+      });
+    });
+
+    it('launches draft team through saved request without dropping Electron draft metadata', async () => {
+      const claudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ipc-draft-launch-'));
+      setClaudeBasePathOverride(claudeRoot);
+      try {
+        const teamDir = path.join(claudeRoot, 'teams', 'draft-team');
+        fs.mkdirSync(teamDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(teamDir, 'team.meta.json'),
+          JSON.stringify({
+            version: 1,
+            displayName: 'Draft Team',
+            cwd: '/Users/test/project',
+            createdAt: Date.now(),
+          })
+        );
+        service.getSavedRequest.mockResolvedValueOnce({
+          teamName: 'draft-team',
+          displayName: 'Draft Team',
+          description: 'Saved draft',
+          color: '#3366ff',
+          cwd: '/Users/test/project',
+          prompt: 'Saved prompt',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.2',
+          effort: 'medium',
+          fastMode: 'on',
+          limitContext: true,
+          skipPermissions: false,
+          worktree: 'feature-x',
+          extraCliArgs: '--max-turns 5',
+          members: [
+            {
+              name: 'builder',
+              role: 'Engineer',
+              workflow: 'Ship focused patches',
+              providerId: 'codex',
+              providerBackendId: 'codex-native',
+              model: 'gpt-5.2',
+              effort: 'high',
+              fastMode: 'on',
+            },
+          ],
+        });
+
+        const handler = handlers.get(TEAM_LAUNCH)!;
+        const result = (await handler({ sender: { send: vi.fn() } } as never, {
+          teamName: 'draft-team',
+          cwd: os.tmpdir(),
+          effort: 'high',
+        })) as { success: boolean };
+
+        expect(result.success).toBe(true);
+        expect(provisioningService.launchTeam).not.toHaveBeenCalled();
+        expect(provisioningService.createTeam).toHaveBeenCalledWith(
+          {
+            teamName: 'draft-team',
+            displayName: 'Draft Team',
+            description: 'Saved draft',
+            color: '#3366ff',
+            members: [
+              {
+                name: 'builder',
+                role: 'Engineer',
+                workflow: 'Ship focused patches',
+                providerId: 'codex',
+                providerBackendId: 'codex-native',
+                model: 'gpt-5.2',
+                effort: 'high',
+                fastMode: 'on',
+              },
+            ],
+            cwd: os.tmpdir(),
+            prompt: 'Saved prompt',
+            providerId: 'codex',
+            providerBackendId: 'codex-native',
+            model: 'gpt-5.2',
+            effort: 'high',
+            fastMode: 'on',
+            limitContext: true,
+            skipPermissions: false,
+            worktree: 'feature-x',
+            extraCliArgs: '--max-turns 5',
+          },
+          expect.any(Function)
+        );
+      } finally {
+        fs.rmSync(claudeRoot, { recursive: true, force: true });
+      }
     });
 
     it('handleReplaceMembers accepts members: []', async () => {

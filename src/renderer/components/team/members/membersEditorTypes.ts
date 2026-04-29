@@ -1,5 +1,10 @@
 import type { InlineChip } from '@renderer/types/inlineChip';
-import type { EffortLevel, TeamProviderId } from '@shared/types';
+import type {
+  EffortLevel,
+  TeamFastMode,
+  TeamProviderBackendId,
+  TeamProviderId,
+} from '@shared/types';
 
 export interface MemberDraft {
   id: string;
@@ -11,8 +16,10 @@ export interface MemberDraft {
   workflowChips?: InlineChip[];
   isolation?: 'worktree';
   providerId?: TeamProviderId;
+  providerBackendId?: TeamProviderBackendId;
   model?: string;
   effort?: EffortLevel;
+  fastMode?: TeamFastMode;
   removedAt?: number | string | null;
 }
 

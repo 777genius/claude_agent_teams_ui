@@ -237,6 +237,74 @@ afterEach(async () => {
   );
 });
 
+describe('TeamDataService draft metadata', () => {
+  it('round-trips create config metadata through getSavedRequest', async () => {
+    const claudeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'team-data-saved-request-'));
+    tempPaths.push(claudeRoot);
+    setClaudeBasePathOverride(claudeRoot);
+
+    const service = new TeamDataService();
+    await service.createTeamConfig({
+      teamName: 'draft-team',
+      displayName: 'Draft Team',
+      description: 'Saved draft',
+      color: '#3366ff',
+      cwd: '/Users/test/project',
+      prompt: 'Saved prompt',
+      providerId: 'codex',
+      model: 'gpt-5.2',
+      effort: 'high',
+      fastMode: 'on',
+      limitContext: true,
+      skipPermissions: false,
+      worktree: 'feature-x',
+      extraCliArgs: '--max-turns 5',
+      members: [
+        {
+          name: 'builder',
+          role: 'Engineer',
+          workflow: 'Ship focused patches',
+          providerId: 'codex',
+          model: 'gpt-5.2',
+          effort: 'high',
+          fastMode: 'on',
+        },
+      ],
+    });
+
+    await expect(service.getSavedRequest('missing-team')).resolves.toBeNull();
+    await expect(service.getSavedRequest('draft-team')).resolves.toMatchObject({
+      teamName: 'draft-team',
+      displayName: 'Draft Team',
+      description: 'Saved draft',
+      color: '#3366ff',
+      cwd: '/Users/test/project',
+      prompt: 'Saved prompt',
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.2',
+      effort: 'high',
+      fastMode: 'on',
+      limitContext: true,
+      skipPermissions: false,
+      worktree: 'feature-x',
+      extraCliArgs: '--max-turns 5',
+      members: [
+        {
+          name: 'builder',
+          role: 'Engineer',
+          workflow: 'Ship focused patches',
+          providerId: 'codex',
+          providerBackendId: 'codex-native',
+          model: 'gpt-5.2',
+          effort: 'high',
+          fastMode: 'on',
+        },
+      ],
+    });
+  });
+});
+
 function createForwardingJournalStore(initialEntries: Array<Record<string, unknown>> = []) {
   const journalEntries = initialEntries;
   const journal = {

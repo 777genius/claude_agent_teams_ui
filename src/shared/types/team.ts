@@ -1283,8 +1283,20 @@ export interface TeamCreateConfigRequest {
   color?: string;
   members: TeamProvisioningMemberInput[];
   cwd?: string;
+  prompt?: string;
+  providerId?: TeamProviderId;
   providerBackendId?: TeamProviderBackendId;
+  model?: string;
+  effort?: EffortLevel;
   fastMode?: TeamFastMode;
+  /** When true, context window is limited to 200K tokens instead of the default. */
+  limitContext?: boolean;
+  /** When false, run WITHOUT --dangerously-skip-permissions (manual tool approval). Default: true. */
+  skipPermissions?: boolean;
+  /** Worktree name — CLI: --worktree <name>. */
+  worktree?: string;
+  /** Raw custom CLI args string, shell-split and appended to CLI command. */
+  extraCliArgs?: string;
 }
 
 export interface TeamCreateResponse {

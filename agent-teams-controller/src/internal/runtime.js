@@ -121,7 +121,9 @@ async function requestJson(baseUrl, pathname, options = {}) {
     }
 
     if (payload == null) {
-      throw makeRetryableControlError(`Team control API returned empty or non-JSON response at ${baseUrl}${pathname}`);
+      throw makeRetryableControlError(
+        `Team control API returned empty or non-JSON response at ${baseUrl}${pathname}`
+      );
     }
 
     return payload;
@@ -170,9 +172,7 @@ function buildLaunchRequest(flags = {}) {
     ...(typeof flags.prompt === 'string' && flags.prompt.trim()
       ? { prompt: flags.prompt.trim() }
       : {}),
-    ...(typeof flags.model === 'string' && flags.model.trim()
-      ? { model: flags.model.trim() }
-      : {}),
+    ...(typeof flags.model === 'string' && flags.model.trim() ? { model: flags.model.trim() } : {}),
     ...(typeof flags.effort === 'string' && flags.effort.trim()
       ? { effort: flags.effort.trim() }
       : {}),
@@ -220,6 +220,16 @@ function shouldWaitForStop(flags = {}) {
 
 function compactRuntimeToolBody(context, flags = {}, fields) {
   const body = { teamName: context.teamName };
+  for (const field of fields) {
+    if (flags[field] !== undefined) {
+      body[field] = flags[field];
+    }
+  }
+  return body;
+}
+
+function compactBody(flags = {}, fields) {
+  const body = {};
   for (const field of fields) {
     if (flags[field] !== undefined) {
       body[field] = flags[field];
@@ -276,7 +286,9 @@ async function waitForProvisioningState(baseUrls, teamName, runId, timeoutMs) {
   }
 
   const stateLabel =
-    lastProgress && typeof lastProgress.state === 'string' ? ` while in state ${lastProgress.state}` : '';
+    lastProgress && typeof lastProgress.state === 'string'
+      ? ` while in state ${lastProgress.state}`
+      : '';
   throw new Error(`Timed out waiting for team ${teamName} to become ready${stateLabel}`);
 }
 
@@ -328,6 +340,48 @@ async function launchTeam(context, flags = {}) {
   );
 }
 
+async function listTeams(context, flags = {}) {
+  const baseUrls = resolveControlBaseUrls(context, flags);
+  return requestJsonWithFallback(baseUrls, '/api/teams', {
+    timeoutMs: normalizeTimeoutMs(flags.waitTimeoutMs || flags['wait-timeout-ms'] || 10000),
+  });
+}
+
+async function getTeam(context, flags = {}) {
+  const baseUrls = resolveControlBaseUrls(context, flags);
+  return requestJsonWithFallback(baseUrls, `/api/teams/${encodeURIComponent(context.teamName)}`, {
+    timeoutMs: normalizeTimeoutMs(flags.waitTimeoutMs || flags['wait-timeout-ms'] || 10000),
+  });
+}
+
+async function createTeam(context, flags = {}) {
+  const baseUrls = resolveControlBaseUrls(context, flags);
+  return requestJsonWithFallback(baseUrls, '/api/teams', {
+    method: 'POST',
+    body: {
+      teamName: context.teamName,
+      ...compactBody(flags, [
+        'displayName',
+        'description',
+        'color',
+        'members',
+        'cwd',
+        'prompt',
+        'providerId',
+        'providerBackendId',
+        'model',
+        'effort',
+        'fastMode',
+        'limitContext',
+        'skipPermissions',
+        'worktree',
+        'extraCliArgs',
+      ]),
+    },
+    timeoutMs: normalizeTimeoutMs(flags.waitTimeoutMs || flags['wait-timeout-ms'] || 10000),
+  });
+}
+
 async function stopTeam(context, flags = {}) {
   const baseUrls = resolveControlBaseUrls(context, flags);
   const stopped = await requestJsonWithFallback(
@@ -351,7 +405,10 @@ async function stopTeam(context, flags = {}) {
 
 async function getRuntimeState(context, flags = {}) {
   const baseUrls = resolveControlBaseUrls(context, flags);
-  return requestJsonWithFallback(baseUrls, `/api/teams/${encodeURIComponent(context.teamName)}/runtime`);
+  return requestJsonWithFallback(
+    baseUrls,
+    `/api/teams/${encodeURIComponent(context.teamName)}/runtime`
+  );
 }
 
 async function runtimeBootstrapCheckin(context, flags = {}) {
@@ -425,6 +482,9 @@ async function runtimeHeartbeat(context, flags = {}) {
 }
 
 module.exports = {
+  listTeams,
+  getTeam,
+  createTeam,
   launchTeam,
   stopTeam,
   getRuntimeState,

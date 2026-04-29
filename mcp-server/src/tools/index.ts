@@ -13,8 +13,10 @@ import { registerProcessTools } from './processTools';
 import { registerReviewTools } from './reviewTools';
 import { registerRuntimeTools } from './runtimeTools';
 import { registerTaskTools } from './taskTools';
+import { registerTeamTools } from './teamTools';
 
 const REGISTRATION_BY_GROUP = {
+  team: registerTeamTools,
   task: registerTaskTools,
   lead: registerLeadTools,
   kanban: registerKanbanTools,

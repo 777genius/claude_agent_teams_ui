@@ -1337,6 +1337,7 @@ async function startHttpServer(
         recentProjectsFeature,
         updaterService,
         sshConnectionManager,
+        teamDataService,
         teamProvisioningService,
       },
       modeSwitchHandler,
