@@ -1,6 +1,6 @@
 # Member Work Sync Control Plane Plan
 
-**Status:** Proposed  
+**Status:** Phase 1 implemented, Phase 2 deferred until shadow metrics are reviewed
 **Scope:** Team management, task work synchronization, agent work coordination  
 **Primary repo:** `claude_team`  
 **Secondary write-boundary repo:** `agent_teams_orchestrator` / `agent-teams-controller`  
@@ -28,6 +28,12 @@ Recommended implementation:
 Phase 1 does not send nudges. It computes agenda/fingerprint/status, validates `member_work_sync_report`, stores status conditions, and exposes diagnostics. This avoids agent spam and gives real metrics before behavior changes.
 
 Phase 2 adds durable nudges only after Phase 1 metrics prove that fingerprint churn and false positives are low.
+
+Current implementation note:
+
+- Phase 1 is intentionally shadow-only: it computes agendas, fingerprints, report tokens, reports, persisted status, passive queue reconciliation, startup replay, diagnostics, and read-only renderer view models.
+- Phase 1 does not insert inbox messages, send nudges, mark tasks/messages read, or change `TeamTaskStallMonitor` semantics.
+- Phase 2 must not start until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
 
 Patterns used:
 
