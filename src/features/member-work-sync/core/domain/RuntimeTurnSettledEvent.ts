@@ -11,6 +11,11 @@ export interface RuntimeTurnSettledEvent {
   turnId?: string;
   transcriptPath?: string;
   cwd?: string;
+  teamName?: string;
+  memberName?: string;
+  agentId?: string;
+  threadId?: string;
+  outcome?: string;
 }
 
 export function buildRuntimeTurnSettledSourceId(input: {

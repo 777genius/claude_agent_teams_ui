@@ -26,6 +26,8 @@ import { TeamTaskStallJournalWorkSyncCooldown } from '../adapters/output/TeamTas
 import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
 import { TeamRuntimeTurnSettledTargetResolver } from '../adapters/output/TeamRuntimeTurnSettledTargetResolver';
 import { ClaudeStopHookPayloadNormalizer } from '../infrastructure/ClaudeStopHookPayloadNormalizer';
+import { CodexNativeTurnSettledPayloadNormalizer } from '../infrastructure/CodexNativeTurnSettledPayloadNormalizer';
+import { CompositeRuntimeTurnSettledPayloadNormalizer } from '../infrastructure/CompositeRuntimeTurnSettledPayloadNormalizer';
 import { FileRuntimeTurnSettledEventStore } from '../infrastructure/FileRuntimeTurnSettledEventStore';
 import { HmacMemberWorkSyncReportTokenAdapter } from '../infrastructure/HmacMemberWorkSyncReportTokenAdapter';
 import {
@@ -40,6 +42,7 @@ import { NodeHashAdapter } from '../infrastructure/NodeHashAdapter';
 import { RuntimeTurnSettledDrainScheduler } from '../infrastructure/RuntimeTurnSettledDrainScheduler';
 import { RuntimeTurnSettledSpoolPaths } from '../infrastructure/RuntimeTurnSettledSpoolPaths';
 import { ShellRuntimeTurnSettledHookScriptInstaller } from '../infrastructure/ShellRuntimeTurnSettledHookScriptInstaller';
+import { buildRuntimeTurnSettledEnvironment } from '../infrastructure/runtimeTurnSettledEnvironment';
 import { buildRuntimeTurnSettledHookSettings } from '../infrastructure/runtimeTurnSettledHookSettings';
 import { SystemClockAdapter } from '../infrastructure/SystemClockAdapter';
 
@@ -90,6 +93,9 @@ export interface MemberWorkSyncFeatureFacade {
   buildRuntimeTurnSettledHookSettings(input: {
     provider: RuntimeTurnSettledProvider;
   }): Promise<Record<string, unknown> | null>;
+  buildRuntimeTurnSettledEnvironment(input: {
+    provider: RuntimeTurnSettledProvider;
+  }): Promise<Record<string, string> | null>;
   drainRuntimeTurnSettledEvents(): Promise<RuntimeTurnSettledDrainSummary>;
   getQueueDiagnostics(): MemberWorkSyncQueueDiagnostics;
   dispose(): Promise<void>;
@@ -127,7 +133,10 @@ export function createMemberWorkSyncFeature(deps: {
   const runtimeTurnSettledStore = new FileRuntimeTurnSettledEventStore({
     paths: runtimeTurnSettledSpoolPaths,
   });
-  const runtimeTurnSettledNormalizer = new ClaudeStopHookPayloadNormalizer(hash);
+  const runtimeTurnSettledNormalizer = new CompositeRuntimeTurnSettledPayloadNormalizer([
+    new ClaudeStopHookPayloadNormalizer(hash),
+    new CodexNativeTurnSettledPayloadNormalizer(hash),
+  ]);
   const runtimeTurnSettledTargetResolver =
     deps.runtimeTurnSettledTargetResolver ??
     new TeamRuntimeTurnSettledTargetResolver({
@@ -256,6 +265,16 @@ export function createMemberWorkSyncFeature(deps: {
         scriptPath: installed.scriptPath,
         spoolRoot: installed.spoolRoot,
         provider,
+      });
+    },
+    buildRuntimeTurnSettledEnvironment: async ({ provider }) => {
+      if (provider !== 'codex') {
+        return null;
+      }
+      const installed = await runtimeTurnSettledHookInstaller.install();
+      return buildRuntimeTurnSettledEnvironment({
+        provider,
+        spoolRoot: installed.spoolRoot,
       });
     },
     drainRuntimeTurnSettledEvents: () => runtimeTurnSettledIngestor.drainPending(),

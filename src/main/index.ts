@@ -1254,6 +1254,11 @@ async function initializeServices(): Promise<void> {
       ? memberWorkSyncFeature.buildRuntimeTurnSettledHookSettings(input)
       : Promise.resolve(null)
   );
+  teamProvisioningService.setRuntimeTurnSettledEnvironmentProvider((input) =>
+    memberWorkSyncFeature
+      ? memberWorkSyncFeature.buildRuntimeTurnSettledEnvironment(input)
+      : Promise.resolve(null)
+  );
   void teamDataService
     .listTeams()
     .then(async (teams) => {

@@ -149,6 +149,8 @@ const REQUIRED_MOCK_AGENT_TEAMS_TOOLS = [
   'lead_briefing',
   'member_briefing',
   'message_send',
+  'member_work_sync_report',
+  'member_work_sync_status',
   'process_list',
   'process_register',
   'process_stop',
@@ -1952,6 +1954,20 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
 
     expect(result.authSource).toBe('anthropic_api_key');
     expect(result.env.ANTHROPIC_API_KEY).toBe('real-key');
+  });
+
+  it('adds member-work-sync turn-settled spool env for Codex provisioning', async () => {
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeTurnSettledEnvironmentProvider(async ({ provider }) =>
+      provider === 'codex'
+        ? { AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks' }
+        : null
+    );
+
+    const result = await (svc as any).buildProvisioningEnv('codex');
+
+    expect(result.authSource).toBe('codex_runtime');
+    expect(result.env.AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT).toBe('/tmp/runtime-hooks');
   });
 
   it('allows help-env resolution to continue even when provisioning env warns', async () => {

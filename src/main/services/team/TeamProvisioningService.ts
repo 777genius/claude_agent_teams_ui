@@ -4324,6 +4324,9 @@ export class TeamProvisioningService {
   private runtimeTurnSettledHookSettingsProvider:
     | ((input: { provider: RuntimeTurnSettledProvider }) => Promise<Record<string, unknown> | null>)
     | null = null;
+  private runtimeTurnSettledEnvironmentProvider:
+    | ((input: { provider: RuntimeTurnSettledProvider }) => Promise<Record<string, string> | null>)
+    | null = null;
   private readonly stoppedTeamOpenCodeRuntimeCleanupInFlight = new Map<string, Promise<number>>();
   private readonly cleanedStoppedTeamOpenCodeRuntimeLanes = new Set<string>();
   private crossTeamSender:
@@ -4395,6 +4398,16 @@ export class TeamProvisioningService {
     this.runtimeTurnSettledHookSettingsProvider = provider;
   }
 
+  setRuntimeTurnSettledEnvironmentProvider(
+    provider:
+      | ((input: {
+          provider: RuntimeTurnSettledProvider;
+        }) => Promise<Record<string, string> | null>)
+      | null
+  ): void {
+    this.runtimeTurnSettledEnvironmentProvider = provider;
+  }
+
   private async buildRuntimeTurnSettledHookSettingsArgs(
     providerId: TeamProviderId
   ): Promise<string[]> {
@@ -4412,6 +4425,25 @@ export class TeamProvisioningService {
         }`
       );
       return [];
+    }
+  }
+
+  private async buildRuntimeTurnSettledEnvironment(
+    providerId: TeamProviderId
+  ): Promise<Record<string, string>> {
+    if (providerId !== 'codex' || !this.runtimeTurnSettledEnvironmentProvider) {
+      return {};
+    }
+
+    try {
+      return (await this.runtimeTurnSettledEnvironmentProvider({ provider: 'codex' })) ?? {};
+    } catch (error) {
+      logger.warn(
+        `Failed to build member work sync runtime turn-settled environment: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return {};
     }
   }
 
@@ -22816,6 +22848,7 @@ export class TeamProvisioningService {
     });
     const providerConnectionIssue = providerEnvResult.connectionIssues[resolvedProviderId];
     const providerEnv = providerEnvResult.env;
+    Object.assign(providerEnv, await this.buildRuntimeTurnSettledEnvironment(resolvedProviderId));
 
     const controlApiBaseUrl = await this.resolveControlApiBaseUrl();
     if (controlApiBaseUrl) {

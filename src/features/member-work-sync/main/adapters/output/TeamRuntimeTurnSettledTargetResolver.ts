@@ -81,6 +81,10 @@ export class TeamRuntimeTurnSettledTargetResolver
   }
 
   async resolve(event: RuntimeTurnSettledEvent): Promise<RuntimeTurnSettledTargetResolution> {
+    if (event.provider === 'codex') {
+      return this.resolveCodexEvent(event);
+    }
+
     if (event.provider !== 'claude') {
       return { ok: false, reason: 'unsupported_provider' };
     }
@@ -148,6 +152,35 @@ export class TeamRuntimeTurnSettledTargetResolver
     return {
       ok: true,
       teamName: candidate.teamName,
+      memberName: normalizeMemberName(member.name),
+    };
+  }
+
+  private async resolveCodexEvent(
+    event: RuntimeTurnSettledEvent
+  ): Promise<RuntimeTurnSettledTargetResolution> {
+    const teamName = event.teamName?.trim();
+    const memberName = event.memberName?.trim();
+    if (!teamName || !memberName) {
+      return { ok: false, reason: 'missing_team_member_identity' };
+    }
+
+    const member = await this.resolveActiveMember(teamName, memberName);
+    if (!member) {
+      return { ok: false, reason: 'member_not_active' };
+    }
+    if (isReservedMemberName(member.name)) {
+      return { ok: false, reason: 'reserved_member' };
+    }
+
+    const providerId = providerForMember(member);
+    if (providerId && providerId !== 'codex') {
+      return { ok: false, reason: 'provider_mismatch' };
+    }
+
+    return {
+      ok: true,
+      teamName,
       memberName: normalizeMemberName(member.name),
     };
   }
