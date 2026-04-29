@@ -1,4 +1,5 @@
 import type { MemberWorkSyncMetricsRequest, MemberWorkSyncTeamMetrics } from '../../contracts';
+import { assessMemberWorkSyncPhase2Readiness } from '../domain';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
 function emptyMetrics(teamName: string, generatedAt: string): MemberWorkSyncTeamMetrics {
@@ -20,6 +21,10 @@ function emptyMetrics(teamName: string, generatedAt: string): MemberWorkSyncTeam
     reportAcceptedCount: 0,
     reportRejectedCount: 0,
     recentEvents: [],
+    phase2Readiness: assessMemberWorkSyncPhase2Readiness({
+      memberCount: 0,
+      recentEvents: [],
+    }),
   };
 }
 
@@ -30,6 +35,15 @@ export class MemberWorkSyncMetricsReader {
     if (!this.deps.statusStore.readTeamMetrics) {
       return emptyMetrics(request.teamName, this.deps.clock.now().toISOString());
     }
-    return this.deps.statusStore.readTeamMetrics(request.teamName);
+    const metrics = await this.deps.statusStore.readTeamMetrics(request.teamName);
+    return {
+      ...metrics,
+      phase2Readiness:
+        metrics.phase2Readiness ??
+        assessMemberWorkSyncPhase2Readiness({
+          memberCount: metrics.memberCount,
+          recentEvents: metrics.recentEvents,
+        }),
+    };
   }
 }

@@ -11,6 +11,7 @@ import type {
   MemberWorkSyncStatusState,
   MemberWorkSyncTeamMetrics,
 } from '../../contracts';
+import { assessMemberWorkSyncPhase2Readiness } from '../../core/domain';
 import type {
   MemberWorkSyncReportStorePort,
   MemberWorkSyncStatusStorePort,
@@ -234,7 +235,7 @@ export class JsonMemberWorkSyncStore
     const recentEvents = [...(file.metrics?.recentEvents ?? [])].sort((left, right) =>
       left.recordedAt.localeCompare(right.recordedAt)
     );
-    return {
+    const metrics = {
       teamName,
       generatedAt: new Date().toISOString(),
       memberCount: members.length,
@@ -249,6 +250,13 @@ export class JsonMemberWorkSyncStore
       reportRejectedCount: recentEvents.filter((event) => event.kind === 'report_rejected')
         .length,
       recentEvents,
+    };
+    return {
+      ...metrics,
+      phase2Readiness: assessMemberWorkSyncPhase2Readiness({
+        memberCount: metrics.memberCount,
+        recentEvents: metrics.recentEvents,
+      }),
     };
   }
 

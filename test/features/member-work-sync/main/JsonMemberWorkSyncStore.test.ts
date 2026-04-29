@@ -144,5 +144,12 @@ describe('JsonMemberWorkSyncStore', () => {
       'status_evaluated',
       'fingerprint_changed',
     ]);
+    expect(metrics.phase2Readiness).toMatchObject({
+      state: 'collecting_shadow_data',
+      reasons: expect.arrayContaining([
+        'insufficient_status_events',
+        'insufficient_observation_window',
+      ]),
+    });
   });
 });
