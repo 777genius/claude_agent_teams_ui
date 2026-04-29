@@ -3,6 +3,7 @@ import type {
   MemberWorkSyncTeamMetrics,
   MemberWorkSyncProviderId,
   MemberWorkSyncOutboxClaimInput,
+  MemberWorkSyncOutboxCountRecentDeliveredInput,
   MemberWorkSyncOutboxEnsureInput,
   MemberWorkSyncOutboxEnsureResult,
   MemberWorkSyncOutboxItem,
@@ -100,6 +101,7 @@ export interface MemberWorkSyncOutboxStorePort {
   markDelivered(input: MemberWorkSyncOutboxMarkDeliveredInput): Promise<void>;
   markSuperseded(input: MemberWorkSyncOutboxMarkSupersededInput): Promise<void>;
   markFailed(input: MemberWorkSyncOutboxMarkFailedInput): Promise<void>;
+  countRecentDelivered(input: MemberWorkSyncOutboxCountRecentDeliveredInput): Promise<number>;
 }
 
 export interface MemberWorkSyncInboxNudgePort {

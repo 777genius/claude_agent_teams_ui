@@ -6,6 +6,7 @@ import { withFileLock } from '@main/services/team/fileLock';
 import type {
   MemberWorkSyncMetricEvent,
   MemberWorkSyncOutboxClaimInput,
+  MemberWorkSyncOutboxCountRecentDeliveredInput,
   MemberWorkSyncOutboxEnsureInput,
   MemberWorkSyncOutboxEnsureResult,
   MemberWorkSyncOutboxItem,
@@ -511,6 +512,18 @@ export class JsonMemberWorkSyncStore
       }
       return next;
     });
+  }
+
+  async countRecentDelivered(
+    input: MemberWorkSyncOutboxCountRecentDeliveredInput
+  ): Promise<number> {
+    const file = await this.readOutboxFile(input.teamName);
+    return Object.values(file.items).filter(
+      (item) =>
+        item.memberName.trim().toLowerCase() === input.memberName.trim().toLowerCase() &&
+        item.status === 'delivered' &&
+        item.updatedAt >= input.sinceIso
+    ).length;
   }
 
   private async readFile(teamName: string): Promise<StoreFile> {

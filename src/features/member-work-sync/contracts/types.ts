@@ -298,3 +298,9 @@ export interface MemberWorkSyncOutboxMarkFailedInput {
   nowIso: string;
   nextAttemptAt?: string;
 }
+
+export interface MemberWorkSyncOutboxCountRecentDeliveredInput {
+  teamName: string;
+  memberName: string;
+  sinceIso: string;
+}

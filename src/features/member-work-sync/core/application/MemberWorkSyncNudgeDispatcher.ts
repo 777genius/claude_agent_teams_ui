@@ -1,6 +1,10 @@
 import type { MemberWorkSyncOutboxItem } from '../../contracts';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
+const MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR = 2;
+const MEMBER_WORK_SYNC_RETRY_BASE_MINUTES = 10;
+const MEMBER_WORK_SYNC_RETRY_MAX_MINUTES = 60;
+
 export interface MemberWorkSyncNudgeDispatchSummary {
   claimed: number;
   delivered: number;
@@ -21,6 +25,26 @@ function emptySummary(): MemberWorkSyncNudgeDispatchSummary {
 
 function addMinutes(iso: string, minutes: number): string {
   return new Date(Date.parse(iso) + minutes * 60_000).toISOString();
+}
+
+function subtractMinutes(iso: string, minutes: number): string {
+  return new Date(Date.parse(iso) - minutes * 60_000).toISOString();
+}
+
+function stableJitterMinutes(id: string, attemptGeneration: number): number {
+  const seed = `${id}:${attemptGeneration}`;
+  let value = 0;
+  for (const char of seed) {
+    value = (value * 31 + char.charCodeAt(0)) % 997;
+  }
+  return value % 5;
+}
+
+function nextRetryAt(item: MemberWorkSyncOutboxItem, nowIso: string): string {
+  const exponentialMinutes =
+    MEMBER_WORK_SYNC_RETRY_BASE_MINUTES * 2 ** Math.max(0, item.attemptGeneration - 1);
+  const cappedMinutes = Math.min(MEMBER_WORK_SYNC_RETRY_MAX_MINUTES, exponentialMinutes);
+  return addMinutes(nowIso, cappedMinutes + stableJitterMinutes(item.id, item.attemptGeneration));
 }
 
 export class MemberWorkSyncNudgeDispatcher {
@@ -71,7 +95,7 @@ export class MemberWorkSyncNudgeDispatcher {
           error: revalidation.reason,
           retryable: true,
           nowIso,
-          nextAttemptAt: revalidation.nextAttemptAt ?? addMinutes(nowIso, 10),
+          nextAttemptAt: revalidation.nextAttemptAt ?? nextRetryAt(item, nowIso),
         });
         return 'retryable';
       }
@@ -120,7 +144,7 @@ export class MemberWorkSyncNudgeDispatcher {
         error: String(error),
         retryable: true,
         nowIso,
-        nextAttemptAt: addMinutes(nowIso, 10),
+        nextAttemptAt: nextRetryAt(item, nowIso),
       });
       return 'retryable';
     }
@@ -158,6 +182,23 @@ export class MemberWorkSyncNudgeDispatcher {
     const metrics = await this.deps.statusStore.readTeamMetrics(item.teamName);
     if (metrics.phase2Readiness.state !== 'shadow_ready') {
       return { ok: false, reason: 'phase2_not_ready', retryable: true };
+    }
+
+    const recentDelivered = await this.deps.outboxStore?.countRecentDelivered({
+      teamName: item.teamName,
+      memberName: item.memberName,
+      sinceIso: subtractMinutes(nowIso, 60),
+    });
+    if (
+      recentDelivered != null &&
+      recentDelivered >= MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR
+    ) {
+      return {
+        ok: false,
+        reason: 'member_nudge_rate_limited',
+        retryable: true,
+        nextAttemptAt: addMinutes(nowIso, 60),
+      };
     }
 
     const busy = await this.deps.busySignal?.isBusy({

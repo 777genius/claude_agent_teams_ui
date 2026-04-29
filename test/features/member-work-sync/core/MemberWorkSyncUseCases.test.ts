@@ -171,6 +171,7 @@ class InMemoryOutboxStore implements MemberWorkSyncOutboxStorePort {
         ...current,
         status: 'delivered',
         deliveredMessageId: input.deliveredMessageId,
+        updatedAt: input.nowIso,
       });
     }
   }
@@ -189,15 +190,33 @@ class InMemoryOutboxStore implements MemberWorkSyncOutboxStorePort {
         ...current,
         status: input.retryable ? 'failed_retryable' : 'failed_terminal',
         lastError: input.error,
+        ...(input.nextAttemptAt ? { nextAttemptAt: input.nextAttemptAt } : {}),
+        updatedAt: input.nowIso,
       });
     }
+  }
+
+  async countRecentDelivered(input: {
+    memberName: string;
+    sinceIso: string;
+  }): Promise<number> {
+    return [...this.items.values()].filter(
+      (item) =>
+        item.status === 'delivered' &&
+        item.memberName === input.memberName &&
+        item.updatedAt >= input.sinceIso
+    ).length;
   }
 }
 
 class InMemoryInboxNudge implements MemberWorkSyncInboxNudgePort {
   readonly inserted: Array<Parameters<MemberWorkSyncInboxNudgePort['insertIfAbsent']>[0]> = [];
+  fail = false;
 
   async insertIfAbsent(input: Parameters<MemberWorkSyncInboxNudgePort['insertIfAbsent']>[0]) {
+    if (this.fail) {
+      throw new Error('inbox unavailable');
+    }
     this.inserted.push(input);
     return { inserted: true, messageId: input.messageId };
   }
@@ -503,6 +522,74 @@ describe('MemberWorkSync use cases', () => {
       status: 'superseded',
       lastError: 'status_no_longer_matches_outbox',
     });
+  });
+
+  it('rate-limits delivered nudges per member per hour', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const inbox = new InMemoryInboxNudge();
+    const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
+    store.phase2ReadinessState = 'shadow_ready';
+
+    const current = await new MemberWorkSyncDiagnosticsReader(deps).execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+    });
+    const firstId = `member-work-sync:team-a:bob:${current.agenda.fingerprint}:old-1`;
+    const secondId = `member-work-sync:team-a:bob:${current.agenda.fingerprint}:old-2`;
+    const baseItem = outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`);
+    expect(baseItem).toBeDefined();
+    for (const id of [firstId, secondId]) {
+      outbox.items.set(id, {
+        ...(baseItem as NonNullable<typeof baseItem>),
+        id,
+        status: 'delivered',
+        deliveredMessageId: id,
+        updatedAt: '2026-04-29T00:00:00.000Z',
+      });
+    }
+
+    const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
+      teamNames: ['team-a'],
+      claimedBy: 'test-dispatcher',
+    });
+
+    expect(summary).toMatchObject({ claimed: 1, delivered: 0, retryable: 1 });
+    expect(inbox.inserted).toEqual([]);
+    expect(outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)).toMatchObject({
+      status: 'failed_retryable',
+      lastError: 'member_nudge_rate_limited',
+      nextAttemptAt: '2026-04-29T01:00:00.000Z',
+    });
+  });
+
+  it('uses bounded retry backoff when inbox delivery fails', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const inbox = new InMemoryInboxNudge();
+    inbox.fail = true;
+    const { deps, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
+    store.phase2ReadinessState = 'shadow_ready';
+
+    const current = await new MemberWorkSyncDiagnosticsReader(deps).execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+    });
+    const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
+      teamNames: ['team-a'],
+      claimedBy: 'test-dispatcher',
+    });
+
+    const item = outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`);
+    expect(summary).toMatchObject({ claimed: 1, delivered: 0, retryable: 1 });
+    expect(item).toMatchObject({
+      status: 'failed_retryable',
+      lastError: 'Error: inbox unavailable',
+    });
+    expect(Date.parse(item?.nextAttemptAt ?? '')).toBeGreaterThan(
+      Date.parse('2026-04-29T00:09:59.000Z')
+    );
+    expect(Date.parse(item?.nextAttemptAt ?? '')).toBeLessThanOrEqual(
+      Date.parse('2026-04-29T00:14:00.000Z')
+    );
   });
 
   it('rejects invalid report tokens without recording replayable intents', async () => {
