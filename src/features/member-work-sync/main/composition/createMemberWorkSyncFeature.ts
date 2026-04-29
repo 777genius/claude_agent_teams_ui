@@ -6,6 +6,7 @@ import type {
 } from '../../contracts';
 import { MemberWorkSyncDiagnosticsReader, MemberWorkSyncReporter } from '../../core/application';
 import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
+import { HmacMemberWorkSyncReportTokenAdapter } from '../infrastructure/HmacMemberWorkSyncReportTokenAdapter';
 import { JsonMemberWorkSyncStore } from '../infrastructure/JsonMemberWorkSyncStore';
 import { MemberWorkSyncStorePaths } from '../infrastructure/MemberWorkSyncStorePaths';
 import { NodeHashAdapter } from '../infrastructure/NodeHashAdapter';
@@ -40,13 +41,16 @@ export function createMemberWorkSyncFeature(deps: {
     hash,
     clock,
   });
-  const store = new JsonMemberWorkSyncStore(new MemberWorkSyncStorePaths(deps.teamsBasePath));
+  const storePaths = new MemberWorkSyncStorePaths(deps.teamsBasePath);
+  const store = new JsonMemberWorkSyncStore(storePaths);
+  const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);
   const useCaseDeps = {
     clock,
     hash,
     agendaSource,
     statusStore: store,
     reportStore: store,
+    reportToken,
     logger: deps.logger,
   };
   const diagnosticsReader = new MemberWorkSyncDiagnosticsReader(useCaseDeps);

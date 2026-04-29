@@ -4,8 +4,20 @@ import type {
   MemberWorkSyncReportResult,
 } from '../../contracts';
 import { validateMemberWorkSyncReport } from '../domain';
-import { finalizeMemberWorkSyncAgenda, MemberWorkSyncReconciler } from './MemberWorkSyncReconciler';
+import {
+  attachMemberWorkSyncReportToken,
+  finalizeMemberWorkSyncAgenda,
+  MemberWorkSyncReconciler,
+} from './MemberWorkSyncReconciler';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
+
+const TERMINAL_REPORT_REJECTION_CODES = new Set([
+  'reserved_or_invalid_member',
+  'identity_mismatch',
+  'member_inactive',
+  'identity_untrusted',
+  'invalid_report_token',
+]);
 
 export class MemberWorkSyncReporter {
   private readonly reconciler: MemberWorkSyncReconciler;
@@ -20,16 +32,28 @@ export class MemberWorkSyncReporter {
     const nowIso = (
       request.reportedAt ? new Date(request.reportedAt) : this.deps.clock.now()
     ).toISOString();
+    const tokenValidation = this.deps.reportToken
+      ? await this.deps.reportToken.verify({
+          token: request.reportToken,
+          teamName: agenda.teamName,
+          memberName: agenda.memberName,
+          agendaFingerprint: agenda.fingerprint,
+          nowIso,
+        })
+      : ({ ok: false, reason: 'missing' } as const);
     const validation = validateMemberWorkSyncReport({
       request,
       agenda,
       nowIso,
       activeMemberNames: source.activeMemberNames,
+      tokenValidation,
     });
 
     if (!validation.ok) {
       const status = await this.reconciler.execute(request);
-      await this.deps.reportStore?.appendPendingReport?.(request, validation.code);
+      if (!TERMINAL_REPORT_REJECTION_CODES.has(validation.code)) {
+        await this.deps.reportStore?.appendPendingReport?.(request, validation.code);
+      }
       return {
         accepted: false,
         code: validation.code,
@@ -51,7 +75,7 @@ export class MemberWorkSyncReporter {
       accepted: true,
     };
 
-    const status = {
+    const status = await attachMemberWorkSyncReportToken(this.deps, {
       teamName: agenda.teamName,
       memberName: agenda.memberName,
       state:
@@ -65,7 +89,7 @@ export class MemberWorkSyncReporter {
       evaluatedAt: nowIso,
       diagnostics: [...agenda.diagnostics, 'report_accepted'],
       ...(source.providerId ? { providerId: source.providerId } : {}),
-    };
+    });
 
     await this.deps.statusStore.write(status);
     return {

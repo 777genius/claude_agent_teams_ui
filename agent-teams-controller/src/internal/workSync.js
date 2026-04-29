@@ -92,6 +92,7 @@ function compactReportBody(context, memberName, flags = {}) {
     memberName,
     state: flags.state,
     agendaFingerprint: flags.agendaFingerprint || flags['agenda-fingerprint'],
+    reportToken: flags.reportToken || flags['report-token'],
     ...(Array.isArray(flags.taskIds) ? { taskIds: flags.taskIds } : {}),
     ...(Array.isArray(flags['task-ids']) ? { taskIds: flags['task-ids'] } : {}),
     ...(typeof flags.note === 'string' && flags.note.trim() ? { note: flags.note.trim() } : {}),

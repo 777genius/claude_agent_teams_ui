@@ -87,6 +87,16 @@ function createDeps(options?: {
     },
     statusStore: store,
     reportStore: store,
+    reportToken: {
+      create: async (input) => ({
+        token: `token:${input.teamName}:${input.memberName}:${input.agendaFingerprint}`,
+        expiresAt: '2026-04-29T00:15:00.000Z',
+      }),
+      verify: async (input) =>
+        input.token === `token:${input.teamName}:${input.memberName}:${input.agendaFingerprint}`
+          ? { ok: true }
+          : { ok: false, reason: input.token ? 'invalid' : 'missing' },
+    },
   };
   return { clock, deps, source, store };
 }
@@ -116,6 +126,7 @@ describe('MemberWorkSync use cases', () => {
       memberName: 'bob',
       state: 'still_working',
       agendaFingerprint: current.agenda.fingerprint,
+      reportToken: current.reportToken,
       taskIds: ['task-1'],
       leaseTtlMs: 120_000,
       source: 'test',
@@ -163,10 +174,31 @@ describe('MemberWorkSync use cases', () => {
       memberName: 'bob',
       state: 'caught_up',
       agendaFingerprint: current.agenda.fingerprint,
+      reportToken: current.reportToken,
       source: 'test',
     });
 
     expect(result.accepted).toBe(true);
     expect(result.status.state).toBe('caught_up');
+  });
+
+  it('rejects invalid report tokens without recording replayable intents', async () => {
+    const { deps, store } = createDeps();
+    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reporter = new MemberWorkSyncReporter(deps);
+    const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
+
+    const result = await reporter.execute({
+      teamName: 'team-a',
+      memberName: 'bob',
+      state: 'still_working',
+      agendaFingerprint: current.agenda.fingerprint,
+      reportToken: 'token:team-a:alice:wrong',
+      source: 'test',
+    });
+
+    expect(result.accepted).toBe(false);
+    expect(result.code).toBe('invalid_report_token');
+    expect(store.pendingReports).toHaveLength(0);
   });
 });

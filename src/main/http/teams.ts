@@ -813,6 +813,9 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
             memberName,
             state,
             agendaFingerprint,
+            ...(typeof payload.reportToken === 'string'
+              ? { reportToken: payload.reportToken }
+              : {}),
             ...(taskIds ? { taskIds } : {}),
             ...(typeof payload.note === 'string' ? { note: payload.note } : {}),
             ...(typeof payload.reportedAt === 'string' ? { reportedAt: payload.reportedAt } : {}),

@@ -785,9 +785,9 @@ function buildMemberTaskProtocol(teamName, messagingProtocol = createMemberMessa
     - member_work_sync_status and member_work_sync_report are only for reporting whether you have seen the current actionable-work agenda. They do NOT start, complete, approve, or comment on tasks.
     - Never use member_work_sync_report instead of task_start, task_complete, review_approve, review_request_changes, task_set_clarification, or task_add_comment.
     - When you are about to stop, wait, or go idle because you believe your current work queue is handled, first call member_work_sync_status for yourself.
-    - If the returned agenda has actionable items and you are actively continuing work on them, call member_work_sync_report with state "still_working" and that exact agendaFingerprint.
-    - If you are blocked, report "blocked" only when the board already has blocker or clarification evidence for the listed task.
-    - If the returned agenda is empty, report "caught_up" with that exact agendaFingerprint.
+    - If the returned agenda has actionable items and you are actively continuing work on them, call member_work_sync_report with state "still_working", that exact agendaFingerprint, and the returned reportToken.
+    - If you are blocked, report "blocked" only when the board already has blocker or clarification evidence for the listed task, and include the returned reportToken.
+    - If the returned agenda is empty, report "caught_up" with that exact agendaFingerprint and the returned reportToken.
     - Do not report more than once for the same agendaFingerprint unless your state changed.
 Failure to follow this protocol means the task board will show incorrect status.`);
 }

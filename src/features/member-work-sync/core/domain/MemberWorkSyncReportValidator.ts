@@ -12,6 +12,10 @@ export interface MemberWorkSyncReportValidation {
   expiresAt?: string;
 }
 
+export type MemberWorkSyncReportTokenValidation =
+  | { ok: true }
+  | { ok: false; reason: 'missing' | 'expired' | 'invalid' };
+
 const DEFAULT_STILL_WORKING_LEASE_MS = 15 * 60 * 1000;
 const DEFAULT_BLOCKED_LEASE_MS = 30 * 60 * 1000;
 const MIN_LEASE_MS = 60_000;
@@ -47,6 +51,7 @@ export function validateMemberWorkSyncReport(input: {
   agenda: MemberWorkSyncAgenda;
   nowIso: string;
   activeMemberNames: string[];
+  tokenValidation: MemberWorkSyncReportTokenValidation;
 }): MemberWorkSyncReportValidation {
   const memberName = normalizeMemberName(input.request.memberName);
   const activeMemberNames = new Set(input.activeMemberNames.map(normalizeMemberName));
@@ -70,6 +75,20 @@ export function validateMemberWorkSyncReport(input: {
       code: 'stale_fingerprint',
       message: 'Report fingerprint is stale. Read current member work sync status and retry.',
     };
+  }
+  if (!input.tokenValidation.ok) {
+    return input.tokenValidation.reason === 'missing'
+      ? {
+          ok: false,
+          code: 'identity_untrusted',
+          message: 'Report token is required. Read current member work sync status and retry.',
+        }
+      : {
+          ok: false,
+          code: 'invalid_report_token',
+          message:
+            'Report token is invalid or expired. Read current member work sync status and retry.',
+        };
   }
 
   const agendaTaskIds = new Set(input.agenda.items.map((item) => item.taskId));

@@ -7,6 +7,7 @@ import {
 
 const nowIso = '2026-04-29T00:00:00.000Z';
 const hash = (value: string) => `h${value.length}`;
+const validToken = { ok: true } as const;
 
 function agendaWithWork() {
   return buildActionableWorkAgenda({
@@ -32,6 +33,7 @@ describe('validateMemberWorkSyncReport', () => {
       agenda,
       nowIso,
       activeMemberNames: ['bob'],
+      tokenValidation: validToken,
     });
 
     expect(result.ok).toBe(true);
@@ -50,6 +52,7 @@ describe('validateMemberWorkSyncReport', () => {
       agenda,
       nowIso,
       activeMemberNames: ['bob'],
+      tokenValidation: validToken,
     });
 
     expect(result).toMatchObject({
@@ -70,6 +73,7 @@ describe('validateMemberWorkSyncReport', () => {
       agenda,
       nowIso,
       activeMemberNames: ['bob'],
+      tokenValidation: validToken,
     });
 
     expect(result).toMatchObject({ ok: false, code: 'blocked_without_evidence' });
@@ -87,6 +91,7 @@ describe('validateMemberWorkSyncReport', () => {
       agenda,
       nowIso,
       activeMemberNames: ['bob'],
+      tokenValidation: validToken,
     });
     const foreign = validateMemberWorkSyncReport({
       request: {
@@ -99,6 +104,7 @@ describe('validateMemberWorkSyncReport', () => {
       agenda,
       nowIso,
       activeMemberNames: ['bob'],
+      tokenValidation: validToken,
     });
 
     expect(stale.code).toBe('stale_fingerprint');
@@ -117,6 +123,7 @@ describe('validateMemberWorkSyncReport', () => {
       agenda,
       nowIso,
       activeMemberNames: ['bob'],
+      tokenValidation: validToken,
     });
     const inactive = validateMemberWorkSyncReport({
       request: {
@@ -128,9 +135,41 @@ describe('validateMemberWorkSyncReport', () => {
       agenda,
       nowIso,
       activeMemberNames: [],
+      tokenValidation: validToken,
     });
 
     expect(reserved.code).toBe('reserved_or_invalid_member');
     expect(inactive.code).toBe('member_inactive');
+  });
+
+  it('rejects missing or invalid report tokens for otherwise current reports', () => {
+    const agenda = agendaWithWork();
+    const missing = validateMemberWorkSyncReport({
+      request: {
+        teamName: 'team-a',
+        memberName: 'bob',
+        state: 'still_working',
+        agendaFingerprint: agenda.fingerprint,
+      },
+      agenda,
+      nowIso,
+      activeMemberNames: ['bob'],
+      tokenValidation: { ok: false, reason: 'missing' },
+    });
+    const invalid = validateMemberWorkSyncReport({
+      request: {
+        teamName: 'team-a',
+        memberName: 'bob',
+        state: 'still_working',
+        agendaFingerprint: agenda.fingerprint,
+      },
+      agenda,
+      nowIso,
+      activeMemberNames: ['bob'],
+      tokenValidation: { ok: false, reason: 'invalid' },
+    });
+
+    expect(missing.code).toBe('identity_untrusted');
+    expect(invalid.code).toBe('invalid_report_token');
   });
 });

@@ -14,6 +14,35 @@ export interface MemberWorkSyncHashPort {
   sha256Hex(value: string): string;
 }
 
+export interface MemberWorkSyncReportTokenCreateInput {
+  teamName: string;
+  memberName: string;
+  agendaFingerprint: string;
+  issuedAt: string;
+}
+
+export interface MemberWorkSyncReportTokenVerifyInput {
+  token?: string;
+  teamName: string;
+  memberName: string;
+  agendaFingerprint: string;
+  nowIso: string;
+}
+
+export type MemberWorkSyncReportTokenVerification =
+  | { ok: true }
+  | { ok: false; reason: 'missing' | 'expired' | 'invalid' };
+
+export interface MemberWorkSyncReportTokenPort {
+  create(input: MemberWorkSyncReportTokenCreateInput): Promise<{
+    token: string;
+    expiresAt: string;
+  }>;
+  verify(
+    input: MemberWorkSyncReportTokenVerifyInput
+  ): Promise<MemberWorkSyncReportTokenVerification>;
+}
+
 export interface MemberWorkSyncLoggerPort {
   debug(message: string, metadata?: Record<string, unknown>): void;
   warn(message: string, metadata?: Record<string, unknown>): void;
@@ -50,6 +79,7 @@ export interface MemberWorkSyncUseCaseDeps {
   agendaSource: MemberWorkSyncAgendaSourcePort;
   statusStore: MemberWorkSyncStatusStorePort;
   reportStore?: MemberWorkSyncReportStorePort;
+  reportToken?: MemberWorkSyncReportTokenPort;
   logger?: MemberWorkSyncLoggerPort;
 }
 

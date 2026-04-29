@@ -42,7 +42,7 @@ export class MemberWorkSyncReconciler {
       inactive: source.inactive,
     });
 
-    const status: MemberWorkSyncStatus = {
+    const status = await attachMemberWorkSyncReportToken(this.deps, {
       teamName: agenda.teamName,
       memberName: agenda.memberName,
       state: decision.state,
@@ -51,9 +51,32 @@ export class MemberWorkSyncReconciler {
       evaluatedAt: nowIso,
       diagnostics: [...agenda.diagnostics, ...decision.diagnostics],
       ...(source.providerId ? { providerId: source.providerId } : {}),
-    };
+    });
 
     await this.deps.statusStore.write(status);
     return status;
   }
+}
+
+export async function attachMemberWorkSyncReportToken(
+  deps: MemberWorkSyncUseCaseDeps,
+  status: MemberWorkSyncStatus
+): Promise<MemberWorkSyncStatus> {
+  if (!deps.reportToken) {
+    return status;
+  }
+
+  const issued = await deps.reportToken.create({
+    teamName: status.teamName,
+    memberName: status.memberName,
+    agendaFingerprint: status.agenda.fingerprint,
+    issuedAt: status.evaluatedAt,
+  });
+
+  return {
+    ...status,
+    reportToken: issued.token,
+    reportTokenExpiresAt: issued.expiresAt,
+    diagnostics: [...status.diagnostics, 'report_token_issued'],
+  };
 }

@@ -72,6 +72,8 @@ export interface MemberWorkSyncStatus {
   state: MemberWorkSyncStatusState;
   agenda: MemberWorkSyncAgenda;
   report?: MemberWorkSyncReport;
+  reportToken?: string;
+  reportTokenExpiresAt?: string;
   evaluatedAt: string;
   diagnostics: string[];
   providerId?: MemberWorkSyncProviderId;
@@ -82,6 +84,7 @@ export interface MemberWorkSyncReportRequest {
   memberName: string;
   state: MemberWorkSyncReportState;
   agendaFingerprint: string;
+  reportToken?: string;
   taskIds?: string[];
   note?: string;
   reportedAt?: string;
