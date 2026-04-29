@@ -28,6 +28,7 @@ import {
 } from '../infrastructure/MemberWorkSyncEventQueue';
 import { JsonMemberWorkSyncStore } from '../infrastructure/JsonMemberWorkSyncStore';
 import { MemberWorkSyncStorePaths } from '../infrastructure/MemberWorkSyncStorePaths';
+import { MemberWorkSyncToolActivityBusySignal } from '../infrastructure/MemberWorkSyncToolActivityBusySignal';
 import { NodeHashAdapter } from '../infrastructure/NodeHashAdapter';
 import { SystemClockAdapter } from '../infrastructure/SystemClockAdapter';
 
@@ -74,6 +75,7 @@ export function createMemberWorkSyncFeature(deps: {
   const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);
   const inboxNudge = new TeamInboxMemberWorkSyncNudgeSink();
   const watchdogCooldown = new TeamTaskStallJournalWorkSyncCooldown(deps.teamsBasePath);
+  const busySignal = new MemberWorkSyncToolActivityBusySignal();
   const useCaseDeps = {
     clock,
     hash,
@@ -83,6 +85,7 @@ export function createMemberWorkSyncFeature(deps: {
     outboxStore: store,
     inboxNudge,
     watchdogCooldown,
+    busySignal,
     reportToken,
     ...(deps.isTeamActive ? { lifecycle: { isTeamActive: deps.isTeamActive } } : {}),
     logger: deps.logger,
@@ -110,7 +113,10 @@ export function createMemberWorkSyncFeature(deps: {
     getStatus: (request) => diagnosticsReader.execute(request),
     getMetrics: (request) => metricsReader.execute(request),
     report: (request) => reporter.execute(request),
-    noteTeamChange: (event) => router.noteTeamChange(event),
+    noteTeamChange: (event) => {
+      busySignal.noteTeamChange(event);
+      router.noteTeamChange(event);
+    },
     enqueueStartupScan: (teamNames) => router.enqueueStartupScan(teamNames),
     replayPendingReports: async (teamNames) => {
       const summaries = await Promise.allSettled(

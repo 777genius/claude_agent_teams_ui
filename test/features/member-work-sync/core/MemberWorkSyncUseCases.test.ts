@@ -231,6 +231,7 @@ function createDeps(options?: {
   providerId?: 'opencode' | 'codex';
   outboxStore?: MemberWorkSyncOutboxStorePort;
   inboxNudge?: MemberWorkSyncInboxNudgePort;
+  busySignal?: MemberWorkSyncUseCaseDeps['busySignal'];
 }) {
   const clock = new MutableClock();
   const store = new InMemoryStatusStore();
@@ -259,6 +260,7 @@ function createDeps(options?: {
     reportStore: store,
     ...(options?.outboxStore ? { outboxStore: options.outboxStore } : {}),
     ...(options?.inboxNudge ? { inboxNudge: options.inboxNudge } : {}),
+    ...(options?.busySignal ? { busySignal: options.busySignal } : {}),
     reportToken: {
       create: async (input) => ({
         token: `token:${input.teamName}:${input.memberName}:${input.agendaFingerprint}`,
@@ -588,6 +590,43 @@ describe('MemberWorkSync use cases', () => {
       status: 'failed_retryable',
       lastError: 'member_nudge_rate_limited',
       nextAttemptAt: '2026-04-29T01:00:00.000Z',
+    });
+  });
+
+  it('defers nudge dispatch while the member has active or recent tool activity', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const inbox = new InMemoryInboxNudge();
+    const { deps, store } = createDeps({
+      outboxStore: outbox,
+      inboxNudge: inbox,
+      busySignal: {
+        isBusy: async () => ({
+          busy: true,
+          reason: 'active_tool_activity',
+          retryAfterIso: '2026-04-29T00:02:00.000Z',
+        }),
+      },
+    });
+    store.phase2ReadinessState = 'shadow_ready';
+
+    const current = await new MemberWorkSyncReconciler(deps).execute(
+      {
+        teamName: 'team-a',
+        memberName: 'bob',
+      },
+      { reconciledBy: 'queue', triggerReasons: ['tool_finished'] }
+    );
+    const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
+      teamNames: ['team-a'],
+      claimedBy: 'test-dispatcher',
+    });
+
+    expect(summary).toMatchObject({ claimed: 1, delivered: 0, retryable: 1 });
+    expect(inbox.inserted).toEqual([]);
+    expect(outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)).toMatchObject({
+      status: 'failed_retryable',
+      lastError: 'member_busy:active_tool_activity',
+      nextAttemptAt: '2026-04-29T00:02:00.000Z',
     });
   });
 
