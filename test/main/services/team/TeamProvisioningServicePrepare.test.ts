@@ -128,22 +128,23 @@ function getRealAgentTeamsMcpLaunchSpec(): { command: string; args: string[] } {
     }
   }
 
-  const distEntry = path.join(workspaceRoot, 'mcp-server', 'dist', 'index.js');
-  if (fs.existsSync(distEntry)) {
+  const tsxCommand = path.join(
+    workspaceRoot,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'tsx.cmd' : 'tsx'
+  );
+  if (fs.existsSync(sourceEntry) && fs.existsSync(tsxCommand)) {
     return {
-      command: process.execPath,
-      args: [distEntry],
+      command: tsxCommand,
+      args: [sourceEntry],
     };
   }
 
+  const distEntry = path.join(workspaceRoot, 'mcp-server', 'dist', 'index.js');
   return {
-    command: path.join(
-      workspaceRoot,
-      'node_modules',
-      '.bin',
-      process.platform === 'win32' ? 'tsx.cmd' : 'tsx'
-    ),
-    args: [path.join(workspaceRoot, 'mcp-server', 'src', 'index.ts')],
+    command: process.execPath,
+    args: [distEntry],
   };
 }
 

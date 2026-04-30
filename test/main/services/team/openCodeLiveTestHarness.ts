@@ -73,6 +73,7 @@ export async function createOpenCodeLiveHarness(input: {
     CLAUDE_TEAM_CONTROL_URL: controlApi.baseUrl,
     CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
     CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
+    CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON: JSON.stringify(mcpLaunchSpec.args),
   };
   if (process.env.OPENCODE_E2E_USE_REAL_APP_CREDENTIALS !== '1') {
     bridgeEnv.XDG_DATA_HOME = path.join(input.tempDir, 'xdg-data');

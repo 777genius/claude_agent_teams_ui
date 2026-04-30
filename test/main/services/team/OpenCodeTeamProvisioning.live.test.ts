@@ -69,6 +69,7 @@ liveDescribe('OpenCode team provisioning live e2e', () => {
       XDG_DATA_HOME: path.join(tempDir, 'xdg-data'),
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
+      CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON: JSON.stringify(mcpLaunchSpec.args),
     };
     const bridgeClient = new OpenCodeBridgeCommandClient({
       binaryPath: orchestratorCli,
