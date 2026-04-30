@@ -157,6 +157,7 @@ import {
   getOpenCodeLaneScopedRuntimeFilePath,
   getOpenCodeRuntimeRunTombstonesPath,
   getOpenCodeTeamRuntimeDirectory,
+  inspectOpenCodeRuntimeLaneStorage,
   migrateLegacyOpenCodeRuntimeState,
   OpenCodeRuntimeManifestEvidenceReader,
   readOpenCodeRuntimeLaneIndex,
@@ -3826,7 +3827,7 @@ function buildLaunchDiagnosticsFromRun(
         memberName,
         severity: 'warning',
         code: 'runtime_process_candidate',
-        label: `${memberName} - process candidate`,
+        label: `${memberName} - bootstrap unconfirmed`,
         detail: entry.runtimeDiagnostic,
         observedAt,
       });
@@ -6102,20 +6103,30 @@ export class TeamProvisioningService {
     if (
       runtimeActive &&
       laneIdentity.laneKind === 'secondary' &&
-      laneIdentity.laneOwnerProviderId === 'opencode' &&
-      !liveSecondaryLaneRunId
+      laneIdentity.laneOwnerProviderId === 'opencode'
     ) {
+      const laneStorage = await inspectOpenCodeRuntimeLaneStorage({
+        teamsBasePath: getTeamsBasePath(),
+        teamName,
+        laneId: laneIdentity.laneId,
+      });
       const staleLane = await recoverStaleOpenCodeRuntimeLaneIndexEntry({
         teamsBasePath: getTeamsBasePath(),
         teamName,
         laneId: laneIdentity.laneId,
       });
-      if (staleLane.stale) {
-        this.deleteSecondaryRuntimeRun(teamName, laneIdentity.laneId);
+      if (!laneStorage.hasRuntimeEvidenceOnDisk) {
+        if (staleLane.stale) {
+          this.deleteSecondaryRuntimeRun(teamName, laneIdentity.laneId);
+        }
         return {
           delivered: false,
           reason: 'opencode_runtime_not_active',
-          diagnostics: staleLane.diagnostics,
+          diagnostics: staleLane.diagnostics.length
+            ? staleLane.diagnostics
+            : [
+                `OpenCode runtime bootstrap evidence is not ready for ${canonicalMemberName}. Message was saved and will be retried after runtime check-in.`,
+              ],
         };
       }
     }
@@ -10957,7 +10968,8 @@ export class TeamProvisioningService {
       const next = {
         ...refreshed,
         livenessKind: metadata.livenessKind,
-        runtimeDiagnostic: runtimeDiagnostic ?? 'runtime process candidate detected',
+        runtimeDiagnostic:
+          runtimeDiagnostic ?? 'Runtime process candidate detected, but bootstrap is unconfirmed.',
         runtimeDiagnosticSeverity: metadata.runtimeDiagnosticSeverity ?? 'warning',
         livenessLastCheckedAt: nowIso(),
       };
@@ -12533,7 +12545,7 @@ export class TeamProvisioningService {
       return (
         `---\n\n` +
         `**Waiting for CLI response** (silent for ${elapsed})\n\n` +
-        `The process is running but not producing output yet. Cloud sometimes delays logs, ` +
+        `The process is running but not producing output yet. Model responses can delay logs, ` +
         `and short waits like this are normal. The SDK also retries automatically if the ` +
         `request briefly hits rate limiting.\n\n` +
         `Waiting...`
@@ -12544,7 +12556,7 @@ export class TeamProvisioningService {
       return (
         `---\n\n` +
         `**Waiting for CLI response** (silent for ${elapsed})\n\n` +
-        `The process is still waiting on Cloud. Logs can sometimes show up after ` +
+        `The process is still waiting for a model response. Logs can sometimes show up after ` +
         `1-1.5 minutes, and that is still okay. The SDK retries automatically if the ` +
         `request hits rate limiting (error 429 / model cooldown).\n\n` +
         `If there is still no output after 2 minutes, that starts to look unusual.\n\n` +
@@ -12558,21 +12570,21 @@ export class TeamProvisioningService {
     return (
       `---\n\n` +
       `**Extended CLI wait** (silent for ${elapsed})\n\n` +
-      `Model **${modelName}**${effortLabel} is still waiting on Cloud. Some delay is normal, ` +
+      `Model **${modelName}**${effortLabel} is still waiting to respond. Some delay is normal, ` +
       `but no logs for ${elapsed} is already unusual.\n\n` +
       `Possible causes:\n` +
-      `- Rate limiting / model cooldown (429) — SDK retries automatically\n` +
+      `- Rate limiting / model cooldown (429) - SDK retries automatically\n` +
       `- API server overload for this model\n` +
-      `- A stalled or delayed Cloud response\n\n` +
+      `- A stalled or delayed model response\n\n` +
       `Consider canceling and trying with a different model.`
     );
   }
 
   private buildStallProgressMessage(silenceSec: number, elapsed: string): string {
     if (silenceSec < 120) {
-      return `Waiting on Cloud response for ${elapsed} — logs can be delayed, this is still OK`;
+      return `Waiting for model response for ${elapsed} - logs can be delayed, this is still OK`;
     }
-    return `Still waiting on Cloud response for ${elapsed} — this is unusual`;
+    return `Still waiting for model response for ${elapsed} - this is unusual`;
   }
 
   /**
@@ -17331,7 +17343,7 @@ export class TeamProvisioningService {
         ? `${launchSummary.runtimeProcessPendingCount} waiting for bootstrap`
         : '',
       launchSummary.runtimeCandidatePendingCount
-        ? `${launchSummary.runtimeCandidatePendingCount} process candidates`
+        ? `${launchSummary.runtimeCandidatePendingCount} bootstrap unconfirmed`
         : '',
       launchSummary.noRuntimePendingCount
         ? `${launchSummary.noRuntimePendingCount} waiting for runtime`

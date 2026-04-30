@@ -257,7 +257,7 @@ function buildPendingDiagnosticPhrase({
   const namedParts = [
     formatNamedPendingDiagnostic('Shell-only', groups.shellOnly),
     formatNamedPendingDiagnostic('Waiting for bootstrap', groups.runtimeProcess),
-    formatNamedPendingDiagnostic('Process candidates', groups.runtimeCandidate),
+    formatNamedPendingDiagnostic('Bootstrap unconfirmed', groups.runtimeCandidate),
     formatNamedPendingDiagnostic('Awaiting permission', groups.permission),
     formatNamedPendingDiagnostic('Waiting for runtime', groups.noRuntime),
   ].filter(Boolean);
@@ -270,7 +270,7 @@ function buildPendingDiagnosticPhrase({
   const countParts = [
     formatCountPendingDiagnostic(summary.shellOnlyPendingCount, 'shell-only'),
     formatCountPendingDiagnostic(summary.runtimeProcessPendingCount, 'waiting for bootstrap'),
-    formatCountPendingDiagnostic(summary.runtimeCandidatePendingCount, 'process candidates'),
+    formatCountPendingDiagnostic(summary.runtimeCandidatePendingCount, 'bootstrap unconfirmed'),
     formatCountPendingDiagnostic(summary.permissionPendingCount, 'awaiting permission'),
     formatCountPendingDiagnostic(summary.noRuntimePendingCount, 'waiting for runtime'),
   ].filter(Boolean);

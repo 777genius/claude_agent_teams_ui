@@ -581,7 +581,7 @@ export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState)
     case 'shell_only':
       return 'shell only';
     case 'runtime_candidate':
-      return 'process candidate';
+      return 'bootstrap unconfirmed';
     case 'registered_only':
       return 'registered';
     case 'stale_runtime':

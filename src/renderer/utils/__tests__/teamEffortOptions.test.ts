@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getTeamEffortOptions } from '../teamEffortOptions';
+import { getTeamEffortOptions, getTeamEffortSelectorPresentation } from '../teamEffortOptions';
 
 import type { CliProviderStatus } from '@shared/types';
 
@@ -209,5 +209,34 @@ describe('team effort options', () => {
     expect(
       getTeamEffortOptions({ providerId: 'anthropic', model: 'haiku', providerStatus })
     ).toEqual([{ value: '', label: 'Default' }]);
+  });
+
+  it('presents Anthropic no-effort models as disabled with explicit copy', () => {
+    const providerStatus = createProviderStatus('anthropic', {
+      id: 'haiku',
+      launchModel: 'claude-haiku-4-5-20251001',
+      displayName: 'Haiku 4.5',
+      hidden: false,
+      supportedReasoningEfforts: [],
+      defaultReasoningEffort: null,
+      inputModalities: ['text', 'image'],
+      supportsPersonality: false,
+      isDefault: false,
+      upgrade: false,
+      source: 'anthropic-models-api',
+    });
+
+    expect(
+      getTeamEffortSelectorPresentation({
+        providerId: 'anthropic',
+        model: 'claude-haiku-4-5-20251001',
+        providerStatus,
+      })
+    ).toMatchObject({
+      options: [{ value: '', label: 'Not supported' }],
+      disabled: true,
+      canValidateValue: true,
+      unavailableText: 'Effort is unavailable for this model.',
+    });
   });
 });

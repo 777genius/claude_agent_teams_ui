@@ -2895,9 +2895,6 @@ export const LaunchTeamDialog = (props: LaunchTeamDialogProps): React.JSX.Elemen
           ) : null}
 
           <div className="flex shrink-0 items-center gap-2">
-            <Button variant="outline" size="sm" onClick={closeDialog}>
-              {isLaunchMode ? 'Close' : 'Cancel'}
-            </Button>
             <Button
               size="sm"
               className="bg-emerald-600 text-white hover:bg-emerald-700"

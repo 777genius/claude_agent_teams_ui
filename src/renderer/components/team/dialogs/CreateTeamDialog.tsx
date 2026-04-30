@@ -2183,9 +2183,6 @@ export const CreateTeamDialog = ({
                 Open Existing Team
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Close
-            </Button>
             <Button
               size="sm"
               disabled={!canCreate || !draftLoaded || isSubmitting || hasCreateFormErrors}

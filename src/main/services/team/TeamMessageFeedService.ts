@@ -11,6 +11,8 @@ const PASSIVE_USER_REPLY_LINK_WINDOW_MS = 15_000;
 const MESSAGE_FEED_CACHE_MAX_AGE_MS = 5_000;
 const logger = createLogger('Service:TeamMessageFeedService');
 
+type TeamConfigMember = NonNullable<TeamConfig['members']>[number];
+
 interface TeamMessageFeedDeps {
   getConfig: (teamName: string) => Promise<TeamConfig | null>;
   getInboxMessages: (teamName: string) => Promise<InboxMessage[]>;
@@ -67,6 +69,68 @@ function isLeadThoughtCandidateForSlashResult(message: InboxMessage): boolean {
   if (typeof message.to === 'string' && message.to.trim().length > 0) return false;
   if (message.from === 'system') return false;
   return message.source === 'lead_session' || message.source === 'lead_process';
+}
+
+function resolveLeadName(config: TeamConfig): string {
+  const lead =
+    config.members?.find((member) => member.agentType === 'team-lead' || member.role === 'Lead') ??
+    config.members?.find((member) => member.name === 'team-lead') ??
+    config.members?.[0];
+  return lead?.name?.trim() || 'team-lead';
+}
+
+function resolveOpenCodeBootstrapTimestamp(config: TeamConfig, member: TeamConfigMember): string {
+  const raw = member.joinedAt ?? (config as { createdAt?: unknown }).createdAt;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return new Date(raw).toISOString();
+  }
+  if (typeof raw === 'string') {
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+  }
+  return new Date(0).toISOString();
+}
+
+function buildOpenCodeBootstrapDisplayPrompt(config: TeamConfig, member: TeamConfigMember): string {
+  const role = member.role?.trim() || member.agentType?.trim() || 'team member';
+  const displayName = config.description?.trim() || config.name;
+  const providerLine = '\nProvider override for this teammate: opencode.';
+  const modelLine = member.model?.trim()
+    ? `\nModel override for this teammate: ${member.model.trim()}.`
+    : '';
+
+  return `You are ${member.name}, a ${role} on team "${displayName}" (${config.name}).${providerLine}${modelLine}
+
+The team has already been created and you are being attached as a persistent teammate.
+Your FIRST action: call MCP tool member_briefing on the "agent-teams" server with:
+{ teamName: "${config.name}", memberName: "${member.name}", runtimeProvider: "opencode" }
+Call member_briefing directly yourself. Do NOT use Agent, any subagent, or a delegated helper for this step.
+After member_briefing succeeds, wait for instructions from the lead and use team mailbox/task tools normally.`;
+}
+
+function buildSyntheticOpenCodeBootstrapMessages(config: TeamConfig): InboxMessage[] {
+  const members = Array.isArray(config.members) ? config.members : [];
+  const leadName = resolveLeadName(config);
+  return members
+    .filter(
+      (member) =>
+        member &&
+        member.name?.trim() &&
+        member.providerId === 'opencode' &&
+        member.removedAt == null &&
+        (member as { isActive?: unknown }).isActive !== false
+    )
+    .map((member) => ({
+      from: leadName,
+      to: member.name,
+      text: buildOpenCodeBootstrapDisplayPrompt(config, member),
+      timestamp: resolveOpenCodeBootstrapTimestamp(config, member),
+      read: true,
+      source: 'system_notification' as const,
+      messageId: `opencode-bootstrap-start:${config.name}:${member.name}`,
+    }));
 }
 
 function annotateSlashCommandResponses(messages: InboxMessage[]): void {
@@ -381,7 +445,8 @@ export class TeamMessageFeedService {
       this.deps.getSentMessages(teamName).catch(() => [] as InboxMessage[]),
     ]);
 
-    let messages = [...inboxMessages, ...leadTexts, ...sentMessages];
+    const syntheticMessages = buildSyntheticOpenCodeBootstrapMessages(config);
+    let messages = [...inboxMessages, ...leadTexts, ...sentMessages, ...syntheticMessages];
     messages = dedupeLeadProcessCopies(messages, leadTexts);
     messages = ensureEffectiveMessageIds(messages);
     messages = dedupeByMessageId(messages);

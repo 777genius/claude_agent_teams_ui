@@ -255,6 +255,32 @@ describe('memberHelpers spawn-aware presence', () => {
       launchVisualState: 'shell_only',
       launchStatusLabel: 'shell only',
     });
+
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'online',
+        spawnLaunchState: 'runtime_pending_bootstrap',
+        spawnLivenessSource: 'process',
+        spawnRuntimeAlive: true,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          livenessKind: 'runtime_process_candidate',
+          runtimeDiagnostic: 'OpenCode runtime process detected, but bootstrap is not confirmed',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: false,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'bootstrap unconfirmed',
+      launchVisualState: 'runtime_candidate',
+      launchStatusLabel: 'bootstrap unconfirmed',
+    });
   });
 
   it('returns shared launch status labels without changing generic presence labels', () => {

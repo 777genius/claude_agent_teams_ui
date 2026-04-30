@@ -5443,6 +5443,98 @@ describe('TeamProvisioningService', () => {
       });
     });
 
+    it('waits for OpenCode runtime evidence before delivering to a fresh active secondary lane', async () => {
+      const svc = new TeamProvisioningService();
+      const teamName = 'team-a';
+      const laneId = 'secondary:opencode:bob';
+      const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
+        ok: true,
+        providerId: 'opencode',
+        memberName: String(input.memberName),
+        sessionId: 'oc-session-bob',
+        diagnostics: [],
+      }));
+      const registry = new TeamRuntimeAdapterRegistry([
+        {
+          providerId: 'opencode',
+          prepare: vi.fn(),
+          launch: vi.fn(),
+          reconcile: vi.fn(),
+          stop: vi.fn(),
+          sendMessageToMember,
+        } as any,
+      ]);
+      svc.setRuntimeAdapterRegistry(registry);
+
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          projectPath: '/repo',
+          members: [
+            { name: 'team-lead', providerId: 'codex', model: 'gpt-5.4' },
+            { name: 'bob', providerId: 'opencode', model: 'minimax-m2.5-free' },
+          ],
+        })),
+      };
+      (svc as any).teamMetaStore = {
+        getMeta: vi.fn(async () => ({
+          launchIdentity: { providerId: 'codex' },
+          providerId: 'codex',
+        })),
+      };
+      (svc as any).membersMetaStore = {
+        getMembers: vi.fn(async () => [
+          {
+            name: 'bob',
+            providerId: 'opencode',
+            model: 'opencode/minimax-m2.5-free',
+          },
+        ]),
+      };
+      await upsertOpenCodeRuntimeLaneIndexEntry({
+        teamsBasePath: tempTeamsBase,
+        teamName,
+        laneId,
+        state: 'active',
+      });
+      const now = new Date().toISOString();
+      const manifestPath = getOpenCodeRuntimeManifestPath(tempTeamsBase, teamName, laneId);
+      await fsPromises.mkdir(path.dirname(manifestPath), { recursive: true });
+      await fsPromises.writeFile(
+        manifestPath,
+        `${JSON.stringify(
+          {
+            ...createDefaultRuntimeStoreManifest(teamName, now),
+            activeRunId: 'opencode-run-starting-empty',
+          },
+          null,
+          2
+        )}\n`,
+        'utf8'
+      );
+
+      await expect(
+        svc.deliverOpenCodeMemberMessage(teamName, {
+          memberName: 'bob',
+          text: 'wait until runtime check-in',
+          messageId: 'msg-fresh-empty-manifest',
+        })
+      ).resolves.toMatchObject({
+        delivered: false,
+        reason: 'opencode_runtime_not_active',
+        diagnostics: [
+          expect.stringContaining('OpenCode runtime bootstrap evidence is not ready for bob'),
+        ],
+      });
+      expect(sendMessageToMember).not.toHaveBeenCalled();
+      await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
+        lanes: {
+          [laneId]: {
+            state: 'active',
+          },
+        },
+      });
+    });
+
     it('falls back to lane manifest when a tracked primary run lacks the secondary lane snapshot', async () => {
       const svc = new TeamProvisioningService();
       const teamName = 'team-a';
@@ -9059,11 +9151,11 @@ describe('TeamProvisioningService', () => {
     expect(settings.permissions?.allow).toEqual(['mcp__agent-teams__team_stop']);
   });
 
-  it('uses a non-alarming cloud delay message before 2 minutes of silence', () => {
+  it('uses a non-alarming model delay message before 2 minutes of silence', () => {
     const svc = new TeamProvisioningService();
 
     expect((svc as any).buildStallProgressMessage(90, '1m 30s')).toBe(
-      'Waiting on Cloud response for 1m 30s — logs can be delayed, this is still OK'
+      'Waiting for model response for 1m 30s - logs can be delayed, this is still OK'
     );
 
     expect(
@@ -9073,11 +9165,11 @@ describe('TeamProvisioningService', () => {
     ).toContain('Logs can sometimes show up after 1-1.5 minutes, and that is still okay.');
   });
 
-  it('marks a cloud wait as unusual after 2 minutes of silence', () => {
+  it('marks a model wait as unusual after 2 minutes of silence', () => {
     const svc = new TeamProvisioningService();
 
     expect((svc as any).buildStallProgressMessage(120, '2m')).toBe(
-      'Still waiting on Cloud response for 2m — this is unusual'
+      'Still waiting for model response for 2m - this is unusual'
     );
 
     expect(

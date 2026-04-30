@@ -328,7 +328,7 @@ export function resolveTeamMemberRuntimeLiveness(
         paneCurrentCommand: pane.currentCommand,
         runtimeSessionId,
         processCommand: sanitizeProcessCommandForDiagnostics(candidate.command),
-        runtimeDiagnostic: 'runtime process candidate detected',
+        runtimeDiagnostic: 'Runtime process candidate detected, but bootstrap is unconfirmed.',
         runtimeDiagnosticSeverity: 'warning',
         diagnostics: [...diagnostics, 'tmux descendant found without runtime identity match'],
       });

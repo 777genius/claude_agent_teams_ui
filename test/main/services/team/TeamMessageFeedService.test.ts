@@ -100,4 +100,45 @@ describe('TeamMessageFeedService', () => {
       )
     ).toBe(true);
   });
+
+  it('adds UI-only OpenCode bootstrap start rows for side-lane teammates', async () => {
+    const opencodeConfig: TeamConfig = {
+      name: 'relay-works-14',
+      description: 'relay-works-14 team for provisioning flow',
+      members: [
+        { name: 'team-lead', role: 'Lead', providerId: 'codex' },
+        {
+          name: 'bob',
+          role: 'developer',
+          providerId: 'opencode',
+          model: 'openrouter/moonshotai/kimi-k2.6',
+          joinedAt: 1777570946947,
+        },
+      ],
+    };
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => opencodeConfig),
+      getInboxMessages: vi.fn(async () => []),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('relay-works-14');
+
+    expect(feed.messages).toHaveLength(1);
+    expect(feed.messages[0]).toMatchObject({
+      from: 'team-lead',
+      to: 'bob',
+      source: 'system_notification',
+      messageId: 'opencode-bootstrap-start:relay-works-14:bob',
+      timestamp: '2026-04-30T17:42:26.947Z',
+    });
+    expect(feed.messages[0]?.text).toContain('Provider override for this teammate: opencode.');
+    expect(feed.messages[0]?.text).toContain(
+      'Model override for this teammate: openrouter/moonshotai/kimi-k2.6.'
+    );
+    expect(feed.messages[0]?.text).toContain(
+      'The team has already been created and you are being attached as a persistent teammate.'
+    );
+  });
 });
