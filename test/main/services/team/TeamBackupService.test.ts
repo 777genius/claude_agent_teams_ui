@@ -315,4 +315,84 @@ describe('TeamBackupService', () => {
       warnSpy.mockRestore();
     }
   });
+
+  it('backs up member-scoped work sync files', async () => {
+    const service = new TeamBackupService();
+    const teamName = 'member-work-sync-team';
+    const teamDir = path.join(hoisted.teamsBase, teamName);
+    const memberDir = path.join(teamDir, 'members', 'jack');
+    const workSyncDir = path.join(memberDir, '.member-work-sync');
+    const status = {
+      teamName,
+      memberName: 'jack',
+      state: 'caught_up',
+      evaluatedAt: '2026-04-30T12:00:00.000Z',
+      agenda: { fingerprint: 'abc123', items: [] },
+    };
+
+    try {
+      await fs.mkdir(workSyncDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ name: 'Member Work Sync Team' }),
+        'utf8'
+      );
+      await fs.writeFile(
+        path.join(memberDir, 'member.meta.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          memberName: 'jack',
+          memberKey: 'jack',
+          updatedAt: '2026-04-30T12:00:00.000Z',
+        }),
+        'utf8'
+      );
+      await fs.writeFile(
+        path.join(workSyncDir, 'status.json'),
+        JSON.stringify({ schemaVersion: 2, status }),
+        'utf8'
+      );
+      await fs.writeFile(
+        path.join(workSyncDir, 'journal.jsonl'),
+        `${JSON.stringify({
+          schemaVersion: 1,
+          timestamp: '2026-04-30T12:00:00.000Z',
+          teamName,
+          memberName: 'jack',
+          event: 'status_written',
+          source: 'test',
+        })}\n`,
+        'utf8'
+      );
+      await fs.writeFile(path.join(workSyncDir, '.tmp.deadbeef'), '{"partial":', 'utf8');
+      await fs.writeFile(path.join(workSyncDir, 'journal.jsonl.lock'), '123\n', 'utf8');
+
+      await service.initialize();
+      await service.backupTeam(teamName);
+
+      const backupMemberDir = path.join(hoisted.backupsBase, 'teams', teamName, 'members', 'jack');
+      await expect(fs.readFile(path.join(backupMemberDir, 'member.meta.json'), 'utf8')).resolves.toBe(
+        JSON.stringify({
+          schemaVersion: 1,
+          memberName: 'jack',
+          memberKey: 'jack',
+          updatedAt: '2026-04-30T12:00:00.000Z',
+        })
+      );
+      await expect(
+        fs.readFile(path.join(backupMemberDir, '.member-work-sync', 'status.json'), 'utf8')
+      ).resolves.toBe(JSON.stringify({ schemaVersion: 2, status }));
+      await expect(
+        fs.readFile(path.join(backupMemberDir, '.member-work-sync', 'journal.jsonl'), 'utf8')
+      ).resolves.toContain('"event":"status_written"');
+      await expect(
+        fs.stat(path.join(backupMemberDir, '.member-work-sync', '.tmp.deadbeef'))
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(
+        fs.stat(path.join(backupMemberDir, '.member-work-sync', 'journal.jsonl.lock'))
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      service.dispose();
+    }
+  });
 });

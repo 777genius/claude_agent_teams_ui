@@ -6,6 +6,7 @@ import { NodeHashAdapter } from '@features/member-work-sync/main/infrastructure/
 import { OpenCodeTurnSettledPayloadNormalizer } from '@features/member-work-sync/main/infrastructure/OpenCodeTurnSettledPayloadNormalizer';
 
 import type {
+  MemberWorkSyncAuditEvent,
   RuntimeTurnSettledClaimedPayload,
   RuntimeTurnSettledEventStorePort,
   RuntimeTurnSettledInvalidResult,
@@ -56,6 +57,7 @@ describe('RuntimeTurnSettledIngestor', () => {
       resolve: vi.fn(async () => ({ ok: true as const, teamName: 'team-a', memberName: 'alice' })),
     };
     const enqueueRuntimeTurnSettled = vi.fn();
+    const auditEvents: MemberWorkSyncAuditEvent[] = [];
 
     const ingestor = new RuntimeTurnSettledIngestor({
       eventStore: store,
@@ -63,6 +65,11 @@ describe('RuntimeTurnSettledIngestor', () => {
       targetResolver: resolver,
       reconcileQueue: { enqueueRuntimeTurnSettled },
       clock: { now: () => new Date('2026-04-29T12:01:00.000Z') },
+      auditJournal: {
+        append: async (event) => {
+          auditEvents.push(event);
+        },
+      },
     });
 
     await expect(ingestor.drainPending()).resolves.toEqual({
@@ -185,6 +192,7 @@ describe('RuntimeTurnSettledIngestor', () => {
       resolve: vi.fn(async () => ({ ok: true as const, teamName: 'team-a', memberName: 'jack' })),
     };
     const enqueueRuntimeTurnSettled = vi.fn();
+    const auditEvents: MemberWorkSyncAuditEvent[] = [];
 
     const ingestor = new RuntimeTurnSettledIngestor({
       eventStore: store,
@@ -192,6 +200,11 @@ describe('RuntimeTurnSettledIngestor', () => {
       targetResolver: resolver,
       reconcileQueue: { enqueueRuntimeTurnSettled },
       clock: { now: () => new Date('2026-04-29T12:01:00.000Z') },
+      auditJournal: {
+        append: async (event) => {
+          auditEvents.push(event);
+        },
+      },
     });
 
     await expect(ingestor.drainPending()).resolves.toMatchObject({
@@ -220,6 +233,10 @@ describe('RuntimeTurnSettledIngestor', () => {
       teamName: 'team-a',
       memberName: 'jack',
     });
+    expect(auditEvents.map((event) => event.event)).toEqual([
+      'turn_settled_claimed',
+      'turn_settled_resolved',
+    ]);
   });
 
   it.each([

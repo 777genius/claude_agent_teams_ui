@@ -70,8 +70,9 @@ const TEAM_ROOT_FILES = [
 
 // Subdirs under ~/.claude/teams/{teamName}/
 const TEAM_SUBDIRS = ['inboxes', 'review-decisions'];
-const TEAM_RECURSIVE_SUBDIRS = ['.opencode-runtime'];
+const TEAM_RECURSIVE_SUBDIRS = ['.opencode-runtime', 'members'];
 const ATOMIC_WRITE_TEMP_FILE_PREFIX = '.tmp.';
+const FILE_LOCK_SUFFIX = '.lock';
 const QUARANTINED_OPENCODE_LANE_INDEX_RE = /^lanes\.invalid\.\d+\.json$/;
 // Subdirs under getAppDataPath() (our own storage, not in ~/.claude/)
 const APP_DATA_SUBDIRS = ['attachments'];
@@ -110,6 +111,9 @@ function isValidConfig(content: string): boolean {
 function shouldCollectRecursiveBackupFile(relPath: string): boolean {
   const fileName = path.basename(relPath);
   if (fileName.startsWith(ATOMIC_WRITE_TEMP_FILE_PREFIX)) {
+    return false;
+  }
+  if (fileName.endsWith(FILE_LOCK_SUFFIX)) {
     return false;
   }
   // Runtime quarantine files are diagnostic snapshots of invalid JSON.

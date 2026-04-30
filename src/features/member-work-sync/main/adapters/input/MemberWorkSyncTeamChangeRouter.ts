@@ -14,6 +14,10 @@ interface MemberWorkSyncRosterSource {
   loadActiveMemberNames(teamName: string): Promise<string[]>;
 }
 
+interface MemberWorkSyncMemberStorageMaterializer {
+  materializeMember(teamName: string, memberName: string): Promise<void>;
+}
+
 const TEAM_WIDE_REASONS: Partial<Record<TeamChangeEvent['type'], MemberWorkSyncTriggerReason>> = {
   config: 'config_changed',
   task: 'task_changed',
@@ -58,7 +62,8 @@ function parseMemberTurnSettled(detail: string | undefined): MemberTurnSettledEv
 export class MemberWorkSyncTeamChangeRouter {
   constructor(
     private readonly rosterSource: MemberWorkSyncRosterSource,
-    private readonly queue: MemberWorkSyncEventQueue
+    private readonly queue: MemberWorkSyncEventQueue,
+    private readonly materializer?: MemberWorkSyncMemberStorageMaterializer
   ) {}
 
   async enqueueStartupScan(teamNames: string[]): Promise<void> {
@@ -137,6 +142,13 @@ export class MemberWorkSyncTeamChangeRouter {
     runAfterMs?: number
   ): Promise<void> {
     const activeMembers = await this.rosterSource.loadActiveMemberNames(teamName);
+    if (this.materializer) {
+      await Promise.allSettled(
+        activeMembers.map((memberName) =>
+          this.materializer?.materializeMember(teamName, memberName)
+        )
+      );
+    }
     for (const memberName of activeMembers) {
       this.queue.enqueue({ teamName, memberName, triggerReason, runAfterMs });
     }

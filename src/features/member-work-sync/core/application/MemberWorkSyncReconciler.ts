@@ -5,6 +5,7 @@ import {
   formatAgendaFingerprint,
 } from '../domain';
 
+import { appendMemberWorkSyncAudit } from './MemberWorkSyncAudit';
 import { MemberWorkSyncNudgeOutboxPlanner } from './MemberWorkSyncNudgeOutboxPlanner';
 
 import type { MemberWorkSyncStatus, MemberWorkSyncStatusRequest } from '../../contracts';
@@ -46,8 +47,25 @@ export class MemberWorkSyncReconciler {
     request: MemberWorkSyncStatusRequest,
     context: MemberWorkSyncReconcileContext = {}
   ): Promise<MemberWorkSyncStatus> {
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: request.teamName,
+      memberName: request.memberName,
+      event: 'reconcile_started',
+      source: 'reconciler',
+      ...(context.triggerReasons?.length ? { triggerReasons: context.triggerReasons } : {}),
+    });
     const source = await this.deps.agendaSource.loadAgenda(request);
     const agenda = finalizeMemberWorkSyncAgenda(this.deps, source);
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: agenda.teamName,
+      memberName: agenda.memberName,
+      event: 'agenda_loaded',
+      source: 'reconciler',
+      agendaFingerprint: agenda.fingerprint,
+      actionableCount: agenda.items.length,
+      ...(source.providerId ? { providerId: source.providerId } : {}),
+      diagnostics: agenda.diagnostics,
+    });
     const previous = await this.deps.statusStore.read(request);
     const nowIso = this.deps.clock.now().toISOString();
     const teamActive = this.deps.lifecycle
@@ -58,6 +76,17 @@ export class MemberWorkSyncReconciler {
       latestAcceptedReport: previous?.report?.accepted ? previous.report : null,
       nowIso,
       inactive: source.inactive || !teamActive,
+    });
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: agenda.teamName,
+      memberName: agenda.memberName,
+      event: source.inactive || !teamActive ? 'team_inactive' : 'decision_made',
+      source: 'reconciler',
+      agendaFingerprint: agenda.fingerprint,
+      state: decision.state,
+      actionableCount: agenda.items.length,
+      ...(source.providerId ? { providerId: source.providerId } : {}),
+      diagnostics: decision.diagnostics,
     });
 
     const status = await attachMemberWorkSyncReportToken(this.deps, {

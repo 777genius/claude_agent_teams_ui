@@ -7,6 +7,7 @@ import {
   MemberWorkSyncReconciler,
   MemberWorkSyncReporter,
   type MemberWorkSyncAgendaSourceResult,
+  type MemberWorkSyncAuditEvent,
   type MemberWorkSyncInboxNudgePort,
   type MemberWorkSyncOutboxStorePort,
   type MemberWorkSyncStatusStorePort,
@@ -247,6 +248,7 @@ function createDeps(options?: {
 }) {
   const clock = new MutableClock();
   const store = new InMemoryStatusStore();
+  const auditEvents: MemberWorkSyncAuditEvent[] = [];
   const source: MemberWorkSyncAgendaSourceResult = {
     agenda: {
       teamName: 'team-a',
@@ -286,13 +288,18 @@ function createDeps(options?: {
     lifecycle: {
       isTeamActive: () => options?.teamActive ?? true,
     },
+    auditJournal: {
+      append: async (event) => {
+        auditEvents.push(event);
+      },
+    },
   };
-  return { clock, deps, source, store };
+  return { auditEvents, clock, deps, source, store };
 }
 
 describe('MemberWorkSync use cases', () => {
   it('reconciles actionable work into needs_sync without side effects', async () => {
-    const { deps, store } = createDeps();
+    const { auditEvents, deps, store } = createDeps();
     const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
       teamName: 'team-a',
       memberName: 'bob',
@@ -308,10 +315,15 @@ describe('MemberWorkSync use cases', () => {
       fingerprintChanged: false,
     });
     expect(store.pendingReports).toEqual([]);
+    expect(auditEvents.map((event) => event.event)).toEqual([
+      'reconcile_started',
+      'agenda_loaded',
+      'decision_made',
+    ]);
   });
 
   it('accepts still_working as a bounded lease for the current fingerprint', async () => {
-    const { clock, deps } = createDeps();
+    const { auditEvents, clock, deps } = createDeps();
     const reader = new MemberWorkSyncDiagnosticsReader(deps);
     const reporter = new MemberWorkSyncReporter(deps);
     const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
@@ -340,6 +352,7 @@ describe('MemberWorkSync use cases', () => {
     const expired = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
     expect(expired.state).toBe('needs_sync');
     expect(expired.diagnostics).toContain('report_lease_expired');
+    expect(auditEvents.map((event) => event.event)).toContain('report_accepted');
   });
 
   it('uses app clock instead of model supplied reportedAt for lease timing', async () => {
@@ -365,7 +378,7 @@ describe('MemberWorkSync use cases', () => {
   });
 
   it('rejects stale reports without turning app-side validation failures into pending intents', async () => {
-    const { deps, store } = createDeps();
+    const { auditEvents, deps, store } = createDeps();
     const result = await new MemberWorkSyncReporter(deps).execute({
       teamName: 'team-a',
       memberName: 'bob',
@@ -384,6 +397,14 @@ describe('MemberWorkSync use cases', () => {
     });
     expect(store.writes.at(-1)?.diagnostics).toContain('report_rejected:stale_fingerprint');
     expect(store.pendingReports).toHaveLength(0);
+    expect(auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'report_rejected',
+          reason: 'stale_fingerprint',
+        }),
+      ])
+    );
   });
 
   it('accepts caught_up only when the app-side agenda is empty', async () => {
@@ -619,7 +640,7 @@ describe('MemberWorkSync use cases', () => {
   it('defers nudge dispatch while the member has active or recent tool activity', async () => {
     const outbox = new InMemoryOutboxStore();
     const inbox = new InMemoryInboxNudge();
-    const { deps, store } = createDeps({
+    const { auditEvents, deps, store } = createDeps({
       outboxStore: outbox,
       inboxNudge: inbox,
       busySignal: {
@@ -651,6 +672,14 @@ describe('MemberWorkSync use cases', () => {
       lastError: 'member_busy:active_tool_activity',
       nextAttemptAt: '2026-04-29T00:02:00.000Z',
     });
+    expect(auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'member_busy',
+          reason: 'member_busy:active_tool_activity',
+        }),
+      ])
+    );
   });
 
   it('uses bounded retry backoff when inbox delivery fails', async () => {

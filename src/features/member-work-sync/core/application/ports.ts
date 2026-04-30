@@ -64,6 +64,55 @@ export interface MemberWorkSyncLoggerPort {
   error(message: string, metadata?: Record<string, unknown>): void;
 }
 
+export type MemberWorkSyncAuditEventName =
+  | 'turn_settled_claimed'
+  | 'turn_settled_resolved'
+  | 'turn_settled_unresolved'
+  | 'turn_settled_ignored'
+  | 'queue_enqueued'
+  | 'queue_coalesced'
+  | 'queue_reconciled'
+  | 'queue_dropped'
+  | 'reconcile_started'
+  | 'agenda_loaded'
+  | 'decision_made'
+  | 'status_written'
+  | 'report_received'
+  | 'report_accepted'
+  | 'report_rejected'
+  | 'nudge_planned'
+  | 'nudge_delivered'
+  | 'nudge_skipped'
+  | 'nudge_retryable'
+  | 'nudge_superseded'
+  | 'watchdog_cooldown_active'
+  | 'member_busy'
+  | 'team_inactive'
+  | 'index_repaired'
+  | 'legacy_fallback_used';
+
+export interface MemberWorkSyncAuditEvent {
+  timestamp: string;
+  teamName: string;
+  memberName: string;
+  event: MemberWorkSyncAuditEventName;
+  source: string;
+  agendaFingerprint?: string;
+  state?: string;
+  actionableCount?: number;
+  reason?: string;
+  triggerReasons?: string[];
+  providerId?: string;
+  taskRefs?: { taskId: string; displayId?: string; teamName?: string }[];
+  diagnostics?: string[];
+  messagePreview?: string;
+  metadata?: Record<string, string | number | boolean | null>;
+}
+
+export interface MemberWorkSyncAuditJournalPort {
+  append(event: MemberWorkSyncAuditEvent): Promise<void>;
+}
+
 export interface MemberWorkSyncAgendaSourceResult {
   agenda: Omit<MemberWorkSyncAgenda, 'fingerprint'>;
   activeMemberNames: string[];
@@ -143,6 +192,7 @@ export interface MemberWorkSyncUseCaseDeps {
   watchdogCooldown?: MemberWorkSyncWatchdogCooldownPort;
   busySignal?: MemberWorkSyncBusySignalPort;
   reportToken?: MemberWorkSyncReportTokenPort;
+  auditJournal?: MemberWorkSyncAuditJournalPort;
   lifecycle?: MemberWorkSyncLifecyclePort;
   logger?: MemberWorkSyncLoggerPort;
 }

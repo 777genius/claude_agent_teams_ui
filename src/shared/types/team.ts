@@ -1002,6 +1002,8 @@ export interface PersistedTeamLaunchMemberState {
   hardFailureReason?: string;
   pendingPermissionRequestIds?: string[];
   runtimePid?: number;
+  /** OpenCode runtime run id that produced the current runtimeSessionId/liveness evidence. */
+  runtimeRunId?: string;
   runtimeSessionId?: string;
   livenessKind?: TeamAgentRuntimeLivenessKind;
   pidSource?: TeamAgentRuntimePidSource;

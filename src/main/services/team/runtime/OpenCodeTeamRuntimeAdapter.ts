@@ -429,6 +429,7 @@ function mapOpenCodeLaunchDataToRuntimeResult(
   data: OpenCodeLaunchTeamCommandData,
   prepareWarnings: string[]
 ): TeamRuntimeLaunchResult {
+  const bridgeDiagnostics = data.diagnostics.map(formatOpenCodeBridgeDiagnostic);
   const checkpointNames = extractCheckpointNames(data);
   const readyCheckpointsPresent = [...REQUIRED_READY_CHECKPOINTS].every((name) =>
     checkpointNames.has(name)
@@ -491,6 +492,7 @@ function mapOpenCodeLaunchDataToRuntimeResult(
             ...(bridgeMember?.evidence ?? []).map(
               (evidence) => `${evidence.kind} at ${evidence.observedAt}`
             ),
+            ...bridgeDiagnostics,
             ...checkpointDiagnostic,
             ...(missingExpectedMembers.includes(member.name) ? incompleteReadyDiagnostic : []),
           ]
@@ -518,11 +520,7 @@ function mapOpenCodeLaunchDataToRuntimeResult(
           : 'partial_failure',
     members,
     warnings: [...prepareWarnings, ...data.warnings.map((warning) => warning.message)],
-    diagnostics: [
-      ...data.diagnostics.map(formatOpenCodeBridgeDiagnostic),
-      ...checkpointDiagnostic,
-      ...incompleteReadyDiagnostic,
-    ],
+    diagnostics: [...bridgeDiagnostics, ...checkpointDiagnostic, ...incompleteReadyDiagnostic],
   };
 }
 
@@ -539,29 +537,28 @@ function mapBridgeMemberToRuntimeEvidence(
   const failed = launchState === 'failed';
   const hasRuntimePid =
     typeof runtimePid === 'number' && Number.isFinite(runtimePid) && runtimePid > 0;
-  const pendingRuntimeObserved = launchState === 'created' && hasRuntimePid;
+  const hasSessionId = typeof sessionId === 'string' && sessionId.trim().length > 0;
+  const hasRuntimeHandle = hasRuntimePid || hasSessionId;
+  const pendingRuntimeObserved = launchState === 'created' && hasRuntimeHandle;
   const livenessKind = confirmed
     ? 'confirmed_bootstrap'
     : pendingRuntimeObserved
       ? 'runtime_process_candidate'
       : launchState === 'permission_blocked'
         ? 'permission_blocked'
-        : runtimeMaterialized || sessionId
-          ? 'runtime_process_candidate'
-          : 'registered_only';
+        : 'registered_only';
   const runtimeDiagnostic = pendingRuntimeObserved
-    ? 'OpenCode runtime pid reported by bridge without local process verification'
+    ? hasRuntimePid
+      ? 'OpenCode runtime pid reported by bridge without local process verification'
+      : 'OpenCode session exists without verified runtime pid'
     : launchState === 'permission_blocked'
       ? 'OpenCode runtime is waiting for permission approval'
-      : runtimeMaterialized || sessionId
-        ? 'OpenCode session exists without verified runtime pid'
+      : runtimeMaterialized
+        ? 'OpenCode bridge did not report a runtime session or pid for this member'
         : undefined;
   const runtimeDiagnosticSeverity = failed
     ? 'error'
-    : pendingRuntimeObserved ||
-        launchState === 'permission_blocked' ||
-        runtimeMaterialized ||
-        sessionId
+    : pendingRuntimeObserved || launchState === 'permission_blocked' || runtimeMaterialized
       ? 'warning'
       : undefined;
   return {
@@ -578,8 +575,7 @@ function mapBridgeMemberToRuntimeEvidence(
       confirmed ||
       pendingRuntimeObserved ||
       launchState === 'permission_blocked' ||
-      runtimeMaterialized ||
-      Boolean(sessionId),
+      hasRuntimeHandle,
     runtimeAlive: confirmed,
     bootstrapConfirmed: confirmed,
     hardFailure: failed,

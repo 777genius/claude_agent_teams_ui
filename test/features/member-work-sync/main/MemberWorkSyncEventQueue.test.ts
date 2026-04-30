@@ -13,12 +13,18 @@ describe('MemberWorkSyncEventQueue', () => {
 
   it('coalesces duplicate member events into one queue reconcile', async () => {
     const reconciles: unknown[] = [];
+    const auditEvents: string[] = [];
     const queue = new MemberWorkSyncEventQueue({
       quietWindowMs: 100,
       reconcile: async (request, context) => {
         reconciles.push({ request, context });
       },
       isTeamActive: () => true,
+      auditJournal: {
+        append: async (event) => {
+          auditEvents.push(event.event);
+        },
+      },
     });
 
     queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'task_changed' });
@@ -35,6 +41,7 @@ describe('MemberWorkSyncEventQueue', () => {
       },
     });
     expect(queue.getDiagnostics()).toMatchObject({ reconciled: 1, coalesced: 1 });
+    expect(auditEvents).toEqual(['queue_enqueued', 'queue_coalesced', 'queue_reconciled']);
     await queue.stop();
   });
 

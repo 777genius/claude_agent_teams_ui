@@ -264,6 +264,9 @@ describe('OpenCodeRuntimeManifestEvidenceReader migration', () => {
     ).resolves.toEqual({
       laneDirectoryExists: false,
       hasStateOnDisk: false,
+      hasRuntimeEvidenceOnDisk: false,
+      manifestEntryCount: null,
+      manifestUpdatedAt: null,
       fileNames: [],
     });
 
@@ -288,6 +291,117 @@ describe('OpenCodeRuntimeManifestEvidenceReader migration', () => {
           diagnostics: [
             `OpenCode lane ${laneId} is marked active in lanes.json, but no lane state exists on disk.`,
           ],
+        },
+      },
+    });
+  });
+
+  it('degrades an active lane that only has a stale empty runtime manifest', async () => {
+    const teamName = 'team-empty-manifest';
+    const laneId = 'secondary:opencode:bob';
+
+    await upsertOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      state: 'active',
+    });
+    await setOpenCodeRuntimeActiveRunManifest({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      runId: 'run-empty',
+      clock: () => new Date('2026-04-22T09:55:00.000Z'),
+    });
+    await fs.writeFile(
+      getOpenCodeLaneScopedRuntimeFilePath({
+        teamsBasePath: tempDir,
+        teamName,
+        laneId,
+        fileName: 'opencode-prompt-delivery-ledger.json',
+      }),
+      JSON.stringify({ records: [] }),
+      'utf8'
+    );
+
+    await expect(
+      inspectOpenCodeRuntimeLaneStorage({
+        teamsBasePath: tempDir,
+        teamName,
+        laneId,
+      })
+    ).resolves.toMatchObject({
+      laneDirectoryExists: true,
+      hasStateOnDisk: true,
+      hasRuntimeEvidenceOnDisk: false,
+      manifestEntryCount: 0,
+      fileNames: ['manifest.json', 'opencode-prompt-delivery-ledger.json'],
+    });
+
+    const result = await recoverStaleOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      clock: () => now,
+      emptyLaneStaleAfterMs: 150_000,
+    });
+
+    expect(result).toEqual({
+      stale: true,
+      degraded: true,
+      diagnostics: [
+        `OpenCode lane ${laneId} is marked active in lanes.json, but its runtime manifest has no committed runtime evidence after launch grace.`,
+      ],
+    });
+    await expect(readOpenCodeRuntimeLaneIndex(tempDir, teamName)).resolves.toMatchObject({
+      lanes: {
+        [laneId]: {
+          laneId,
+          state: 'degraded',
+          diagnostics: [
+            `OpenCode lane ${laneId} is marked active in lanes.json, but its runtime manifest has no committed runtime evidence after launch grace.`,
+          ],
+        },
+      },
+    });
+  });
+
+  it('does not degrade a fresh active lane while the empty runtime manifest is still inside launch grace', async () => {
+    const teamName = 'team-fresh-empty-manifest';
+    const laneId = 'secondary:opencode:bob';
+
+    await upsertOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      state: 'active',
+    });
+    await setOpenCodeRuntimeActiveRunManifest({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      runId: 'run-fresh',
+      clock: () => new Date('2026-04-22T09:59:00.000Z'),
+    });
+
+    const result = await recoverStaleOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      clock: () => now,
+      emptyLaneStaleAfterMs: 150_000,
+    });
+
+    expect(result).toEqual({
+      stale: false,
+      degraded: false,
+      diagnostics: [],
+    });
+    await expect(readOpenCodeRuntimeLaneIndex(tempDir, teamName)).resolves.toMatchObject({
+      lanes: {
+        [laneId]: {
+          laneId,
+          state: 'active',
         },
       },
     });

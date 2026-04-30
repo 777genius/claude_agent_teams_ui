@@ -1,5 +1,7 @@
 import { buildMemberWorkSyncOutboxEnsureInput } from '../domain';
 
+import { appendMemberWorkSyncAudit } from './MemberWorkSyncAudit';
+
 import type { MemberWorkSyncStatus } from '../../contracts';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
 
@@ -37,6 +39,7 @@ export class MemberWorkSyncNudgeOutboxPlanner {
 
     const metrics = await this.deps.statusStore.readTeamMetrics(status.teamName);
     if (metrics.phase2Readiness.state !== 'shadow_ready') {
+      await this.appendPlanAudit(status, { planned: false, code: 'phase2_not_ready' });
       return { planned: false, code: 'phase2_not_ready' };
     }
 
@@ -49,9 +52,34 @@ export class MemberWorkSyncNudgeOutboxPlanner {
         existingPayloadHash: result.existingPayloadHash,
         requestedPayloadHash: result.requestedPayloadHash,
       });
+      await this.appendPlanAudit(status, { planned: false, code: 'payload_conflict' });
       return { planned: false, code: 'payload_conflict' };
     }
 
-    return { planned: true, code: result.outcome };
+    const planResult = { planned: true, code: result.outcome } as const;
+    await this.appendPlanAudit(status, planResult);
+    return planResult;
+  }
+
+  private async appendPlanAudit(
+    status: MemberWorkSyncStatus,
+    result: MemberWorkSyncNudgeOutboxPlanResult
+  ): Promise<void> {
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: status.teamName,
+      memberName: status.memberName,
+      event: result.planned ? 'nudge_planned' : 'nudge_skipped',
+      source: 'nudge_planner',
+      agendaFingerprint: status.agenda.fingerprint,
+      state: status.state,
+      actionableCount: status.agenda.items.length,
+      reason: result.code,
+      ...(status.providerId ? { providerId: status.providerId } : {}),
+      taskRefs: status.agenda.items.map((item) => ({
+        taskId: item.taskId,
+        displayId: item.displayId,
+        teamName: status.teamName,
+      })),
+    });
   }
 }

@@ -480,6 +480,7 @@ function normalizePersistedMemberState(
       parsed.pendingPermissionRequestIds
     ),
     runtimePid: normalizeRuntimePid(parsed.runtimePid),
+    runtimeRunId: normalizeOptionalString(parsed.runtimeRunId),
     runtimeSessionId: normalizeOptionalString(parsed.runtimeSessionId),
     livenessKind,
     pidSource: normalizePidSource(parsed.pidSource),

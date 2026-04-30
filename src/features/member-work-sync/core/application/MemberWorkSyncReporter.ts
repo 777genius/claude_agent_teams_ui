@@ -1,5 +1,6 @@
 import { validateMemberWorkSyncReport } from '../domain';
 
+import { appendMemberWorkSyncAudit } from './MemberWorkSyncAudit';
 import {
   attachMemberWorkSyncReportToken,
   finalizeMemberWorkSyncAgenda,
@@ -22,6 +23,22 @@ export class MemberWorkSyncReporter {
   }
 
   async execute(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult> {
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: request.teamName,
+      memberName: request.memberName,
+      event: 'report_received',
+      source: 'reporter',
+      agendaFingerprint: request.agendaFingerprint,
+      state: request.state,
+      ...(request.taskIds?.length
+        ? {
+            taskRefs: request.taskIds.map((taskId) => ({
+              taskId,
+              teamName: request.teamName,
+            })),
+          }
+        : {}),
+    });
     const source = await this.deps.agendaSource.loadAgenda(request);
     const agenda = finalizeMemberWorkSyncAgenda(this.deps, source);
     const nowIso = this.deps.clock.now().toISOString();
@@ -105,6 +122,16 @@ export class MemberWorkSyncReporter {
     });
 
     await this.deps.statusStore.write(status);
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: status.teamName,
+      memberName: status.memberName,
+      event: 'report_accepted',
+      source: 'reporter',
+      agendaFingerprint: agenda.fingerprint,
+      state: status.state,
+      actionableCount: agenda.items.length,
+      ...(source.providerId ? { providerId: source.providerId } : {}),
+    });
     return {
       accepted: true,
       code: 'accepted',
@@ -135,6 +162,17 @@ export class MemberWorkSyncReporter {
       diagnostics: [...status.diagnostics, `report_rejected:${rejectionCode}`],
     };
     await this.deps.statusStore.write(rejectedStatus);
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: status.teamName,
+      memberName: status.memberName,
+      event: 'report_rejected',
+      source: 'reporter',
+      agendaFingerprint: request.agendaFingerprint,
+      state: request.state,
+      actionableCount: status.agenda.items.length,
+      reason: rejectionCode,
+      ...(status.providerId ? { providerId: status.providerId } : {}),
+    });
     return rejectedStatus;
   }
 }

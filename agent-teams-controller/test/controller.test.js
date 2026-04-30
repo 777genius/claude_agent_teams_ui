@@ -2251,6 +2251,155 @@ describe('agent-teams-controller API', () => {
     }
   });
 
+  it('retries OpenCode bootstrap check-in on retryable control API failures', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      if (calls.length < 3) {
+        return { statusCode: 500, body: { error: 'temporary bootstrap failure' } };
+      }
+      return { body: { ok: true, state: 'accepted', diagnostics: [] } };
+    });
+
+    try {
+      const result = await controller.runtime.runtimeBootstrapCheckin({
+        controlUrl: server.baseUrl,
+        runId: 'run-oc',
+        memberName: 'bob',
+        runtimeSessionId: 'ses-1',
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        state: 'accepted',
+        diagnostics: expect.arrayContaining(['opencode_bootstrap_checkin_retry']),
+      });
+      expect(calls).toHaveLength(3);
+      expect(calls.map((call) => call.body)).toEqual([
+        {
+          teamName: 'my-team',
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        },
+        {
+          teamName: 'my-team',
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        },
+        {
+          teamName: 'my-team',
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('accepts idempotent OpenCode bootstrap check-in after a timed-out committed request', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+    let committed = false;
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      if (!committed) {
+        committed = true;
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        return { body: { ok: true, state: 'accepted', diagnostics: [] } };
+      }
+      return {
+        body: {
+          ok: true,
+          state: 'accepted',
+          diagnostics: ['opencode_bootstrap_checkin_duplicate_accepted'],
+        },
+      };
+    });
+
+    try {
+      const result = await controller.runtime.runtimeBootstrapCheckin({
+        controlUrl: server.baseUrl,
+        waitTimeoutMs: 1000,
+        runId: 'run-oc',
+        memberName: 'bob',
+        runtimeSessionId: 'ses-1',
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        state: 'accepted',
+        diagnostics: expect.arrayContaining([
+          'opencode_bootstrap_checkin_duplicate_accepted',
+          'opencode_bootstrap_checkin_retry',
+        ]),
+      });
+      expect(calls).toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does not retry OpenCode bootstrap check-in on validation failures', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      return { statusCode: 400, body: { error: 'invalid bootstrap payload' } };
+    });
+
+    try {
+      await expect(
+        controller.runtime.runtimeBootstrapCheckin({
+          controlUrl: server.baseUrl,
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        })
+      ).rejects.toThrow('invalid bootstrap payload');
+      expect(calls).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('fails OpenCode bootstrap check-in clearly after bounded timeout retries', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      return { body: { ok: true, state: 'accepted' } };
+    });
+
+    try {
+      await expect(
+        controller.runtime.runtimeBootstrapCheckin({
+          controlUrl: server.baseUrl,
+          waitTimeoutMs: 1000,
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        })
+      ).rejects.toThrow('Timed out calling team control API');
+      expect(calls).toHaveLength(3);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('forwards member work sync status and reports to the app validator', async () => {
     const claudeDir = makeClaudeDir();
     const controller = createController({ teamName: 'my-team', claudeDir });

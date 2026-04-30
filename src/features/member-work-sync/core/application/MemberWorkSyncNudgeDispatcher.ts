@@ -1,5 +1,6 @@
 import type { MemberWorkSyncOutboxItem } from '../../contracts';
-import type { MemberWorkSyncUseCaseDeps } from './ports';
+import { appendMemberWorkSyncAudit, reasonToAuditEvent } from './MemberWorkSyncAudit';
+import type { MemberWorkSyncAuditEventName, MemberWorkSyncUseCaseDeps } from './ports';
 
 const MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR = 2;
 const MEMBER_WORK_SYNC_RETRY_BASE_MINUTES = 10;
@@ -50,7 +51,9 @@ function nextRetryAt(item: MemberWorkSyncOutboxItem, nowIso: string): string {
 export class MemberWorkSyncNudgeDispatcher {
   constructor(private readonly deps: MemberWorkSyncUseCaseDeps) {}
 
-  async dispatchDue(options: MemberWorkSyncNudgeDispatchOptions): Promise<MemberWorkSyncNudgeDispatchSummary> {
+  async dispatchDue(
+    options: MemberWorkSyncNudgeDispatchOptions
+  ): Promise<MemberWorkSyncNudgeDispatchSummary> {
     const outbox = this.deps.outboxStore;
     const inbox = this.deps.inboxNudge;
     if (!outbox || !inbox) {
@@ -59,7 +62,9 @@ export class MemberWorkSyncNudgeDispatcher {
 
     const nowIso = this.deps.clock.now().toISOString();
     const summary = emptySummary();
-    for (const teamName of [...new Set(options.teamNames.map((name) => name.trim()).filter(Boolean))]) {
+    for (const teamName of [
+      ...new Set(options.teamNames.map((name) => name.trim()).filter(Boolean)),
+    ]) {
       const claimed = await outbox.claimDue({
         teamName,
         claimedBy: options.claimedBy,
@@ -97,6 +102,11 @@ export class MemberWorkSyncNudgeDispatcher {
           nowIso,
           nextAttemptAt: revalidation.nextAttemptAt ?? nextRetryAt(item, nowIso),
         });
+        await this.appendDispatchAudit(
+          item,
+          reasonToAuditEvent(revalidation.reason),
+          revalidation.reason
+        );
         return 'retryable';
       }
       await outbox.markSuperseded({
@@ -105,6 +115,7 @@ export class MemberWorkSyncNudgeDispatcher {
         reason: revalidation.reason,
         nowIso,
       });
+      await this.appendDispatchAudit(item, 'nudge_superseded', revalidation.reason);
       return 'superseded';
     }
 
@@ -126,6 +137,7 @@ export class MemberWorkSyncNudgeDispatcher {
           retryable: false,
           nowIso,
         });
+        await this.appendDispatchAudit(item, 'nudge_skipped', 'inbox_payload_conflict');
         return 'terminal';
       }
       await outbox.markDelivered({
@@ -135,6 +147,7 @@ export class MemberWorkSyncNudgeDispatcher {
         deliveredMessageId: inserted.messageId,
         nowIso,
       });
+      await this.appendDispatchAudit(item, 'nudge_delivered', 'inbox_inserted');
       return 'delivered';
     } catch (error) {
       await outbox.markFailed({
@@ -146,16 +159,33 @@ export class MemberWorkSyncNudgeDispatcher {
         nowIso,
         nextAttemptAt: nextRetryAt(item, nowIso),
       });
+      await this.appendDispatchAudit(item, 'nudge_retryable', String(error));
       return 'retryable';
     }
+  }
+
+  private async appendDispatchAudit(
+    item: MemberWorkSyncOutboxItem,
+    event: MemberWorkSyncAuditEventName,
+    reason: string
+  ): Promise<void> {
+    await appendMemberWorkSyncAudit(this.deps, {
+      teamName: item.teamName,
+      memberName: item.memberName,
+      event,
+      source: 'nudge_dispatcher',
+      agendaFingerprint: item.agendaFingerprint,
+      reason,
+      taskRefs: item.payload.taskRefs,
+      messagePreview: item.payload.text,
+    });
   }
 
   private async revalidate(
     item: MemberWorkSyncOutboxItem,
     nowIso: string
   ): Promise<
-    | { ok: true }
-    | { ok: false; reason: string; retryable: boolean; nextAttemptAt?: string }
+    { ok: true } | { ok: false; reason: string; retryable: boolean; nextAttemptAt?: string }
   > {
     if (this.deps.lifecycle && !(await this.deps.lifecycle.isTeamActive(item.teamName))) {
       return { ok: false, reason: 'team_inactive', retryable: false };

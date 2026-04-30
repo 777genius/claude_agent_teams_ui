@@ -9,6 +9,7 @@ import { withFileLock } from '../../fileLock';
 import {
   createDefaultRuntimeStoreManifest,
   createRuntimeStoreManifestStore,
+  OPENCODE_RUNTIME_STORE_DESCRIPTORS,
   OPENCODE_RUNTIME_STORE_MANIFEST_SCHEMA_VERSION,
   validateRuntimeStoreManifest,
 } from './RuntimeStoreManifest';
@@ -28,11 +29,19 @@ const OPENCODE_TEAM_RUNTIME_LANES_DIR = 'lanes';
 const OPENCODE_TEAM_RUNTIME_LANES_INDEX_FILE = 'lanes.json';
 const OPENCODE_RUNTIME_MANIFEST_FILE = 'manifest.json';
 const OPENCODE_RUNTIME_RUN_TOMBSTONES_FILE = 'opencode-run-tombstones.json';
+const OPENCODE_ACTIVE_EMPTY_LANE_STALE_MS = 150_000;
 const OPENCODE_LANE_INDEX_LOCK_OPTIONS = {
   acquireTimeoutMs: 30_000,
   staleTimeoutMs: 25_000,
   retryIntervalMs: 25,
 } as const;
+const OPENCODE_RUNTIME_EVIDENCE_FILES = new Set(
+  OPENCODE_RUNTIME_STORE_DESCRIPTORS.filter(
+    (descriptor) =>
+      descriptor.schemaName !== 'opencode.promptDeliveryLedger' &&
+      descriptor.schemaName !== 'opencode.deliveryJournal'
+  ).map((descriptor) => descriptor.relativePath)
+);
 
 export interface OpenCodeRuntimeLaneIndexEntry {
   laneId: string;
@@ -318,6 +327,9 @@ export async function inspectOpenCodeRuntimeLaneStorage(params: {
 }): Promise<{
   laneDirectoryExists: boolean;
   hasStateOnDisk: boolean;
+  hasRuntimeEvidenceOnDisk: boolean;
+  manifestEntryCount: number | null;
+  manifestUpdatedAt: string | null;
   fileNames: string[];
 }> {
   const laneDir = getOpenCodeTeamRuntimeLaneDirectory(
@@ -330,14 +342,38 @@ export async function inspectOpenCodeRuntimeLaneStorage(params: {
     return {
       laneDirectoryExists: false,
       hasStateOnDisk: false,
+      hasRuntimeEvidenceOnDisk: false,
+      manifestEntryCount: null,
+      manifestUpdatedAt: null,
       fileNames: [],
     };
   }
 
   const fileNames = (await readdir(laneDir).catch(() => [] as string[])).sort();
+  const manifestPath = getOpenCodeRuntimeManifestPath(
+    params.teamsBasePath,
+    params.teamName,
+    params.laneId
+  );
+  const manifest = (await fileExists(manifestPath))
+    ? await readRuntimeStoreManifestEvidenceData(
+        manifestPath,
+        params.teamName,
+        () => new Date()
+      ).catch(() => null)
+    : null;
+  const hasRuntimeEvidenceFile = fileNames.some((fileName) =>
+    OPENCODE_RUNTIME_EVIDENCE_FILES.has(fileName)
+  );
+  const hasRuntimeEvidenceManifestEntry =
+    manifest?.entries.some((entry) => OPENCODE_RUNTIME_EVIDENCE_FILES.has(entry.relativePath)) ??
+    false;
   return {
     laneDirectoryExists: true,
     hasStateOnDisk: fileNames.length > 0,
+    hasRuntimeEvidenceOnDisk: hasRuntimeEvidenceFile || hasRuntimeEvidenceManifestEntry,
+    manifestEntryCount: manifest ? manifest.entries.length : null,
+    manifestUpdatedAt: manifest?.updatedAt ?? null,
     fileNames,
   };
 }
@@ -513,6 +549,8 @@ export async function recoverStaleOpenCodeRuntimeLaneIndexEntry(params: {
   teamsBasePath: string;
   teamName: string;
   laneId: string;
+  clock?: () => Date;
+  emptyLaneStaleAfterMs?: number;
 }): Promise<{
   stale: boolean;
   degraded: boolean;
@@ -529,7 +567,7 @@ export async function recoverStaleOpenCodeRuntimeLaneIndexEntry(params: {
   }
 
   const storage = await inspectOpenCodeRuntimeLaneStorage(params);
-  if (storage.hasStateOnDisk) {
+  if (storage.hasRuntimeEvidenceOnDisk) {
     return {
       stale: false,
       degraded: false,
@@ -537,9 +575,26 @@ export async function recoverStaleOpenCodeRuntimeLaneIndexEntry(params: {
     };
   }
 
-  const diagnostics = [
-    `OpenCode lane ${params.laneId} is marked active in lanes.json, but no lane state exists on disk.`,
-  ];
+  const now = params.clock?.() ?? new Date();
+  const staleAfterMs = params.emptyLaneStaleAfterMs ?? OPENCODE_ACTIVE_EMPTY_LANE_STALE_MS;
+  const lastTouchedAt =
+    Date.parse(storage.manifestUpdatedAt ?? '') || Date.parse(entry.updatedAt) || NaN;
+  const laneAgeMs = Number.isFinite(lastTouchedAt) ? now.getTime() - lastTouchedAt : Infinity;
+  if (storage.hasStateOnDisk && laneAgeMs < staleAfterMs) {
+    return {
+      stale: false,
+      degraded: false,
+      diagnostics: [],
+    };
+  }
+
+  const diagnostics = storage.hasStateOnDisk
+    ? [
+        `OpenCode lane ${params.laneId} is marked active in lanes.json, but its runtime manifest has no committed runtime evidence after launch grace.`,
+      ]
+    : [
+        `OpenCode lane ${params.laneId} is marked active in lanes.json, but no lane state exists on disk.`,
+      ];
   await upsertOpenCodeRuntimeLaneIndexEntry({
     teamsBasePath: params.teamsBasePath,
     teamName: params.teamName,

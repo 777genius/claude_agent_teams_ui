@@ -21,6 +21,7 @@ import { ClaudeStopHookPayloadNormalizer } from '../infrastructure/ClaudeStopHoo
 import { CodexNativeTurnSettledPayloadNormalizer } from '../infrastructure/CodexNativeTurnSettledPayloadNormalizer';
 import { CompositeRuntimeTurnSettledPayloadNormalizer } from '../infrastructure/CompositeRuntimeTurnSettledPayloadNormalizer';
 import { FileRuntimeTurnSettledEventStore } from '../infrastructure/FileRuntimeTurnSettledEventStore';
+import { FileMemberWorkSyncAuditJournal } from '../infrastructure/FileMemberWorkSyncAuditJournal';
 import { HmacMemberWorkSyncReportTokenAdapter } from '../infrastructure/HmacMemberWorkSyncReportTokenAdapter';
 import { JsonMemberWorkSyncStore } from '../infrastructure/JsonMemberWorkSyncStore';
 import {
@@ -132,7 +133,11 @@ export function createMemberWorkSyncFeature(deps: {
     clock,
   });
   const storePaths = new MemberWorkSyncStorePaths(deps.teamsBasePath);
-  const store = new JsonMemberWorkSyncStore(storePaths);
+  const auditJournal = new FileMemberWorkSyncAuditJournal(storePaths, deps.logger);
+  const store = new JsonMemberWorkSyncStore(storePaths, {
+    auditJournal,
+    logger: deps.logger,
+  });
   const runtimeTurnSettledSpool = new RuntimeTurnSettledSpoolInitializer(deps.teamsBasePath);
   const runtimeTurnSettledStore = new FileRuntimeTurnSettledEventStore({
     paths: runtimeTurnSettledSpool.getPaths(),
@@ -165,6 +170,7 @@ export function createMemberWorkSyncFeature(deps: {
     watchdogCooldown,
     busySignal,
     reportToken,
+    auditJournal,
     ...(deps.isTeamActive ? { lifecycle: { isTeamActive: deps.isTeamActive } } : {}),
     logger: deps.logger,
   };
@@ -186,9 +192,13 @@ export function createMemberWorkSyncFeature(deps: {
     },
     isTeamActive: deps.isTeamActive ?? (() => true),
     ...(deps.queueQuietWindowMs != null ? { quietWindowMs: deps.queueQuietWindowMs } : {}),
+    auditJournal,
     logger: deps.logger,
   });
-  const router = new MemberWorkSyncTeamChangeRouter(agendaSource, queue);
+  const router = new MemberWorkSyncTeamChangeRouter(agendaSource, queue, {
+    materializeMember: (teamName, memberName) =>
+      storePaths.ensureMemberWorkSyncDir(teamName, memberName),
+  });
   const runtimeTurnSettledIngestor = new RuntimeTurnSettledIngestor({
     eventStore: runtimeTurnSettledStore,
     normalizer: runtimeTurnSettledNormalizer,
@@ -207,6 +217,7 @@ export function createMemberWorkSyncFeature(deps: {
       },
     },
     clock,
+    auditJournal,
     logger: deps.logger,
   });
   const runtimeTurnSettledDrainScheduler = new RuntimeTurnSettledDrainScheduler({

@@ -1,4 +1,9 @@
-import type { MemberWorkSyncClockPort, MemberWorkSyncLoggerPort } from './ports';
+import { appendMemberWorkSyncAudit } from './MemberWorkSyncAudit';
+import type {
+  MemberWorkSyncAuditJournalPort,
+  MemberWorkSyncClockPort,
+  MemberWorkSyncLoggerPort,
+} from './ports';
 import type { RuntimeTurnSettledEvent } from '../domain';
 import type {
   RuntimeTurnSettledEventStorePort,
@@ -13,6 +18,7 @@ export interface RuntimeTurnSettledIngestorDeps {
   targetResolver: RuntimeTurnSettledTargetResolverPort;
   reconcileQueue: RuntimeTurnSettledReconcileQueuePort;
   clock: MemberWorkSyncClockPort;
+  auditJournal?: MemberWorkSyncAuditJournalPort;
   logger?: MemberWorkSyncLoggerPort;
 }
 
@@ -78,6 +84,20 @@ export class RuntimeTurnSettledIngestor {
           continue;
         }
 
+        if (normalized.event.teamName && normalized.event.memberName) {
+          await appendMemberWorkSyncAudit(this.deps, {
+            teamName: normalized.event.teamName,
+            memberName: normalized.event.memberName,
+            event: 'turn_settled_claimed',
+            source: 'runtime_turn_settled_ingestor',
+            reason: normalized.event.provider,
+            metadata: {
+              sourceId: normalized.event.sourceId,
+              provider: normalized.event.provider,
+            },
+          });
+        }
+
         const ignoredReason = getIgnoredReason(normalized.event);
         if (ignoredReason) {
           summary.ignored += 1;
@@ -87,6 +107,19 @@ export class RuntimeTurnSettledIngestor {
             reason: ignoredReason,
             processedAt,
           });
+          if (normalized.event.teamName && normalized.event.memberName) {
+            await appendMemberWorkSyncAudit(this.deps, {
+              teamName: normalized.event.teamName,
+              memberName: normalized.event.memberName,
+              event: 'turn_settled_ignored',
+              source: 'runtime_turn_settled_ingestor',
+              reason: ignoredReason,
+              metadata: {
+                sourceId: normalized.event.sourceId,
+                provider: normalized.event.provider,
+              },
+            });
+          }
           continue;
         }
 
@@ -99,6 +132,19 @@ export class RuntimeTurnSettledIngestor {
             reason: resolution.reason,
             processedAt,
           });
+          if (normalized.event.teamName && normalized.event.memberName) {
+            await appendMemberWorkSyncAudit(this.deps, {
+              teamName: normalized.event.teamName,
+              memberName: normalized.event.memberName,
+              event: 'turn_settled_unresolved',
+              source: 'runtime_turn_settled_ingestor',
+              reason: resolution.reason,
+              metadata: {
+                sourceId: normalized.event.sourceId,
+                provider: normalized.event.provider,
+              },
+            });
+          }
           continue;
         }
 
@@ -114,6 +160,17 @@ export class RuntimeTurnSettledIngestor {
           memberName: resolution.memberName,
           outcome: 'enqueued',
           processedAt,
+        });
+        await appendMemberWorkSyncAudit(this.deps, {
+          teamName: resolution.teamName,
+          memberName: resolution.memberName,
+          event: 'turn_settled_resolved',
+          source: 'runtime_turn_settled_ingestor',
+          reason: normalized.event.provider,
+          metadata: {
+            sourceId: normalized.event.sourceId,
+            provider: normalized.event.provider,
+          },
         });
       } catch (error) {
         summary.failed += 1;

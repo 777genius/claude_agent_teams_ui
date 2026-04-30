@@ -167,6 +167,7 @@ import {
 } from './opencode/store/OpenCodeRuntimeManifestEvidenceReader';
 import {
   createRuntimeRunTombstoneStore,
+  RuntimeStaleEvidenceError,
   type RuntimeEvidenceKind,
 } from './opencode/store/RuntimeRunTombstoneStore';
 import { OpenCodeTaskLogAttributionStore } from './taskLogs/stream/OpenCodeTaskLogAttributionStore';
@@ -1411,6 +1412,11 @@ interface ProvisioningRun {
   effectiveMembers: TeamCreateRequest['members'];
   launchIdentity: ProviderModelLaunchIdentity | null;
   mixedSecondaryLanes: MixedSecondaryRuntimeLaneState[];
+  /**
+   * OpenCode secondary lanes share bridge state files. Launch them sequentially
+   * per team run to avoid file-lock contention while keeping launch non-blocking.
+   */
+  mixedSecondaryLaneLaunchQueue?: Promise<void>;
   lastLogProgressAt: number;
   /** Monotonic ms timestamp of last stdout/stderr data. For stall detection. */
   lastDataReceivedAt: number;
@@ -1619,7 +1625,7 @@ interface PromptSizeSummary {
   lines: number;
 }
 
-const MEMBER_LAUNCH_GRACE_MS = 90_000;
+const MEMBER_LAUNCH_GRACE_MS = 150_000;
 const MEMBER_BOOTSTRAP_STALL_MS = 5 * 60_000;
 
 export function shouldWarnOnUnreadableMemberAuditConfig(params: {
@@ -1806,6 +1812,18 @@ function isRecoverablePersistedOpenCodeRuntimeCandidate(
   const hasPendingPermission = (member.pendingPermissionRequestIds?.length ?? 0) > 0;
   return (
     member.agentToolAccepted === true && (hasOpenCodeRuntimeHandle(member) || hasPendingPermission)
+  );
+}
+
+function isPersistedOpenCodeSecondaryLaneMember(
+  member: PersistedTeamLaunchMemberState | undefined | null
+): boolean {
+  return (
+    member?.providerId === 'opencode' &&
+    member.laneKind === 'secondary' &&
+    member.laneOwnerProviderId === 'opencode' &&
+    typeof member.laneId === 'string' &&
+    member.laneId.trim().length > 0
   );
 }
 
@@ -6081,6 +6099,26 @@ export class TeamProvisioningService {
         runtimeActive = true;
       }
     }
+    if (
+      runtimeActive &&
+      laneIdentity.laneKind === 'secondary' &&
+      laneIdentity.laneOwnerProviderId === 'opencode' &&
+      !liveSecondaryLaneRunId
+    ) {
+      const staleLane = await recoverStaleOpenCodeRuntimeLaneIndexEntry({
+        teamsBasePath: getTeamsBasePath(),
+        teamName,
+        laneId: laneIdentity.laneId,
+      });
+      if (staleLane.stale) {
+        this.deleteSecondaryRuntimeRun(teamName, laneIdentity.laneId);
+        return {
+          delivered: false,
+          reason: 'opencode_runtime_not_active',
+          diagnostics: staleLane.diagnostics,
+        };
+      }
+    }
     if (!runtimeActive) {
       this.cleanupStoppedTeamOpenCodeRuntimeLanesInBackground(teamName);
       return { delivered: false, reason: 'opencode_runtime_not_active' };
@@ -8193,6 +8231,38 @@ export class TeamProvisioningService {
       laneId,
       evidenceKind: 'bootstrap_checkin',
     });
+    const idempotent = await this.resolveOpenCodeRuntimeBootstrapCheckinIdempotency({
+      teamName,
+      runId,
+      memberName,
+      runtimeSessionId,
+    });
+    await this.assertOpenCodeRuntimeMemberCheckinAllowed({
+      teamName,
+      memberName,
+      previousMember: idempotent.previousMember,
+    });
+    if (idempotent.state === 'duplicate') {
+      return {
+        ok: true,
+        providerId: 'opencode',
+        teamName,
+        runId,
+        state: 'accepted',
+        memberName,
+        runtimeSessionId,
+        diagnostics: ['opencode_bootstrap_checkin_duplicate_accepted'],
+        observedAt,
+      };
+    }
+    if (idempotent.state === 'conflict') {
+      throw new RuntimeStaleEvidenceError(
+        `opencode_bootstrap_checkin_session_conflict: existing runtime session ${idempotent.existingRuntimeSessionId}, received ${runtimeSessionId} for ${memberName}`,
+        'run_mismatch',
+        'bootstrap_checkin',
+        runId
+      );
+    }
     await this.updateOpenCodeRuntimeMemberLiveness({
       teamName,
       runId,
@@ -8215,6 +8285,95 @@ export class TeamProvisioningService {
       diagnostics: [],
       observedAt,
     };
+  }
+
+  private async resolveOpenCodeRuntimeBootstrapCheckinIdempotency(input: {
+    teamName: string;
+    runId: string;
+    memberName: string;
+    runtimeSessionId: string;
+  }): Promise<
+    | {
+        state: 'new';
+        previousMember?: PersistedTeamLaunchMemberState;
+      }
+    | {
+        state: 'duplicate';
+        previousMember: PersistedTeamLaunchMemberState;
+      }
+    | {
+        state: 'conflict';
+        previousMember: PersistedTeamLaunchMemberState;
+        existingRuntimeSessionId: string;
+      }
+  > {
+    const snapshot = await this.launchStateStore.read(input.teamName);
+    const previousMember = snapshot?.members[input.memberName];
+    if (!previousMember) {
+      return { state: 'new' };
+    }
+
+    const existingRuntimeSessionId = previousMember.runtimeSessionId?.trim();
+    const existingRuntimeRunId =
+      typeof previousMember.runtimeRunId === 'string' ? previousMember.runtimeRunId.trim() : '';
+    const hasAcceptedBootstrap =
+      previousMember.bootstrapConfirmed === true ||
+      previousMember.livenessKind === 'confirmed_bootstrap' ||
+      previousMember.launchState === 'confirmed_alive';
+
+    if (!hasAcceptedBootstrap || !existingRuntimeSessionId) {
+      return { state: 'new', previousMember };
+    }
+
+    if (existingRuntimeRunId && existingRuntimeRunId !== input.runId) {
+      return { state: 'new', previousMember };
+    }
+
+    if (existingRuntimeSessionId === input.runtimeSessionId) {
+      return { state: 'duplicate', previousMember };
+    }
+
+    if (!existingRuntimeRunId) {
+      return { state: 'new', previousMember };
+    }
+
+    return {
+      state: 'conflict',
+      previousMember,
+      existingRuntimeSessionId,
+    };
+  }
+
+  private async assertOpenCodeRuntimeMemberCheckinAllowed(input: {
+    teamName: string;
+    memberName: string;
+    previousMember?: PersistedTeamLaunchMemberState;
+  }): Promise<void> {
+    const config = await this.configReader.getConfig(input.teamName).catch(() => null);
+    const metaMembers = await this.membersMetaStore.getMembers(input.teamName).catch(() => []);
+    const configuredMember = this.resolveEffectiveConfiguredMember(
+      config?.members ?? [],
+      metaMembers,
+      input.memberName
+    );
+
+    if (configuredMember?.removedAt != null) {
+      throw new RuntimeStaleEvidenceError(
+        `Rejected OpenCode bootstrap check-in for removed member "${input.memberName}"`,
+        'run_mismatch',
+        'bootstrap_checkin',
+        null
+      );
+    }
+
+    if (!configuredMember && !input.previousMember) {
+      throw new RuntimeStaleEvidenceError(
+        `Rejected OpenCode bootstrap check-in for unconfigured member "${input.memberName}"`,
+        'run_mismatch',
+        'bootstrap_checkin',
+        null
+      );
+    }
   }
 
   async deliverOpenCodeRuntimeMessage(raw: unknown): Promise<OpenCodeRuntimeControlAck> {
@@ -8386,6 +8545,16 @@ export class TeamProvisioningService {
           .map((member) => (typeof member.name === 'string' ? member.name.trim() : ''))
           .filter((name) => name.length > 0 && name !== 'user' && !isLeadMember({ name }));
     const previousMember = previous?.members[input.memberName];
+    const previousRuntimeRunId =
+      typeof previousMember?.runtimeRunId === 'string' ? previousMember.runtimeRunId.trim() : '';
+    const sameRuntimeRun = previousRuntimeRunId.length > 0 && previousRuntimeRunId === input.runId;
+    const runtimePid =
+      input.metadata?.runtimePid ?? (sameRuntimeRun ? previousMember?.runtimePid : undefined);
+    const pidSource = input.metadata?.runtimePid
+      ? ('runtime_bootstrap' as const)
+      : sameRuntimeRun
+        ? previousMember?.pidSource
+        : undefined;
     const persistedIdentity = this.resolvePersistedRuntimeMemberIdentity({
       teamName: input.teamName,
       memberName: input.memberName,
@@ -8400,10 +8569,11 @@ export class TeamProvisioningService {
       runtimeAlive: true,
       bootstrapConfirmed: true,
       hardFailure: false,
-      ...(input.metadata?.runtimePid ? { runtimePid: input.metadata.runtimePid } : {}),
+      runtimePid,
+      runtimeRunId: input.runId,
       runtimeSessionId: input.runtimeSessionId,
       livenessKind: 'confirmed_bootstrap',
-      ...(input.metadata?.runtimePid ? { pidSource: 'runtime_bootstrap' as const } : {}),
+      pidSource,
       runtimeDiagnostic: input.reason,
       runtimeDiagnosticSeverity: 'info',
       runtimeLastSeenAt: input.observedAt,
@@ -10854,6 +11024,7 @@ export class TeamProvisioningService {
       return;
     }
     await this.reconcileBootstrapTranscriptFailures(run);
+    await this.reconcileBootstrapTranscriptSuccesses(run);
     if (this.shouldSkipMemberSpawnAudit(run)) {
       return;
     }
@@ -10899,9 +11070,17 @@ export class TeamProvisioningService {
   private async reconcileBootstrapTranscriptSuccesses(run: ProvisioningRun): Promise<void> {
     for (const memberName of run.expectedMembers ?? []) {
       const current = run.memberSpawnStatuses.get(memberName);
+      if (this.isOpenCodeSecondaryLaneMemberInRun(run, memberName)) {
+        continue;
+      }
+      const failureReason = current?.hardFailureReason ?? current?.error;
+      const canClearFailedBootstrap =
+        current?.launchState === 'failed_to_start' &&
+        current.agentToolAccepted === true &&
+        isAutoClearableLaunchFailureReason(failureReason);
       if (
         !current ||
-        current.launchState === 'failed_to_start' ||
+        (current.launchState === 'failed_to_start' && !canClearFailedBootstrap) ||
         current.launchState === 'confirmed_alive' ||
         current.bootstrapConfirmed === true ||
         current.agentToolAccepted !== true
@@ -10920,6 +11099,11 @@ export class TeamProvisioningService {
       }
       this.confirmMemberSpawnStatusFromTranscript(run, memberName, transcriptOutcome.observedAt);
     }
+  }
+
+  private isOpenCodeSecondaryLaneMemberInRun(run: ProvisioningRun, memberName: string): boolean {
+    const lanes = Array.isArray(run.mixedSecondaryLanes) ? run.mixedSecondaryLanes : [];
+    return lanes.some((lane) => lane.providerId === 'opencode' && lane.member.name === memberName);
   }
 
   private static readonly CONTEXT_EMIT_THROTTLE_MS = 2000;
@@ -17848,8 +18032,13 @@ export class TeamProvisioningService {
     lane.state = 'launching';
     lane.runId = lane.runId ?? randomUUID();
 
-    void (async () => {
+    const launch = async () => {
       try {
+        if (run.cancelRequested || run.processKilled) {
+          this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
+          lane.state = 'finished';
+          return;
+        }
         await this.launchSingleMixedSecondaryLane(run, lane);
       } catch (error) {
         if (run.cancelRequested || run.processKilled) {
@@ -17879,7 +18068,18 @@ export class TeamProvisioningService {
         await this.publishMixedSecondaryLaneStatusChange(run, lane).catch(() => undefined);
         lane.state = 'finished';
       }
-    })();
+    };
+
+    const previousLaunch = run.mixedSecondaryLaneLaunchQueue ?? Promise.resolve();
+    const nextLaunch = previousLaunch.catch(() => undefined).then(launch);
+    run.mixedSecondaryLaneLaunchQueue = nextLaunch.catch((error) => {
+      logger.warn(
+        `[${run.teamName}] OpenCode secondary lane launch queue failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    });
+    void run.mixedSecondaryLaneLaunchQueue;
   }
 
   private async launchMixedSecondaryLaneIfNeeded(
@@ -18085,7 +18285,7 @@ export class TeamProvisioningService {
           projectPath,
           previousLaunchState: persistedSnapshot ?? bootstrapSnapshot,
         });
-        if (runtimeEvidence) {
+        if (isRecoverableOpenCodeRuntimeEvidence(runtimeEvidence)) {
           recoveredAny = true;
           secondaryMembers.push({
             laneId: laneIdentity.laneId,
@@ -18340,7 +18540,10 @@ export class TeamProvisioningService {
         expected,
         Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
       );
-      if (transcriptOutcome) {
+      if (
+        transcriptOutcome &&
+        (transcriptOutcome.kind !== 'success' || !isPersistedOpenCodeSecondaryLaneMember(current))
+      ) {
         return true;
       }
     }
@@ -18481,12 +18684,17 @@ export class TeamProvisioningService {
         hardFailure: false,
         lastEvaluatedAt: now,
       };
+      const isOpenCodeSecondaryLaneMember = isPersistedOpenCodeSecondaryLaneMember(current);
       if (bootstrapMember?.agentToolAccepted && !current.agentToolAccepted) {
         current.agentToolAccepted = true;
         current.firstSpawnAcceptedAt =
           current.firstSpawnAcceptedAt ?? bootstrapMember.firstSpawnAcceptedAt;
       }
-      if (bootstrapMember?.bootstrapConfirmed && !current.bootstrapConfirmed) {
+      if (
+        bootstrapMember?.bootstrapConfirmed &&
+        !current.bootstrapConfirmed &&
+        !isOpenCodeSecondaryLaneMember
+      ) {
         current.bootstrapConfirmed = true;
         current.lastHeartbeatAt = current.lastHeartbeatAt ?? bootstrapMember.lastHeartbeatAt;
       }
@@ -18546,7 +18754,7 @@ export class TeamProvisioningService {
         current.hardFailure = true;
         current.hardFailureReason = heartbeatReason;
         current.sources.hardFailureSignal = true;
-      } else if (heartbeatMessage) {
+      } else if (heartbeatMessage && !isOpenCodeSecondaryLaneMember) {
         current.bootstrapConfirmed = true;
         current.lastHeartbeatAt = heartbeatMessage.timestamp;
         current.hardFailure = false;
@@ -18558,7 +18766,7 @@ export class TeamProvisioningService {
           expected,
           Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
         );
-        if (transcriptOutcome?.kind === 'success') {
+        if (transcriptOutcome?.kind === 'success' && !isOpenCodeSecondaryLaneMember) {
           current.bootstrapConfirmed = true;
           current.lastHeartbeatAt = current.lastHeartbeatAt ?? transcriptOutcome.observedAt;
           current.hardFailure = false;
