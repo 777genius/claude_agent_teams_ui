@@ -18477,6 +18477,16 @@ export class TeamProvisioningService {
         `[${params.teamName}] Failed to recover missing OpenCode lane index ${params.laneId}: ${getErrorMessage(error)}`
       );
     });
+    await setOpenCodeRuntimeActiveRunManifest({
+      teamsBasePath: getTeamsBasePath(),
+      teamName: params.teamName,
+      laneId: params.laneId,
+      runId: params.persistedMember.runtimeRunId ?? null,
+    }).catch((error: unknown) => {
+      logger.warn(
+        `[${params.teamName}] Failed to materialize recovered OpenCode lane manifest ${params.laneId}: ${getErrorMessage(error)}`
+      );
+    });
 
     return {
       ...runtimeEvidence,
