@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createMemberWorkSyncFeature,
@@ -94,6 +94,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   let previousDisableAppBootstrap: string | undefined;
   let previousDisableRuntimeBootstrap: string | undefined;
   let previousHome: string | undefined;
+  let previousHistFile: string | undefined;
   let previousUserProfile: string | undefined;
   let svc: TeamProvisioningService | null;
   let feature: MemberWorkSyncFeatureFacade | null;
@@ -115,9 +116,11 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     previousDisableAppBootstrap = process.env.CLAUDE_APP_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP;
     previousDisableRuntimeBootstrap = process.env.CLAUDE_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP;
     previousHome = process.env.HOME;
+    previousHistFile = process.env.HISTFILE;
     previousUserProfile = process.env.USERPROFILE;
 
     process.env.HOME = tempHome;
+    process.env.HISTFILE = '/dev/null';
     process.env.USERPROFILE = tempHome;
     process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH =
       process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
@@ -149,13 +152,18 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     restoreEnv('CLAUDE_APP_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP', previousDisableAppBootstrap);
     restoreEnv('CLAUDE_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP', previousDisableRuntimeBootstrap);
     restoreEnv('HOME', previousHome);
+    restoreEnv('HISTFILE', previousHistFile);
     restoreEnv('USERPROFILE', previousUserProfile);
     setClaudeBasePathOverride(null);
     if (process.env.MEMBER_WORK_SYNC_CLAUDE_KEEP_TEMP === '1') {
       console.info(`[MemberWorkSyncClaudeStopHook.live] preserved temp dir: ${tempDir}`);
     } else {
-      await fs.rm(tempDir, { recursive: true, force: true });
+      await removeTempDirAfterLateShellWrites(tempDir);
     }
+  });
+
+  afterAll(async () => {
+    await cleanupScopedClaudeStopHookLiveTempDirs();
   });
 
   async function runClaudeStopHookLiveScenario(
@@ -497,3 +505,34 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     420_000
   );
 });
+
+async function removeTempDirAfterLateShellWrites(tempDir: string): Promise<void> {
+  // Claude Code can leave child shells that write ~/.zsh_history just after stopTeam cleanup.
+  // Bounded repeated passes keep live tests from leaving tiny recreated HOME directories behind.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await fs.rm(tempDir, { recursive: true, force: true });
+    if (attempt < 5) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+}
+
+async function cleanupScopedClaudeStopHookLiveTempDirs(): Promise<void> {
+  const tmpRoot = os.tmpdir();
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    let entries: Array<{ isDirectory(): boolean; name: string }>;
+    try {
+      entries = await fs.readdir(tmpRoot, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith('member-work-sync-claude-stop-live-'))
+        .map((entry) => fs.rm(path.join(tmpRoot, entry.name), { recursive: true, force: true }))
+    );
+    if (attempt < 5) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+}
