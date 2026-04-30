@@ -25,7 +25,7 @@ export interface RuntimeTurnSettledProcessedResult {
   event: RuntimeTurnSettledEvent;
   teamName?: string;
   memberName?: string;
-  outcome: 'enqueued' | 'unresolved' | 'duplicate';
+  outcome: 'enqueued' | 'unresolved' | 'duplicate' | 'ignored';
   reason?: string;
   processedAt: string;
 }

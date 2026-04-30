@@ -1,4 +1,5 @@
 import type { MemberWorkSyncClockPort, MemberWorkSyncLoggerPort } from './ports';
+import type { RuntimeTurnSettledEvent } from '../domain';
 import type {
   RuntimeTurnSettledEventStorePort,
   RuntimeTurnSettledPayloadNormalizerPort,
@@ -19,8 +20,28 @@ export interface RuntimeTurnSettledDrainSummary {
   claimed: number;
   enqueued: number;
   unresolved: number;
+  ignored: number;
   invalid: number;
   failed: number;
+}
+
+const NON_TERMINAL_OPENCODE_OUTCOMES = new Set([
+  'timeout',
+  'stream_unavailable',
+  'prompt_rejected',
+  'idle_without_assistant_activity',
+  'unknown',
+]);
+
+function getIgnoredReason(event: RuntimeTurnSettledEvent): string | null {
+  if (event.provider !== 'opencode') {
+    return null;
+  }
+  const outcome = event.outcome?.trim();
+  if (!outcome || !NON_TERMINAL_OPENCODE_OUTCOMES.has(outcome)) {
+    return null;
+  }
+  return `opencode_non_terminal_outcome:${outcome}`;
 }
 
 export class RuntimeTurnSettledIngestor {
@@ -31,6 +52,7 @@ export class RuntimeTurnSettledIngestor {
       claimed: 0,
       enqueued: 0,
       unresolved: 0,
+      ignored: 0,
       invalid: 0,
       failed: 0,
     };
@@ -51,6 +73,18 @@ export class RuntimeTurnSettledIngestor {
           summary.invalid += 1;
           await this.deps.eventStore.markInvalid(payload, {
             reason: normalized.reason,
+            processedAt,
+          });
+          continue;
+        }
+
+        const ignoredReason = getIgnoredReason(normalized.event);
+        if (ignoredReason) {
+          summary.ignored += 1;
+          await this.deps.eventStore.markProcessed(payload, {
+            event: normalized.event,
+            outcome: 'ignored',
+            reason: ignoredReason,
             processedAt,
           });
           continue;

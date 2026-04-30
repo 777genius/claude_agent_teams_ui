@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { RuntimeTurnSettledIngestor } from '@features/member-work-sync/core/application';
 import { ClaudeStopHookPayloadNormalizer } from '@features/member-work-sync/main/infrastructure/ClaudeStopHookPayloadNormalizer';
 import { NodeHashAdapter } from '@features/member-work-sync/main/infrastructure/NodeHashAdapter';
+import { OpenCodeTurnSettledPayloadNormalizer } from '@features/member-work-sync/main/infrastructure/OpenCodeTurnSettledPayloadNormalizer';
 
 import type {
   RuntimeTurnSettledClaimedPayload,
@@ -18,6 +19,17 @@ function makePayload(raw: string): RuntimeTurnSettledClaimedPayload {
     fileName: 'event-1.claude.json',
     filePath: '/tmp/event-1.claude.json',
     provider: 'claude',
+    raw,
+    claimedAt: '2026-04-29T12:00:00.000Z',
+  };
+}
+
+function makeOpenCodePayload(raw: string): RuntimeTurnSettledClaimedPayload {
+  return {
+    id: 'event-1.opencode.json',
+    fileName: 'event-1.opencode.json',
+    filePath: '/tmp/event-1.opencode.json',
+    provider: 'opencode',
     raw,
     claimedAt: '2026-04-29T12:00:00.000Z',
   };
@@ -57,6 +69,7 @@ describe('RuntimeTurnSettledIngestor', () => {
       claimed: 1,
       enqueued: 1,
       unresolved: 0,
+      ignored: 0,
       invalid: 0,
       failed: 0,
     });
@@ -133,11 +146,138 @@ describe('RuntimeTurnSettledIngestor', () => {
     await expect(ingestor.drainPending()).resolves.toMatchObject({
       claimed: 1,
       unresolved: 1,
+      ignored: 0,
       enqueued: 0,
     });
     expect(processed[0]).toMatchObject({
       outcome: 'unresolved',
       reason: 'no_matching_member_session',
+    });
+  });
+
+  it('normalizes OpenCode turn-settled payloads and enqueues provider-owned member reconcile', async () => {
+    const payload = makeOpenCodePayload(
+      JSON.stringify({
+        schemaVersion: 1,
+        provider: 'opencode',
+        source: 'agent-teams-orchestrator-opencode',
+        eventName: 'runtime_turn_settled',
+        hookEventName: 'Stop',
+        sessionId: 'ses-opencode-1',
+        runtimePromptMessageId: 'msg_123',
+        laneId: 'secondary:opencode:jack',
+        memberName: 'jack',
+        teamName: 'team-a',
+        cwd: '/tmp/project',
+        outcome: 'success',
+        recordedAt: '2026-04-29T12:00:00.000Z',
+      })
+    );
+    const processed: RuntimeTurnSettledProcessedResult[] = [];
+    const store: RuntimeTurnSettledEventStorePort = {
+      claimPending: vi.fn(async () => [payload]),
+      markProcessed: vi.fn(async (_payload, result) => {
+        processed.push(result);
+      }),
+      markInvalid: vi.fn(),
+    };
+    const resolver: RuntimeTurnSettledTargetResolverPort = {
+      resolve: vi.fn(async () => ({ ok: true as const, teamName: 'team-a', memberName: 'jack' })),
+    };
+    const enqueueRuntimeTurnSettled = vi.fn();
+
+    const ingestor = new RuntimeTurnSettledIngestor({
+      eventStore: store,
+      normalizer: new OpenCodeTurnSettledPayloadNormalizer(new NodeHashAdapter()),
+      targetResolver: resolver,
+      reconcileQueue: { enqueueRuntimeTurnSettled },
+      clock: { now: () => new Date('2026-04-29T12:01:00.000Z') },
+    });
+
+    await expect(ingestor.drainPending()).resolves.toMatchObject({
+      claimed: 1,
+      enqueued: 1,
+      invalid: 0,
+      unresolved: 0,
+      ignored: 0,
+    });
+    expect(enqueueRuntimeTurnSettled).toHaveBeenCalledWith({
+      teamName: 'team-a',
+      memberName: 'jack',
+      event: expect.objectContaining({
+        provider: 'opencode',
+        hookEventName: 'Stop',
+        sessionId: 'ses-opencode-1',
+        turnId: 'msg_123',
+        teamName: 'team-a',
+        memberName: 'jack',
+        agentId: 'secondary:opencode:jack',
+        outcome: 'success',
+      }),
+    });
+    expect(processed[0]).toMatchObject({
+      outcome: 'enqueued',
+      teamName: 'team-a',
+      memberName: 'jack',
+    });
+  });
+
+  it.each([
+    'timeout',
+    'stream_unavailable',
+    'prompt_rejected',
+    'idle_without_assistant_activity',
+    'unknown',
+  ])('ignores non-terminal OpenCode outcome %s without enqueueing premature reconcile', async (outcome) => {
+    const payload = makeOpenCodePayload(
+      JSON.stringify({
+        schemaVersion: 1,
+        provider: 'opencode',
+        source: 'agent-teams-orchestrator-opencode',
+        eventName: 'runtime_turn_settled',
+        hookEventName: 'Stop',
+        sessionId: 'ses-opencode-1',
+        runtimePromptMessageId: 'msg_123',
+        laneId: 'secondary:opencode:jack',
+        memberName: 'jack',
+        teamName: 'team-a',
+        outcome,
+        recordedAt: '2026-04-29T12:00:00.000Z',
+      })
+    );
+    const processed: RuntimeTurnSettledProcessedResult[] = [];
+    const store: RuntimeTurnSettledEventStorePort = {
+      claimPending: vi.fn(async () => [payload]),
+      markProcessed: vi.fn(async (_payload, result) => {
+        processed.push(result);
+      }),
+      markInvalid: vi.fn(),
+    };
+    const resolver: RuntimeTurnSettledTargetResolverPort = {
+      resolve: vi.fn(),
+    };
+    const enqueueRuntimeTurnSettled = vi.fn();
+
+    const ingestor = new RuntimeTurnSettledIngestor({
+      eventStore: store,
+      normalizer: new OpenCodeTurnSettledPayloadNormalizer(new NodeHashAdapter()),
+      targetResolver: resolver,
+      reconcileQueue: { enqueueRuntimeTurnSettled },
+      clock: { now: () => new Date('2026-04-29T12:01:00.000Z') },
+    });
+
+    await expect(ingestor.drainPending()).resolves.toMatchObject({
+      claimed: 1,
+      enqueued: 0,
+      unresolved: 0,
+      ignored: 1,
+      invalid: 0,
+    });
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(enqueueRuntimeTurnSettled).not.toHaveBeenCalled();
+    expect(processed[0]).toMatchObject({
+      outcome: 'ignored',
+      reason: `opencode_non_terminal_outcome:${outcome}`,
     });
   });
 });
