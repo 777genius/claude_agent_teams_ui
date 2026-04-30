@@ -161,13 +161,22 @@ liveDescribe('OpenCode team provisioning live e2e', () => {
         },
       });
 
-      svc.stopTeam(teamName);
+      await svc.stopTeam(teamName);
       await waitUntil(async () => {
         const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName);
         return Object.keys(laneIndex.lanes).length === 0;
       }, 90_000);
     } finally {
-      svc.stopTeam(teamName);
+      await svc.stopTeam(teamName).catch(() => undefined);
+      await readinessBridge
+        .cleanupOpenCodeHosts({
+          reason: 'opencode-team-provisioning-live-e2e-cleanup',
+          mode: 'force',
+          projectPath: PROJECT_PATH,
+          staleAgeMs: null,
+          leaseStaleAgeMs: null,
+        })
+        .catch(() => undefined);
     }
   }, 300_000);
 });
