@@ -104,6 +104,30 @@ import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 
 function getRealAgentTeamsMcpLaunchSpec(): { command: string; args: string[] } {
   const workspaceRoot = process.cwd();
+  const sourceEntry = path.join(workspaceRoot, 'mcp-server', 'src', 'index.ts');
+  const tsxPackageJson = path.join(
+    workspaceRoot,
+    'mcp-server',
+    'node_modules',
+    'tsx',
+    'package.json'
+  );
+  if (fs.existsSync(sourceEntry) && fs.existsSync(tsxPackageJson)) {
+    const packageJson = JSON.parse(fs.readFileSync(tsxPackageJson, 'utf8')) as {
+      bin?: string | Record<string, string>;
+    };
+    const bin = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.tsx;
+    if (bin) {
+      const tsxCli = path.resolve(path.dirname(tsxPackageJson), bin);
+      if (fs.existsSync(tsxCli)) {
+        return {
+          command: process.execPath,
+          args: [tsxCli, sourceEntry],
+        };
+      }
+    }
+  }
+
   const distEntry = path.join(workspaceRoot, 'mcp-server', 'dist', 'index.js');
   if (fs.existsSync(distEntry)) {
     return {
