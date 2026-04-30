@@ -265,6 +265,19 @@ function getConnectionAlert(provider: CliProviderStatus): string | null {
   return null;
 }
 
+function getProviderUsageLabel(provider: CliProviderStatus): string {
+  if (
+    provider.providerId === 'anthropic' &&
+    provider.connection?.configuredAuthMode === 'api_key'
+  ) {
+    return provider.connection.apiKeyConfigured ? 'Using API key' : 'API key required';
+  }
+
+  return provider.authenticated
+    ? `Using ${formatProviderAuthMethodLabelForProvider(provider.providerId, provider.authMethod)}`
+    : provider.statusMessage || 'Not connected';
+}
+
 function getCodexAccountPanelHint(
   provider: CliProviderStatus | null,
   configuredAuthMode: CliProviderAuthMode | undefined
@@ -818,10 +831,7 @@ export const ProviderRuntimeSettingsDialog = ({
   let connectionStatusLabel: string | null = null;
   if (selectedProvider) {
     if (!hideConnectionMethodMeta && selectedProvider.authenticated) {
-      connectionStatusLabel = `Using ${formatProviderAuthMethodLabelForProvider(
-        selectedProvider.providerId,
-        selectedProvider.authMethod
-      )}`;
+      connectionStatusLabel = getProviderUsageLabel(selectedProvider);
     } else if (!hideConnectionMethodMeta) {
       connectionStatusLabel = 'Not connected';
     }
@@ -1129,22 +1139,12 @@ export const ProviderRuntimeSettingsDialog = ({
                   className="text-xs"
                   style={{
                     color: getProviderStatusColor(
-                      selectedProvider.authenticated
-                        ? `Using ${formatProviderAuthMethodLabelForProvider(
-                            selectedProvider.providerId,
-                            selectedProvider.authMethod
-                          )}`
-                        : selectedProvider.statusMessage || 'Not connected',
+                      getProviderUsageLabel(selectedProvider),
                       selectedProvider.authenticated
                     ),
                   }}
                 >
-                  {selectedProvider.authenticated
-                    ? `Using ${formatProviderAuthMethodLabelForProvider(
-                        selectedProvider.providerId,
-                        selectedProvider.authMethod
-                      )}`
-                    : selectedProvider.statusMessage || 'Not connected'}
+                  {getProviderUsageLabel(selectedProvider)}
                 </span>
                 {managedRuntimeSummary && !hideConnectionMethodMeta ? (
                   <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>

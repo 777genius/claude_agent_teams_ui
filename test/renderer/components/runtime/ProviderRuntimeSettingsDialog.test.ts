@@ -577,6 +577,54 @@ describe('ProviderRuntimeSettingsDialog', () => {
     expect(onRefreshProvider).toHaveBeenCalledWith('anthropic');
   });
 
+  it('shows Anthropic API key usage when API key mode is selected even if the local CLI has a subscription session', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    storeState.appConfig.providerConnections.anthropic.authMode = 'api_key';
+    storeState.apiKeys = [
+      {
+        id: 'anthropic-key',
+        envVarName: 'ANTHROPIC_API_KEY',
+        scope: 'user',
+        name: 'Anthropic API Key',
+        maskedValue: 'sk-ant-...',
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProviderRuntimeSettingsDialog, {
+          open: true,
+          onOpenChange: vi.fn(),
+          providers: [
+            createAnthropicProvider({
+              authenticated: true,
+              authMethod: 'claude.ai',
+              configuredAuthMode: 'api_key',
+              apiKeyConfigured: true,
+              apiKeySource: 'stored',
+              apiKeySourceLabel: 'Stored in app',
+            }),
+          ],
+          initialProviderId: 'anthropic',
+          onSelectBackend: vi.fn(),
+          onRefreshProvider: vi.fn(() => Promise.resolve(undefined)),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Using API key');
+    expect(host.textContent).not.toContain('Using Anthropic subscription');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+    host.remove();
+  });
+
   it('accepts and saves a typed Anthropic API key from provider settings', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);

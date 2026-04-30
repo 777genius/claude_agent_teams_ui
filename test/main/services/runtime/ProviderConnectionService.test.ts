@@ -211,6 +211,107 @@ describe('ProviderConnectionService', () => {
     });
   });
 
+  it('surfaces stored Anthropic API key mode as the effective provider auth status', async () => {
+    const { ProviderConnectionService } =
+      await import('@main/services/runtime/ProviderConnectionService');
+
+    const service = new ProviderConnectionService(
+      {
+        lookupPreferred: vi.fn().mockResolvedValue({
+          envVarName: 'ANTHROPIC_API_KEY',
+          value: 'stored-key',
+        }),
+      } as never,
+      {
+        getConfig: () => createConfig('api_key'),
+      } as never
+    );
+
+    const status = await service.enrichProviderStatus({
+      providerId: 'anthropic',
+      displayName: 'Anthropic',
+      supported: true,
+      authenticated: true,
+      authMethod: 'claude.ai',
+      verificationState: 'verified',
+      statusMessage: 'Connected via Anthropic subscription',
+      models: ['claude-sonnet-4-6'],
+      canLoginFromUi: true,
+      capabilities: {
+        teamLaunch: true,
+        oneShot: true,
+        extensions: { mcp: 'unsupported', skills: 'unsupported', plugins: 'unsupported' },
+      },
+      selectedBackendId: null,
+      resolvedBackendId: null,
+      availableBackends: [],
+      externalRuntimeDiagnostics: [],
+      backend: null,
+      connection: null,
+    } as never);
+
+    expect(status).toMatchObject({
+      authenticated: true,
+      authMethod: 'api_key',
+      verificationState: 'verified',
+      statusMessage: 'Connected via API key',
+      connection: {
+        configuredAuthMode: 'api_key',
+        apiKeyConfigured: true,
+        apiKeySource: 'stored',
+        apiKeySourceLabel: 'Stored in app',
+      },
+    });
+  });
+
+  it('does not treat a subscription session as connected when Anthropic API key mode has no key', async () => {
+    const { ProviderConnectionService } =
+      await import('@main/services/runtime/ProviderConnectionService');
+
+    const service = new ProviderConnectionService(
+      {
+        lookupPreferred: vi.fn().mockResolvedValue(null),
+      } as never,
+      {
+        getConfig: () => createConfig('api_key'),
+      } as never
+    );
+
+    const status = await service.enrichProviderStatus({
+      providerId: 'anthropic',
+      displayName: 'Anthropic',
+      supported: true,
+      authenticated: true,
+      authMethod: 'claude.ai',
+      verificationState: 'verified',
+      statusMessage: 'Connected via Anthropic subscription',
+      models: ['claude-sonnet-4-6'],
+      canLoginFromUi: true,
+      capabilities: {
+        teamLaunch: true,
+        oneShot: true,
+        extensions: { mcp: 'unsupported', skills: 'unsupported', plugins: 'unsupported' },
+      },
+      selectedBackendId: null,
+      resolvedBackendId: null,
+      availableBackends: [],
+      externalRuntimeDiagnostics: [],
+      backend: null,
+      connection: null,
+    } as never);
+
+    expect(status).toMatchObject({
+      authenticated: false,
+      authMethod: null,
+      verificationState: 'unknown',
+      statusMessage: 'API key mode is selected, but no Anthropic API credential is available yet.',
+      connection: {
+        configuredAuthMode: 'api_key',
+        apiKeyConfigured: false,
+      },
+    });
+  });
+
   it('exposes Codex as native-only API-key runtime', async () => {
     const { ProviderConnectionService } =
       await import('@main/services/runtime/ProviderConnectionService');
