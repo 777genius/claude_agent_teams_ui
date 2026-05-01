@@ -19,9 +19,9 @@ import { AlertCircle, Clock, FileText, Loader2 } from 'lucide-react';
 
 import type {
   BoardTaskLogActor,
-  ResolvedTeamMember,
   BoardTaskLogSegment,
   BoardTaskLogStreamResponse,
+  ResolvedTeamMember,
 } from '@shared/types';
 
 interface TaskLogStreamSectionProps {

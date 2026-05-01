@@ -45,10 +45,5 @@ export function isReadOnlyBoardTaskLogToolName(toolName: string | undefined): bo
 }
 
 export function isRecoverableHistoricalBoardTaskLogToolName(toolName: string | undefined): boolean {
-  const canonical = canonicalizeBoardTaskLogToolName(toolName);
-  return (
-    canonical !== null &&
-    (HISTORICAL_BOARD_LIFECYCLE_TOOL_NAMES.has(canonical) ||
-      HISTORICAL_BOARD_ACTION_TOOL_NAMES.has(canonical))
-  );
+  return isBoardTaskLogMcpToolName(toolName);
 }

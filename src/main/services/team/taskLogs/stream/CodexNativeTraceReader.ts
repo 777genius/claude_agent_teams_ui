@@ -1,7 +1,6 @@
+import { getTeamsBasePath } from '@main/utils/pathDecoder';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-
-import { getTeamsBasePath } from '@main/utils/pathDecoder';
 
 const TRACE_ROOT_SEGMENT = path.join('.member-work-sync', 'runtime-hooks', 'codex-native-traces');
 

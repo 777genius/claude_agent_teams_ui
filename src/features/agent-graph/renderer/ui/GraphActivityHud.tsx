@@ -289,6 +289,15 @@ export const GraphActivityHud = ({
   const handleMessageClick = useCallback((item: TimelineItem) => {
     setExpandedItem(item);
   }, []);
+  const handleMessageKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>, item: TimelineItem): void => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleMessageClick(item);
+      }
+    },
+    [handleMessageClick]
+  );
 
   const handleMemberClick = useCallback(
     (member: ResolvedTeamMember) => {
@@ -360,6 +369,52 @@ export const GraphActivityHud = ({
     };
   }, [enabled, forwardWheelToGraph, visibleLanes]);
 
+  const renderLaneEntry = useCallback(
+    (entry: InlineActivityEntry, index: number): React.JSX.Element => {
+      const messageKey = toMessageKey(entry.message);
+      const timelineItem: TimelineItem = {
+        type: 'message',
+        message: entry.message,
+      };
+      const isUnread = !entry.message.read && !readSet.has(messageKey);
+
+      return (
+        <div
+          key={entry.graphItem.id}
+          className="h-[72px] min-h-[72px] min-w-0 max-w-full cursor-pointer overflow-hidden"
+          role="button"
+          tabIndex={0}
+          onClick={() => handleMessageClick(timelineItem)}
+          onKeyDown={(event) => handleMessageKeyDown(event, timelineItem)}
+        >
+          <GraphActivityCard
+            message={entry.message}
+            teamName={teamName}
+            messageContext={messageContext}
+            teamNames={teamNames}
+            teamColorByName={teamColorByName}
+            isUnread={isUnread}
+            zebraShade={index % 2 === 1}
+            onClick={() => handleMessageClick(timelineItem)}
+            onOpenTaskDetail={onOpenTaskDetail}
+            onOpenMemberProfile={onOpenMemberProfile}
+          />
+        </div>
+      );
+    },
+    [
+      handleMessageClick,
+      handleMessageKeyDown,
+      messageContext,
+      onOpenMemberProfile,
+      onOpenTaskDetail,
+      readSet,
+      teamColorByName,
+      teamName,
+      teamNames,
+    ]
+  );
+
   if (!enabled || !teamSnapshot || visibleLanes.length === 0) {
     return null;
   }
@@ -421,43 +476,7 @@ export const GraphActivityHud = ({
                             No recent activity
                           </div>
                         ) : null}
-                        {lane.entries.map((entry, index) => {
-                          const messageKey = toMessageKey(entry.message);
-                          const timelineItem: TimelineItem = {
-                            type: 'message',
-                            message: entry.message,
-                          };
-                          const isUnread = !entry.message.read && !readSet.has(messageKey);
-
-                          return (
-                            <div
-                              key={entry.graphItem.id}
-                              className="h-[72px] min-h-[72px] min-w-0 max-w-full cursor-pointer overflow-hidden"
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => handleMessageClick(timelineItem)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  handleMessageClick(timelineItem);
-                                }
-                              }}
-                            >
-                              <GraphActivityCard
-                                message={entry.message}
-                                teamName={teamName}
-                                messageContext={messageContext}
-                                teamNames={teamNames}
-                                teamColorByName={teamColorByName}
-                                isUnread={isUnread}
-                                zebraShade={index % 2 === 1}
-                                onClick={() => handleMessageClick(timelineItem)}
-                                onOpenTaskDetail={onOpenTaskDetail}
-                                onOpenMemberProfile={onOpenMemberProfile}
-                              />
-                            </div>
-                          );
-                        })}
+                        {lane.entries.map(renderLaneEntry)}
 
                         {lane.overflowCount > 0 ? (
                           <button

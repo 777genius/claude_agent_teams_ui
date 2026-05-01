@@ -1,7 +1,6 @@
+import { getTaskDisplayId } from '@shared/utils/taskIdentity';
 import { createReadStream } from 'fs';
 import * as readline from 'readline';
-
-import { getTaskDisplayId } from '@shared/utils/taskIdentity';
 
 import type { TeamTask } from '@shared/types';
 

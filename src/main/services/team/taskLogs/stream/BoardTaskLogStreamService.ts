@@ -15,15 +15,15 @@ import { BoardTaskExactLogSummarySelector } from '../exact/BoardTaskExactLogSumm
 import { isBoardTaskExactLogsReadEnabled } from '../exact/featureGates';
 import { getBoardTaskExactLogFileVersions } from '../exact/fileVersions';
 
-import { OpenCodeTaskLogStreamSource } from './OpenCodeTaskLogStreamSource';
-import { CodexNativeTaskLogStreamSource } from './CodexNativeTaskLogStreamSource';
-import { buildCodexNativeToolSignature } from './CodexNativeTraceProjector';
-import { HistoricalBoardMcpRawProbe } from './HistoricalBoardMcpRawProbe';
-import { TaskLogTranscriptCandidateSelector } from './TaskLogTranscriptCandidateSelector';
 import {
   canonicalizeBoardTaskLogToolName,
   isBoardTaskLogMcpToolName,
 } from './boardTaskLogToolNames';
+import { CodexNativeTaskLogStreamSource } from './CodexNativeTaskLogStreamSource';
+import { buildCodexNativeToolSignature } from './CodexNativeTraceProjector';
+import { HistoricalBoardMcpRawProbe } from './HistoricalBoardMcpRawProbe';
+import { OpenCodeTaskLogStreamSource } from './OpenCodeTaskLogStreamSource';
+import { TaskLogTranscriptCandidateSelector } from './TaskLogTranscriptCandidateSelector';
 
 import type { BoardTaskActivityRecord } from '../activity/BoardTaskActivityRecord';
 import type { BoardTaskExactLogDetailCandidate } from '../exact/BoardTaskExactLogTypes';
@@ -1684,12 +1684,12 @@ export class BoardTaskLogStreamService {
     const cacheKey = this.buildLayoutCacheKey(teamName, taskId);
     const generation = this.getTranscriptDiscoveryGeneration(teamName);
     const cached = this.layoutCache.get(cacheKey);
-    if (cached && cached.generation === generation && cached.expiresAt > Date.now()) {
+    if (cached?.generation === generation && cached.expiresAt > Date.now()) {
       return cached.layout;
     }
 
     const existingInFlight = this.layoutInFlight.get(cacheKey);
-    if (existingInFlight && existingInFlight.generation === generation) {
+    if (existingInFlight?.generation === generation) {
       return await existingInFlight.promise;
     }
 

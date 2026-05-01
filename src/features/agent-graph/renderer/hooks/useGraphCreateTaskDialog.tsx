@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { api } from '@renderer/api';
 import { CreateTaskDialog } from '@renderer/components/team/dialogs/CreateTaskDialog';

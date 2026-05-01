@@ -19,7 +19,11 @@ import { GraphNodePopover } from './GraphNodePopover';
 import { GraphProvisioningHud } from './GraphProvisioningHud';
 import { GraphTransientHandoffHud } from './GraphTransientHandoffHud';
 
-import type { GraphDomainRef, GraphEventPort } from '@claude-teams/agent-graph';
+import type {
+  GraphDomainRef,
+  GraphEventPort,
+  TransientHandoffCard,
+} from '@claude-teams/agent-graph';
 import type {
   MemberActivityFilter,
   MemberDetailTab,
@@ -149,7 +153,7 @@ export const TeamGraphOverlay = ({
               focusNodeIds?: ReadonlySet<string> | null;
               focusEdgeIds?: ReadonlySet<string> | null;
             }) => {
-              cards: import('@claude-teams/agent-graph').TransientHandoffCard[];
+              cards: TransientHandoffCard[];
               time: number;
             };
             worldToScreen?: (x: number, y: number) => { x: number; y: number };
