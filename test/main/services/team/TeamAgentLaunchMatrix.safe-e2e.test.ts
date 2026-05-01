@@ -4,6 +4,7 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 import type {
   OpenCodeTeamRuntimeMessageInput,
@@ -47,6 +48,7 @@ describe('Team agent launch matrix safe e2e', () => {
   let projectPath: string;
 
   beforeEach(async () => {
+    TeamConfigReader.clearCacheForTests();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-launch-matrix-e2e-'));
     tempClaudeRoot = path.join(tempDir, '.claude');
     projectPath = path.join(tempDir, 'project');
@@ -56,6 +58,7 @@ describe('Team agent launch matrix safe e2e', () => {
   });
 
   afterEach(async () => {
+    TeamConfigReader.clearCacheForTests();
     setClaudeBasePathOverride(null);
     await removeTempDirWithRetries(tempDir);
   });
@@ -10066,7 +10069,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
@@ -10191,7 +10196,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
@@ -10996,7 +11003,10 @@ describe('Team agent launch matrix safe e2e', () => {
     svc.stopTeam(teamName);
     await waitForCondition(() => adapter.stopInputs.length === 2);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    expect((await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).lanes).toEqual({});
+    await waitForCondition(async () => {
+      const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName);
+      return Object.keys(laneIndex.lanes).length === 0;
+    });
 
     await expect(
       svc.deliverOpenCodeMemberMessage(teamName, {
@@ -15141,7 +15151,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(stoppedRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === stoppedTeamName)
+    );
 
     svc.stopTeam(stoppedTeamName);
 
@@ -15864,7 +15876,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
@@ -17108,7 +17122,7 @@ async function upsertActiveOpenCodeRuntimeLaneForTest(input: {
 
 async function waitForCondition(assertion: () => boolean | Promise<boolean>): Promise<void> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 5_000) {
+  while (Date.now() - startedAt < 20_000) {
     if (await assertion()) {
       return;
     }

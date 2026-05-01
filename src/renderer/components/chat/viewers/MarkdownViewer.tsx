@@ -85,11 +85,11 @@ const EMPTY_TEAM_COLOR_MAP = new Map<string, string>();
 const NOOP_TEAM_CLICK = (): void => undefined;
 
 type ViewerMarkdownMode = 'default' | 'compact-preview';
-type HastElementLike = {
+interface HastElementLike {
   tagName?: string;
   value?: string;
   children?: unknown[];
-};
+}
 
 // =============================================================================
 // Helpers

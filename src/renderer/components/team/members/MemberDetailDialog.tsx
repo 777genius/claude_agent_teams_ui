@@ -7,13 +7,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/u
 import { useMemberStats } from '@renderer/hooks/useMemberStats';
 import { useStore } from '@renderer/store';
 import { selectMemberMessagesForTeamMember } from '@renderer/store/slices/teamSlice';
+import { isOpenCodeRelaunchActionable } from '@renderer/utils/memberHelpers';
 import {
   buildMemberLaunchDiagnosticsPayload,
   getMemberLaunchDiagnosticsErrorMessage,
   hasMemberLaunchDiagnosticsDetails,
   hasMemberLaunchDiagnosticsError,
 } from '@renderer/utils/memberLaunchDiagnostics';
-import { isOpenCodeRelaunchActionable } from '@renderer/utils/memberHelpers';
 import {
   getRuntimeMemorySourceLabel,
   resolveMemberRuntimeSummary,

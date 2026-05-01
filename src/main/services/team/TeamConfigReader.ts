@@ -179,6 +179,11 @@ export class TeamConfigReader {
   private static readonly configCacheByPath = new Map<string, CachedTeamConfig>();
   private static readonly configReadInFlightByPath = new Map<string, Promise<TeamConfig | null>>();
 
+  static clearCacheForTests(): void {
+    TeamConfigReader.configCacheByPath.clear();
+    TeamConfigReader.configReadInFlightByPath.clear();
+  }
+
   constructor(
     private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
     private readonly teamMetaStore: TeamMetaStore = new TeamMetaStore()
@@ -553,8 +558,6 @@ export class TeamConfigReader {
 
     try {
       return await this.resolveConfigRead(teamName, configPath, readPromise);
-    } catch (error) {
-      return null;
     } finally {
       if (TeamConfigReader.configReadInFlightByPath.get(configPath) === readPromise) {
         TeamConfigReader.configReadInFlightByPath.delete(configPath);

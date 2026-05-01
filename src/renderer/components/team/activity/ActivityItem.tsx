@@ -681,7 +681,7 @@ export const ActivityItem = memo(
     // Only flag agent messages as rate-limited, not user's own quotes
     const rateLimited = message.from !== 'user' && isRateLimitMessage(message.text);
     // Highlight messages containing API errors
-    const isApiError = message.text.includes('API Error');
+    const isApiError = message.messageKind === 'agent_error' || message.text.includes('API Error');
     // Detect auth errors that may be resolved by restarting the team
     const isAuthError = isApiError && AUTH_ERROR_PATTERNS.some((p) => p.test(message.text));
     // Never collapse rate limit messages as noise — they must be visible
@@ -1029,7 +1029,7 @@ export const ActivityItem = memo(
     ) : isApiError ? (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-500/20 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
         <AlertTriangle size={10} />
-        API Error
+        {message.messageKind === 'agent_error' ? 'Agent Error' : 'API Error'}
       </span>
     ) : null;
 
