@@ -10069,7 +10069,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
@@ -10194,7 +10196,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
@@ -15147,7 +15151,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(stoppedRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === stoppedTeamName)
+    );
 
     svc.stopTeam(stoppedTeamName);
 
@@ -15870,7 +15876,9 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
