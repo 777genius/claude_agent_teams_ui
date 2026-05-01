@@ -1677,7 +1677,7 @@ export const CreateTeamDialog = ({
         }
       }}
     >
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-[52rem]">
         <DialogHeader>
           <DialogTitle className="text-sm">{initialData ? 'Copy Team' : 'Create Team'}</DialogTitle>
           <DialogDescription className="text-xs">
