@@ -193,6 +193,7 @@ import {
   TeamTaskStallNotifier,
   TeamTaskStallPolicy,
   TeamTaskStallSnapshotSource,
+  TeamTranscriptSourceLocator,
   UpdaterService,
 } from './services';
 
@@ -1052,7 +1053,14 @@ async function initializeServices(): Promise<void> {
   cliInstallerService = new CliInstallerService();
   ptyTerminalService = new PtyTerminalService();
   const teamMemberLogsFinder = new TeamMemberLogsFinder();
-  const boardTaskActivityRecordSource = new BoardTaskActivityRecordSource();
+  const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
+  const teamTranscriptSourceLocator = new TeamTranscriptSourceLocator();
+  teamLogSourceTracker.onLogSourceChange((teamName) => {
+    teamTranscriptSourceLocator.invalidateTeam(teamName);
+  });
+  const boardTaskActivityRecordSource = new BoardTaskActivityRecordSource(
+    teamTranscriptSourceLocator
+  );
   const boardTaskActivityService = new BoardTaskActivityService(boardTaskActivityRecordSource);
   const boardTaskActivityDetailService = new BoardTaskActivityDetailService(
     boardTaskActivityRecordSource
@@ -1061,7 +1069,15 @@ async function initializeServices(): Promise<void> {
   const boardTaskExactLogDetailService = new BoardTaskExactLogDetailService(
     boardTaskActivityRecordSource
   );
-  const boardTaskLogStreamService = new BoardTaskLogStreamService(boardTaskActivityRecordSource);
+  const boardTaskLogStreamService = new BoardTaskLogStreamService(
+    boardTaskActivityRecordSource,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    teamTranscriptSourceLocator
+  );
   const teamMemberRuntimeAdvisoryService = new TeamMemberRuntimeAdvisoryService(
     teamMemberLogsFinder
   );
@@ -1101,10 +1117,9 @@ async function initializeServices(): Promise<void> {
   teamProvisioningService.setCrossTeamSender((request) => crossTeamService.send(request));
 
   const taskChangePresenceRepository = new JsonTaskChangePresenceRepository();
-  const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
   teamTaskStallMonitor = new TeamTaskStallMonitor(
     new ActiveTeamRegistry(teamDataService, teamLogSourceTracker),
-    new TeamTaskStallSnapshotSource(),
+    new TeamTaskStallSnapshotSource(teamTranscriptSourceLocator),
     new TeamTaskStallPolicy(),
     new TeamTaskStallJournal(),
     new TeamTaskStallNotifier(teamDataService, teamProvisioningService)

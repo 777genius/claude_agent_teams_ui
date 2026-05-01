@@ -61,6 +61,7 @@ export { BoardTaskActivityRecordSource } from './taskLogs/activity/BoardTaskActi
 export { BoardTaskActivityService } from './taskLogs/activity/BoardTaskActivityService';
 export { BoardTaskExactLogDetailService } from './taskLogs/exact/BoardTaskExactLogDetailService';
 export { BoardTaskExactLogsService } from './taskLogs/exact/BoardTaskExactLogsService';
+export { TeamTranscriptSourceLocator } from './taskLogs/discovery/TeamTranscriptSourceLocator';
 export { BoardTaskLogStreamService } from './taskLogs/stream/BoardTaskLogStreamService';
 export type {
   OpenCodeTaskLogAttributionBulkWriteOutcome,

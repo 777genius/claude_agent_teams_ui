@@ -493,13 +493,35 @@ describe('BoardTaskLogStreamService', () => {
       })),
     };
     const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+    const taskReader = {
+      getTasks: vi.fn(async () => [
+        {
+          id: 'task-a',
+          displayId: 'abcd1234',
+          owner: 'tom',
+          status: 'in_progress',
+          createdAt: '2026-04-12T15:59:00.000Z',
+          updatedAt: '2026-04-12T16:05:00.000Z',
+        },
+      ]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const transcriptSourceLocator = {
+      getGeneration: vi.fn(() => 0),
+      getContext: vi.fn(async () => ({
+        transcriptFiles: [],
+        config: { members: [] },
+      })),
+    };
 
     const service = new BoardTaskLogStreamService(
       recordSource as never,
       summarySelector as never,
       strictParser as never,
       detailSelector as never,
-      { buildBundleChunks } as never
+      { buildBundleChunks } as never,
+      taskReader as never,
+      transcriptSourceLocator as never
     );
 
     const [summary, response] = await Promise.all([
@@ -511,6 +533,81 @@ describe('BoardTaskLogStreamService', () => {
     expect(response.segments).toHaveLength(1);
     expect(recordSource.getTaskRecords).toHaveBeenCalledTimes(1);
     expect(strictParser.parseFiles).toHaveBeenCalledTimes(1);
+    expect(transcriptSourceLocator.getContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache a stream layout when transcript discovery changes during build', async () => {
+    const tom = {
+      memberName: 'tom',
+      role: 'member' as const,
+      sessionId: 'session-tom',
+      agentId: 'agent-tom',
+      isSidechain: true,
+    };
+    const baseCandidate = makeCandidate(
+      'c1',
+      '2026-04-12T16:00:00.000Z',
+      tom,
+      'tool-1'
+    );
+    const executionRecord: BoardTaskActivityRecord = {
+      ...baseCandidate.records[0]!,
+      linkKind: 'execution',
+    };
+    const candidate: BoardTaskExactLogBundleCandidate = {
+      ...baseCandidate,
+      records: [executionRecord],
+      linkKinds: ['execution'],
+    };
+    let generation = 0;
+    let recordReadCount = 0;
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => {
+        recordReadCount += 1;
+        if (recordReadCount === 1) {
+          generation += 1;
+        }
+        return candidate.records;
+      }),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => [candidate]),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map([['/tmp/task.jsonl', []]])),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(() => ({
+        id: candidate.id,
+        timestamp: candidate.timestamp,
+        actor: candidate.actor,
+        source: candidate.source,
+        records: candidate.records,
+        filteredMessages: [makeMessage(candidate.id, candidate.timestamp, 'native work')],
+      })),
+    };
+    const transcriptSourceLocator = {
+      getGeneration: vi.fn(() => generation),
+      getContext: vi.fn(async () => null),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+      undefined as never,
+      transcriptSourceLocator as never
+    );
+
+    await service.getTaskLogStream('demo', 'task-a');
+    await service.getTaskLogStream('demo', 'task-a');
+    await service.getTaskLogStream('demo', 'task-a');
+
+    expect(recordSource.getTaskRecords).toHaveBeenCalledTimes(2);
+    expect(buildBundleChunks).toHaveBeenCalledTimes(3);
   });
 
   it('merges duplicate message uuids inside one participant segment before chunk building', async () => {

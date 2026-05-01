@@ -1592,11 +1592,18 @@ export class BoardTaskLogStreamService {
     string,
     {
       expiresAt: number;
+      generation: number;
       layout: StreamLayout;
     }
   >();
 
-  private readonly layoutInFlight = new Map<string, Promise<StreamLayout>>();
+  private readonly layoutInFlight = new Map<
+    string,
+    {
+      generation: number;
+      promise: Promise<StreamLayout>;
+    }
+  >();
 
   constructor(
     private readonly recordSource: BoardTaskActivityRecordSource = new BoardTaskActivityRecordSource(),
@@ -1615,32 +1622,47 @@ export class BoardTaskLogStreamService {
     return `${teamName}::${taskId}`;
   }
 
+  private getTranscriptDiscoveryGeneration(teamName: string): number {
+    const locator = this.transcriptSourceLocator as {
+      getGeneration?: (teamName: string) => number;
+    };
+    return locator.getGeneration?.(teamName) ?? 0;
+  }
+
   private async getStreamLayout(teamName: string, taskId: string): Promise<StreamLayout> {
     const cacheKey = this.buildLayoutCacheKey(teamName, taskId);
+    const generation = this.getTranscriptDiscoveryGeneration(teamName);
     const cached = this.layoutCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (cached && cached.generation === generation && cached.expiresAt > Date.now()) {
       return cached.layout;
     }
 
-    const existingPromise = this.layoutInFlight.get(cacheKey);
-    if (existingPromise) {
-      return await existingPromise;
+    const existingInFlight = this.layoutInFlight.get(cacheKey);
+    if (existingInFlight && existingInFlight.generation === generation) {
+      return await existingInFlight.promise;
     }
 
     const startedAt = Date.now();
+    let inFlightEntry: { generation: number; promise: Promise<StreamLayout> } | null = null;
     const promise = this.buildStreamLayout(teamName, taskId)
       .then((layout) => {
-        this.layoutCache.set(cacheKey, {
-          expiresAt: Date.now() + STREAM_LAYOUT_CACHE_TTL_MS,
-          layout,
-        });
+        if (this.getTranscriptDiscoveryGeneration(teamName) === generation) {
+          this.layoutCache.set(cacheKey, {
+            expiresAt: Date.now() + STREAM_LAYOUT_CACHE_TTL_MS,
+            generation,
+            layout,
+          });
+        }
         return layout;
       })
       .finally(() => {
-        this.layoutInFlight.delete(cacheKey);
+        if (this.layoutInFlight.get(cacheKey) === inFlightEntry) {
+          this.layoutInFlight.delete(cacheKey);
+        }
       });
 
-    this.layoutInFlight.set(cacheKey, promise);
+    inFlightEntry = { generation, promise };
+    this.layoutInFlight.set(cacheKey, inFlightEntry);
     const layout = await promise;
     const elapsedMs = Date.now() - startedAt;
     if (elapsedMs >= STREAM_LAYOUT_BUILD_WARN_MS) {
