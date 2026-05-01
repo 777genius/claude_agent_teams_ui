@@ -8913,6 +8913,12 @@ export class TeamProvisioningService {
     const previousRuntimeRunId =
       typeof previousMember?.runtimeRunId === 'string' ? previousMember.runtimeRunId.trim() : '';
     const sameRuntimeRun = previousRuntimeRunId.length > 0 && previousRuntimeRunId === input.runId;
+    const shouldEmitMemberSpawnChange = this.shouldEmitOpenCodeRuntimeLivenessMemberSpawnChange({
+      previousMember,
+      runtimeRunId: input.runId,
+      runtimeSessionId: input.runtimeSessionId,
+      runtimePid: input.metadata?.runtimePid,
+    });
     const runtimePid =
       input.metadata?.runtimePid ?? (sameRuntimeRun ? previousMember?.runtimePid : undefined);
     const pidSource = input.metadata?.runtimePid
@@ -8974,12 +8980,48 @@ export class TeamProvisioningService {
     await this.writeLaunchStateSnapshot(input.teamName, snapshot);
     this.agentRuntimeSnapshotCache.delete(input.teamName);
     this.liveTeamAgentRuntimeMetadataCache.delete(input.teamName);
-    this.teamChangeEmitter?.({
-      type: 'member-spawn',
-      teamName: input.teamName,
-      runId: input.runId,
-      detail: input.memberName,
-    });
+    if (shouldEmitMemberSpawnChange) {
+      this.teamChangeEmitter?.({
+        type: 'member-spawn',
+        teamName: input.teamName,
+        runId: input.runId,
+        detail: input.memberName,
+      });
+    }
+  }
+
+  private shouldEmitOpenCodeRuntimeLivenessMemberSpawnChange(input: {
+    previousMember?: PersistedTeamLaunchMemberState;
+    runtimeRunId: string;
+    runtimeSessionId: string;
+    runtimePid?: number;
+  }): boolean {
+    const previous = input.previousMember;
+    if (!previous) {
+      return true;
+    }
+    const previousRuntimeRunId =
+      typeof previous.runtimeRunId === 'string' ? previous.runtimeRunId.trim() : '';
+    const previousRuntimeSessionId =
+      typeof previous.runtimeSessionId === 'string' ? previous.runtimeSessionId.trim() : '';
+    if (
+      previousRuntimeRunId !== input.runtimeRunId ||
+      previousRuntimeSessionId !== input.runtimeSessionId
+    ) {
+      return true;
+    }
+    if (
+      input.runtimePid !== undefined &&
+      (previous.runtimePid === undefined || previous.runtimePid !== input.runtimePid)
+    ) {
+      return true;
+    }
+    return (
+      previous.launchState !== 'confirmed_alive' ||
+      previous.runtimeAlive !== true ||
+      previous.bootstrapConfirmed !== true ||
+      previous.hardFailure === true
+    );
   }
 
   private resolvePersistedRuntimeMemberIdentity(params: {

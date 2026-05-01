@@ -6203,6 +6203,131 @@ describe('TeamProvisioningService', () => {
       expect(diagnostics.join('\n')).not.toContain('super-secret');
     });
 
+    it('emits member-spawn when OpenCode runtime liveness first confirms a pending member', async () => {
+      const svc = new TeamProvisioningService();
+      const previousSnapshot = {
+        version: 2 as const,
+        teamName: 'mixed-team',
+        updatedAt: '2026-04-22T12:00:00.000Z',
+        launchPhase: 'active' as const,
+        expectedMembers: ['bob'],
+        members: {
+          bob: {
+            name: 'bob',
+            providerId: 'opencode' as const,
+            laneId: 'secondary:opencode:bob',
+            laneKind: 'secondary' as const,
+            laneOwnerProviderId: 'opencode' as const,
+            launchState: 'runtime_pending_bootstrap' as const,
+            agentToolAccepted: true,
+            runtimeAlive: true,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            runtimeRunId: 'run-member-spawn-1',
+            runtimeSessionId: 'session-bob',
+            lastEvaluatedAt: '2026-04-22T12:00:00.000Z',
+          },
+        },
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 1,
+          failedCount: 0,
+          runtimeAlivePendingCount: 1,
+        },
+        teamLaunchState: 'partial_pending' as const,
+      };
+      const events: Array<{ type: string; teamName: string; runId?: string; detail?: string }> = [];
+
+      svc.setTeamChangeEmitter((event) => {
+        events.push(event);
+      });
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => previousSnapshot),
+        write: vi.fn(async () => {}),
+      };
+
+      await (svc as any).updateOpenCodeRuntimeMemberLiveness({
+        teamName: 'mixed-team',
+        runId: 'run-member-spawn-1',
+        memberName: 'bob',
+        runtimeSessionId: 'session-bob',
+        observedAt: '2026-04-22T12:05:00.000Z',
+        diagnostics: ['native heartbeat'],
+        metadata: { runtimePid: 4321 },
+        reason: 'OpenCode runtime heartbeat accepted',
+      });
+
+      expect(events).toEqual([
+        {
+          type: 'member-spawn',
+          teamName: 'mixed-team',
+          runId: 'run-member-spawn-1',
+          detail: 'bob',
+        },
+      ]);
+    });
+
+    it('does not emit member-spawn for routine OpenCode heartbeat from the same live session', async () => {
+      const svc = new TeamProvisioningService();
+      const previousSnapshot = {
+        version: 2 as const,
+        teamName: 'mixed-team',
+        updatedAt: '2026-04-22T12:00:00.000Z',
+        launchPhase: 'active' as const,
+        expectedMembers: ['bob'],
+        members: {
+          bob: {
+            name: 'bob',
+            providerId: 'opencode' as const,
+            laneId: 'secondary:opencode:bob',
+            laneKind: 'secondary' as const,
+            laneOwnerProviderId: 'opencode' as const,
+            launchState: 'confirmed_alive' as const,
+            agentToolAccepted: true,
+            runtimeAlive: true,
+            bootstrapConfirmed: true,
+            hardFailure: false,
+            runtimePid: 4321,
+            runtimeRunId: 'run-member-spawn-1',
+            runtimeSessionId: 'session-bob',
+            livenessKind: 'confirmed_bootstrap' as const,
+            lastEvaluatedAt: '2026-04-22T12:00:00.000Z',
+          },
+        },
+        summary: {
+          confirmedCount: 1,
+          pendingCount: 0,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+        },
+        teamLaunchState: 'ready' as const,
+      };
+      const events: Array<{ type: string; teamName: string; runId?: string; detail?: string }> = [];
+      const write = vi.fn(async () => {});
+
+      svc.setTeamChangeEmitter((event) => {
+        events.push(event);
+      });
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => previousSnapshot),
+        write,
+      };
+
+      await (svc as any).updateOpenCodeRuntimeMemberLiveness({
+        teamName: 'mixed-team',
+        runId: 'run-member-spawn-1',
+        memberName: 'bob',
+        runtimeSessionId: 'session-bob',
+        observedAt: '2026-04-22T12:05:00.000Z',
+        diagnostics: ['native heartbeat'],
+        metadata: { runtimePid: 4321 },
+        reason: 'OpenCode runtime heartbeat accepted',
+      });
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(events).toEqual([]);
+    });
+
     it('does not carry a stale OpenCode runtime pid into a fresh runtime run check-in', async () => {
       const svc = new TeamProvisioningService();
       const previousSnapshot = {
