@@ -176,4 +176,29 @@ describe('TeamInboxReader', () => {
       summary: 'Comment on #abcd1234',
     });
   });
+
+  it('preserves agent error semantic kind', async () => {
+    hoisted.files.set(
+      '/mock/teams/my-team/inboxes/user.json',
+      JSON.stringify([
+        {
+          from: 'bob',
+          text: 'bob hit a mailbox turn execution error. API Error: Credit balance is too low',
+          timestamp: '2026-01-01T03:00:00.000Z',
+          read: false,
+          messageId: 'm-agent-error',
+          messageKind: 'agent_error',
+          summary: 'Mailbox turn execution failed',
+        },
+      ])
+    );
+
+    const messages = await reader.getMessagesFor('my-team', 'user');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      messageId: 'm-agent-error',
+      messageKind: 'agent_error',
+      summary: 'Mailbox turn execution failed',
+    });
+  });
 });
