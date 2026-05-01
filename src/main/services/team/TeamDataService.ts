@@ -112,6 +112,7 @@ const PROCESS_HEALTH_INTERVAL_MS = 2_000;
 const TASK_MAP_YIELD_EVERY = 250;
 const TASK_COMMENT_NOTIFICATION_SOURCE = 'system_notification';
 const PASSIVE_USER_REPLY_LINK_WINDOW_MS = 15_000;
+const MEMBER_RUNTIME_ADVISORY_SNAPSHOT_BUDGET_MS = 750;
 const MIXED_TEAM_LIVE_MUTATION_BLOCK_MESSAGE =
   'Live roster mutation on a running mixed team is not supported in V1. Stop the team, edit the roster, then relaunch.';
 
@@ -465,6 +466,38 @@ export class TeamDataService {
 
   setMemberRuntimeAdvisoryService(service: TeamMemberRuntimeAdvisoryService): void {
     this.memberRuntimeAdvisoryService = service;
+  }
+
+  private async getMemberRuntimeAdvisoriesForSnapshot(
+    teamName: string,
+    members: readonly Pick<TeamMemberSnapshot, 'name' | 'removedAt'>[]
+  ): Promise<Map<string, NonNullable<TeamMemberSnapshot['runtimeAdvisory']>>> {
+    const request = this.memberRuntimeAdvisoryService.getMemberAdvisories(teamName, members);
+    const timeoutToken = Symbol('member-runtime-advisory-timeout');
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<typeof timeoutToken>((resolve) => {
+      timeoutHandle = setTimeout(resolve, MEMBER_RUNTIME_ADVISORY_SNAPSHOT_BUDGET_MS, timeoutToken);
+    });
+
+    let result: Awaited<typeof request> | typeof timeoutToken;
+    try {
+      result = await Promise.race([request, timeout]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+    if (result === timeoutToken) {
+      request.catch(() => {
+        /* background advisory refresh is best-effort */
+      });
+      logger.warn(
+        `getTeamData team=${teamName} member runtime advisories exceeded ${MEMBER_RUNTIME_ADVISORY_SNAPSHOT_BUDGET_MS}ms budget; continuing without advisories for this snapshot`
+      );
+      return new Map();
+    }
+
+    return result;
   }
 
   private async synthesizeLeadMemberIfMissing(
@@ -1300,10 +1333,7 @@ export class TeamDataService {
     mark('resolveMembers');
 
     try {
-      const runtimeAdvisories = await this.memberRuntimeAdvisoryService.getMemberAdvisories(
-        teamName,
-        members
-      );
+      const runtimeAdvisories = await this.getMemberRuntimeAdvisoriesForSnapshot(teamName, members);
       for (const member of members) {
         const advisory = runtimeAdvisories.get(member.name);
         if (advisory) {

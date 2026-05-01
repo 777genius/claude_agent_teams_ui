@@ -376,6 +376,10 @@ export const CliLogsRichView = ({
 
   const groups = useMemo(() => parseStreamJsonToGroups(cliLogsTail), [cliLogsTail]);
   const entries = useMemo(() => groupBySubagent(groups), [groups]);
+  const emptyMessage =
+    cliLogsTail.trim().length > 0
+      ? 'No displayable assistant/runtime logs yet.'
+      : 'Waiting for response...';
 
   // Derive expanded state: all groups expanded unless manually collapsed
   const expandedGroupIds = useMemo(() => {
@@ -578,9 +582,7 @@ export const CliLogsRichView = ({
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--color-text-muted)] opacity-40" />
             <span className="relative inline-flex size-2 rounded-full bg-[var(--color-text-muted)]" />
           </span>
-          <span className="text-[11px] text-[var(--color-text-muted)]">
-            Waiting for response...
-          </span>
+          <span className="text-[11px] text-[var(--color-text-muted)]">{emptyMessage}</span>
         </div>
         {footer}
       </div>

@@ -85,10 +85,79 @@ const EMPTY_TEAM_COLOR_MAP = new Map<string, string>();
 const NOOP_TEAM_CLICK = (): void => undefined;
 
 type ViewerMarkdownMode = 'default' | 'compact-preview';
+interface HastElementLike {
+  tagName?: string;
+  value?: string;
+  children?: unknown[];
+}
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+function isHastElementLike(value: unknown): value is HastElementLike {
+  return typeof value === 'object' && value !== null;
+}
+
+function getHastChildren(value: unknown): unknown[] {
+  return isHastElementLike(value) && Array.isArray(value.children) ? value.children : [];
+}
+
+function getHastText(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value);
+  }
+  if (!isHastElementLike(value)) {
+    return '';
+  }
+  if (typeof value.value === 'string') {
+    return value.value;
+  }
+  return getHastChildren(value).map(getHastText).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function collectHastElementsByTag(value: unknown, tagName: string): HastElementLike[] {
+  const result: HastElementLike[] = [];
+  const visit = (node: unknown): void => {
+    if (!isHastElementLike(node)) return;
+    if (node.tagName === tagName) {
+      result.push(node);
+    }
+    for (const child of getHastChildren(node)) {
+      visit(child);
+    }
+  };
+  visit(value);
+  return result;
+}
+
+function getDirectCellElements(row: HastElementLike): HastElementLike[] {
+  return getHastChildren(row).filter(
+    (child): child is HastElementLike =>
+      isHastElementLike(child) && (child.tagName === 'th' || child.tagName === 'td')
+  );
+}
+
+function buildCompactTableSummary(node: unknown, fallbackChildren: React.ReactNode): string {
+  const rows = collectHastElementsByTag(node, 'tr');
+  const headerRow =
+    rows.find((row) => getDirectCellElements(row).some((cell) => cell.tagName === 'th')) ??
+    rows[0] ??
+    null;
+  const headerCells = headerRow ? getDirectCellElements(headerRow) : [];
+  const headers = headerCells.map(getHastText).filter(Boolean);
+  const bodyRowCount = rows.filter((row) => row !== headerRow).length;
+  const fallbackText = extractTextFromReactNode(fallbackChildren).replace(/\s+/g, ' ').trim();
+  const previewSource = headers.length > 0 ? headers.join(' | ') : fallbackText;
+  const preview =
+    previewSource.length > 72 ? `${previewSource.slice(0, 69).trimEnd()}...` : previewSource;
+  const rowLabel = bodyRowCount === 1 ? '1 row' : `${bodyRowCount} rows`;
+
+  if (preview) {
+    return `Table: ${preview} - ${rowLabel}`;
+  }
+  return `Table - ${rowLabel}`;
+}
 
 /**
  * Custom URL transform that preserves task://, mention://, and team:// protocols.
@@ -353,6 +422,18 @@ function createViewerMarkdownComponents(
       {hl(children)}{' '}
     </span>
   );
+
+  const renderCompactTableSummary = (
+    node: unknown,
+    children: React.ReactNode
+  ): React.ReactElement => {
+    const summary = buildCompactTableSummary(node, children);
+    return (
+      <span className="inline" style={{ color: PROSE_MUTED }}>
+        {summary}{' '}
+      </span>
+    );
+  };
 
   return {
     // Headings
@@ -705,9 +786,9 @@ function createViewerMarkdownComponents(
       ),
 
     // Tables
-    table: ({ children }) =>
+    table: ({ children, node }) =>
       isCompactPreview ? (
-        <span>{children}</span>
+        renderCompactTableSummary(node, children)
       ) : (
         <div className="my-3 overflow-x-auto">
           <table
@@ -720,13 +801,21 @@ function createViewerMarkdownComponents(
       ),
     thead: ({ children }) =>
       isCompactPreview ? (
-        <span>{children}</span>
+        <thead style={{ backgroundColor: PROSE_TABLE_HEADER_BG }}>{children}</thead>
       ) : (
         <thead style={{ backgroundColor: PROSE_TABLE_HEADER_BG }}>{children}</thead>
       ),
     th: ({ children }) =>
       isCompactPreview ? (
-        renderCompactInline(children, 'font-semibold', { color: PROSE_HEADING })
+        <th
+          className="px-3 py-1.5 text-left font-semibold"
+          style={{
+            border: `1px solid ${PROSE_TABLE_BORDER}`,
+            color: PROSE_HEADING,
+          }}
+        >
+          {hl(children)}
+        </th>
       ) : (
         <th
           className="px-3 py-2 text-left font-semibold"
@@ -740,7 +829,15 @@ function createViewerMarkdownComponents(
       ),
     td: ({ children }) =>
       isCompactPreview ? (
-        renderCompactInline(children, '', { color: PROSE_BODY })
+        <td
+          className="px-3 py-1.5"
+          style={{
+            border: `1px solid ${PROSE_TABLE_BORDER}`,
+            color: PROSE_BODY,
+          }}
+        >
+          {hl(children)}
+        </td>
       ) : (
         <td
           className="px-3 py-2"

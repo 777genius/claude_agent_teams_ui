@@ -14,6 +14,7 @@ import { registerReviewTools } from './reviewTools';
 import { registerRuntimeTools } from './runtimeTools';
 import { registerTaskTools } from './taskTools';
 import { registerTeamTools } from './teamTools';
+import { registerWorkSyncTools } from './workSyncTools';
 
 const REGISTRATION_BY_GROUP = {
   team: registerTeamTools,
@@ -24,6 +25,7 @@ const REGISTRATION_BY_GROUP = {
   message: registerMessageTools,
   process: registerProcessTools,
   runtime: registerRuntimeTools,
+  workSync: registerWorkSyncTools,
   crossTeam: registerCrossTeamTools,
 } as const;
 

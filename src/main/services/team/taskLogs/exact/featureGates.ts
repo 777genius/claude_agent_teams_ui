@@ -16,3 +16,7 @@ function readEnabledFlag(value: string | undefined, defaultValue: boolean): bool
 export function isBoardTaskExactLogsReadEnabled(): boolean {
   return readEnabledFlag(process.env.CLAUDE_TEAM_BOARD_TASK_EXACT_LOGS_READ_ENABLED, true);
 }
+
+export function isCodexNativeTraceFallbackEnabled(): boolean {
+  return readEnabledFlag(process.env.CLAUDE_TEAM_CODEX_NATIVE_TRACE_FALLBACK_ENABLED, true);
+}

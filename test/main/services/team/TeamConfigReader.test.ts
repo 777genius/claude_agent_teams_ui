@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as nodeFs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -253,5 +254,36 @@ describe('TeamConfigReader', () => {
       memberCount: 1,
       pendingCreate: true,
     });
+  });
+
+  it('shares in-flight getConfig reads and returns cloned cached configs', async () => {
+    const teamName = 'cached-config-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Cached Config Team',
+        projectPath: tempDir,
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    const readFileSpy = vi.spyOn(nodeFs.promises, 'readFile');
+
+    const reader = new TeamConfigReader();
+    const [first, second] = await Promise.all([
+      reader.getConfig(teamName),
+      reader.getConfig(teamName),
+    ]);
+    if (!first) {
+      throw new Error('Expected config to load.');
+    }
+    first.name = 'Mutated In Caller';
+    const third = await reader.getConfig(teamName);
+
+    expect(second?.name).toBe('Cached Config Team');
+    expect(third?.name).toBe('Cached Config Team');
+    expect(readFileSpy).toHaveBeenCalledTimes(1);
   });
 });

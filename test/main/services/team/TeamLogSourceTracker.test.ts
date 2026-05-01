@@ -125,6 +125,31 @@ describe('TeamLogSourceTracker', () => {
     await tracker.disableTracking('demo', 'tool_activity');
   });
 
+  it('notifies log-source listeners before forwarding the external team change event', () => {
+    const logsFinder = {
+      getLogSourceWatchContext: vi.fn(async () => ({
+        projectDir: '/tmp/demo',
+        sessionIds: [],
+      })),
+    } as unknown as TeamMemberLogsFinder;
+    const tracker = new TeamLogSourceTracker(logsFinder);
+    const events: string[] = [];
+    tracker.onLogSourceChange(() => {
+      events.push('listener');
+    });
+    tracker.setEmitter(() => {
+      events.push('emitter');
+    });
+
+    (
+      tracker as unknown as {
+        emitLogSourceChange: (teamName: string) => void;
+      }
+    ).emitLogSourceChange('demo');
+
+    expect(events).toEqual(['listener', 'emitter']);
+  });
+
   it('supports stall_monitor as an independent tracking consumer', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-stall-monitor-'));
 

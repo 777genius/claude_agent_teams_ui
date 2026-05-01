@@ -119,6 +119,22 @@ function getCodexApiKeyAvailabilitySummary(provider: CliProviderStatus): string 
   return provider.connection.apiKeySourceLabel ?? 'API key is configured';
 }
 
+function isAnthropicApiKeyModeReady(provider: CliProviderStatus): boolean {
+  return (
+    provider.providerId === 'anthropic' &&
+    provider.connection?.configuredAuthMode === 'api_key' &&
+    provider.connection.apiKeyConfigured === true
+  );
+}
+
+function isAnthropicApiKeyModeMissingCredential(provider: CliProviderStatus): boolean {
+  return (
+    provider.providerId === 'anthropic' &&
+    provider.connection?.configuredAuthMode === 'api_key' &&
+    provider.connection.apiKeyConfigured !== true
+  );
+}
+
 function getCodexMissingManagedAccountStatus(provider: CliProviderStatus): string | null {
   if (provider.providerId !== 'codex') {
     return null;
@@ -241,6 +257,14 @@ export function formatProviderStatusText(provider: CliProviderStatus): string {
     return provider.statusMessage ?? 'Unavailable in current runtime';
   }
 
+  if (isAnthropicApiKeyModeReady(provider)) {
+    return 'Connected via API key';
+  }
+
+  if (isAnthropicApiKeyModeMissingCredential(provider)) {
+    return 'API key mode selected, but no API key is configured';
+  }
+
   if (provider.authenticated) {
     return `Connected via ${formatProviderAuthMethodLabelForProvider(
       provider.providerId,
@@ -290,6 +314,10 @@ export function getProviderConnectionModeSummary(provider: CliProviderStatus): s
 export function getProviderCredentialSummary(provider: CliProviderStatus): string | null {
   if (!provider.connection?.apiKeyConfigured) {
     return null;
+  }
+
+  if (isAnthropicApiKeyModeReady(provider)) {
+    return provider.connection?.apiKeySourceLabel ?? 'API key is configured';
   }
 
   if (

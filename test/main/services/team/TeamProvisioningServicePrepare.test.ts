@@ -104,22 +104,47 @@ import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 
 function getRealAgentTeamsMcpLaunchSpec(): { command: string; args: string[] } {
   const workspaceRoot = process.cwd();
-  const distEntry = path.join(workspaceRoot, 'mcp-server', 'dist', 'index.js');
-  if (fs.existsSync(distEntry)) {
+  const sourceEntry = path.join(workspaceRoot, 'mcp-server', 'src', 'index.ts');
+  const tsxPackageJson = path.join(
+    workspaceRoot,
+    'mcp-server',
+    'node_modules',
+    'tsx',
+    'package.json'
+  );
+  if (fs.existsSync(sourceEntry) && fs.existsSync(tsxPackageJson)) {
+    const packageJson = JSON.parse(fs.readFileSync(tsxPackageJson, 'utf8')) as {
+      bin?: string | Record<string, string>;
+    };
+    const bin = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.tsx;
+    if (bin) {
+      const tsxCli = path.resolve(path.dirname(tsxPackageJson), bin);
+      if (fs.existsSync(tsxCli)) {
+        return {
+          command: process.execPath,
+          args: [tsxCli, sourceEntry],
+        };
+      }
+    }
+  }
+
+  const tsxCommand = path.join(
+    workspaceRoot,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'tsx.cmd' : 'tsx'
+  );
+  if (fs.existsSync(sourceEntry) && fs.existsSync(tsxCommand)) {
     return {
-      command: process.execPath,
-      args: [distEntry],
+      command: tsxCommand,
+      args: [sourceEntry],
     };
   }
 
+  const distEntry = path.join(workspaceRoot, 'mcp-server', 'dist', 'index.js');
   return {
-    command: path.join(
-      workspaceRoot,
-      'node_modules',
-      '.bin',
-      process.platform === 'win32' ? 'tsx.cmd' : 'tsx'
-    ),
-    args: [path.join(workspaceRoot, 'mcp-server', 'src', 'index.ts')],
+    command: process.execPath,
+    args: [distEntry],
   };
 }
 
@@ -149,6 +174,8 @@ const REQUIRED_MOCK_AGENT_TEAMS_TOOLS = [
   'lead_briefing',
   'member_briefing',
   'message_send',
+  'member_work_sync_report',
+  'member_work_sync_status',
   'process_list',
   'process_register',
   'process_stop',
@@ -1952,6 +1979,72 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
 
     expect(result.authSource).toBe('anthropic_api_key');
     expect(result.env.ANTHROPIC_API_KEY).toBe('real-key');
+  });
+
+  it('adds member-work-sync turn-settled spool env for Codex provisioning', async () => {
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeTurnSettledEnvironmentProvider(async ({ provider }) =>
+      provider === 'codex'
+        ? { AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks' }
+        : null
+    );
+
+    const result = await (svc as any).buildProvisioningEnv('codex');
+
+    expect(result.authSource).toBe('codex_runtime');
+    expect(result.env.AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT).toBe('/tmp/runtime-hooks');
+  });
+
+  it('adds Codex turn-settled env when Codex is only a secondary member provider', async () => {
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeTurnSettledEnvironmentProvider(async ({ provider }) =>
+      provider === 'codex'
+        ? { AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks' }
+        : null
+    );
+
+    const result = await (svc as any).buildRuntimeTurnSettledEnvironmentForMembers('anthropic', [
+      { name: 'alice', providerId: 'anthropic' },
+      { name: 'jack', providerId: 'codex' },
+    ]);
+
+    expect(result).toEqual({
+      AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks',
+    });
+  });
+
+  it('adds Codex turn-settled env when a secondary member infers Codex from model', async () => {
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeTurnSettledEnvironmentProvider(async ({ provider }) =>
+      provider === 'codex'
+        ? { AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks' }
+        : null
+    );
+
+    const result = await (svc as any).buildRuntimeTurnSettledEnvironmentForMembers('anthropic', [
+      { name: 'alice', providerId: 'anthropic' },
+      { name: 'jack', model: 'gpt-5.4' },
+    ]);
+
+    expect(result).toEqual({
+      AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks',
+    });
+  });
+
+  it('does not add Codex turn-settled env when no member uses Codex', async () => {
+    const svc = new TeamProvisioningService();
+    const provider = vi.fn(async () => ({
+      AGENT_TEAMS_RUNTIME_TURN_SETTLED_SPOOL_ROOT: '/tmp/runtime-hooks',
+    }));
+    svc.setRuntimeTurnSettledEnvironmentProvider(provider);
+
+    const result = await (svc as any).buildRuntimeTurnSettledEnvironmentForMembers('anthropic', [
+      { name: 'alice', providerId: 'anthropic' },
+      { name: 'bob', providerId: 'gemini' },
+    ]);
+
+    expect(result).toEqual({});
+    expect(provider).not.toHaveBeenCalled();
   });
 
   it('allows help-env resolution to continue even when provisioning env warns', async () => {

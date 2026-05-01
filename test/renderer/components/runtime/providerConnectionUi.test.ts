@@ -184,6 +184,36 @@ describe('providerConnectionUi', () => {
     expect(getProviderConnectionModeSummary(provider)).toBeNull();
   });
 
+  it('shows Anthropic API key as the effective connection when API key mode is pinned', () => {
+    const provider = createAnthropicProvider({
+      authenticated: true,
+      authMethod: 'claude.ai',
+      configuredAuthMode: 'api_key',
+      apiKeyConfigured: true,
+      apiKeySource: 'stored',
+      apiKeySourceLabel: 'Stored in app',
+    });
+
+    expect(formatProviderStatusText(provider)).toBe('Connected via API key');
+    expect(getProviderCredentialSummary(provider)).toBe('Stored in app');
+  });
+
+  it('does not describe Anthropic API key mode as subscription connected when the key is missing', () => {
+    const provider = createAnthropicProvider({
+      authenticated: true,
+      authMethod: 'claude.ai',
+      configuredAuthMode: 'api_key',
+      apiKeyConfigured: false,
+      apiKeySource: null,
+      apiKeySourceLabel: null,
+    });
+
+    expect(formatProviderStatusText(provider)).toBe(
+      'API key mode selected, but no API key is configured'
+    );
+    expect(getProviderCredentialSummary(provider)).toBeNull();
+  });
+
   it('shows Anthropic preferred auth summary when a pinned mode is selected but not connected', () => {
     const provider = createAnthropicProvider({
       authenticated: false,

@@ -620,7 +620,7 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     });
   });
 
-  it('treats materialized bridge members without session or pid as accepted but not alive', async () => {
+  it('does not treat bridge members without session or pid as runtime candidates', async () => {
     const launchOpenCodeTeam = vi.fn(
       async () =>
         ({
@@ -648,10 +648,10 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
 
     expect(result.members.alice).toMatchObject({
       launchState: 'runtime_pending_bootstrap',
-      agentToolAccepted: true,
+      agentToolAccepted: false,
       runtimeAlive: false,
-      livenessKind: 'runtime_process_candidate',
-      runtimeDiagnostic: 'OpenCode session exists without verified runtime pid',
+      livenessKind: 'registered_only',
+      runtimeDiagnostic: 'OpenCode bridge did not report a runtime session or pid for this member',
     });
   });
 

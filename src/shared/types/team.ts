@@ -349,8 +349,8 @@ export interface BoardTaskLogSegment {
 }
 
 export interface BoardTaskLogStreamRuntimeProjection {
-  provider: 'opencode';
-  mode: 'attribution' | 'heuristic';
+  provider: 'opencode' | 'codex_native';
+  mode: 'attribution' | 'heuristic' | 'trace';
   attributionRecordCount: number;
   projectedMessageCount: number;
   boardMcpToolCount?: number;
@@ -358,16 +358,26 @@ export interface BoardTaskLogStreamRuntimeProjection {
   fallbackReason?:
     | 'no_attribution_records'
     | 'attribution_no_projected_messages'
-    | 'task_tool_markers';
+    | 'task_tool_markers'
+    | 'codex_native_trace';
   markerMatchCount?: number;
   markerSpanCount?: number;
+  traceFileCount?: number;
+  traceRunCount?: number;
+  dedupedNativeToolCount?: number;
 }
 
 export interface BoardTaskLogStreamResponse {
   participants: BoardTaskLogParticipant[];
   defaultFilter: 'all' | string;
   segments: BoardTaskLogSegment[];
-  source?: 'transcript' | 'opencode_runtime_fallback' | 'opencode_runtime_attribution';
+  source?:
+    | 'transcript'
+    | 'opencode_runtime_fallback'
+    | 'opencode_runtime_attribution'
+    | 'codex_native_trace_fallback'
+    | 'mixed_transcript_codex_native_trace'
+    | 'mixed_transcript_opencode_runtime';
   runtimeProjection?: BoardTaskLogStreamRuntimeProjection;
 }
 
@@ -413,7 +423,9 @@ export type InboxMessageKind =
   | 'default'
   | 'slash_command'
   | 'slash_command_result'
-  | 'task_comment_notification';
+  | 'task_comment_notification'
+  | 'member_work_sync_nudge'
+  | 'agent_error';
 
 export interface SlashCommandMeta {
   name: string;
@@ -1001,6 +1013,8 @@ export interface PersistedTeamLaunchMemberState {
   hardFailureReason?: string;
   pendingPermissionRequestIds?: string[];
   runtimePid?: number;
+  /** OpenCode runtime run id that produced the current runtimeSessionId/liveness evidence. */
+  runtimeRunId?: string;
   runtimeSessionId?: string;
   livenessKind?: TeamAgentRuntimeLivenessKind;
   pidSource?: TeamAgentRuntimePidSource;
@@ -1129,6 +1143,7 @@ export interface TeamChangeEvent {
     | 'lead-context'
     | 'lead-message'
     | 'tool-activity'
+    | 'member-turn-settled'
     | 'process'
     | 'member-spawn';
   teamName: string;

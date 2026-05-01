@@ -10,10 +10,17 @@ const { createController } = controllerModule;
 
 const FORCED_CLAUDE_DIR_ENV = 'AGENT_TEAMS_MCP_CLAUDE_DIR';
 
+type WorkSyncCapableController = ReturnType<typeof createController> & {
+  workSync: {
+    memberWorkSyncStatus(flags: Record<string, unknown>): Promise<unknown>;
+    memberWorkSyncReport(flags: Record<string, unknown>): Promise<unknown>;
+  };
+};
+
 /** Re-export agentBlocks utilities (stripAgentBlocks, wrapAgentBlock, etc.) */
 export const agentBlocks = controllerModule.agentBlocks;
 
-export function getController(teamName: string, claudeDir?: string) {
+export function getController(teamName: string, claudeDir?: string): WorkSyncCapableController {
   const forcedClaudeDir = process.env[FORCED_CLAUDE_DIR_ENV]?.trim();
   let resolvedClaudeDir = claudeDir;
   if (forcedClaudeDir) {
@@ -24,5 +31,5 @@ export function getController(teamName: string, claudeDir?: string) {
     teamName,
     ...(resolvedClaudeDir ? { claudeDir: resolvedClaudeDir } : {}),
     allowUserMessageSender: false,
-  });
+  }) as WorkSyncCapableController;
 }

@@ -6,6 +6,7 @@ import {
   getSpawnCardClass,
   getMemberRuntimeAdvisoryLabel,
   getMemberRuntimeAdvisoryTitle,
+  isOpenCodeRelaunchActionable,
 } from '@renderer/utils/memberHelpers';
 
 import type { ResolvedTeamMember } from '@shared/types';
@@ -255,6 +256,177 @@ describe('memberHelpers spawn-aware presence', () => {
       launchVisualState: 'shell_only',
       launchStatusLabel: 'shell only',
     });
+
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'online',
+        spawnLaunchState: 'runtime_pending_bootstrap',
+        spawnLivenessSource: 'process',
+        spawnRuntimeAlive: true,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          livenessKind: 'runtime_process_candidate',
+          runtimeDiagnostic: 'OpenCode runtime process detected, but bootstrap is not confirmed',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: false,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'bootstrap unconfirmed',
+      launchVisualState: 'runtime_candidate',
+      launchStatusLabel: 'bootstrap unconfirmed',
+      dotClass: expect.stringContaining('bg-amber-400'),
+    });
+
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'online',
+        spawnLaunchState: 'confirmed_alive',
+        spawnLivenessSource: 'process',
+        spawnRuntimeAlive: true,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          livenessKind: 'registered_only',
+          runtimeDiagnostic: 'registered runtime metadata without live process',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: false,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'registered',
+      launchVisualState: 'registered_only',
+      launchStatusLabel: 'registered',
+      dotClass: expect.stringContaining('bg-zinc-400'),
+    });
+  });
+
+  it('marks stuck OpenCode launch states as manually relaunchable', () => {
+    const openCodeMember: ResolvedTeamMember = { ...member, providerId: 'opencode' };
+
+    expect(
+      isOpenCodeRelaunchActionable({
+        member: openCodeMember,
+        spawnEntry: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          livenessKind: 'registered_only',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          providerId: 'opencode',
+          livenessKind: 'registered_only',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+      })
+    ).toBe(true);
+
+    expect(
+      isOpenCodeRelaunchActionable({
+        member: openCodeMember,
+        spawnEntry: {
+          status: 'online',
+          launchState: 'runtime_pending_bootstrap',
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          livenessKind: 'runtime_process_candidate',
+          firstSpawnAcceptedAt: '2026-04-24T12:00:00.000Z',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: true,
+          restartable: true,
+          providerId: 'opencode',
+          livenessKind: 'runtime_process_candidate',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        nowMs: Date.parse('2026-04-24T12:06:00.000Z'),
+      })
+    ).toBe(true);
+  });
+
+  it('does not mark fresh OpenCode runtime candidates as relaunchable', () => {
+    expect(
+      isOpenCodeRelaunchActionable({
+        member: { ...member, providerId: 'opencode' },
+        spawnEntry: {
+          status: 'online',
+          launchState: 'runtime_pending_bootstrap',
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          livenessKind: 'runtime_process_candidate',
+          firstSpawnAcceptedAt: '2026-04-24T12:00:00.000Z',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: true,
+          restartable: true,
+          providerId: 'opencode',
+          livenessKind: 'runtime_process_candidate',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        nowMs: Date.parse('2026-04-24T12:01:00.000Z'),
+      })
+    ).toBe(false);
+  });
+
+  it('does not mark fresh OpenCode not-found checks as relaunchable', () => {
+    expect(
+      isOpenCodeRelaunchActionable({
+        member: { ...member, providerId: 'opencode' },
+        spawnEntry: {
+          status: 'waiting',
+          launchState: 'runtime_pending_bootstrap',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          livenessKind: 'not_found',
+          firstSpawnAcceptedAt: '2026-04-24T12:00:00.000Z',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          providerId: 'opencode',
+          livenessKind: 'not_found',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        nowMs: Date.parse('2026-04-24T12:01:00.000Z'),
+      })
+    ).toBe(false);
+
+    expect(
+      isOpenCodeRelaunchActionable({
+        member: { ...member, providerId: 'opencode' },
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          providerId: 'opencode',
+          livenessKind: 'not_found',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        nowMs: Date.parse('2026-04-24T12:01:00.000Z'),
+      })
+    ).toBe(false);
   });
 
   it('returns shared launch status labels without changing generic presence labels', () => {

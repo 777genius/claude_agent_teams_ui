@@ -260,6 +260,7 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
   private mutationQueue: Promise<void> = Promise.resolve();
   private mutationQueueRelease: (() => void) | null = null;
   private activeMutationCount = 0;
+  private disposed = false;
 
   constructor(
     private readonly logger: LoggerPort,
@@ -290,8 +291,12 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
   }
 
   async getSnapshot(): Promise<CodexAccountSnapshotDto> {
-    if (this.snapshotCache && Date.now() - this.snapshotObservedAt <= SNAPSHOT_CACHE_TTL_MS) {
-      return deepClone(this.snapshotCache);
+    const cached = this.getCachedSnapshotForOptions({
+      includeRateLimits: false,
+      forceRefreshToken: false,
+    });
+    if (cached) {
+      return cached;
     }
 
     return this.refreshSnapshot();
@@ -301,10 +306,13 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
     includeRateLimits?: boolean;
     forceRefreshToken?: boolean;
   }): Promise<CodexAccountSnapshotDto> {
-    this.pendingRefreshOptions = mergeRefreshOptions(
-      this.pendingRefreshOptions,
-      normalizeRefreshOptions(options)
-    );
+    const normalizedOptions = normalizeRefreshOptions(options);
+    const cached = this.getCachedSnapshotForOptions(normalizedOptions);
+    if (cached) {
+      return cached;
+    }
+
+    this.pendingRefreshOptions = mergeRefreshOptions(this.pendingRefreshOptions, normalizedOptions);
 
     if (!this.refreshPromise) {
       this.refreshPromise = this.drainRefreshQueue().finally(() => {
@@ -386,6 +394,7 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
     await this.loginSessionManager.dispose();
     this.listeners.clear();
     this.snapshotCache = null;
@@ -410,7 +419,8 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
       this.pendingRefreshOptions = null;
       await this.mutationQueue.catch(() => undefined);
 
-      lastSnapshot = await this.loadSnapshot(nextOptions);
+      lastSnapshot =
+        this.getCachedSnapshotForOptions(nextOptions) ?? (await this.loadSnapshot(nextOptions));
     }
 
     if (!lastSnapshot) {
@@ -464,12 +474,17 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
     let accountPayload = this.lastKnownAccount?.payload ?? null;
     let requiresOpenaiAuth: boolean | null = accountPayload?.requiresOpenaiAuth ?? null;
     let runtimeContext = createRuntimeContext(binaryPath, null);
+    const cachedRateLimitsAreFresh = this.hasFreshRateLimits(now);
+    const shouldRequestRateLimits =
+      options?.includeRateLimits === true && !cachedRateLimitsAreFresh;
+    let rateLimitsReadFailure: unknown | null = null;
 
     try {
-      const accountResult = await this.appServerClient.readAccount({
+      const accountResult = await this.appServerClient.readAccountSnapshot({
         binaryPath,
         env,
         refreshToken: options?.forceRefreshToken ?? false,
+        includeRateLimits: shouldRequestRateLimits,
       });
       runtimeContext = createRuntimeContext(binaryPath, accountResult.initialize.codexHome);
       if (runtimeContext.codexHome) {
@@ -498,6 +513,14 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
           observedAt: now,
         };
       }
+      if (accountResult.rateLimits?.ok) {
+        this.lastKnownRateLimits = {
+          payload: accountResult.rateLimits.payload,
+          observedAt: now,
+        };
+      } else if (accountResult.rateLimits) {
+        rateLimitsReadFailure = accountResult.rateLimits.error;
+      }
     } catch (error) {
       const failure = classifyAppServerFailure(error);
       appServerState = failure.appServerState;
@@ -525,35 +548,18 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
 
     let rateLimits: CodexRateLimitSnapshotDto | null = null;
     const shouldLoadRateLimits =
-      options?.includeRateLimits === true ||
-      (this.lastKnownRateLimits !== null &&
-        now - this.lastKnownRateLimits.observedAt <= RATE_LIMITS_CACHE_TTL_MS);
+      options?.includeRateLimits === true || this.hasFreshRateLimits(now);
 
     if (shouldLoadRateLimits) {
-      try {
-        if (
-          this.lastKnownRateLimits &&
-          now - this.lastKnownRateLimits.observedAt <= RATE_LIMITS_CACHE_TTL_MS
-        ) {
-          rateLimits = asRateLimits(this.lastKnownRateLimits.payload.rateLimits);
-        } else {
-          const rateLimitsPayload = await this.appServerClient.readRateLimits({
-            binaryPath,
-            env,
-          });
-          this.lastKnownRateLimits = {
-            payload: rateLimitsPayload,
-            observedAt: now,
-          };
-          rateLimits = asRateLimits(rateLimitsPayload.rateLimits);
-        }
-      } catch (error) {
+      if (this.hasFreshRateLimits(now) && this.lastKnownRateLimits) {
+        rateLimits = asRateLimits(this.lastKnownRateLimits.payload.rateLimits);
+      } else if (rateLimitsReadFailure) {
         this.logger.warn('codex account rate limits refresh failed', {
-          error: error instanceof Error ? error.message : String(error),
+          error:
+            rateLimitsReadFailure instanceof Error
+              ? rateLimitsReadFailure.message
+              : String(rateLimitsReadFailure),
         });
-        rateLimits = this.lastKnownRateLimits
-          ? asRateLimits(this.lastKnownRateLimits.payload.rateLimits)
-          : null;
       }
     }
 
@@ -590,6 +596,10 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
   }
 
   private setSnapshot(nextSnapshot: CodexAccountSnapshotDto): CodexAccountSnapshotDto {
+    if (this.disposed) {
+      return deepClone(nextSnapshot);
+    }
+
     this.snapshotCache = deepClone(nextSnapshot);
     this.snapshotObservedAt = Date.now();
     const snapshot = deepClone(nextSnapshot);
@@ -598,6 +608,36 @@ class CodexAccountFeatureFacadeImpl implements CodexAccountFeatureFacade {
       listener(snapshot);
     }
     return snapshot;
+  }
+
+  private getCachedSnapshotForOptions(
+    options: CodexSnapshotRefreshOptions
+  ): CodexAccountSnapshotDto | null {
+    if (
+      this.hasPendingMutation() ||
+      options.forceRefreshToken ||
+      !this.snapshotCache ||
+      Date.now() - this.snapshotObservedAt > SNAPSHOT_CACHE_TTL_MS
+    ) {
+      return null;
+    }
+
+    if (options.includeRateLimits && !this.hasFreshRateLimits(Date.now())) {
+      return null;
+    }
+
+    return deepClone(this.snapshotCache);
+  }
+
+  private hasPendingMutation(): boolean {
+    return this.activeMutationCount > 0 || this.mutationQueueRelease !== null;
+  }
+
+  private hasFreshRateLimits(now: number): boolean {
+    return (
+      this.lastKnownRateLimits !== null &&
+      now - this.lastKnownRateLimits.observedAt <= RATE_LIMITS_CACHE_TTL_MS
+    );
   }
 
   private async emitCurrentSnapshot(): Promise<CodexAccountSnapshotDto> {

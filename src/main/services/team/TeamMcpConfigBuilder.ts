@@ -75,11 +75,22 @@ function getSourceServerEntry(): string {
   return path.join(getWorkspaceMcpServerDir(), 'src', 'index.ts');
 }
 
-function getWorkspaceTsxBinCandidates(): string[] {
+function getWorkspaceTsxPackageJsonCandidates(): string[] {
   return [
-    path.join(getWorkspaceMcpServerDir(), 'node_modules', '.bin', 'tsx'),
-    path.join(getWorkspaceRoot(), 'node_modules', '.bin', 'tsx'),
+    path.join(getWorkspaceMcpServerDir(), 'node_modules', 'tsx', 'package.json'),
+    path.join(getWorkspaceRoot(), 'node_modules', 'tsx', 'package.json'),
   ];
+}
+
+function resolvePackageBin(
+  packageJsonPath: string,
+  binName: string,
+  packageJsonRaw: string
+): string | null {
+  const packageJson = JSON.parse(packageJsonRaw) as { bin?: string | Record<string, string> };
+  const bin = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.[binName];
+  if (!bin) return null;
+  return path.resolve(path.dirname(packageJsonPath), bin);
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -89,6 +100,40 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function resolveWorkspaceTsxCli(checked: string[]): Promise<string | null> {
+  for (const packageJsonPath of getWorkspaceTsxPackageJsonCandidates()) {
+    checked.push(packageJsonPath);
+    if (!(await pathExists(packageJsonPath))) {
+      continue;
+    }
+
+    try {
+      const tsxCli = resolvePackageBin(
+        packageJsonPath,
+        'tsx',
+        await fs.promises.readFile(packageJsonPath, 'utf8')
+      );
+      if (!tsxCli) {
+        logger.warn(`tsx package has no bin.tsx entry at ${packageJsonPath}`);
+        continue;
+      }
+
+      checked.push(tsxCli);
+      if (await pathExists(tsxCli)) {
+        return tsxCli;
+      }
+    } catch (error) {
+      logger.warn(
+        `Failed to resolve tsx CLI from ${packageJsonPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  return null;
 }
 
 function shouldRetryMcpConfigRemoval(error: NodeJS.ErrnoException): boolean {
@@ -236,14 +281,12 @@ export async function resolveAgentTeamsMcpLaunchSpec(): Promise<McpLaunchSpec> {
   const sourceEntry = getSourceServerEntry();
   checked.push(sourceEntry);
   if (await pathExists(sourceEntry)) {
-    for (const tsxBin of getWorkspaceTsxBinCandidates()) {
-      checked.push(tsxBin);
-      if (await pathExists(tsxBin)) {
-        return {
-          command: tsxBin,
-          args: [sourceEntry],
-        };
-      }
+    const tsxCli = await resolveWorkspaceTsxCli(checked);
+    if (tsxCli) {
+      return {
+        command: await resolveNodePath(),
+        args: [tsxCli, sourceEntry],
+      };
     }
   }
 

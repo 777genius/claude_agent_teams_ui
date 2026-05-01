@@ -47,11 +47,19 @@ export class TeamInboxWriter {
       ...(request.slashCommand && { slashCommand: request.slashCommand }),
       ...(request.commandOutput && { commandOutput: request.commandOutput }),
     };
+    let resultMessageId = messageId;
+    let resultDeduplicated = false;
 
     await withFileLock(inboxPath, async () => {
       await withInboxLock(inboxPath, async () => {
         for (let attempt = 0; attempt < 3; attempt++) {
           const list = await this.readInbox(inboxPath);
+          const duplicate = this.findRuntimeDeliveryDuplicate(list, payload);
+          if (duplicate) {
+            resultMessageId = duplicate.messageId ?? messageId;
+            resultDeduplicated = true;
+            return;
+          }
           list.push(payload);
           await atomicWriteAsync(inboxPath, JSON.stringify(list, null, 2));
           const written = await this.readInbox(inboxPath);
@@ -66,8 +74,54 @@ export class TeamInboxWriter {
 
     return {
       deliveredToInbox: true,
-      messageId,
+      messageId: resultMessageId,
+      ...(resultDeduplicated ? { deduplicated: true } : {}),
     };
+  }
+
+  private findRuntimeDeliveryDuplicate(
+    messages: readonly InboxMessage[],
+    payload: InboxMessage
+  ): InboxMessage | null {
+    if (
+      payload.source !== 'runtime_delivery' ||
+      typeof payload.relayOfMessageId !== 'string' ||
+      payload.relayOfMessageId.trim().length === 0
+    ) {
+      return null;
+    }
+
+    const relayOfMessageId = payload.relayOfMessageId.trim();
+    const from = this.normalizeComparableParticipant(payload.from);
+    const to = this.normalizeComparableParticipant(payload.to);
+    const text = this.normalizeComparableText(payload.text);
+    if (!from || !to || !text) {
+      return null;
+    }
+
+    return (
+      messages.find(
+        (candidate) =>
+          candidate.source === 'runtime_delivery' &&
+          (candidate.relayOfMessageId ?? '').trim() === relayOfMessageId &&
+          this.normalizeComparableParticipant(candidate.from) === from &&
+          this.normalizeComparableParticipant(candidate.to) === to &&
+          this.normalizeComparableText(candidate.text) === text
+      ) ?? null
+    );
+  }
+
+  private normalizeComparableParticipant(value: unknown): string {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+  }
+
+  private normalizeComparableText(value: unknown): string {
+    return typeof value === 'string'
+      ? value
+          .trim()
+          .replace(/\r\n/g, '\n')
+          .replace(/[ \t]+/g, ' ')
+      : '';
   }
 
   private async readInbox(inboxPath: string): Promise<InboxMessage[]> {

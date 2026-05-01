@@ -31,6 +31,13 @@ import {
   createCodexModelCatalogFeature,
 } from '@features/codex-model-catalog/main';
 import {
+  buildMemberWorkSyncRuntimeTurnSettledEnvironment,
+  createMemberWorkSyncFeature,
+  type MemberWorkSyncFeatureFacade,
+  registerMemberWorkSyncIpc,
+  removeMemberWorkSyncIpc,
+} from '@features/member-work-sync/main';
+import {
   createRecentProjectsFeature,
   type RecentProjectsFeatureFacade,
   registerRecentProjectsIpc,
@@ -173,16 +180,20 @@ import {
   SshConnectionManager,
   TaskBoundaryParser,
   TeamDataService,
+  TeamKanbanManager,
   TeamLogSourceTracker,
   TeammateToolTracker,
   TeamMemberLogsFinder,
+  TeamMembersMetaStore,
   TeamProvisioningService,
   TeamRuntimeAdapterRegistry,
+  TeamTaskReader,
   TeamTaskStallJournal,
   TeamTaskStallMonitor,
   TeamTaskStallNotifier,
   TeamTaskStallPolicy,
   TeamTaskStallSnapshotSource,
+  TeamTranscriptSourceLocator,
   UpdaterService,
 } from './services';
 
@@ -238,11 +249,27 @@ async function createOpenCodeRuntimeAdapterRegistry(): Promise<TeamRuntimeAdapte
   const bridgeEnv = applyOpenCodeAutoUpdatePolicy({ ...process.env });
   bridgeEnv.AGENT_TEAMS_MCP_CLAUDE_DIR = getClaudeBasePath();
   try {
+    const turnSettledEnv = await buildMemberWorkSyncRuntimeTurnSettledEnvironment({
+      teamsBasePath: getTeamsBasePath(),
+      provider: 'opencode',
+    });
+    if (turnSettledEnv) {
+      Object.assign(bridgeEnv, turnSettledEnv);
+    }
+  } catch (error) {
+    logger.warn(
+      `[OpenCode] Runtime adapter bridge turn-settled spool unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+  try {
     const mcpLaunchSpec = await resolveAgentTeamsMcpLaunchSpec();
     const mcpEntry = mcpLaunchSpec.args[0];
     if (mcpEntry) {
       bridgeEnv.CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND = mcpLaunchSpec.command;
       bridgeEnv.CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY = mcpEntry;
+      bridgeEnv.CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON = JSON.stringify(mcpLaunchSpec.args);
     }
   } catch (error) {
     logger.warn(
@@ -558,6 +585,7 @@ let codexAccountFeature: CodexAccountFeatureFacade | null = null;
 let codexModelCatalogFeature: CodexModelCatalogFeatureFacade | null = null;
 let recentProjectsFeature: RecentProjectsFeatureFacade;
 let runtimeProviderManagementFeature: RuntimeProviderManagementFeatureFacade;
+let memberWorkSyncFeature: MemberWorkSyncFeatureFacade | null = null;
 let teamDataService: TeamDataService;
 let teamProvisioningService: TeamProvisioningService;
 let cliInstallerService: CliInstallerService;
@@ -777,6 +805,7 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       if (typeof row.teamName !== 'string' || row.teamName.trim().length === 0) return;
       const teamName = row.teamName.trim();
       const detail = typeof row.detail === 'string' ? row.detail : '';
+      memberWorkSyncFeature?.noteTeamChange(row as TeamChangeEvent);
 
       if (
         teamDataService &&
@@ -1024,7 +1053,14 @@ async function initializeServices(): Promise<void> {
   cliInstallerService = new CliInstallerService();
   ptyTerminalService = new PtyTerminalService();
   const teamMemberLogsFinder = new TeamMemberLogsFinder();
-  const boardTaskActivityRecordSource = new BoardTaskActivityRecordSource();
+  const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
+  const teamTranscriptSourceLocator = new TeamTranscriptSourceLocator();
+  teamLogSourceTracker.onLogSourceChange((teamName) => {
+    teamTranscriptSourceLocator.invalidateTeam(teamName);
+  });
+  const boardTaskActivityRecordSource = new BoardTaskActivityRecordSource(
+    teamTranscriptSourceLocator
+  );
   const boardTaskActivityService = new BoardTaskActivityService(boardTaskActivityRecordSource);
   const boardTaskActivityDetailService = new BoardTaskActivityDetailService(
     boardTaskActivityRecordSource
@@ -1033,7 +1069,15 @@ async function initializeServices(): Promise<void> {
   const boardTaskExactLogDetailService = new BoardTaskExactLogDetailService(
     boardTaskActivityRecordSource
   );
-  const boardTaskLogStreamService = new BoardTaskLogStreamService(boardTaskActivityRecordSource);
+  const boardTaskLogStreamService = new BoardTaskLogStreamService(
+    boardTaskActivityRecordSource,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    teamTranscriptSourceLocator
+  );
   const teamMemberRuntimeAdvisoryService = new TeamMemberRuntimeAdvisoryService(
     teamMemberLogsFinder
   );
@@ -1073,10 +1117,9 @@ async function initializeServices(): Promise<void> {
   teamProvisioningService.setCrossTeamSender((request) => crossTeamService.send(request));
 
   const taskChangePresenceRepository = new JsonTaskChangePresenceRepository();
-  const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
   teamTaskStallMonitor = new TeamTaskStallMonitor(
     new ActiveTeamRegistry(teamDataService, teamLogSourceTracker),
-    new TeamTaskStallSnapshotSource(),
+    new TeamTaskStallSnapshotSource(teamTranscriptSourceLocator),
     new TeamTaskStallPolicy(),
     new TeamTaskStallJournal(),
     new TeamTaskStallNotifier(teamDataService, teamProvisioningService)
@@ -1172,6 +1215,7 @@ async function initializeServices(): Promise<void> {
   const teamChangeEmitter = (event: TeamChangeEvent): void => {
     forwardTeamChange(event);
     teamTaskStallMonitor?.noteTeamChange(event);
+    memberWorkSyncFeature?.noteTeamChange(event);
     if (event.type === 'lead-activity' && event.detail === 'offline') {
       teammateToolTracker?.handleTeamOffline(event.teamName);
     }
@@ -1215,6 +1259,48 @@ async function initializeServices(): Promise<void> {
     logger: createLogger('Feature:RecentProjects'),
   });
   runtimeProviderManagementFeature = createRuntimeProviderManagementFeature();
+  memberWorkSyncFeature = createMemberWorkSyncFeature({
+    teamsBasePath: getTeamsBasePath(),
+    configReader: new TeamConfigReader(),
+    taskReader: new TeamTaskReader(),
+    kanbanManager: new TeamKanbanManager(),
+    membersMetaStore: new TeamMembersMetaStore(),
+    isTeamActive: (teamName) =>
+      teamProvisioningService.isTeamAlive(teamName) ||
+      teamProvisioningService.hasProvisioningRun(teamName),
+    listLifecycleActiveTeamNames: async () => {
+      const teams = await teamDataService.listTeams();
+      return teams
+        .filter(
+          (team) =>
+            !team.deletedAt &&
+            (teamProvisioningService.isTeamAlive(team.teamName) ||
+              teamProvisioningService.hasProvisioningRun(team.teamName))
+        )
+        .map((team) => team.teamName);
+    },
+    logger: createLogger('Feature:MemberWorkSync'),
+  });
+  teamProvisioningService.setRuntimeTurnSettledHookSettingsProvider((input) =>
+    memberWorkSyncFeature
+      ? memberWorkSyncFeature.buildRuntimeTurnSettledHookSettings(input)
+      : Promise.resolve(null)
+  );
+  teamProvisioningService.setRuntimeTurnSettledEnvironmentProvider((input) =>
+    memberWorkSyncFeature
+      ? memberWorkSyncFeature.buildRuntimeTurnSettledEnvironment(input)
+      : Promise.resolve(null)
+  );
+  void teamDataService
+    .listTeams()
+    .then(async (teams) => {
+      const activeTeamNames = teams.filter((team) => !team.deletedAt).map((team) => team.teamName);
+      await memberWorkSyncFeature?.replayPendingReports(activeTeamNames);
+      await memberWorkSyncFeature?.enqueueStartupScan(activeTeamNames);
+    })
+    .catch((error: unknown) =>
+      logger.warn(`[Init] Member work sync startup scan failed: ${String(error)}`)
+    );
   codexAccountFeature = createCodexAccountFeature({
     logger: createLogger('Feature:CodexAccount'),
     configManager,
@@ -1282,6 +1368,7 @@ async function initializeServices(): Promise<void> {
   registerCodexAccountIpc(ipcMain, codexAccountFeature);
   registerRecentProjectsIpc(ipcMain, recentProjectsFeature);
   registerRuntimeProviderManagementIpc(ipcMain, runtimeProviderManagementFeature);
+  registerMemberWorkSyncIpc(ipcMain, memberWorkSyncFeature);
 
   // Forward SSH state changes to renderer and HTTP SSE clients
   sshConnectionManager.on('state-change', (status: unknown) => {
@@ -1335,6 +1422,7 @@ async function startHttpServer(
         chunkBuilder: activeContext.chunkBuilder,
         dataCache: activeContext.dataCache,
         recentProjectsFeature,
+        memberWorkSyncFeature: memberWorkSyncFeature ?? undefined,
         updaterService,
         sshConnectionManager,
         teamDataService,
@@ -1457,6 +1545,8 @@ async function shutdownServices(): Promise<void> {
     codexModelCatalogFeature = null;
     await runShutdownStep('Codex account dispose', () => codexAccountFeature?.dispose());
     codexAccountFeature = null;
+    await runShutdownStep('member work sync dispose', () => memberWorkSyncFeature?.dispose());
+    memberWorkSyncFeature = null;
 
     if (ptyTerminalService) {
       await runShutdownStep('PTY terminals kill', () => ptyTerminalService.killAll());
@@ -1467,6 +1557,7 @@ async function shutdownServices(): Promise<void> {
       removeCodexAccountIpc(ipcMain);
       removeRecentProjectsIpc(ipcMain);
       removeRuntimeProviderManagementIpc(ipcMain);
+      removeMemberWorkSyncIpc(ipcMain);
     });
 
     await runShutdownStep('team backup dispose', () => teamBackupService?.dispose());

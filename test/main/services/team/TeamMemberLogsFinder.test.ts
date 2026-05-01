@@ -209,6 +209,139 @@ describe('TeamMemberLogsFinder', () => {
     ]);
   });
 
+  it('returns recent attributed member log file refs in one batch for advisory scans', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-logs-'));
+    setClaudeBasePathOverride(tmpDir);
+
+    const teamName = 'runtime-advisory-batch';
+    const projectPath = '/Users/test/runtime-advisory-batch';
+    const projectId = '-Users-test-runtime-advisory-batch';
+    const leadSessionId = 'lead-session';
+    const bobSessionId = 'member-bob-session';
+    const now = new Date();
+    const old = new Date(Date.now() - 30 * 60_000);
+
+    await fs.mkdir(path.join(tmpDir, 'teams', teamName), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, 'teams', teamName, 'config.json'),
+      JSON.stringify(
+        {
+          name: teamName,
+          projectPath,
+          leadSessionId,
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'Alice', agentType: 'general-purpose' },
+            { name: 'Bob', agentType: 'general-purpose' },
+            { name: 'Tom', agentType: 'general-purpose' },
+          ],
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+
+    const projectRoot = path.join(tmpDir, 'projects', projectId);
+    await fs.mkdir(path.join(projectRoot, leadSessionId, 'subagents'), { recursive: true });
+
+    const leadPath = path.join(projectRoot, `${leadSessionId}.jsonl`);
+    await fs.writeFile(
+      leadPath,
+      [
+        JSON.stringify({
+          timestamp: now.toISOString(),
+          type: 'user',
+          message: { role: 'user', content: `Lead for team "${teamName}" (${teamName})` },
+        }),
+        JSON.stringify({
+          timestamp: now.toISOString(),
+          type: 'system',
+          subtype: 'api_error',
+          retryInMs: 45_000,
+        }),
+      ].join('\n') + '\n',
+      'utf8'
+    );
+
+    const alicePath = path.join(projectRoot, leadSessionId, 'subagents', 'agent-alice.jsonl');
+    await fs.writeFile(
+      alicePath,
+      [
+        JSON.stringify({
+          timestamp: now.toISOString(),
+          type: 'user',
+          message: {
+            role: 'user',
+            content: `You are Alice, a reviewer on team "${teamName}" (${teamName}).`,
+          },
+        }),
+        JSON.stringify({
+          timestamp: now.toISOString(),
+          type: 'system',
+          subtype: 'api_error',
+          retryInMs: 45_000,
+        }),
+      ].join('\n') + '\n',
+      'utf8'
+    );
+
+    const bobPath = path.join(projectRoot, `${bobSessionId}.jsonl`);
+    await fs.writeFile(
+      bobPath,
+      [
+        JSON.stringify({
+          timestamp: now.toISOString(),
+          type: 'user',
+          teamName,
+          agentName: 'Bob',
+          message: {
+            role: 'user',
+            content: `You are bootstrapping into team "${teamName}" as member "Bob".`,
+          },
+        }),
+        JSON.stringify({
+          timestamp: now.toISOString(),
+          type: 'system',
+          subtype: 'api_error',
+          retryInMs: 45_000,
+        }),
+      ].join('\n') + '\n',
+      'utf8'
+    );
+
+    const tomOldPath = path.join(projectRoot, leadSessionId, 'subagents', 'agent-tom.jsonl');
+    await fs.writeFile(
+      tomOldPath,
+      JSON.stringify({
+        timestamp: old.toISOString(),
+        type: 'user',
+        message: {
+          role: 'user',
+          content: `You are Tom, a developer on team "${teamName}" (${teamName}).`,
+        },
+      }) + '\n',
+      'utf8'
+    );
+    await fs.utimes(tomOldPath, old, old);
+
+    const finder = new TeamMemberLogsFinder();
+    const refs = await finder.findRecentMemberLogFileRefsByMember(
+      teamName,
+      ['team-lead', 'Alice', 'Bob', 'Tom'],
+      Date.now() - 10 * 60_000
+    );
+
+    expect(refs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ memberName: 'team-lead', filePath: leadPath }),
+        expect.objectContaining({ memberName: 'Alice', filePath: alicePath }),
+        expect.objectContaining({ memberName: 'Bob', filePath: bobPath }),
+      ])
+    );
+    expect(refs.some((ref) => ref.memberName === 'Tom')).toBe(false);
+  });
+
   it('listAttributedSubagentFiles only returns files from the current lead session for live tracking', async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-logs-'));
     setClaudeBasePathOverride(tmpDir);

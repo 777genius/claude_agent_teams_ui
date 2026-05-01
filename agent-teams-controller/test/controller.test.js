@@ -148,6 +148,7 @@ describe('agent-teams-controller API', () => {
     expect(briefing).toContain('Task briefing for bob:');
     expect(briefing).toContain('Use task_briefing as your primary working queue whenever you need to see assigned work.');
     expect(briefing).toContain('Use task_list only to search/browse inventory rows, not as your working queue.');
+    expect(briefing).toContain('member_work_sync_status and member_work_sync_report');
     expect(briefing).toContain(
       'Awareness items are watch-only context and do not authorize you to start work unless the lead reroutes the task or you become the actionOwner.'
     );
@@ -232,6 +233,44 @@ describe('agent-teams-controller API', () => {
     });
 
     expect(delivered.deliveredToInbox).toBe(true);
+  });
+
+  it('deduplicates repeated runtime_delivery replies to the same inbound message', () => {
+    const claudeDir = makeClaudeDir();
+    const configPath = path.join(claudeDir, 'teams', 'my-team', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    config.members = [
+      { name: 'alice', role: 'team-lead' },
+      { name: 'bob', role: 'developer', providerId: 'opencode', model: 'opencode/test-model' },
+    ];
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const first = controller.messages.sendMessage({
+      to: 'user',
+      from: 'bob',
+      text: 'Да, я здесь!',
+      source: 'runtime_delivery',
+      relayOfMessageId: 'msg-inbound-1',
+    });
+    const second = controller.messages.sendMessage({
+      to: 'user',
+      from: 'bob',
+      text: ' Да,   я здесь! ',
+      source: 'runtime_delivery',
+      relayOfMessageId: 'msg-inbound-1',
+    });
+
+    const userInboxPath = path.join(claudeDir, 'teams', 'my-team', 'inboxes', 'user.json');
+    const rows = JSON.parse(fs.readFileSync(userInboxPath, 'utf8'));
+    expect(rows).toHaveLength(1);
+    expect(second).toMatchObject({
+      deliveredToInbox: true,
+      deduplicated: true,
+      messageId: first.messageId,
+      duplicateOfMessageId: first.messageId,
+      deduplicationNotice: expect.stringContaining('do not call agent-teams_message_send again'),
+    });
   });
 
   it('strips hallucinated zero task placeholder prefixes from visible messages', () => {
@@ -2245,6 +2284,301 @@ describe('agent-teams-controller API', () => {
         memberName: 'bob',
         runtimeSessionId: 'ses-1',
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('retries OpenCode bootstrap check-in on retryable control API failures', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      if (calls.length < 3) {
+        return { statusCode: 500, body: { error: 'temporary bootstrap failure' } };
+      }
+      return { body: { ok: true, state: 'accepted', diagnostics: [] } };
+    });
+
+    try {
+      const result = await controller.runtime.runtimeBootstrapCheckin({
+        controlUrl: server.baseUrl,
+        runId: 'run-oc',
+        memberName: 'bob',
+        runtimeSessionId: 'ses-1',
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        state: 'accepted',
+        diagnostics: expect.arrayContaining(['opencode_bootstrap_checkin_retry']),
+      });
+      expect(calls).toHaveLength(3);
+      expect(calls.map((call) => call.body)).toEqual([
+        {
+          teamName: 'my-team',
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        },
+        {
+          teamName: 'my-team',
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        },
+        {
+          teamName: 'my-team',
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('accepts idempotent OpenCode bootstrap check-in after a timed-out committed request', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+    let committed = false;
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      if (!committed) {
+        committed = true;
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        return { body: { ok: true, state: 'accepted', diagnostics: [] } };
+      }
+      return {
+        body: {
+          ok: true,
+          state: 'accepted',
+          diagnostics: ['opencode_bootstrap_checkin_duplicate_accepted'],
+        },
+      };
+    });
+
+    try {
+      const result = await controller.runtime.runtimeBootstrapCheckin({
+        controlUrl: server.baseUrl,
+        waitTimeoutMs: 1000,
+        runId: 'run-oc',
+        memberName: 'bob',
+        runtimeSessionId: 'ses-1',
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        state: 'accepted',
+        diagnostics: expect.arrayContaining([
+          'opencode_bootstrap_checkin_duplicate_accepted',
+          'opencode_bootstrap_checkin_retry',
+        ]),
+      });
+      expect(calls).toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does not retry OpenCode bootstrap check-in on validation failures', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      return { statusCode: 400, body: { error: 'invalid bootstrap payload' } };
+    });
+
+    try {
+      await expect(
+        controller.runtime.runtimeBootstrapCheckin({
+          controlUrl: server.baseUrl,
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        })
+      ).rejects.toThrow('invalid bootstrap payload');
+      expect(calls).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('fails OpenCode bootstrap check-in clearly after bounded timeout retries', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      return { body: { ok: true, state: 'accepted' } };
+    });
+
+    try {
+      await expect(
+        controller.runtime.runtimeBootstrapCheckin({
+          controlUrl: server.baseUrl,
+          waitTimeoutMs: 1000,
+          runId: 'run-oc',
+          memberName: 'bob',
+          runtimeSessionId: 'ses-1',
+        })
+      ).rejects.toThrow('Timed out calling team control API');
+      expect(calls).toHaveLength(3);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('forwards member work sync status and reports to the app validator', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const calls = [];
+
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      if (method === 'GET' && url === '/api/teams/my-team/member-work-sync/bob') {
+        return {
+          body: {
+            teamName: 'my-team',
+            memberName: 'bob',
+            state: 'needs_sync',
+            agenda: {
+              teamName: 'my-team',
+              memberName: 'bob',
+              generatedAt: '2026-04-29T00:00:00.000Z',
+              fingerprint: 'agenda:v1:abc',
+              items: [],
+              diagnostics: [],
+            },
+            reportToken: 'wrs:v1.test.token',
+            reportTokenExpiresAt: '2026-04-29T00:15:00.000Z',
+            evaluatedAt: '2026-04-29T00:00:00.000Z',
+            diagnostics: ['no_current_report'],
+          },
+        };
+      }
+      if (method === 'POST' && url === '/api/teams/my-team/member-work-sync/report') {
+        return { body: { accepted: true, code: 'accepted', status: body } };
+      }
+      return { statusCode: 404, body: { error: `Unhandled ${method} ${url}` } };
+    });
+
+    try {
+      const status = await controller.workSync.memberWorkSyncStatus({
+        controlUrl: server.baseUrl,
+        from: 'bob',
+      });
+      const report = await controller.workSync.memberWorkSyncReport({
+        controlUrl: server.baseUrl,
+        memberName: 'bob',
+        state: 'still_working',
+        agendaFingerprint: 'agenda:v1:abc',
+        reportToken: 'wrs:v1.test.token',
+        taskIds: ['task-1'],
+        note: 'Continuing work',
+        leaseTtlMs: 120000,
+      });
+
+      expect(status.state).toBe('needs_sync');
+      expect(report.accepted).toBe(true);
+      expect(calls).toEqual([
+        {
+          method: 'GET',
+          url: '/api/teams/my-team/member-work-sync/bob',
+          body: undefined,
+        },
+        {
+          method: 'POST',
+          url: '/api/teams/my-team/member-work-sync/report',
+          body: {
+            teamName: 'my-team',
+            memberName: 'bob',
+            state: 'still_working',
+            agendaFingerprint: 'agenda:v1:abc',
+            reportToken: 'wrs:v1.test.token',
+            taskIds: ['task-1'],
+            note: 'Continuing work',
+            leaseTtlMs: 120000,
+          },
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('records member work sync report intents only when the app validator is unavailable', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+
+    const pending = await controller.workSync.memberWorkSyncReport({
+      memberName: 'bob',
+      state: 'still_working',
+      agendaFingerprint: 'agenda:v1:abc',
+      reportToken: 'wrs:v1.test.token',
+      taskIds: ['task-1'],
+    });
+
+    expect(pending.pendingValidation).toBe(true);
+    expect(pending.accepted).toBe(false);
+
+    const intentFile = path.join(
+      claudeDir,
+      'teams',
+      'my-team',
+      '.member-work-sync',
+      'pending-reports.json'
+    );
+    const intents = JSON.parse(fs.readFileSync(intentFile, 'utf8'));
+    expect(Object.values(intents.intents)).toEqual([
+      expect.objectContaining({
+        teamName: 'my-team',
+        memberName: 'bob',
+        reason: 'control_api_unavailable',
+        status: 'pending',
+        request: expect.objectContaining({
+          memberName: 'bob',
+          source: 'mcp',
+          reportToken: 'wrs:v1.test.token',
+        }),
+      }),
+    ]);
+  });
+
+  it('does not record pending work sync intents for app-side validation rejections', async () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+
+    const server = await startControlServer(async () => ({
+      statusCode: 400,
+      body: { error: 'stale_fingerprint' },
+    }));
+
+    try {
+      await expect(
+        controller.workSync.memberWorkSyncReport({
+          controlUrl: server.baseUrl,
+          memberName: 'bob',
+          state: 'still_working',
+          agendaFingerprint: 'agenda:v1:stale',
+          reportToken: 'wrs:v1.test.token',
+        })
+      ).rejects.toThrow('stale_fingerprint');
+
+      expect(
+        fs.existsSync(
+          path.join(claudeDir, 'teams', 'my-team', '.member-work-sync', 'pending-reports.json')
+        )
+      ).toBe(false);
     } finally {
       await server.close();
     }

@@ -9,12 +9,15 @@ import { withFileLock } from '../../fileLock';
 import {
   createDefaultRuntimeStoreManifest,
   createRuntimeStoreManifestStore,
+  OPENCODE_RUNTIME_STORE_DESCRIPTORS,
   OPENCODE_RUNTIME_STORE_MANIFEST_SCHEMA_VERSION,
+  RuntimeStoreFileInspector,
   validateRuntimeStoreManifest,
 } from './RuntimeStoreManifest';
 
 import type { RuntimeStoreManifestEvidence } from '../bridge/OpenCodeBridgeCommandContract';
 import type { RuntimeStoreManifestReader } from '../bridge/OpenCodeStateChangingBridgeCommandService';
+import type { RuntimeStoreManifestEntryState } from './RuntimeStoreManifest';
 
 const logger = createLogger('OpenCodeRuntimeManifestEvidenceReader');
 
@@ -28,11 +31,19 @@ const OPENCODE_TEAM_RUNTIME_LANES_DIR = 'lanes';
 const OPENCODE_TEAM_RUNTIME_LANES_INDEX_FILE = 'lanes.json';
 const OPENCODE_RUNTIME_MANIFEST_FILE = 'manifest.json';
 const OPENCODE_RUNTIME_RUN_TOMBSTONES_FILE = 'opencode-run-tombstones.json';
+const OPENCODE_ACTIVE_EMPTY_LANE_STALE_MS = 150_000;
 const OPENCODE_LANE_INDEX_LOCK_OPTIONS = {
   acquireTimeoutMs: 30_000,
   staleTimeoutMs: 25_000,
   retryIntervalMs: 25,
 } as const;
+const OPENCODE_RUNTIME_EVIDENCE_FILES = new Set(
+  OPENCODE_RUNTIME_STORE_DESCRIPTORS.filter(
+    (descriptor) =>
+      descriptor.schemaName !== 'opencode.promptDeliveryLedger' &&
+      descriptor.schemaName !== 'opencode.deliveryJournal'
+  ).map((descriptor) => descriptor.relativePath)
+);
 
 export interface OpenCodeRuntimeLaneIndexEntry {
   laneId: string;
@@ -45,6 +56,23 @@ export interface OpenCodeRuntimeLaneIndex {
   version: 1;
   updatedAt: string;
   lanes: Record<string, OpenCodeRuntimeLaneIndexEntry>;
+}
+
+export interface OpenCodeCommittedBootstrapSessionRecord {
+  id: string;
+  teamName: string;
+  memberName: string;
+  laneId: string;
+  runId: string | null;
+  observedAt: string | null;
+  source: 'runtime_bootstrap_checkin';
+}
+
+export interface OpenCodeCommittedBootstrapSessionEvidence {
+  state: RuntimeStoreManifestEntryState | 'invalid_store' | 'descriptor_missing';
+  committed: boolean;
+  sessions: OpenCodeCommittedBootstrapSessionRecord[];
+  diagnostics: string[];
 }
 
 function createEmptyOpenCodeRuntimeLaneIndex(
@@ -224,6 +252,82 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function readOpenCodeBootstrapSessionStore(
+  filePath: string,
+  expected: {
+    teamName: string;
+    laneId: string;
+  }
+): Promise<OpenCodeCommittedBootstrapSessionRecord[]> {
+  const raw = await readFile(filePath, 'utf8');
+  const parsed = JSON.parse(raw) as unknown;
+  const record =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  const data =
+    record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : record;
+  const sessions =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>).sessions
+      : null;
+
+  if (!Array.isArray(sessions)) {
+    return [];
+  }
+
+  return sessions.flatMap((session): OpenCodeCommittedBootstrapSessionRecord[] => {
+    const normalized = normalizeOpenCodeBootstrapSessionRecord(session);
+    if (!normalized) {
+      return [];
+    }
+    if (normalized.teamName !== expected.teamName || normalized.laneId !== expected.laneId) {
+      return [];
+    }
+    return [normalized];
+  });
+}
+
+function normalizeOpenCodeBootstrapSessionRecord(
+  value: unknown
+): OpenCodeCommittedBootstrapSessionRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const id = normalizeNonEmptyStoreString(record.id);
+  const teamName = normalizeNonEmptyStoreString(record.teamName);
+  const memberName = normalizeNonEmptyStoreString(record.memberName);
+  const laneId = normalizeNonEmptyStoreString(record.laneId);
+  const source = normalizeNonEmptyStoreString(record.source);
+  if (!id || !teamName || !memberName || !laneId || source !== 'runtime_bootstrap_checkin') {
+    return null;
+  }
+  const observedAt = normalizeOptionalStoreIso(record.observedAt);
+  return {
+    id,
+    teamName,
+    memberName,
+    laneId,
+    runId: normalizeNonEmptyStoreString(record.runId),
+    observedAt,
+    source: 'runtime_bootstrap_checkin',
+  };
+}
+
+function normalizeNonEmptyStoreString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeOptionalStoreIso(value: unknown): string | null {
+  const text = normalizeNonEmptyStoreString(value);
+  if (!text) {
+    return null;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : text;
+}
+
 async function resolveOpenCodeRuntimeManifestReadPath(
   teamsBasePath: string,
   teamName: string,
@@ -318,6 +422,9 @@ export async function inspectOpenCodeRuntimeLaneStorage(params: {
 }): Promise<{
   laneDirectoryExists: boolean;
   hasStateOnDisk: boolean;
+  hasRuntimeEvidenceOnDisk: boolean;
+  manifestEntryCount: number | null;
+  manifestUpdatedAt: string | null;
   fileNames: string[];
 }> {
   const laneDir = getOpenCodeTeamRuntimeLaneDirectory(
@@ -330,14 +437,38 @@ export async function inspectOpenCodeRuntimeLaneStorage(params: {
     return {
       laneDirectoryExists: false,
       hasStateOnDisk: false,
+      hasRuntimeEvidenceOnDisk: false,
+      manifestEntryCount: null,
+      manifestUpdatedAt: null,
       fileNames: [],
     };
   }
 
   const fileNames = (await readdir(laneDir).catch(() => [] as string[])).sort();
+  const manifestPath = getOpenCodeRuntimeManifestPath(
+    params.teamsBasePath,
+    params.teamName,
+    params.laneId
+  );
+  const manifest = (await fileExists(manifestPath))
+    ? await readRuntimeStoreManifestEvidenceData(
+        manifestPath,
+        params.teamName,
+        () => new Date()
+      ).catch(() => null)
+    : null;
+  const hasRuntimeEvidenceFile = fileNames.some((fileName) =>
+    OPENCODE_RUNTIME_EVIDENCE_FILES.has(fileName)
+  );
+  const hasRuntimeEvidenceManifestEntry =
+    manifest?.entries.some((entry) => OPENCODE_RUNTIME_EVIDENCE_FILES.has(entry.relativePath)) ??
+    false;
   return {
     laneDirectoryExists: true,
     hasStateOnDisk: fileNames.length > 0,
+    hasRuntimeEvidenceOnDisk: hasRuntimeEvidenceFile || hasRuntimeEvidenceManifestEntry,
+    manifestEntryCount: manifest ? manifest.entries.length : null,
+    manifestUpdatedAt: manifest?.updatedAt ?? null,
     fileNames,
   };
 }
@@ -352,6 +483,87 @@ export function getOpenCodeLaneScopedRuntimeFilePath(params: {
     getOpenCodeTeamRuntimeLaneDirectory(params.teamsBasePath, params.teamName, params.laneId),
     params.fileName
   );
+}
+
+export async function readCommittedOpenCodeBootstrapSessionEvidence(params: {
+  teamsBasePath: string;
+  teamName: string;
+  laneId: string;
+}): Promise<OpenCodeCommittedBootstrapSessionEvidence> {
+  const descriptor = OPENCODE_RUNTIME_STORE_DESCRIPTORS.find(
+    (candidate) => candidate.schemaName === 'opencode.sessionStore'
+  );
+  if (!descriptor) {
+    return {
+      state: 'descriptor_missing',
+      committed: false,
+      sessions: [],
+      diagnostics: ['OpenCode session store descriptor is not registered.'],
+    };
+  }
+
+  const runtimeDirectory = getOpenCodeTeamRuntimeLaneDirectory(
+    params.teamsBasePath,
+    params.teamName,
+    params.laneId
+  );
+  const manifestPath = getOpenCodeRuntimeManifestPath(
+    params.teamsBasePath,
+    params.teamName,
+    params.laneId
+  );
+  const manifestStore = createRuntimeStoreManifestStore({
+    filePath: manifestPath,
+    teamName: params.teamName,
+  });
+  const manifest = await manifestStore.read().catch(() => null);
+  if (!manifest) {
+    return {
+      state: 'invalid_store',
+      committed: false,
+      sessions: [],
+      diagnostics: ['OpenCode runtime manifest could not be read.'],
+    };
+  }
+
+  const inspection = await new RuntimeStoreFileInspector(runtimeDirectory)
+    .inspect({ descriptor, manifest })
+    .catch((error: unknown) => ({
+      state: 'invalid_store' as const,
+      message: `OpenCode session store inspection failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    }));
+  const diagnostics = inspection.message ? [inspection.message] : [];
+  if (inspection.state !== 'healthy') {
+    return {
+      state: inspection.state,
+      committed: false,
+      sessions: [],
+      diagnostics,
+    };
+  }
+
+  const sessionStorePath = path.join(runtimeDirectory, descriptor.relativePath);
+  const sessions = await readOpenCodeBootstrapSessionStore(sessionStorePath, params).catch(
+    (error: unknown) => {
+      diagnostics.push(
+        `OpenCode session store could not be parsed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return [];
+    }
+  );
+  if (sessions.length === 0) {
+    diagnostics.push('OpenCode session store has no committed bootstrap check-in sessions.');
+  }
+  return {
+    state: 'healthy',
+    committed: true,
+    sessions,
+    diagnostics,
+  };
 }
 
 export async function readOpenCodeRuntimeLaneIndex(
@@ -513,6 +725,8 @@ export async function recoverStaleOpenCodeRuntimeLaneIndexEntry(params: {
   teamsBasePath: string;
   teamName: string;
   laneId: string;
+  clock?: () => Date;
+  emptyLaneStaleAfterMs?: number;
 }): Promise<{
   stale: boolean;
   degraded: boolean;
@@ -529,7 +743,7 @@ export async function recoverStaleOpenCodeRuntimeLaneIndexEntry(params: {
   }
 
   const storage = await inspectOpenCodeRuntimeLaneStorage(params);
-  if (storage.hasStateOnDisk) {
+  if (storage.hasRuntimeEvidenceOnDisk) {
     return {
       stale: false,
       degraded: false,
@@ -537,9 +751,26 @@ export async function recoverStaleOpenCodeRuntimeLaneIndexEntry(params: {
     };
   }
 
-  const diagnostics = [
-    `OpenCode lane ${params.laneId} is marked active in lanes.json, but no lane state exists on disk.`,
-  ];
+  const now = params.clock?.() ?? new Date();
+  const staleAfterMs = params.emptyLaneStaleAfterMs ?? OPENCODE_ACTIVE_EMPTY_LANE_STALE_MS;
+  const lastTouchedAt =
+    Date.parse(storage.manifestUpdatedAt ?? '') || Date.parse(entry.updatedAt) || NaN;
+  const laneAgeMs = Number.isFinite(lastTouchedAt) ? now.getTime() - lastTouchedAt : Infinity;
+  if (storage.hasStateOnDisk && laneAgeMs < staleAfterMs) {
+    return {
+      stale: false,
+      degraded: false,
+      diagnostics: [],
+    };
+  }
+
+  const diagnostics = storage.hasStateOnDisk
+    ? [
+        `OpenCode lane ${params.laneId} is marked active in lanes.json, but its runtime manifest has no committed runtime evidence after launch grace.`,
+      ]
+    : [
+        `OpenCode lane ${params.laneId} is marked active in lanes.json, but no lane state exists on disk.`,
+      ];
   await upsertOpenCodeRuntimeLaneIndexEntry({
     teamsBasePath: params.teamsBasePath,
     teamName: params.teamName,

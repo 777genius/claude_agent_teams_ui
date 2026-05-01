@@ -6,6 +6,7 @@ Start here:
 - Repo overview and commands: [README.md](README.md)
 - Working instructions and project conventions: [CLAUDE.md](CLAUDE.md)
 - Canonical feature architecture standard: [docs/FEATURE_ARCHITECTURE_STANDARD.md](docs/FEATURE_ARCHITECTURE_STANDARD.md)
+- Agent team launch/runtime debugging runbook: [docs/team-management/debugging-agent-teams.md](docs/team-management/debugging-agent-teams.md)
 
 For new features:
 - Default home for medium and large features: `src/features/<feature-name>/`
@@ -15,6 +16,7 @@ For new features:
 ## Review guidelines
 
 - Treat regressions in agent team messaging, task lifecycle, session parsing, code review UI, and provider/runtime detection as high priority.
+- For team launch hangs, OpenCode `registered`/`bootstrap unconfirmed`, missing teammate replies, or suspicious task logs, follow [docs/team-management/debugging-agent-teams.md](docs/team-management/debugging-agent-teams.md) before changing code.
 - Verify new medium and large features follow `docs/FEATURE_ARCHITECTURE_STANDARD.md`, especially cross-process boundaries and public feature entrypoints.
 - Check that Electron main, preload, renderer, and shared code keep their responsibilities separate and use the documented path aliases.
 - Flag changes that manually concatenate agent block markers instead of using `wrapAgentBlock(text)`.

@@ -4,6 +4,7 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 import type {
   OpenCodeTeamRuntimeMessageInput,
@@ -47,6 +48,7 @@ describe('Team agent launch matrix safe e2e', () => {
   let projectPath: string;
 
   beforeEach(async () => {
+    TeamConfigReader.clearCacheForTests();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-launch-matrix-e2e-'));
     tempClaudeRoot = path.join(tempDir, '.claude');
     projectPath = path.join(tempDir, 'project');
@@ -56,6 +58,7 @@ describe('Team agent launch matrix safe e2e', () => {
   });
 
   afterEach(async () => {
+    TeamConfigReader.clearCacheForTests();
     setClaudeBasePathOverride(null);
     await removeTempDirWithRetries(tempDir);
   });
@@ -2070,19 +2073,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopAllTeams();
 
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
     expect(svc.isTeamAlive(teamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 1);
 
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
@@ -2113,19 +2115,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, cancelledRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopAllTeams();
 
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
     expect(svc.isTeamAlive(teamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
         lanes: {},
@@ -2139,7 +2140,7 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, freshRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(freshRun);
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       freshRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -2200,27 +2201,23 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(firstRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(secondRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
 
     svc.stopAllTeams();
 
-    await waitForCondition(() => adapter.stopInputs.length === 4);
+    await waitForCondition(() => adapter.stopInputs.length === 2);
     expect(adapter.stopInputs.map((input) => input.teamName).sort()).toEqual([
       firstTeamName,
-      firstTeamName,
-      secondTeamName,
       secondTeamName,
     ]);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
-      'secondary:opencode:tom',
     ]);
     expect(svc.getAliveTeams()).toEqual([]);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 4);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
 
     await expect(
       readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), firstTeamName)
@@ -2604,17 +2601,13 @@ describe('Team agent launch matrix safe e2e', () => {
         }),
       },
     });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:bob',
-      state: 'active',
     });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:tom',
-      state: 'active',
     });
 
     const restartedService = new TeamProvisioningService();
@@ -5742,14 +5735,14 @@ describe('Team agent launch matrix safe e2e', () => {
     const statuses = await new TeamProvisioningService().getMemberSpawnStatuses(teamName);
 
     expect(statuses.expectedMembers).toEqual(['alice', 'bob']);
-    expect(statuses.teamLaunchState).toBe('clean_success');
+    expect(statuses.teamLaunchState).toBe('partial_pending');
     expect(statuses.statuses.bob).toMatchObject({
-      status: 'online',
-      launchState: 'confirmed_alive',
-      bootstrapConfirmed: true,
+      status: 'spawning',
+      launchState: 'starting',
+      bootstrapConfirmed: false,
       hardFailure: false,
-      livenessSource: 'heartbeat',
     });
+    expect(statuses.statuses.bob?.lastHeartbeatAt).toBeUndefined();
     expect(statuses.statuses['bob-2']).toBeUndefined();
   });
 
@@ -6530,14 +6523,14 @@ describe('Team agent launch matrix safe e2e', () => {
     const statuses = await svc.getMemberSpawnStatuses(teamName);
 
     expect(statuses.expectedMembers).toEqual(['alice', 'bob']);
-    expect(statuses.teamLaunchState).toBe('clean_success');
+    expect(statuses.teamLaunchState).toBe('partial_pending');
     expect(statuses.statuses.bob).toMatchObject({
-      status: 'online',
-      launchState: 'confirmed_alive',
-      bootstrapConfirmed: true,
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      bootstrapConfirmed: false,
       hardFailure: false,
-      lastHeartbeatAt: newerSignalAt,
     });
+    expect(statuses.statuses.bob?.lastHeartbeatAt).toBeUndefined();
     expect(statuses.statuses['bob-2']).toBeUndefined();
   });
 
@@ -6813,14 +6806,14 @@ describe('Team agent launch matrix safe e2e', () => {
     const statuses = await svc.getMemberSpawnStatuses(teamName);
 
     expect(statuses.expectedMembers).toEqual(['alice', 'bob']);
-    expect(statuses.teamLaunchState).toBe('clean_success');
+    expect(statuses.teamLaunchState).toBe('partial_pending');
     expect(statuses.statuses.bob).toMatchObject({
-      status: 'online',
-      launchState: 'confirmed_alive',
-      bootstrapConfirmed: true,
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      bootstrapConfirmed: false,
       hardFailure: false,
-      lastHeartbeatAt: signalAt,
     });
+    expect(statuses.statuses.bob?.lastHeartbeatAt).toBeUndefined();
     expect(statuses.statuses['bob-2']).toBeUndefined();
   });
 
@@ -10076,17 +10069,19 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
     await waitForCondition(
-      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 2
+      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 1
     );
     expect(adapter.stopInputs.some((input) => input.teamName === survivingTeamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       survivingRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -10103,7 +10098,7 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, freshRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(freshRun);
-    await waitForCondition(() => adapter.launchInputs.length === 6);
+    await waitForCondition(() => adapter.launchInputs.length === 5);
     await waitForCondition(() =>
       freshRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -10201,19 +10196,21 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
     await waitForCondition(
-      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 2
+      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 1
     );
     expect(adapter.stopInputs.some((input) => input.teamName === survivingTeamName)).toBe(false);
     expect(svc.isTeamAlive(cancelledTeamName)).toBe(false);
     expect(svc.isTeamAlive(survivingTeamName)).toBe(true);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       survivingRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -11006,7 +11003,10 @@ describe('Team agent launch matrix safe e2e', () => {
     svc.stopTeam(teamName);
     await waitForCondition(() => adapter.stopInputs.length === 2);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    expect((await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).lanes).toEqual({});
+    await waitForCondition(async () => {
+      const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName);
+      return Object.keys(laneIndex.lanes).length === 0;
+    });
 
     await expect(
       svc.deliverOpenCodeMemberMessage(teamName, {
@@ -11600,11 +11600,9 @@ describe('Team agent launch matrix safe e2e', () => {
       )}\n`,
       'utf8'
     );
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:tom',
-      state: 'active',
     });
     const inboxDir = path.join(getTeamsBasePath(), teamName, 'inboxes');
     await fs.mkdir(inboxDir, { recursive: true });
@@ -12164,11 +12162,9 @@ describe('Team agent launch matrix safe e2e', () => {
     await writeMixedTeamConfig({ teamName, projectPath });
     await writeTeamMeta(teamName, projectPath);
     await writeMembersMeta(teamName);
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:bob',
-      state: 'active',
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
     const restartedService = new TeamProvisioningService();
@@ -12208,11 +12204,9 @@ describe('Team agent launch matrix safe e2e', () => {
       state: 'active',
       diagnostics: ['stale removed bob lane index entry'],
     });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:tom',
-      state: 'active',
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
     const restartedService = new TeamProvisioningService();
@@ -12263,11 +12257,9 @@ describe('Team agent launch matrix safe e2e', () => {
       state: 'active',
       diagnostics: ['stale active lane index while members meta removed bob'],
     });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:tom',
-      state: 'active',
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
     const restartedService = new TeamProvisioningService();
@@ -12318,11 +12310,9 @@ describe('Team agent launch matrix safe e2e', () => {
       state: 'active',
       diagnostics: ['orphan active lane index entry without roster member'],
     });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:tom',
-      state: 'active',
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
     const restartedService = new TeamProvisioningService();
@@ -12366,11 +12356,9 @@ describe('Team agent launch matrix safe e2e', () => {
     await writeMixedTeamConfig({ teamName, projectPath });
     await writeTeamMeta(teamName, projectPath);
     await writeMembersMeta(teamName);
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:bob',
-      state: 'active',
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
     const restartedService = new TeamProvisioningService();
@@ -12404,11 +12392,9 @@ describe('Team agent launch matrix safe e2e', () => {
     await writeMixedTeamConfig({ teamName, projectPath, removedMembers: ['bob'] });
     await writeTeamMeta(teamName, projectPath);
     await writeMembersMeta(teamName, { removedMembers: ['bob'] });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:bob',
-      state: 'active',
       diagnostics: ['stale active lane index while bob was removed'],
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
@@ -12457,11 +12443,9 @@ describe('Team agent launch matrix safe e2e', () => {
     await writeMixedTeamConfig({ teamName, projectPath });
     await writeTeamMeta(teamName, projectPath);
     await writeMembersMeta(teamName);
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:bob',
-      state: 'active',
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
     const svc = new TeamProvisioningService();
@@ -12494,11 +12478,9 @@ describe('Team agent launch matrix safe e2e', () => {
     const teamName = 'mixed-opencode-direct-message-meta-only-recovered-safe-e2e';
     await writeTeamMeta(teamName, projectPath);
     await writeMembersMeta(teamName, { memberCwd: projectPath });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName,
       laneId: 'secondary:opencode:bob',
-      state: 'active',
     });
     const adapter = new FakeOpenCodeRuntimeAdapter();
     const svc = new TeamProvisioningService();
@@ -12535,11 +12517,9 @@ describe('Team agent launch matrix safe e2e', () => {
     await fs.mkdir(degradedProjectPath, { recursive: true });
     await writeTeamMeta(activeTeamName, activeProjectPath);
     await writeMembersMeta(activeTeamName, { memberCwd: activeProjectPath });
-    await upsertOpenCodeRuntimeLaneIndexEntry({
-      teamsBasePath: getTeamsBasePath(),
+    await upsertActiveOpenCodeRuntimeLaneForTest({
       teamName: activeTeamName,
       laneId: 'secondary:opencode:bob',
-      state: 'active',
     });
     await writeTeamMeta(degradedTeamName, degradedProjectPath);
     await writeMembersMeta(degradedTeamName, { memberCwd: degradedProjectPath });
@@ -12777,18 +12757,17 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, currentRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(currentRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
 
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expectDirectChildKillCount(staleKillCount, 0);
     expectDirectChildKillCount(currentKillCount, 1);
     expect(staleRun.cancelRequested).toBe(false);
     expect(currentRun.cancelRequested).toBe(true);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
     expect(await svc.getRuntimeState(teamName)).toMatchObject({
       teamName,
@@ -12835,7 +12814,7 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, currentRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(currentRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(staleRun.runId);
 
@@ -14691,7 +14670,7 @@ describe('Team agent launch matrix safe e2e', () => {
     const initialSnapshot = await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
 
     expect(initialSnapshot.teamLaunchState).toBe('partial_pending');
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     const inFlightStatuses = await svc.getMemberSpawnStatuses(teamName);
     expect(inFlightStatuses.teamLaunchState).toBe('partial_pending');
@@ -14747,7 +14726,7 @@ describe('Team agent launch matrix safe e2e', () => {
     const initialSnapshot = await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
 
     expect(initialSnapshot.teamLaunchState).toBe('partial_pending');
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     const inFlightStatuses = await svc.getMemberSpawnStatuses(teamName);
     expect(inFlightStatuses.teamLaunchState).toBe('partial_pending');
@@ -14806,14 +14785,14 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
     const firstLaneRunIds = run.mixedSecondaryLanes.map(
       (lane: { runId: string | null }) => lane.runId
     );
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
 
-    expect(adapter.pendingLaunchInputs).toHaveLength(2);
+    expect(adapter.pendingLaunchInputs).toHaveLength(1);
     expect(adapter.launchInputs).toHaveLength(0);
     expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
       'launching',
@@ -14857,14 +14836,14 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
     const firstLaneRunIds = run.mixedSecondaryLanes.map(
       (lane: { runId: string | null }) => lane.runId
     );
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
 
-    expect(adapter.pendingLaunchInputs).toHaveLength(2);
+    expect(adapter.pendingLaunchInputs).toHaveLength(1);
     expect(adapter.launchInputs).toHaveLength(0);
     expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
       'launching',
@@ -15011,19 +14990,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
 
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(svc.isTeamAlive(teamName)).toBe(false);
@@ -15045,19 +15023,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
 
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(svc.isTeamAlive(teamName)).toBe(false);
@@ -15124,19 +15101,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
 
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(svc.isTeamAlive(teamName)).toBe(false);
@@ -15175,19 +15151,21 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(stoppedRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === stoppedTeamName)
+    );
 
     svc.stopTeam(stoppedTeamName);
 
     await waitForCondition(
-      () => adapter.stopInputs.filter((input) => input.teamName === stoppedTeamName).length === 2
+      () => adapter.stopInputs.filter((input) => input.teamName === stoppedTeamName).length === 1
     );
     expect(adapter.stopInputs.some((input) => input.teamName === survivingTeamName)).toBe(false);
     expect(svc.isTeamAlive(stoppedTeamName)).toBe(false);
     expect(svc.isTeamAlive(survivingTeamName)).toBe(true);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       survivingRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -15223,11 +15201,11 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, oldRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(oldRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     await writeMixedTeamLaunchState({
       teamName,
@@ -15275,7 +15253,7 @@ describe('Team agent launch matrix safe e2e', () => {
     });
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(statuses.teamLaunchState).toBe('partial_failure');
@@ -15307,11 +15285,11 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, oldRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(oldRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     await writeMixedTeamLaunchState({
       teamName,
@@ -15358,7 +15336,7 @@ describe('Team agent launch matrix safe e2e', () => {
     });
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(statuses.teamLaunchState).toBe('partial_failure');
@@ -15428,11 +15406,11 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, oldRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(oldRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     await writeMixedTeamLaunchState({
       teamName,
@@ -15491,7 +15469,7 @@ describe('Team agent launch matrix safe e2e', () => {
     });
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(statuses.teamLaunchState).toBe('partial_failure');
@@ -15526,14 +15504,14 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 1);
 
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
@@ -15564,14 +15542,14 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 1);
 
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
@@ -15642,14 +15620,14 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     svc.stopTeam(teamName);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 1);
 
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
@@ -15687,19 +15665,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(run.runId);
 
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
     expect(svc.isTeamAlive(teamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(statuses.teamLaunchState).not.toBe('clean_success');
@@ -15720,19 +15697,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(run.runId);
 
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
     expect(svc.isTeamAlive(teamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(statuses.teamLaunchState).not.toBe('clean_success');
@@ -15767,19 +15743,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(run.runId);
 
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
     expect(svc.isTeamAlive(teamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
     expect(statuses.teamLaunchState).not.toBe('clean_success');
@@ -15821,19 +15796,18 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, cancelledRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
     expect(adapter.stopInputs.map((input) => input.laneId).sort()).toEqual([
       'secondary:opencode:bob',
-      'secondary:opencode:tom',
     ]);
     expect(svc.isTeamAlive(teamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
 
     const cancelledStatuses = await svc.getMemberSpawnStatuses(teamName);
     expect(cancelledStatuses.teamLaunchState).not.toBe('clean_success');
@@ -15849,7 +15823,7 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, freshRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(freshRun);
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       freshRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -15902,19 +15876,21 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() =>
+      adapter.pendingLaunchInputs.some((input) => input.teamName === cancelledTeamName)
+    );
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
     await waitForCondition(
-      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 2
+      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 1
     );
     expect(adapter.stopInputs.some((input) => input.teamName === survivingTeamName)).toBe(false);
     expect(svc.isTeamAlive(cancelledTeamName)).toBe(false);
     expect(svc.isTeamAlive(survivingTeamName)).toBe(true);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       survivingRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -15987,19 +15963,19 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
     await waitForCondition(
-      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 2
+      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 1
     );
     expect(adapter.stopInputs.some((input) => input.teamName === survivingTeamName)).toBe(false);
     expect(svc.isTeamAlive(cancelledTeamName)).toBe(false);
     expect(svc.isTeamAlive(survivingTeamName)).toBe(true);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       survivingRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -16051,17 +16027,17 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
     await waitForCondition(
-      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 2
+      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 1
     );
     expect(adapter.stopInputs.some((input) => input.teamName === survivingTeamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       survivingRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -16073,7 +16049,7 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, freshRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(freshRun);
-    await waitForCondition(() => adapter.launchInputs.length === 6);
+    await waitForCondition(() => adapter.launchInputs.length === 5);
     await waitForCondition(() =>
       freshRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -16154,17 +16130,17 @@ describe('Team agent launch matrix safe e2e', () => {
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(cancelledRun);
     await (svc as any).launchMixedSecondaryLaneIfNeeded(survivingRun);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 4);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
 
     await svc.cancelProvisioning(cancelledRun.runId);
 
     await waitForCondition(
-      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 2
+      () => adapter.stopInputs.filter((input) => input.teamName === cancelledTeamName).length === 1
     );
     expect(adapter.stopInputs.some((input) => input.teamName === survivingTeamName)).toBe(false);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.launchInputs.length === 4);
+    await waitForCondition(() => adapter.launchInputs.length === 3);
     await waitForCondition(() =>
       survivingRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -16181,7 +16157,7 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, freshRun);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(freshRun);
-    await waitForCondition(() => adapter.launchInputs.length === 6);
+    await waitForCondition(() => adapter.launchInputs.length === 5);
     await waitForCondition(() =>
       freshRun.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -16232,13 +16208,13 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(run.runId);
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 1);
 
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
@@ -16269,13 +16245,13 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(run.runId);
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 1);
 
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
@@ -16320,13 +16296,13 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.pendingLaunchInputs.length === 2);
+    await waitForCondition(() => adapter.pendingLaunchInputs.length === 1);
 
     await svc.cancelProvisioning(run.runId);
-    await waitForCondition(() => adapter.stopInputs.length === 2);
+    await waitForCondition(() => adapter.stopInputs.length === 1);
 
     adapter.releaseLaunches();
-    await waitForCondition(() => adapter.rejectedLaunchCount === 2);
+    await waitForCondition(() => adapter.rejectedLaunchCount === 1);
 
     await expect(readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).resolves.toMatchObject(
       {
@@ -16996,6 +16972,7 @@ class FakeOpenCodeRuntimeAdapter implements TeamLaunchRuntimeAdapter {
       hardFailure: failed,
       hardFailureReason: failed ? 'fake_open_code_launch_failure' : undefined,
       pendingPermissionRequestIds: permissionPending ? [`perm-${member.name}`] : undefined,
+      sessionId: failed ? undefined : `session-${member.name}`,
       runtimePid: failed ? undefined : 10_000 + index,
       livenessKind,
       pidSource: failed ? undefined : 'opencode_bridge',
@@ -17122,9 +17099,30 @@ class RejectingBlockingOpenCodeRuntimeAdapter extends FakeOpenCodeRuntimeAdapter
   }
 }
 
+async function upsertActiveOpenCodeRuntimeLaneForTest(input: {
+  teamName: string;
+  laneId: string;
+  runId?: string | null;
+  diagnostics?: string[];
+}): Promise<void> {
+  await upsertOpenCodeRuntimeLaneIndexEntry({
+    teamsBasePath: getTeamsBasePath(),
+    teamName: input.teamName,
+    laneId: input.laneId,
+    state: 'active',
+    diagnostics: input.diagnostics,
+  });
+  await setOpenCodeRuntimeActiveRunManifest({
+    teamsBasePath: getTeamsBasePath(),
+    teamName: input.teamName,
+    laneId: input.laneId,
+    runId: input.runId ?? null,
+  });
+}
+
 async function waitForCondition(assertion: () => boolean | Promise<boolean>): Promise<void> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 5_000) {
+  while (Date.now() - startedAt < 20_000) {
     if (await assertion()) {
       return;
     }

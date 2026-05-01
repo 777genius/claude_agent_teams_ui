@@ -1677,7 +1677,7 @@ export const CreateTeamDialog = ({
         }
       }}
     >
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-[52rem]">
         <DialogHeader>
           <DialogTitle className="text-sm">{initialData ? 'Copy Team' : 'Create Team'}</DialogTitle>
           <DialogDescription className="text-xs">
@@ -2183,9 +2183,6 @@ export const CreateTeamDialog = ({
                 Open Existing Team
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Close
-            </Button>
             <Button
               size="sm"
               disabled={!canCreate || !draftLoaded || isSubmitting || hasCreateFormErrors}

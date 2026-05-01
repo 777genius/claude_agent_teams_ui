@@ -35,6 +35,7 @@ import type {
 import type { SshConnectionManager } from '../services/infrastructure/SshConnectionManager';
 import type { TeamDataService } from '../services/team/TeamDataService';
 import type { TeamProvisioningService } from '../services/team/TeamProvisioningService';
+import type { MemberWorkSyncFeatureFacade } from '@features/member-work-sync/main';
 import type { FastifyInstance } from 'fastify';
 
 const logger = createLogger('HTTP:routes');
@@ -46,6 +47,7 @@ export interface HttpServices {
   chunkBuilder: ChunkBuilder;
   dataCache: DataCache;
   recentProjectsFeature?: RecentProjectsFeatureFacade;
+  memberWorkSyncFeature?: MemberWorkSyncFeatureFacade;
   updaterService: UpdaterService;
   sshConnectionManager: SshConnectionManager;
   teamDataService?: TeamDataService;

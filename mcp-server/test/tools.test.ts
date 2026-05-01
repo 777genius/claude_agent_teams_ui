@@ -400,6 +400,97 @@ describe('agent-teams-mcp tools', () => {
     }
   });
 
+  it('forwards member work sync MCP tools through the app validator bridge', async () => {
+    const claudeDir = makeClaudeDir();
+    writeTeamConfig(claudeDir, 'alpha', {
+      members: [
+        { name: 'lead', role: 'team-lead' },
+        { name: 'alice', role: 'developer' },
+      ],
+    });
+    const calls: Array<{ method?: string; url?: string; body?: unknown }> = [];
+    const server = await startControlServer(async ({ method, url, body }) => {
+      calls.push({ method, url, body });
+      if (method === 'GET' && url === '/api/teams/alpha/member-work-sync/alice') {
+        return {
+          body: {
+            teamName: 'alpha',
+            memberName: 'alice',
+            state: 'needs_sync',
+            agenda: {
+              teamName: 'alpha',
+              memberName: 'alice',
+              generatedAt: '2026-04-29T00:00:00.000Z',
+              fingerprint: 'agenda:v1:abc',
+              items: [],
+              diagnostics: [],
+            },
+            reportToken: 'wrs:v1.test.token',
+            reportTokenExpiresAt: '2026-04-29T00:15:00.000Z',
+            evaluatedAt: '2026-04-29T00:00:00.000Z',
+            diagnostics: ['no_current_report'],
+          },
+        };
+      }
+      if (method === 'POST' && url === '/api/teams/alpha/member-work-sync/report') {
+        return { body: { accepted: true, code: 'accepted', status: body } };
+      }
+      return { statusCode: 404, body: { error: `Unhandled ${method} ${url}` } };
+    });
+
+    try {
+      const status = parseJsonToolResult(
+        await getTool('member_work_sync_status').execute({
+          claudeDir,
+          teamName: 'alpha',
+          controlUrl: server.baseUrl,
+          from: 'alice',
+        })
+      );
+      expect(status.state).toBe('needs_sync');
+
+      const report = parseJsonToolResult(
+        await getTool('member_work_sync_report').execute({
+          claudeDir,
+          teamName: 'alpha',
+          controlUrl: server.baseUrl,
+          memberName: 'alice',
+          state: 'still_working',
+          agendaFingerprint: 'agenda:v1:abc',
+          reportToken: 'wrs:v1.test.token',
+          taskIds: ['task-1'],
+          note: 'Still working',
+          leaseTtlMs: 120000,
+        })
+      );
+      expect(report.accepted).toBe(true);
+
+      expect(calls).toEqual([
+        {
+          method: 'GET',
+          url: '/api/teams/alpha/member-work-sync/alice',
+          body: undefined,
+        },
+        {
+          method: 'POST',
+          url: '/api/teams/alpha/member-work-sync/report',
+          body: {
+            teamName: 'alpha',
+            memberName: 'alice',
+            state: 'still_working',
+            agendaFingerprint: 'agenda:v1:abc',
+            reportToken: 'wrs:v1.test.token',
+            taskIds: ['task-1'],
+            note: 'Still working',
+            leaseTtlMs: 120000,
+          },
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('discovers the control endpoint from the published state file', async () => {
     const claudeDir = makeClaudeDir();
     writeTeamConfig(claudeDir, 'alpha', {

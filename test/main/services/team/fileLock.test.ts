@@ -67,6 +67,20 @@ describe('withFileLock', () => {
     expect(result).toBe('ok');
   });
 
+  it('removes stale directory lock and acquires', async () => {
+    const lockPath = `${testFile}.lock`;
+    fs.mkdirSync(lockPath);
+    const staleDate = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockPath, staleDate, staleDate);
+
+    const result = await withFileLock(testFile, async () => 'ok', {
+      staleTimeoutMs: 1_000,
+    });
+
+    expect(result).toBe('ok');
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
   it('removes a fresh abandoned lock when the owner process is gone', async () => {
     const lockPath = `${testFile}.lock`;
     const abandonedPid = 424_242;

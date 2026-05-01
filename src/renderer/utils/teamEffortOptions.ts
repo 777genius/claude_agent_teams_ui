@@ -20,6 +20,14 @@ interface TeamEffortOption {
   label: string;
 }
 
+interface TeamEffortSelectorPresentation {
+  options: readonly TeamEffortOption[];
+  disabled: boolean;
+  helperText: string;
+  unavailableText: string | null;
+  canValidateValue: boolean;
+}
+
 function getCatalogModel(
   providerId: TeamProviderId | undefined,
   providerStatus: CliProviderStatus | null | undefined,
@@ -125,4 +133,58 @@ export function getTeamEffortOptions(params: {
     { value: 'medium', label: TEAM_EFFORT_LABELS.medium },
     { value: 'high', label: TEAM_EFFORT_LABELS.high },
   ];
+}
+
+export function getTeamEffortSelectorPresentation(params: {
+  providerId?: TeamProviderId;
+  model?: string;
+  limitContext?: boolean;
+  providerStatus?: CliProviderStatus | null;
+}): TeamEffortSelectorPresentation {
+  const options = getTeamEffortOptions(params);
+  const defaultHelperText =
+    "Controls how much reasoning the selected provider invests before responding. Default uses the provider's standard behavior for the selected model.";
+
+  if (params.providerId !== 'anthropic') {
+    return {
+      options,
+      disabled: false,
+      helperText: defaultHelperText,
+      unavailableText: null,
+      canValidateValue: false,
+    };
+  }
+
+  const selection = resolveAnthropicRuntimeSelection({
+    source: {
+      modelCatalog: params.providerStatus?.modelCatalog,
+      runtimeCapabilities: params.providerStatus?.runtimeCapabilities,
+    },
+    selectedModel: params.model,
+    limitContext: params.limitContext === true,
+  });
+  const hasCatalogTruth =
+    selection.catalogSource !== 'unavailable' && selection.catalogStatus !== 'unavailable';
+  const supportsConfigurableEffort = selection.supportedEfforts.length > 0;
+
+  if (!hasCatalogTruth || supportsConfigurableEffort) {
+    return {
+      options,
+      disabled: false,
+      helperText: defaultHelperText,
+      unavailableText: null,
+      canValidateValue: hasCatalogTruth,
+    };
+  }
+
+  const modelLabel =
+    selection.displayName ?? selection.resolvedLaunchModel ?? params.model?.trim() ?? 'This model';
+
+  return {
+    options: [{ value: '', label: 'Not supported' }],
+    disabled: true,
+    helperText: `${modelLabel} does not support configurable reasoning effort. The app will omit --effort and use the provider default.`,
+    unavailableText: 'Effort is unavailable for this model.',
+    canValidateValue: true,
+  };
 }

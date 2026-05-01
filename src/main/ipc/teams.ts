@@ -1893,13 +1893,15 @@ async function handleLaunchTeam(
 
     const resolvedProviderId = explicitProviderId ?? savedRequest.providerId ?? providerId;
     const effortValidation = parseOptionalTeamEffort(
-      payload.effort ?? savedRequest.effort,
+      Object.hasOwn(payload, 'effort') ? payload.effort : savedRequest.effort,
       resolvedProviderId
     );
     if (!effortValidation.valid) {
       return { success: false, error: effortValidation.error };
     }
-    const fastModeValidation = parseOptionalTeamFastMode(payload.fastMode ?? savedRequest.fastMode);
+    const fastModeValidation = parseOptionalTeamFastMode(
+      Object.hasOwn(payload, 'fastMode') ? payload.fastMode : savedRequest.fastMode
+    );
     if (!fastModeValidation.valid) {
       return { success: false, error: fastModeValidation.error };
     }
@@ -1963,20 +1965,16 @@ async function handleLaunchTeam(
   if (!launchProviderBackendValidation.valid) {
     return { success: false, error: launchProviderBackendValidation.error };
   }
-  const rawLaunchEffort =
-    payload.effort ??
-    persistedMeta?.effort ??
-    persistedMeta?.launchIdentity?.selectedEffort ??
-    undefined;
+  const rawLaunchEffort = Object.hasOwn(payload, 'effort')
+    ? payload.effort
+    : (persistedMeta?.effort ?? persistedMeta?.launchIdentity?.selectedEffort ?? undefined);
   const effortValidation = parseOptionalTeamEffort(rawLaunchEffort, launchProviderId);
   if (!effortValidation.valid) {
     return { success: false, error: effortValidation.error };
   }
-  const rawLaunchFastMode =
-    payload.fastMode ??
-    persistedMeta?.fastMode ??
-    persistedMeta?.launchIdentity?.selectedFastMode ??
-    undefined;
+  const rawLaunchFastMode = Object.hasOwn(payload, 'fastMode')
+    ? payload.fastMode
+    : (persistedMeta?.fastMode ?? persistedMeta?.launchIdentity?.selectedFastMode ?? undefined);
   const fastModeValidation = parseOptionalTeamFastMode(rawLaunchFastMode);
   if (!fastModeValidation.valid) {
     return { success: false, error: fastModeValidation.error };

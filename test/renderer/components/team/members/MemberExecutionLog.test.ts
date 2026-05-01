@@ -209,7 +209,7 @@ describe('MemberExecutionLog', () => {
       await flushMicrotasks();
     });
 
-    expect(host.textContent).toContain('jack turn');
+    expect(host.textContent ?? '').toMatch(/jack\s*turn/);
     expect(host.textContent).not.toContain('Agent turn');
 
     await act(async () => {

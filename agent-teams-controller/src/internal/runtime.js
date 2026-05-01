@@ -8,6 +8,9 @@ const MAX_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
 const POLL_INTERVAL_MS = 1000;
 const TEAM_CONTROL_API_STATE_FILE = 'team-control-api.json';
 const RETRYABLE_CONTROL_ERROR = 'retryableControlError';
+const BOOTSTRAP_CHECKIN_MAX_ATTEMPTS = 3;
+const BOOTSTRAP_CHECKIN_ATTEMPT_TIMEOUT_MS = 4000;
+const BOOTSTRAP_CHECKIN_RETRY_DELAYS_MS = [300, 900];
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,9 +70,15 @@ function resolveControlBaseUrls(context, flags = {}) {
   return candidates;
 }
 
-function makeRetryableControlError(message, cause) {
+function makeRetryableControlError(message, cause, metadata = {}) {
   const error = new Error(message);
   error[RETRYABLE_CONTROL_ERROR] = true;
+  if (metadata.kind) {
+    error.retryableKind = metadata.kind;
+  }
+  if (metadata.statusCode) {
+    error.statusCode = metadata.statusCode;
+  }
   if (cause) {
     error.cause = cause;
   }
@@ -114,7 +123,9 @@ async function requestJson(baseUrl, pathname, options = {}) {
           : `${response.status} ${response.statusText}`.trim();
       if (isRetryableStatusCode(response.status)) {
         throw makeRetryableControlError(
-          `Team control API ${response.status} at ${baseUrl}${pathname}: ${detail || 'request failed'}`
+          `Team control API ${response.status} at ${baseUrl}${pathname}: ${detail || 'request failed'}`,
+          undefined,
+          { kind: 'status', statusCode: response.status }
         );
       }
       throw new Error(detail || 'Team control API request failed');
@@ -122,19 +133,24 @@ async function requestJson(baseUrl, pathname, options = {}) {
 
     if (payload == null) {
       throw makeRetryableControlError(
-        `Team control API returned empty or non-JSON response at ${baseUrl}${pathname}`
+        `Team control API returned empty or non-JSON response at ${baseUrl}${pathname}`,
+        undefined,
+        { kind: 'empty' }
       );
     }
 
     return payload;
   } catch (error) {
     if (error && error.name === 'AbortError') {
-      throw makeRetryableControlError(`Timed out calling team control API: ${pathname}`, error);
+      throw makeRetryableControlError(`Timed out calling team control API: ${pathname}`, error, {
+        kind: 'timeout',
+      });
     }
     if (error && error.name === 'TypeError') {
       throw makeRetryableControlError(
         `Failed to reach team control API at ${baseUrl}: ${error.message || 'fetch failed'}`,
-        error
+        error,
+        { kind: 'network' }
       );
     }
     throw error;
@@ -154,6 +170,54 @@ async function requestJsonWithFallback(baseUrls, pathname, options = {}) {
       lastError = error;
       if (!isRetryableControlError(error) || index === baseUrls.length - 1) {
         throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('Team control API request failed');
+}
+
+function isBootstrapCheckinRetryableControlError(error) {
+  if (!isRetryableControlError(error)) {
+    return false;
+  }
+
+  if (error.retryableKind === 'timeout' || error.retryableKind === 'network') {
+    return true;
+  }
+
+  if (error.retryableKind === 'status') {
+    return typeof error.statusCode === 'number' && error.statusCode >= 500;
+  }
+
+  return false;
+}
+
+async function requestJsonWithBoundedRetry(baseUrls, pathname, options = {}, retryOptions = {}) {
+  const maxAttempts = Math.max(1, retryOptions.maxAttempts || 1);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const result = await requestJsonWithFallback(baseUrls, pathname, options);
+      if (attempt > 1 && result && typeof result === 'object' && !Array.isArray(result)) {
+        return {
+          ...result,
+          diagnostics: uniqueNonEmpty([
+            ...(Array.isArray(result.diagnostics) ? result.diagnostics : []),
+            'opencode_bootstrap_checkin_retry',
+          ]),
+        };
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxAttempts || !isBootstrapCheckinRetryableControlError(error)) {
+        throw error;
+      }
+      const delayMs = retryOptions.delaysMs?.[attempt - 1] || 0;
+      if (delayMs > 0) {
+        await sleep(delayMs);
       }
     }
   }
@@ -412,18 +476,31 @@ async function getRuntimeState(context, flags = {}) {
 }
 
 async function runtimeBootstrapCheckin(context, flags = {}) {
-  return postRuntimeTool(
-    context,
-    flags,
-    'bootstrap-checkin',
-    compactRuntimeToolBody(context, flags, [
-      'runId',
-      'memberName',
-      'runtimeSessionId',
-      'observedAt',
-      'diagnostics',
-      'metadata',
-    ])
+  const baseUrls = resolveControlBaseUrls(context, flags);
+  const explicitTimeoutMs = flags.waitTimeoutMs || flags['wait-timeout-ms'];
+  const timeoutMs = Math.min(
+    normalizeTimeoutMs(explicitTimeoutMs || BOOTSTRAP_CHECKIN_ATTEMPT_TIMEOUT_MS),
+    BOOTSTRAP_CHECKIN_ATTEMPT_TIMEOUT_MS
+  );
+  return requestJsonWithBoundedRetry(
+    baseUrls,
+    `/api/teams/${encodeURIComponent(context.teamName)}/opencode/runtime/bootstrap-checkin`,
+    {
+      method: 'POST',
+      body: compactRuntimeToolBody(context, flags, [
+        'runId',
+        'memberName',
+        'runtimeSessionId',
+        'observedAt',
+        'diagnostics',
+        'metadata',
+      ]),
+      timeoutMs,
+    },
+    {
+      maxAttempts: BOOTSTRAP_CHECKIN_MAX_ATTEMPTS,
+      delaysMs: BOOTSTRAP_CHECKIN_RETRY_DELAYS_MS,
+    }
   );
 }
 

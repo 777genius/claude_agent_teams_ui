@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 
+// import { MemberWorkSyncStatusPanel } from '@features/member-work-sync/renderer';
 import { Button } from '@renderer/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from '@renderer/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
 import { useMemberStats } from '@renderer/hooks/useMemberStats';
 import { useStore } from '@renderer/store';
 import { selectMemberMessagesForTeamMember } from '@renderer/store/slices/teamSlice';
+import { isOpenCodeRelaunchActionable } from '@renderer/utils/memberHelpers';
 import {
   buildMemberLaunchDiagnosticsPayload,
   getMemberLaunchDiagnosticsErrorMessage,
@@ -172,10 +174,14 @@ export const MemberDetailDialog = ({
     [launchParams, member, runtimeEntry, spawnEntry]
   );
   const memorySourceLabel = getRuntimeMemorySourceLabel(runtimeEntry);
+  const openCodeRelaunchActionable = member
+    ? isOpenCodeRelaunchActionable({ member, spawnEntry, runtimeEntry })
+    : false;
   const restartInFlight =
-    spawnEntry?.launchState === 'starting' ||
-    spawnEntry?.launchState === 'runtime_pending_bootstrap' ||
-    spawnEntry?.launchState === 'runtime_pending_permission';
+    !openCodeRelaunchActionable &&
+    (spawnEntry?.launchState === 'starting' ||
+      spawnEntry?.launchState === 'runtime_pending_bootstrap' ||
+      spawnEntry?.launchState === 'runtime_pending_permission');
   const launchDiagnosticsPayload = useMemo(
     () =>
       member
@@ -202,7 +208,8 @@ export const MemberDetailDialog = ({
   const effectiveLaunchErrorMessage = openCodeNoRuntimeEvidence
     ? OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE
     : launchErrorMessage;
-  const restartButtonLabel = openCodeNoRuntimeEvidence ? 'Relaunch OpenCode' : 'Restart';
+  const restartButtonLabel =
+    openCodeNoRuntimeEvidence || openCodeRelaunchActionable ? 'Relaunch OpenCode' : 'Restart';
 
   useEffect(() => {
     if (!open || !member) {
@@ -291,7 +298,16 @@ export const MemberDetailDialog = ({
             </TabsTrigger>
           </TabsList>
           <TabsContent value="tasks">
-            <MemberTasksTab tasks={memberTasks} onTaskClick={onTaskClick} />
+            <div className="space-y-3">
+              {/*
+              <MemberWorkSyncStatusPanel
+                teamName={teamName}
+                memberName={member.name}
+                enabled={open && !member.removedAt}
+              />
+              */}
+              <MemberTasksTab tasks={memberTasks} onTaskClick={onTaskClick} />
+            </div>
           </TabsContent>
           <TabsContent value="activity">
             <MemberMessagesTab

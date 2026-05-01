@@ -423,6 +423,10 @@ export class ProviderConnectionService {
       connection: await this.getConnectionInfo(provider.providerId),
     };
 
+    if (provider.providerId === 'anthropic') {
+      return this.enrichAnthropicProviderStatus(withConnection);
+    }
+
     if (provider.providerId !== 'codex') {
       return withConnection;
     }
@@ -478,6 +482,32 @@ export class ProviderConnectionService {
     } catch {
       return withConnection;
     }
+  }
+
+  private enrichAnthropicProviderStatus(provider: CliProviderStatus): CliProviderStatus {
+    const connection = provider.connection;
+    if (connection?.configuredAuthMode !== 'api_key') {
+      return provider;
+    }
+
+    if (connection.apiKeyConfigured) {
+      return {
+        ...provider,
+        authenticated: true,
+        authMethod: 'api_key',
+        verificationState:
+          provider.verificationState === 'error' ? provider.verificationState : 'verified',
+        statusMessage: 'Connected via API key',
+      };
+    }
+
+    return {
+      ...provider,
+      authenticated: false,
+      authMethod: null,
+      verificationState: provider.verificationState === 'error' ? 'error' : 'unknown',
+      statusMessage: 'API key mode is selected, but no Anthropic API credential is available yet.',
+    };
   }
 
   async enrichProviderStatuses(providers: CliProviderStatus[]): Promise<CliProviderStatus[]> {

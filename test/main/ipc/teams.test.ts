@@ -3063,6 +3063,58 @@ describe('ipc teams handlers', () => {
       }
     });
 
+    it('treats explicit default effort in launch payload as clearing persisted lead effort', async () => {
+      const claudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ipc-launch-default-effort-'));
+      setClaudeBasePathOverride(claudeRoot);
+      try {
+        const teamDir = path.join(claudeRoot, 'teams', 'anthropic-team');
+        fs.mkdirSync(teamDir, { recursive: true });
+        fs.writeFileSync(path.join(teamDir, 'config.json'), JSON.stringify({ teamName: 'anthropic-team' }));
+        fs.writeFileSync(
+          path.join(teamDir, 'team.meta.json'),
+          JSON.stringify({
+            version: 1,
+            displayName: 'Anthropic Team',
+            cwd: '/Users/test/project',
+            providerId: 'anthropic',
+            model: 'claude-opus-4-6[1m]',
+            effort: 'low',
+            fastMode: 'on',
+            launchIdentity: {
+              selectedModel: 'claude-opus-4-6[1m]',
+              selectedEffort: 'low',
+              selectedFastMode: 'on',
+            },
+            createdAt: Date.now(),
+          })
+        );
+
+        const handler = handlers.get(TEAM_LAUNCH)!;
+        const result = (await handler({ sender: { send: vi.fn() } } as never, {
+          teamName: 'anthropic-team',
+          cwd: os.tmpdir(),
+          providerId: 'anthropic',
+          model: 'claude-opus-4-6[1m]',
+          effort: undefined,
+          fastMode: 'inherit',
+        })) as { success: boolean };
+
+        expect(result.success).toBe(true);
+        expect(provisioningService.launchTeam).toHaveBeenCalledWith(
+          expect.objectContaining({
+            teamName: 'anthropic-team',
+            providerId: 'anthropic',
+            model: 'claude-opus-4-6[1m]',
+            effort: undefined,
+            fastMode: 'inherit',
+          }),
+          expect.any(Function)
+        );
+      } finally {
+        fs.rmSync(claudeRoot, { recursive: true, force: true });
+      }
+    });
+
     it('handleReplaceMembers accepts members: []', async () => {
       const handler = handlers.get(TEAM_REPLACE_MEMBERS)!;
       const result = (await handler({} as never, 'my-team', {

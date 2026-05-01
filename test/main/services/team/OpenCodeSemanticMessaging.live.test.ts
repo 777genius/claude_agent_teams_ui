@@ -39,7 +39,11 @@ liveDescribe('OpenCode semantic messaging live e2e', () => {
 
   afterEach(async () => {
     setClaudeBasePathOverride(null);
-    await fs.rm(tempDir, { recursive: true, force: true });
+    if (process.env.OPENCODE_E2E_KEEP_TEMP === '1') {
+      console.info(`[OpenCodeSemanticMessaging.live] preserved temp dir: ${tempDir}`);
+    } else {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it(

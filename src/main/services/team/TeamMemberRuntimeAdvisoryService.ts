@@ -3,12 +3,32 @@ import * as fs from 'fs/promises';
 
 import { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
 
-import type { MemberRuntimeAdvisory, ResolvedTeamMember } from '@shared/types';
+import type { MemberLogSummary, MemberRuntimeAdvisory, ResolvedTeamMember } from '@shared/types';
+
+interface RuntimeAdvisoryLogFileRef {
+  memberName: string;
+  filePath: string;
+  mtimeMs: number;
+}
+
+interface RuntimeAdvisoryLogsFinder {
+  findMemberLogs(
+    teamName: string,
+    memberName: string,
+    mtimeSinceMs?: number | null
+  ): Promise<Pick<MemberLogSummary, 'filePath'>[]>;
+  findRecentMemberLogFileRefsByMember?(
+    teamName: string,
+    memberNames: readonly string[],
+    mtimeSinceMs?: number | null
+  ): Promise<RuntimeAdvisoryLogFileRef[]>;
+}
 
 const LOOKBACK_MS = 10 * 60 * 1000;
-const CACHE_TTL_MS = 5_000;
+const CACHE_TTL_MS = 30_000;
 const TAIL_BYTES = 64 * 1024;
 const BATCH_WARN_MS = 200;
+const ADVISORY_FETCH_CONCURRENCY = 2;
 const QUOTA_EXHAUSTED_TOKENS = [
   'exhausted your capacity',
   'capacity exceeded',
@@ -94,6 +114,28 @@ function classifyRetryReason(message: string | undefined): MemberRuntimeAdvisory
   return 'backend_error';
 }
 
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let index = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = new Array(workerCount).fill(0).map(async () => {
+    while (true) {
+      const currentIndex = index;
+      index += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+      results[currentIndex] = await fn(items[currentIndex]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export class TeamMemberRuntimeAdvisoryService {
   private readonly memberCache = new Map<string, CachedRuntimeAdvisory>();
   private readonly teamBatchCacheByTeam = new Map<string, CachedTeamBatchAdvisories>();
@@ -102,7 +144,9 @@ export class TeamMemberRuntimeAdvisoryService {
     Promise<Map<string, MemberRuntimeAdvisory>>
   >();
 
-  constructor(private readonly logsFinder: TeamMemberLogsFinder = new TeamMemberLogsFinder()) {}
+  constructor(
+    private readonly logsFinder: RuntimeAdvisoryLogsFinder = new TeamMemberLogsFinder()
+  ) {}
 
   async getMemberAdvisories(
     teamName: string,
@@ -187,12 +231,7 @@ export class TeamMemberRuntimeAdvisoryService {
     }
 
     if (membersToFetch.length > 0) {
-      const fetched = await Promise.all(
-        membersToFetch.map(async (memberName) => {
-          const advisory = await this.findRecentMemberAdvisory(teamName, memberName);
-          return [memberName, advisory] as const;
-        })
-      );
+      const fetched = await this.findRecentMemberAdvisories(teamName, membersToFetch);
       const fetchedAt = Date.now();
       for (const [memberName, advisory] of fetched) {
         const normalizedMemberName = this.normalizeToken(memberName);
@@ -271,11 +310,83 @@ export class TeamMemberRuntimeAdvisoryService {
       memberName,
       Date.now() - LOOKBACK_MS
     );
-    for (const summary of summaries) {
-      if (!summary.filePath) {
+    return this.findRecentMemberAdvisoryInFiles(
+      summaries.flatMap((summary) => summary.filePath ?? [])
+    );
+  }
+
+  private async findRecentMemberAdvisories(
+    teamName: string,
+    memberNames: readonly string[]
+  ): Promise<readonly (readonly [string, MemberRuntimeAdvisory | null])[]> {
+    if (this.logsFinder.findRecentMemberLogFileRefsByMember) {
+      try {
+        return await this.findRecentMemberAdvisoriesFromBatchRefs(teamName, memberNames);
+      } catch (error) {
+        logger.warn('batch member runtime advisory log lookup failed; falling back', {
+          teamName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return mapLimit(memberNames, ADVISORY_FETCH_CONCURRENCY, async (memberName) => {
+      const advisory = await this.findRecentMemberAdvisory(teamName, memberName);
+      return [memberName, advisory] as const;
+    });
+  }
+
+  private async findRecentMemberAdvisoriesFromBatchRefs(
+    teamName: string,
+    memberNames: readonly string[]
+  ): Promise<readonly (readonly [string, MemberRuntimeAdvisory | null])[]> {
+    const memberNamesByKey = new Map<string, string>();
+    for (const memberName of memberNames) {
+      const normalized = this.normalizeToken(memberName);
+      if (!memberNamesByKey.has(normalized)) {
+        memberNamesByKey.set(normalized, memberName);
+      }
+    }
+
+    const refs = await this.logsFinder.findRecentMemberLogFileRefsByMember!(
+      teamName,
+      memberNames,
+      Date.now() - LOOKBACK_MS
+    );
+    const refsByMember = new Map<string, RuntimeAdvisoryLogFileRef[]>();
+    for (const ref of refs) {
+      const normalizedMemberName = this.normalizeToken(ref.memberName);
+      if (!memberNamesByKey.has(normalizedMemberName)) {
         continue;
       }
-      const advisory = await this.readRecentApiRetryAdvisory(summary.filePath);
+      const bucket = refsByMember.get(normalizedMemberName) ?? [];
+      bucket.push(ref);
+      refsByMember.set(normalizedMemberName, bucket);
+    }
+
+    return mapLimit(memberNames, ADVISORY_FETCH_CONCURRENCY, async (memberName) => {
+      const normalizedMemberName = this.normalizeToken(memberName);
+      const refsForMember = refsByMember.get(normalizedMemberName) ?? [];
+      const seenFilePaths = new Set<string>();
+      const filePaths = refsForMember
+        .slice()
+        .sort((left, right) => right.mtimeMs - left.mtimeMs)
+        .flatMap((ref) => {
+          if (!ref.filePath || seenFilePaths.has(ref.filePath)) {
+            return [];
+          }
+          seenFilePaths.add(ref.filePath);
+          return [ref.filePath];
+        });
+      return [memberName, await this.findRecentMemberAdvisoryInFiles(filePaths)] as const;
+    });
+  }
+
+  private async findRecentMemberAdvisoryInFiles(
+    filePaths: readonly string[]
+  ): Promise<MemberRuntimeAdvisory | null> {
+    for (const filePath of filePaths) {
+      const advisory = await this.readRecentApiRetryAdvisory(filePath);
       if (advisory) {
         return advisory;
       }

@@ -100,6 +100,35 @@ type LogCandidate =
       fileName: string;
     };
 
+export interface MemberLogFileRef {
+  memberName: string;
+  sessionId: string;
+  filePath: string;
+  mtimeMs: number;
+}
+
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let index = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = new Array(workerCount).fill(0).map(async () => {
+    while (true) {
+      const currentIndex = index;
+      index += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+      results[currentIndex] = await fn(items[currentIndex], currentIndex);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export class TeamMemberLogsFinder {
   private readonly fileMentionsCache = new Map<string, boolean>();
   private readonly attributionCache = new Map<
@@ -847,6 +876,116 @@ export class TeamMemberLogsFinder {
     teamName: string
   ): Promise<{ memberName: string; sessionId: string; filePath: string; mtimeMs: number }[]> {
     return this.listAttributedMemberFiles(teamName);
+  }
+
+  async findRecentMemberLogFileRefsByMember(
+    teamName: string,
+    memberNames: readonly string[],
+    mtimeSinceMs?: number | null
+  ): Promise<MemberLogFileRef[]> {
+    const requestedMembersByKey = new Map<string, string>();
+    for (const memberName of memberNames) {
+      const trimmed = memberName.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const key = trimmed.toLowerCase();
+      if (!requestedMembersByKey.has(key)) {
+        requestedMembersByKey.set(key, trimmed);
+      }
+    }
+    if (requestedMembersByKey.size === 0) {
+      return [];
+    }
+
+    const discovery = await this.discoverProjectSessions(teamName);
+    if (!discovery) {
+      return [];
+    }
+
+    const { projectDir, sessionIds, knownMembers, config } = discovery;
+    const refs: MemberLogFileRef[] = [];
+    const seenFilePaths = new Set<string>();
+    const pushRef = (ref: MemberLogFileRef): void => {
+      if (seenFilePaths.has(ref.filePath)) {
+        return;
+      }
+      seenFilePaths.add(ref.filePath);
+      refs.push(ref);
+    };
+
+    const leadMemberName =
+      config.members?.find((member) => isLeadMemberCheck(member))?.name?.trim() || 'team-lead';
+    const leadKey = leadMemberName.toLowerCase();
+    if (requestedMembersByKey.has(leadKey) && config.leadSessionId) {
+      const leadJsonl = path.join(projectDir, `${config.leadSessionId}.jsonl`);
+      try {
+        const stat = await fs.stat(leadJsonl);
+        if (stat.isFile()) {
+          pushRef({
+            memberName: requestedMembersByKey.get(leadKey) ?? leadMemberName,
+            sessionId: config.leadSessionId,
+            filePath: leadJsonl,
+            mtimeMs: stat.mtimeMs,
+          });
+        }
+      } catch {
+        // missing lead transcript
+      }
+    }
+
+    const candidates = await this.collectLogCandidates(projectDir, sessionIds, config);
+    const settled = await mapLimit(candidates, SCAN_CONCURRENCY, async (candidate) => {
+      try {
+        const stat = await fs.stat(candidate.filePath);
+        if (!stat.isFile()) {
+          return null;
+        }
+        if (mtimeSinceMs != null && stat.mtimeMs < mtimeSinceMs) {
+          return null;
+        }
+        const attribution =
+          candidate.kind === 'subagent'
+            ? await this.getCachedSubagentAttribution(
+                candidate.filePath,
+                knownMembers,
+                stat.mtimeMs
+              )
+            : await this.getCachedMemberSessionAttribution(
+                candidate.filePath,
+                teamName,
+                knownMembers,
+                stat.mtimeMs
+              );
+        if (!attribution) {
+          return null;
+        }
+        const memberKey = attribution.detectedMember.trim().toLowerCase();
+        const requestedMemberName = requestedMembersByKey.get(memberKey);
+        if (!requestedMemberName) {
+          return null;
+        }
+        return {
+          memberName: requestedMemberName,
+          sessionId: candidate.sessionId,
+          filePath: candidate.filePath,
+          mtimeMs: stat.mtimeMs,
+        } satisfies MemberLogFileRef;
+      } catch {
+        return null;
+      }
+    });
+
+    for (const ref of settled) {
+      if (ref) {
+        pushRef(ref);
+      }
+    }
+
+    return refs.sort((left, right) => {
+      const byTime = right.mtimeMs - left.mtimeMs;
+      return byTime !== 0 ? byTime : left.filePath.localeCompare(right.filePath);
+    });
   }
 
   /**

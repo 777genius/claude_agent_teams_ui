@@ -1,4 +1,5 @@
 import { createCodexAccountBridge } from '@features/codex-account/preload';
+import { createMemberWorkSyncBridge } from '@features/member-work-sync/preload';
 import { createRecentProjectsBridge } from '@features/recent-projects/preload';
 import { createRuntimeProviderManagementBridge } from '@features/runtime-provider-management/preload';
 import { createTmuxInstallerBridge } from '@features/tmux-installer/preload';
@@ -471,6 +472,7 @@ const electronAPI: ElectronAPI = {
   }),
   ...createRecentProjectsBridge(),
   runtimeProviderManagement: createRuntimeProviderManagementBridge(ipcRenderer),
+  memberWorkSync: createMemberWorkSyncBridge(ipcRenderer),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getProjects: () => ipcRenderer.invoke('get-projects'),
   getSessions: (projectId: string) => ipcRenderer.invoke('get-sessions', projectId),

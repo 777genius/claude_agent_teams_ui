@@ -125,4 +125,54 @@ describe('getLaunchJoinMilestonesFromMembers', () => {
     expect(milestones.failedSpawnCount).toBe(0);
     expect(milestones.pendingSpawnCount).toBe(3);
   });
+
+  it('does not let a stale clean snapshot hide live registered-only members', () => {
+    const milestones = getLaunchJoinMilestonesFromMembers({
+      members,
+      memberSpawnStatuses: {
+        alice: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        bob: {
+          status: 'waiting',
+          launchState: 'runtime_pending_bootstrap',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          livenessKind: 'registered_only',
+          updatedAt: '2026-04-24T12:00:01.000Z',
+        },
+        tom: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        jane: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['alice', 'bob', 'tom', 'jane'],
+        summary: {
+          confirmedCount: 4,
+          pendingCount: 0,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+        },
+      },
+    });
+
+    expect(milestones.heartbeatConfirmedCount).toBe(3);
+    expect(milestones.pendingSpawnCount).toBe(1);
+    expect(milestones.expectedTeammateCount).toBe(4);
+  });
 });

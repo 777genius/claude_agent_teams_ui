@@ -78,6 +78,65 @@ describe('TeamProvisioningService idempotent launch guards', () => {
     expect(response.runId).toBe(aliveRun.runId);
   });
 
+  it('does not expose unresolved internal provisioning ids', () => {
+    const teamName = 'team-alpha';
+    const svc = new TeamProvisioningService();
+
+    (svc as any).provisioningRunByTeam.set(teamName, 'pending-stale-run');
+
+    expect((svc as any).getResolvableProvisioningRunId(teamName)).toBeNull();
+    expect((svc as any).provisioningRunByTeam.get(teamName)).toBeUndefined();
+  });
+
+  it('keeps runtime adapter provisioning ids while their progress is still tracked', () => {
+    const teamName = 'team-alpha';
+    const runId = 'runtime-adapter-run-1';
+    const svc = new TeamProvisioningService();
+
+    (svc as any).provisioningRunByTeam.set(teamName, runId);
+    (svc as any).runtimeAdapterProgressByRunId.set(runId, { runId, state: 'launching' });
+
+    expect((svc as any).getResolvableProvisioningRunId(teamName)).toBe(runId);
+    expect((svc as any).provisioningRunByTeam.get(teamName)).toBe(runId);
+  });
+
+  it('clears stale pending provisioning ids before reusing an alive run', async () => {
+    const teamName = 'team-alpha';
+    const teamDir = path.join(tempTeamsBase, teamName);
+    fs.mkdirSync(teamDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: teamName,
+        projectPath: process.cwd(),
+        members: [{ name: 'team-lead', agentType: 'team-lead' }, { name: 'dev' }],
+      })
+    );
+
+    const svc = new TeamProvisioningService();
+    const aliveRun = {
+      runId: 'alive-run-1',
+      teamName,
+      request: { cwd: process.cwd() },
+      child: Object.assign(new EventEmitter(), {
+        stdin: { writable: true },
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+      }),
+      processKilled: false,
+      cancelRequested: false,
+    };
+
+    (svc as any).provisioningRunByTeam.set(teamName, 'pending-stale-run');
+    (svc as any).runs.set(aliveRun.runId, aliveRun);
+    (svc as any).aliveRunByTeam.set(teamName, aliveRun.runId);
+
+    const response = await svc.launchTeam({ teamName, cwd: process.cwd() }, () => {});
+
+    expect(response.runId).toBe(aliveRun.runId);
+    expect((svc as any).provisioningRunByTeam.get(teamName)).toBeUndefined();
+  });
+
   it('does not reuse an alive run when cwd differs', async () => {
     const teamName = 'team-alpha';
     const currentCwd = fs.mkdtempSync(path.join(tempClaudeRoot, 'current-'));

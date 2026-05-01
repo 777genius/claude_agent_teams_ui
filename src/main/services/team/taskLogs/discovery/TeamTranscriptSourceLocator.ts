@@ -10,6 +10,7 @@ const logger = createLogger('Service:TeamTranscriptSourceLocator');
 const TRANSCRIPT_DISCOVERY_WARN_MS = 3_000;
 const TRANSCRIPT_DISCOVERY_FILE_COUNT_WARN = 500;
 const TRANSCRIPT_DISCOVERY_SESSION_CONCURRENCY = process.platform === 'win32' ? 4 : 8;
+const TRANSCRIPT_SOURCE_CONTEXT_CACHE_TTL_MS = 3_000;
 
 export interface TeamTranscriptSourceContext {
   projectDir: string;
@@ -17,6 +18,17 @@ export interface TeamTranscriptSourceContext {
   config: TeamConfig;
   sessionIds: string[];
   transcriptFiles: string[];
+}
+
+interface TeamTranscriptSourceContextCacheEntry {
+  expiresAt: number;
+  generation: number;
+  value: TeamTranscriptSourceContext;
+}
+
+interface TeamTranscriptSourceContextInFlightEntry {
+  generation: number;
+  promise: Promise<TeamTranscriptSourceContext | null>;
 }
 
 async function mapLimit<T, R>(
@@ -42,11 +54,76 @@ async function mapLimit<T, R>(
 }
 
 export class TeamTranscriptSourceLocator {
+  private readonly contextCache = new Map<string, TeamTranscriptSourceContextCacheEntry>();
+  private readonly contextInFlight = new Map<string, TeamTranscriptSourceContextInFlightEntry>();
+  private readonly generationByTeam = new Map<string, number>();
+
   constructor(
     private readonly projectResolver: TeamTranscriptProjectResolver = new TeamTranscriptProjectResolver()
   ) {}
 
-  async getContext(teamName: string): Promise<TeamTranscriptSourceContext | null> {
+  getGeneration(teamName: string): number {
+    return this.generationByTeam.get(teamName) ?? 0;
+  }
+
+  invalidateTeam(teamName: string): void {
+    this.generationByTeam.set(teamName, this.getGeneration(teamName) + 1);
+    this.contextCache.delete(teamName);
+    this.contextInFlight.delete(teamName);
+  }
+
+  clear(): void {
+    const teamNames = new Set([
+      ...this.contextCache.keys(),
+      ...this.contextInFlight.keys(),
+      ...this.generationByTeam.keys(),
+    ]);
+    for (const teamName of teamNames) {
+      this.generationByTeam.set(teamName, this.getGeneration(teamName) + 1);
+    }
+    this.contextCache.clear();
+    this.contextInFlight.clear();
+  }
+
+  async getContext(
+    teamName: string,
+    options?: { forceRefresh?: boolean }
+  ): Promise<TeamTranscriptSourceContext | null> {
+    if (options?.forceRefresh) {
+      this.invalidateTeam(teamName);
+    }
+
+    const generation = this.getGeneration(teamName);
+    const cached = this.contextCache.get(teamName);
+    if (cached && cached.generation === generation && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
+    const inFlight = this.contextInFlight.get(teamName);
+    if (inFlight && inFlight.generation === generation) {
+      return await inFlight.promise;
+    }
+
+    let entry: TeamTranscriptSourceContextInFlightEntry | null = null;
+    const promise = this.buildContext(teamName, generation).finally(() => {
+      if (this.contextInFlight.get(teamName) === entry) {
+        this.contextInFlight.delete(teamName);
+      }
+    });
+    entry = { generation, promise };
+    this.contextInFlight.set(teamName, entry);
+    return await promise;
+  }
+
+  async listTranscriptFiles(teamName: string): Promise<string[]> {
+    const context = await this.getContext(teamName);
+    return context?.transcriptFiles ?? [];
+  }
+
+  private async buildContext(
+    teamName: string,
+    generation: number
+  ): Promise<TeamTranscriptSourceContext | null> {
     const context = await this.projectResolver.getContext(teamName);
     if (!context) {
       return null;
@@ -64,13 +141,17 @@ export class TeamTranscriptSourceLocator {
         `Large task-log transcript discovery: team=${teamName} sessions=${sessionIds.length} files=${transcriptFiles.length} elapsedMs=${elapsedMs}`
       );
     }
-    return { projectDir, projectId, config, sessionIds, transcriptFiles };
+    const value = { projectDir, projectId, config, sessionIds, transcriptFiles };
+    if (this.getGeneration(teamName) === generation) {
+      this.contextCache.set(teamName, {
+        expiresAt: Date.now() + TRANSCRIPT_SOURCE_CONTEXT_CACHE_TTL_MS,
+        generation,
+        value,
+      });
+    }
+    return value;
   }
 
-  async listTranscriptFiles(teamName: string): Promise<string[]> {
-    const context = await this.getContext(teamName);
-    return context?.transcriptFiles ?? [];
-  }
   private async listTranscriptFilesForSessions(
     projectDir: string,
     sessionIds: string[]

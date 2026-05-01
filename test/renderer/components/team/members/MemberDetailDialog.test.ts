@@ -134,6 +134,7 @@ describe('MemberDetailDialog activity count', () => {
 
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.clearAllMocks();
     useStore.setState({ teamMessagesByName: {} } as never);
     vi.unstubAllGlobals();
   });

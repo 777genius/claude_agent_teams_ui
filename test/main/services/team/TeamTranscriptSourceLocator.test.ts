@@ -1,6 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as fs from 'fs/promises';
 
@@ -17,6 +17,30 @@ describe('TeamTranscriptSourceLocator', () => {
       tmpDir = null;
     }
   });
+
+  async function writeSessionFixture(projectRoot: string, sessionId: string): Promise<string[]> {
+    const rootTranscript = path.join(projectRoot, `${sessionId}.jsonl`);
+    const subagentsDir = path.join(projectRoot, sessionId, 'subagents');
+    const subagentTranscript = path.join(subagentsDir, 'agent-worker.jsonl');
+
+    await fs.mkdir(subagentsDir, { recursive: true });
+    await fs.writeFile(rootTranscript, '{}\n', 'utf8');
+    await fs.writeFile(subagentTranscript, '{}\n', 'utf8');
+    return [rootTranscript, subagentTranscript];
+  }
+
+  function makeResolverContext(projectRoot: string, teamName: string, sessionIds: string[]) {
+    return {
+      projectDir: projectRoot,
+      projectId: '-Users-test-cache',
+      config: {
+        name: teamName,
+        projectPath: '/Users/test/cache',
+        members: [],
+      },
+      sessionIds,
+    };
+  }
 
   it('recovers projectPath from member cwd and includes only team-related root sessions', async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-transcripts-'));
@@ -181,5 +205,77 @@ describe('TeamTranscriptSourceLocator', () => {
     const transcriptFiles = await new TeamTranscriptSourceLocator().listTranscriptFiles(teamName);
 
     expect(transcriptFiles).toEqual([...expectedFiles].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it('shares in-flight context discovery across parallel context and file-list reads', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-transcripts-'));
+
+    const teamName = 'inflight-discovery-test';
+    const projectRoot = path.join(tmpDir, 'projects', '-Users-test-cache');
+    const expectedFiles = await writeSessionFixture(projectRoot, 'session-a');
+    const resolver = {
+      getContext: vi.fn(async () => {
+        await Promise.resolve();
+        return makeResolverContext(projectRoot, teamName, ['session-a']);
+      }),
+    };
+    const locator = new TeamTranscriptSourceLocator(resolver as never);
+
+    const [context, transcriptFiles] = await Promise.all([
+      locator.getContext(teamName),
+      locator.listTranscriptFiles(teamName),
+    ]);
+
+    expect(context?.sessionIds).toEqual(['session-a']);
+    expect(transcriptFiles).toEqual(expectedFiles.sort((a, b) => a.localeCompare(b)));
+    expect(resolver.getContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses cached context inside the TTL and rebuilds after team invalidation', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-transcripts-'));
+
+    const teamName = 'cached-discovery-test';
+    const projectRoot = path.join(tmpDir, 'projects', '-Users-test-cache');
+    await writeSessionFixture(projectRoot, 'session-a');
+    const sessionBFiles = await writeSessionFixture(projectRoot, 'session-b');
+    let sessionIds = ['session-a'];
+    const resolver = {
+      getContext: vi.fn(async () => makeResolverContext(projectRoot, teamName, [...sessionIds])),
+    };
+    const locator = new TeamTranscriptSourceLocator(resolver as never);
+
+    await locator.listTranscriptFiles(teamName);
+    await locator.listTranscriptFiles(teamName);
+    expect(resolver.getContext).toHaveBeenCalledTimes(1);
+
+    sessionIds = ['session-a', 'session-b'];
+    locator.invalidateTeam(teamName);
+    const transcriptFiles = await locator.listTranscriptFiles(teamName);
+
+    expect(resolver.getContext).toHaveBeenCalledTimes(2);
+    expect(transcriptFiles).toEqual(expect.arrayContaining(sessionBFiles));
+  });
+
+  it('bypasses cached context when forceRefresh is requested', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-transcripts-'));
+
+    const teamName = 'force-refresh-discovery-test';
+    const projectRoot = path.join(tmpDir, 'projects', '-Users-test-cache');
+    await writeSessionFixture(projectRoot, 'session-a');
+    let sessionIds = ['session-a'];
+    const resolver = {
+      getContext: vi.fn(async () => makeResolverContext(projectRoot, teamName, [...sessionIds])),
+    };
+    const locator = new TeamTranscriptSourceLocator(resolver as never);
+
+    await locator.getContext(teamName);
+    sessionIds = ['session-a', 'session-b'];
+    await locator.getContext(teamName);
+    expect(resolver.getContext).toHaveBeenCalledTimes(1);
+
+    const refreshed = await locator.getContext(teamName, { forceRefresh: true });
+
+    expect(refreshed?.sessionIds).toEqual(['session-a', 'session-b']);
+    expect(resolver.getContext).toHaveBeenCalledTimes(2);
   });
 });

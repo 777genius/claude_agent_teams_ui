@@ -1185,7 +1185,7 @@ function mapRejectedHunkIndicesByHashStrict(
         error: 'Ledger partial reject hunk context is ambiguous; please re-review.',
       };
     }
-    out.add(candidates[0]!);
+    out.add(candidates[0]);
   }
   return { ok: true, indices: [...out].sort((a, b) => a - b) };
 }

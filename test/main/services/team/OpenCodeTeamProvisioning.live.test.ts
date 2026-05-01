@@ -69,6 +69,7 @@ liveDescribe('OpenCode team provisioning live e2e', () => {
       XDG_DATA_HOME: path.join(tempDir, 'xdg-data'),
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
+      CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON: JSON.stringify(mcpLaunchSpec.args),
     };
     const bridgeClient = new OpenCodeBridgeCommandClient({
       binaryPath: orchestratorCli,
@@ -161,13 +162,22 @@ liveDescribe('OpenCode team provisioning live e2e', () => {
         },
       });
 
-      svc.stopTeam(teamName);
+      await svc.stopTeam(teamName);
       await waitUntil(async () => {
         const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName);
         return Object.keys(laneIndex.lanes).length === 0;
       }, 90_000);
     } finally {
-      svc.stopTeam(teamName);
+      await svc.stopTeam(teamName).catch(() => undefined);
+      await readinessBridge
+        .cleanupOpenCodeHosts({
+          reason: 'opencode-team-provisioning-live-e2e-cleanup',
+          mode: 'force',
+          projectPath: PROJECT_PATH,
+          staleAgeMs: null,
+          leaseStaleAgeMs: null,
+        })
+        .catch(() => undefined);
     }
   }, 300_000);
 });
