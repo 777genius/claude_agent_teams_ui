@@ -4,6 +4,7 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 import type {
   OpenCodeTeamRuntimeMessageInput,
@@ -47,6 +48,7 @@ describe('Team agent launch matrix safe e2e', () => {
   let projectPath: string;
 
   beforeEach(async () => {
+    TeamConfigReader.clearCacheForTests();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-launch-matrix-e2e-'));
     tempClaudeRoot = path.join(tempDir, '.claude');
     projectPath = path.join(tempDir, 'project');
@@ -56,6 +58,7 @@ describe('Team agent launch matrix safe e2e', () => {
   });
 
   afterEach(async () => {
+    TeamConfigReader.clearCacheForTests();
     setClaudeBasePathOverride(null);
     await removeTempDirWithRetries(tempDir);
   });

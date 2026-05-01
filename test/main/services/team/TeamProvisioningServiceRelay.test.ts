@@ -148,6 +148,7 @@ vi.mock('agent-teams-controller', () => ({
 }));
 
 import { buildLegacyInboxMessageId } from '../../../../src/main/services/team/inboxMessageIdentity';
+import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 
 function seedConfig(teamName: string): void {
@@ -249,6 +250,7 @@ async function waitForCapture(service: TeamProvisioningService): Promise<any> {
 
 describe('TeamProvisioningService relayLeadInboxMessages', () => {
   beforeEach(() => {
+    TeamConfigReader.clearCacheForTests();
     hoisted.files.clear();
     hoisted.readFile.mockClear();
     hoisted.mkdir.mockClear();

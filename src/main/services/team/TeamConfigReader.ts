@@ -179,6 +179,11 @@ export class TeamConfigReader {
   private static readonly configCacheByPath = new Map<string, CachedTeamConfig>();
   private static readonly configReadInFlightByPath = new Map<string, Promise<TeamConfig | null>>();
 
+  static clearCacheForTests(): void {
+    TeamConfigReader.configCacheByPath.clear();
+    TeamConfigReader.configReadInFlightByPath.clear();
+  }
+
   constructor(
     private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
     private readonly teamMetaStore: TeamMetaStore = new TeamMetaStore()
