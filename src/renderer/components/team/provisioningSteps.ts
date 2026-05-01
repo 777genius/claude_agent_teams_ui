@@ -229,6 +229,15 @@ export function getLaunchJoinMilestonesFromMembers({
       liveSummary.failedSpawnCount +
       liveSummary.skippedSpawnCount;
 
+    const liveSummaryContradictsCleanSnapshot =
+      snapshotMilestones.pendingSpawnCount === 0 &&
+      snapshotMilestones.failedSpawnCount === 0 &&
+      snapshotMilestones.skippedSpawnCount === 0 &&
+      liveSummary.observedTeammateCount > 0 &&
+      (liveSummary.pendingSpawnCount > 0 ||
+        liveSummary.failedSpawnCount > 0 ||
+        liveSummary.skippedSpawnCount > 0);
+
     const liveSummaryIsMoreAdvanced =
       liveSummary.failedSpawnCount > snapshotMilestones.failedSpawnCount ||
       liveSummary.skippedSpawnCount > snapshotMilestones.skippedSpawnCount ||
@@ -239,7 +248,7 @@ export function getLaunchJoinMilestonesFromMembers({
         liveSummary.pendingSpawnCount > snapshotMilestones.pendingSpawnCount) ||
       liveAccountedFor > snapshotAccountedFor;
 
-    return liveSummaryIsMoreAdvanced
+    return liveSummaryIsMoreAdvanced || liveSummaryContradictsCleanSnapshot
       ? {
           expectedTeammateCount,
           ...liveSummary,

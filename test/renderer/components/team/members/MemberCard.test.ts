@@ -86,6 +86,7 @@ const skippedSpawnEntry: MemberSpawnStatusEntry = {
 describe('MemberCard starting-state visuals', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.useRealTimers();
   });
 
   it('shows runtime summary while keeping the starting treatment after provisioning stops', async () => {
@@ -769,6 +770,122 @@ describe('MemberCard starting-state visuals', () => {
       root.unmount();
       await Promise.resolve();
     });
+  });
+
+  it('renders Relaunch OpenCode for registered-only OpenCode teammates', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onRestartMember = vi.fn(async () => undefined);
+    const onClick = vi.fn();
+    const openCodeMember: ResolvedTeamMember = {
+      ...member,
+      providerId: 'opencode',
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberCard, {
+          member: openCodeMember,
+          memberColor: 'blue',
+          isTeamAlive: true,
+          isTeamProvisioning: false,
+          spawnStatus: 'online',
+          spawnLaunchState: 'confirmed_alive',
+          spawnRuntimeAlive: true,
+          spawnEntry: {
+            status: 'online',
+            launchState: 'confirmed_alive',
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            livenessKind: 'registered_only',
+            updatedAt: '2026-04-24T12:00:00.000Z',
+          },
+          runtimeEntry: {
+            memberName: 'alice',
+            alive: false,
+            restartable: true,
+            providerId: 'opencode',
+            livenessKind: 'registered_only',
+            runtimeDiagnostic: 'registered runtime metadata without live process',
+            updatedAt: '2026-04-24T12:00:00.000Z',
+          },
+          onClick,
+          onRestartMember,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const button = host.querySelector('[aria-label="Relaunch OpenCode"]') as HTMLButtonElement;
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button.click();
+      await Promise.resolve();
+    });
+
+    expect(onRestartMember).toHaveBeenCalledWith('alice');
+    expect(onClick).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('does not render Relaunch OpenCode for fresh runtime candidates', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-24T12:01:00.000Z'));
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberCard, {
+          member: {
+            ...member,
+            providerId: 'opencode',
+          },
+          memberColor: 'blue',
+          isTeamAlive: true,
+          isTeamProvisioning: false,
+          spawnStatus: 'online',
+          spawnLaunchState: 'runtime_pending_bootstrap',
+          spawnRuntimeAlive: true,
+          spawnEntry: {
+            status: 'online',
+            launchState: 'runtime_pending_bootstrap',
+            runtimeAlive: true,
+            bootstrapConfirmed: false,
+            livenessKind: 'runtime_process_candidate',
+            firstSpawnAcceptedAt: '2026-04-24T12:00:00.000Z',
+            updatedAt: '2026-04-24T12:00:00.000Z',
+          },
+          runtimeEntry: {
+            memberName: 'alice',
+            alive: true,
+            restartable: true,
+            providerId: 'opencode',
+            livenessKind: 'runtime_process_candidate',
+            updatedAt: '2026-04-24T12:00:00.000Z',
+          },
+          onRestartMember: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.querySelector('[aria-label="Relaunch OpenCode"]')).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+    vi.useRealTimers();
   });
 
   it('renders skip for failed teammate launches', async () => {

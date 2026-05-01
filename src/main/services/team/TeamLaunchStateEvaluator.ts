@@ -122,6 +122,67 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function decodeJsonStringLiteral(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value.replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+  }
+}
+
+function extractLooseJsonStringField(text: string, fieldName: string): string | undefined {
+  const strictMatch = new RegExp(`"${fieldName}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(text);
+  if (strictMatch?.[1]) {
+    return decodeJsonStringLiteral(strictMatch[1]).trim() || undefined;
+  }
+
+  const looseMatch = new RegExp(`"${fieldName}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)$`).exec(text);
+  return looseMatch?.[1] ? decodeJsonStringLiteral(looseMatch[1]).trim() || undefined : undefined;
+}
+
+function joinUniqueReasonParts(parts: readonly (string | undefined)[]): string | undefined {
+  const uniqueParts = Array.from(
+    new Set(parts.map((part) => part?.trim()).filter((part): part is string => !!part))
+  );
+  return uniqueParts.length > 0 ? uniqueParts.join(': ') : undefined;
+}
+
+function extractMessageSendRoutingReason(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.includes('Message sent to') && !trimmed.includes('"routing"')) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      success?: unknown;
+      message?: unknown;
+      routing?: { summary?: unknown; content?: unknown };
+    };
+    if (parsed.success === true && parsed.routing && typeof parsed.routing === 'object') {
+      return joinUniqueReasonParts([
+        typeof parsed.routing.summary === 'string' ? parsed.routing.summary : undefined,
+        typeof parsed.routing.content === 'string' ? parsed.routing.content : undefined,
+      ]);
+    }
+  } catch {
+    // Fall through to loose extraction for persisted reasons truncated by older builds.
+  }
+
+  return joinUniqueReasonParts([
+    extractLooseJsonStringField(trimmed, 'summary'),
+    extractLooseJsonStringField(trimmed, 'content'),
+  ]);
+}
+
+export function normalizeLaunchFailureReasonText(value: unknown): string | undefined {
+  const text = normalizeOptionalString(value);
+  if (!text) {
+    return undefined;
+  }
+  return extractMessageSendRoutingReason(text) ?? text;
+}
+
 function normalizeMemberName(name: string): string {
   return name.trim();
 }
@@ -148,8 +209,8 @@ function buildDiagnostics(
   } else if (member.runtimeAlive && !member.bootstrapConfirmed) {
     diagnostics.push('waiting for teammate check-in');
   }
-  if (member.hardFailureReason)
-    diagnostics.push(`hard failure reason: ${member.hardFailureReason}`);
+  const hardFailureReason = normalizeLaunchFailureReasonText(member.hardFailureReason);
+  if (hardFailureReason) diagnostics.push(`hard failure reason: ${hardFailureReason}`);
   if (member.skippedForLaunch) {
     diagnostics.push(
       member.skipReason
@@ -473,9 +534,7 @@ function normalizePersistedMemberState(
     hardFailure,
     hardFailureReason: !hardFailure
       ? undefined
-      : typeof parsed.hardFailureReason === 'string' && parsed.hardFailureReason.trim().length > 0
-        ? parsed.hardFailureReason.trim()
-        : undefined,
+      : normalizeLaunchFailureReasonText(parsed.hardFailureReason),
     pendingPermissionRequestIds: normalizePendingPermissionRequestIds(
       parsed.pendingPermissionRequestIds
     ),

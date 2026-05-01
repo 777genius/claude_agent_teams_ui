@@ -1,10 +1,11 @@
 import { appendMemberWorkSyncAudit } from './MemberWorkSyncAudit';
+
+import type { RuntimeTurnSettledEvent } from '../domain';
 import type {
   MemberWorkSyncAuditJournalPort,
   MemberWorkSyncClockPort,
   MemberWorkSyncLoggerPort,
 } from './ports';
-import type { RuntimeTurnSettledEvent } from '../domain';
 import type {
   RuntimeTurnSettledEventStorePort,
   RuntimeTurnSettledPayloadNormalizerPort,

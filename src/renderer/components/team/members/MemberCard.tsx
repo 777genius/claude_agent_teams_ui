@@ -13,6 +13,7 @@ import {
   buildMemberAvatarMap,
   buildMemberLaunchPresentation,
   displayMemberName,
+  isOpenCodeRelaunchActionable,
 } from '@renderer/utils/memberHelpers';
 import {
   buildMemberLaunchDiagnosticsPayload,
@@ -241,11 +242,20 @@ export const MemberCard = ({
   const showSkippedLaunchBadge = !isRemoved && isSkippedLaunch;
   const hasLiveLaunchControls =
     isTeamAlive === true || isTeamProvisioning === true || isLaunchSettling === true;
-  const canRetryLaunch =
-    (showFailedLaunchBadge || showSkippedLaunchBadge) &&
+  const hasRestartMemberControl =
+    !isRemoved &&
     !isLeadMember(member) &&
     Boolean(onRestartMember) &&
-    hasLiveLaunchControls;
+    hasLiveLaunchControls &&
+    runtimeEntry?.restartable !== false;
+  const openCodeRelaunchActionable = isOpenCodeRelaunchActionable({
+    member,
+    spawnEntry,
+    runtimeEntry,
+  });
+  const canRelaunchOpenCode = hasRestartMemberControl && openCodeRelaunchActionable;
+  const canRetryLaunch =
+    (showFailedLaunchBadge || showSkippedLaunchBadge) && hasRestartMemberControl;
   const canSkipFailedLaunch =
     showFailedLaunchBadge &&
     !isLeadMember(member) &&
@@ -258,9 +268,14 @@ export const MemberCard = ({
     !isFailedLaunch &&
     !isSkippedLaunch &&
     (Boolean(activityTask) || !isAwaitingReply);
-  const handleRetryFailedLaunch = async (
-    event: React.MouseEvent<HTMLButtonElement>
-  ): Promise<void> => {
+  const restartActionIdleLabel = canRelaunchOpenCode ? 'Relaunch OpenCode' : 'Retry teammate';
+  const restartActionBusyLabel = canRelaunchOpenCode
+    ? 'Relaunching OpenCode teammate'
+    : 'Retrying teammate';
+  const restartActionErrorFallback = canRelaunchOpenCode
+    ? 'Failed to relaunch OpenCode teammate'
+    : 'Failed to retry teammate';
+  const handleRestartMember = async (event: React.MouseEvent<HTMLButtonElement>): Promise<void> => {
     event.preventDefault();
     event.stopPropagation();
     if (!onRestartMember || retryingLaunch) {
@@ -271,7 +286,7 @@ export const MemberCard = ({
     try {
       await onRestartMember(member.name);
     } catch (error) {
-      setRetryLaunchError(error instanceof Error ? error.message : 'Failed to retry teammate');
+      setRetryLaunchError(error instanceof Error ? error.message : restartActionErrorFallback);
     } finally {
       setRetryingLaunch(false);
     }
@@ -448,6 +463,29 @@ export const MemberCard = ({
               >
                 {launchBadgeLabel}
               </Badge>
+              {canRelaunchOpenCode ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={retryingLaunch ? restartActionBusyLabel : restartActionIdleLabel}
+                      className="rounded p-1 text-amber-300 transition-colors hover:bg-amber-500/10 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={retryingLaunch}
+                      onClick={handleRestartMember}
+                    >
+                      {retryingLaunch ? (
+                        <SyncedLoader2 className="size-3.5" />
+                      ) : (
+                        <RotateCcw className="size-3.5" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {retryLaunchError ??
+                      (retryingLaunch ? restartActionBusyLabel : restartActionIdleLabel)}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
             </span>
           ) : showFailedLaunchBadge ? (
             <span className="flex shrink-0 items-center gap-1">
@@ -499,10 +537,10 @@ export const MemberCard = ({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      aria-label={retryingLaunch ? 'Retrying teammate' : 'Retry teammate'}
+                      aria-label={retryingLaunch ? restartActionBusyLabel : restartActionIdleLabel}
                       className="rounded p-1 text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={retryingLaunch || skippingLaunch}
-                      onClick={handleRetryFailedLaunch}
+                      onClick={handleRestartMember}
                     >
                       {retryingLaunch ? (
                         <SyncedLoader2 className="size-3.5" />
@@ -513,7 +551,7 @@ export const MemberCard = ({
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
                     {retryLaunchError ??
-                      (retryingLaunch ? 'Retrying teammate...' : 'Retry teammate')}
+                      (retryingLaunch ? `${restartActionBusyLabel}...` : restartActionIdleLabel)}
                   </TooltipContent>
                 </Tooltip>
               ) : null}
@@ -541,10 +579,10 @@ export const MemberCard = ({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      aria-label={retryingLaunch ? 'Retrying teammate' : 'Retry teammate'}
+                      aria-label={retryingLaunch ? restartActionBusyLabel : restartActionIdleLabel}
                       className="rounded p-1 text-zinc-300 transition-colors hover:bg-zinc-500/10 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={retryingLaunch}
-                      onClick={handleRetryFailedLaunch}
+                      onClick={handleRestartMember}
                     >
                       {retryingLaunch ? (
                         <SyncedLoader2 className="size-3.5" />
@@ -555,7 +593,7 @@ export const MemberCard = ({
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
                     {retryLaunchError ??
-                      (retryingLaunch ? 'Retrying teammate...' : 'Retry teammate')}
+                      (retryingLaunch ? `${restartActionBusyLabel}...` : restartActionIdleLabel)}
                   </TooltipContent>
                 </Tooltip>
               ) : null}

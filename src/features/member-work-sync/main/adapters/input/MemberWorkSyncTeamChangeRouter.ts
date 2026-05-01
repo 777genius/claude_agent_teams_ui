@@ -142,11 +142,10 @@ export class MemberWorkSyncTeamChangeRouter {
     runAfterMs?: number
   ): Promise<void> {
     const activeMembers = await this.rosterSource.loadActiveMemberNames(teamName);
-    if (this.materializer) {
+    const materializer = this.materializer;
+    if (materializer) {
       await Promise.allSettled(
-        activeMembers.map((memberName) =>
-          this.materializer?.materializeMember(teamName, memberName)
-        )
+        activeMembers.map((memberName) => materializer.materializeMember(teamName, memberName))
       );
     }
     for (const memberName of activeMembers) {

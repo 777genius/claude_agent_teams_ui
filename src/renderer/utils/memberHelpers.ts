@@ -13,6 +13,7 @@ import type {
   MemberRuntimeAdvisory,
   MemberSpawnLivenessSource,
   MemberSpawnStatus,
+  MemberSpawnStatusEntry,
   MemberStatus,
   ResolvedTeamMember,
   TeamAgentRuntimeEntry,
@@ -130,6 +131,8 @@ export const SPAWN_PRESENCE_LABELS: Record<MemberSpawnStatus, string> = {
   error: 'spawn failed',
   skipped: 'skipped',
 };
+
+const OPENCODE_RUNTIME_CANDIDATE_RELAUNCH_GRACE_MS = 5 * 60 * 1000;
 
 function isLaunchStillStarting(
   spawnStatus: MemberSpawnStatus | undefined,
@@ -597,6 +600,110 @@ export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState)
   }
 }
 
+function getLaunchVisualStateDotClass(visualState: MemberLaunchVisualState): string | null {
+  switch (visualState) {
+    case 'permission_pending':
+    case 'runtime_pending':
+    case 'runtime_candidate':
+      return 'bg-amber-400 animate-pulse';
+    case 'registered_only':
+      return SPAWN_DOT_COLORS.waiting;
+    case 'shell_only':
+      return 'bg-amber-400';
+    case 'stale_runtime':
+      return STATUS_DOT_COLORS.terminated;
+    default:
+      return null;
+  }
+}
+
+function hasElapsedSinceIso(
+  value: string | undefined,
+  thresholdMs: number,
+  nowMs: number
+): boolean {
+  if (!value) {
+    return false;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && nowMs - parsed >= thresholdMs;
+}
+
+function hasBootstrapStallDiagnostic(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  return (
+    normalized.includes('no bootstrap check-in') ||
+    normalized.includes('bootstrap is unconfirmed') ||
+    normalized.includes('bootstrap unconfirmed')
+  );
+}
+
+export function isOpenCodeRelaunchActionable({
+  member,
+  spawnEntry,
+  runtimeEntry,
+  nowMs = Date.now(),
+}: {
+  member: ResolvedTeamMember;
+  spawnEntry?: MemberSpawnStatusEntry;
+  runtimeEntry?: TeamAgentRuntimeEntry;
+  nowMs?: number;
+}): boolean {
+  if (member.providerId !== 'opencode' || isLeadMember(member) || member.removedAt) {
+    return false;
+  }
+  if (spawnEntry?.launchState === 'starting' || spawnEntry?.status === 'spawning') {
+    return false;
+  }
+  if (spawnEntry?.launchState === 'runtime_pending_permission') {
+    return false;
+  }
+  if (!spawnEntry) {
+    const runtimeDiagnosticIsStuck = hasBootstrapStallDiagnostic(runtimeEntry?.runtimeDiagnostic);
+    return (
+      runtimeDiagnosticIsStuck ||
+      runtimeEntry?.livenessKind === 'registered_only' ||
+      runtimeEntry?.livenessKind === 'stale_metadata'
+    );
+  }
+  if (
+    spawnEntry?.launchState === 'failed_to_start' ||
+    spawnEntry?.launchState === 'skipped_for_launch' ||
+    spawnEntry?.status === 'error' ||
+    spawnEntry?.status === 'skipped'
+  ) {
+    return true;
+  }
+
+  const livenessKind = runtimeEntry?.livenessKind ?? spawnEntry?.livenessKind;
+  const acceptedSpawnGraceElapsed = hasElapsedSinceIso(
+    spawnEntry?.firstSpawnAcceptedAt,
+    OPENCODE_RUNTIME_CANDIDATE_RELAUNCH_GRACE_MS,
+    nowMs
+  );
+  const hasExplicitBootstrapStall =
+    hasBootstrapStallDiagnostic(spawnEntry?.runtimeDiagnostic) ||
+    hasBootstrapStallDiagnostic(runtimeEntry?.runtimeDiagnostic);
+  const launchIsNoLongerFresh =
+    spawnEntry.launchState === 'confirmed_alive' ||
+    spawnEntry.status === 'online' ||
+    acceptedSpawnGraceElapsed ||
+    hasExplicitBootstrapStall;
+
+  if (
+    livenessKind === 'registered_only' ||
+    livenessKind === 'stale_metadata' ||
+    livenessKind === 'not_found'
+  ) {
+    return launchIsNoLongerFresh;
+  }
+  if (livenessKind !== 'runtime_process_candidate') {
+    return false;
+  }
+
+  return acceptedSpawnGraceElapsed || hasExplicitBootstrapStall;
+}
+
 export function buildMemberLaunchPresentation({
   member,
   spawnStatus,
@@ -634,7 +741,7 @@ export function buildMemberLaunchPresentation({
     isTeamProvisioning,
     leadActivity
   );
-  const dotClass = getSpawnAwareDotClass(
+  const baseDotClass = getSpawnAwareDotClass(
     member,
     spawnStatus,
     spawnLaunchState,
@@ -701,6 +808,7 @@ export function buildMemberLaunchPresentation({
   }
 
   const launchStatusLabel = getMemberLaunchStatusLabel(launchVisualState);
+  const launchVisualStateDotClass = getLaunchVisualStateDotClass(launchVisualState);
   const shouldShowLaunchStatusAsPresence =
     launchVisualState === 'permission_pending' ||
     launchVisualState === 'runtime_pending' ||
@@ -723,7 +831,10 @@ export function buildMemberLaunchPresentation({
 
   return {
     presenceLabel: displayPresenceLabel,
-    dotClass: runtimeAdvisoryTone === 'error' ? STATUS_DOT_COLORS.terminated : dotClass,
+    dotClass:
+      runtimeAdvisoryTone === 'error'
+        ? STATUS_DOT_COLORS.terminated
+        : (launchVisualStateDotClass ?? baseDotClass),
     cardClass,
     runtimeAdvisoryLabel,
     runtimeAdvisoryTitle,

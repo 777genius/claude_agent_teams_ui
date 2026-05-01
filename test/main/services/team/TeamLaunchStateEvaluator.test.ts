@@ -1,12 +1,40 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  normalizeLaunchFailureReasonText,
   normalizePersistedLaunchSnapshot,
   snapshotToMemberSpawnStatuses,
   summarizePersistedLaunchMembers,
 } from '../../../../src/main/services/team/TeamLaunchStateEvaluator';
 
 describe('TeamLaunchStateEvaluator', () => {
+  it('normalizes message_send tool result JSON in persisted hard failure reasons', () => {
+    const reason = normalizeLaunchFailureReasonText(
+      JSON.stringify({
+        success: true,
+        message: "Message sent to team-lead's inbox",
+        routing: {
+          sender: 'tom',
+          target: '@team-lead',
+          summary: 'Bootstrap failed - no member_briefing tool',
+          content: 'Не могу выполнить member_briefing: tool not found.',
+        },
+      })
+    );
+
+    expect(reason).toBe(
+      'Bootstrap failed - no member_briefing tool: Не могу выполнить member_briefing: tool not found.'
+    );
+  });
+
+  it('normalizes truncated message_send tool result JSON in persisted hard failure reasons', () => {
+    const reason = normalizeLaunchFailureReasonText(
+      `{"success":true,"message":"Message sent to team-lead's inbox","routing":{"sender":"tom","summary":"Bootstrap failed - no member_briefing tool","content":"Не могу выполнить member_briefing`
+    );
+
+    expect(reason).toBe('Bootstrap failed - no member_briefing tool: Не могу выполнить member_briefing');
+  });
+
   it('keeps member spawn statuses for persisted members even when expectedMembers is stale', () => {
     const statuses = snapshotToMemberSpawnStatuses({
       version: 1,

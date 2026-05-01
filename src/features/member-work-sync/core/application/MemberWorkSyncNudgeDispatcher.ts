@@ -1,5 +1,6 @@
-import type { MemberWorkSyncOutboxItem } from '../../contracts';
 import { appendMemberWorkSyncAudit, reasonToAuditEvent } from './MemberWorkSyncAudit';
+
+import type { MemberWorkSyncOutboxItem } from '../../contracts';
 import type { MemberWorkSyncAuditEventName, MemberWorkSyncUseCaseDeps } from './ports';
 
 const MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR = 2;

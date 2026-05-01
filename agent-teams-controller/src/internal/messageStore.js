@@ -188,6 +188,63 @@ function appendRow(filePath, row) {
   return row;
 }
 
+const RUNTIME_DELIVERY_DUPLICATE_NOTICE =
+  'Duplicate runtime_delivery ignored. The visible reply is already recorded for this relayOfMessageId; do not call agent-teams_message_send again with the same text unless you have new information.';
+
+function normalizeComparableText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ');
+}
+
+function normalizeComparableParticipant(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getRuntimeDeliveryDuplicate(list, row) {
+  if (
+    row.source !== 'runtime_delivery' ||
+    typeof row.relayOfMessageId !== 'string' ||
+    row.relayOfMessageId.trim().length === 0
+  ) {
+    return null;
+  }
+
+  const relayOfMessageId = row.relayOfMessageId.trim();
+  const from = normalizeComparableParticipant(row.from);
+  const to = normalizeComparableParticipant(row.to);
+  const text = normalizeComparableText(row.text);
+  if (!from || !to || !text) {
+    return null;
+  }
+
+  return (
+    list.find(
+      (candidate) =>
+        candidate &&
+        candidate.source === 'runtime_delivery' &&
+        String(candidate.relayOfMessageId || '').trim() === relayOfMessageId &&
+        normalizeComparableParticipant(candidate.from) === from &&
+        normalizeComparableParticipant(candidate.to) === to &&
+        normalizeComparableText(candidate.text) === text
+    ) || null
+  );
+}
+
+function appendInboxRow(filePath, row) {
+  const current = readJson(filePath, []);
+  const list = Array.isArray(current) ? current : [];
+  const duplicate = getRuntimeDeliveryDuplicate(list, row);
+  if (duplicate) {
+    return { row: duplicate, deduplicated: true };
+  }
+
+  list.push(row);
+  writeJson(filePath, list);
+  return { row, deduplicated: false };
+}
+
 function sendInboxMessage(paths, flags) {
   const memberName =
     typeof flags.member === 'string' && flags.member.trim()
@@ -204,11 +261,18 @@ function sendInboxMessage(paths, flags) {
     to: memberName,
     read: false,
   });
-  appendRow(getInboxPath(paths, memberName), payload);
+  const appended = appendInboxRow(getInboxPath(paths, memberName), payload);
   return {
     deliveredToInbox: true,
-    messageId: payload.messageId,
-    message: payload,
+    messageId: appended.row.messageId,
+    message: appended.row,
+    ...(appended.deduplicated
+      ? {
+          deduplicated: true,
+          duplicateOfMessageId: appended.row.messageId,
+          deduplicationNotice: RUNTIME_DELIVERY_DUPLICATE_NOTICE,
+        }
+      : {}),
   };
 }
 

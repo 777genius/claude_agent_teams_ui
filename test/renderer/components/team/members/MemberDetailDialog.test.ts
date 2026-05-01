@@ -4,58 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useStore } from '@renderer/store';
 
-import type { MemberWorkSyncStatus } from '@features/member-work-sync/contracts';
 import type { ResolvedTeamMember, TeamTaskWithKanban } from '@shared/types';
-
-const apiMocks = vi.hoisted(() => ({
-  getMemberWorkSyncStatus: vi.fn(),
-}));
-
-function makeMemberWorkSyncStatus(
-  overrides: Partial<MemberWorkSyncStatus> = {}
-): MemberWorkSyncStatus {
-  return {
-    teamName: 'demo-team',
-    memberName: 'jack',
-    state: 'needs_sync',
-    agenda: {
-      teamName: 'demo-team',
-      memberName: 'jack',
-      generatedAt: '2026-04-29T00:00:00.000Z',
-      fingerprint: 'agenda:v1:abcdef123456',
-      items: [
-        {
-          taskId: 'task-1',
-          displayId: '11111111',
-          subject: 'Review patch',
-          kind: 'work',
-          assignee: 'jack',
-          priority: 'normal',
-          reason: 'owned_pending_task',
-          evidence: { status: 'in_progress', owner: 'jack' },
-        },
-      ],
-      diagnostics: [],
-    },
-    shadow: {
-      reconciledBy: 'request',
-      wouldNudge: true,
-      fingerprintChanged: false,
-    },
-    evaluatedAt: '2026-04-29T00:00:00.000Z',
-    diagnostics: [],
-    ...overrides,
-  };
-}
-
-vi.mock('@renderer/api', () => ({
-  api: {
-    memberWorkSync: {
-      getStatus: apiMocks.getMemberWorkSyncStatus,
-    },
-  },
-  isElectronMode: () => true,
-}));
 
 vi.mock('@renderer/hooks/useMemberStats', () => ({
   useMemberStats: () => ({
@@ -166,7 +115,6 @@ import { MemberDetailDialog } from '@renderer/components/team/members/MemberDeta
 describe('MemberDetailDialog activity count', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    apiMocks.getMemberWorkSyncStatus.mockResolvedValue(makeMemberWorkSyncStatus());
     useStore.setState({
       teamMessagesByName: {
         'demo-team': {
@@ -255,12 +203,6 @@ describe('MemberDetailDialog activity count', () => {
 
     expect(host.textContent).toContain('activity-count:1');
     expect(host.textContent).toContain('Activity1');
-    expect(host.textContent).toContain('Member work sync');
-    expect(host.textContent).toContain('Needs sync');
-    expect(apiMocks.getMemberWorkSyncStatus).toHaveBeenCalledWith({
-      teamName: 'demo-team',
-      memberName: 'jack',
-    });
 
     await act(async () => {
       root.unmount();

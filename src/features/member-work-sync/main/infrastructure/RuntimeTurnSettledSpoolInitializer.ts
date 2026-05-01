@@ -1,7 +1,7 @@
-import { ShellRuntimeTurnSettledHookScriptInstaller } from './ShellRuntimeTurnSettledHookScriptInstaller';
-import { RuntimeTurnSettledSpoolPaths } from './RuntimeTurnSettledSpoolPaths';
 import { buildRuntimeTurnSettledEnvironment } from './runtimeTurnSettledEnvironment';
 import { buildRuntimeTurnSettledHookSettings } from './runtimeTurnSettledHookSettings';
+import { RuntimeTurnSettledSpoolPaths } from './RuntimeTurnSettledSpoolPaths';
+import { ShellRuntimeTurnSettledHookScriptInstaller } from './ShellRuntimeTurnSettledHookScriptInstaller';
 
 import type { RuntimeTurnSettledProvider } from '../../core/domain';
 

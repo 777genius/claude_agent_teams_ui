@@ -1,7 +1,6 @@
+import { withFileLock } from '@main/services/team/fileLock';
 import { appendFile, mkdir, rename, rm, stat } from 'fs/promises';
 import { dirname } from 'path';
-
-import { withFileLock } from '@main/services/team/fileLock';
 
 import type {
   MemberWorkSyncAuditEvent,

@@ -1,6 +1,5 @@
-import { join } from 'path';
-
 import { TeamMemberStoragePaths } from '@main/services/team/TeamMemberStoragePaths';
+import { join } from 'path';
 
 export class MemberWorkSyncStorePaths {
   private readonly memberStorage: TeamMemberStoragePaths;

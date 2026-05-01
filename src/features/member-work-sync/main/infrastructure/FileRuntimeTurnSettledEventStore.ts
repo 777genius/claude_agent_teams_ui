@@ -2,13 +2,14 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promis
 import path from 'path';
 
 import { isRuntimeTurnSettledProvider } from '../../core/domain';
-import type { RuntimeTurnSettledProvider } from '../../core/domain';
+
 import type {
   RuntimeTurnSettledClaimedPayload,
   RuntimeTurnSettledEventStorePort,
   RuntimeTurnSettledInvalidResult,
   RuntimeTurnSettledProcessedResult,
 } from '../../core/application';
+import type { RuntimeTurnSettledProvider } from '../../core/domain';
 import type { RuntimeTurnSettledSpoolPaths } from './RuntimeTurnSettledSpoolPaths';
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;

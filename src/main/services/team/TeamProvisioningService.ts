@@ -168,8 +168,8 @@ import {
 } from './opencode/store/OpenCodeRuntimeManifestEvidenceReader';
 import {
   createRuntimeRunTombstoneStore,
-  RuntimeStaleEvidenceError,
   type RuntimeEvidenceKind,
+  RuntimeStaleEvidenceError,
 } from './opencode/store/RuntimeRunTombstoneStore';
 import { OpenCodeTaskLogAttributionStore } from './taskLogs/stream/OpenCodeTaskLogAttributionStore';
 import { buildActionModeProtocol } from './actionModeInstructions';
@@ -210,6 +210,7 @@ import {
   createPersistedLaunchSnapshot,
   deriveTeamLaunchAggregateState,
   hasMixedPersistedLaunchMetadata,
+  normalizeLaunchFailureReasonText,
   snapshotFromRuntimeMemberStatuses,
   snapshotToMemberSpawnStatuses,
 } from './TeamLaunchStateEvaluator';
@@ -1626,7 +1627,7 @@ interface PromptSizeSummary {
   lines: number;
 }
 
-const MEMBER_LAUNCH_GRACE_MS = 150_000;
+const MEMBER_LAUNCH_GRACE_MS = 120_000;
 const MEMBER_BOOTSTRAP_STALL_MS = 5 * 60_000;
 
 export function shouldWarnOnUnreadableMemberAuditConfig(params: {
@@ -1743,6 +1744,67 @@ function isDefinitiveOpenCodePreLaunchFailure(
   return !isReconciliableOpenCodeUnknownOutcome(
     collectRuntimeLaunchFailureDiagnostics(result, memberName)
   );
+}
+
+const OPENCODE_UNCOMMITTED_BOOTSTRAP_DIAGNOSTIC =
+  'OpenCode bridge reported bootstrap confirmation, but no lane runtime evidence was committed.';
+
+function buildOpenCodeUncommittedBootstrapDiagnostic(storage: {
+  manifestEntryCount: number | null;
+  manifestUpdatedAt: string | null;
+  fileNames: string[];
+}): string[] {
+  return [
+    OPENCODE_UNCOMMITTED_BOOTSTRAP_DIAGNOSTIC,
+    `OpenCode lane manifest entries: ${storage.manifestEntryCount ?? 0}`,
+    ...(storage.manifestUpdatedAt
+      ? [`OpenCode lane manifest updated at: ${storage.manifestUpdatedAt}`]
+      : []),
+    storage.fileNames.length > 0
+      ? `OpenCode lane files: ${storage.fileNames.slice(0, 8).join(', ')}`
+      : 'OpenCode lane files: none',
+  ];
+}
+
+function downgradeUncommittedOpenCodeBootstrapEvidence(
+  evidence: TeamRuntimeMemberLaunchEvidence,
+  diagnostics: readonly string[]
+): TeamRuntimeMemberLaunchEvidence {
+  const hasRuntimeHandle = hasOpenCodeRuntimeHandle(evidence);
+  return {
+    ...evidence,
+    launchState: hasRuntimeHandle ? 'runtime_pending_bootstrap' : 'starting',
+    agentToolAccepted: hasRuntimeHandle,
+    runtimeAlive: false,
+    bootstrapConfirmed: false,
+    hardFailure: false,
+    hardFailureReason: undefined,
+    livenessKind: hasRuntimeHandle
+      ? evidence.livenessKind === 'confirmed_bootstrap'
+        ? 'runtime_process_candidate'
+        : (evidence.livenessKind ?? 'runtime_process_candidate')
+      : 'registered_only',
+    runtimeDiagnostic: hasRuntimeHandle
+      ? 'OpenCode runtime handle is present, but bootstrap evidence was not committed.'
+      : 'OpenCode bootstrap confirmation was not committed to lane runtime evidence.',
+    runtimeDiagnosticSeverity: 'warning',
+    diagnostics: Array.from(new Set([...evidence.diagnostics, ...diagnostics])),
+  };
+}
+
+function summarizeRuntimeLaunchResultMembers(
+  members: Record<string, TeamRuntimeMemberLaunchEvidence>
+): TeamLaunchAggregateState {
+  const values = Object.values(members);
+  if (
+    values.some((member) => member.launchState === 'failed_to_start' || member.hardFailure === true)
+  ) {
+    return 'partial_failure';
+  }
+  if (values.length > 0 && values.every((member) => member.launchState === 'confirmed_alive')) {
+    return 'clean_success';
+  }
+  return 'partial_pending';
 }
 
 function hasOpenCodeRuntimeHandle(
@@ -2518,7 +2580,7 @@ function extractHeartbeatTimestamp(text: string, fallback?: string): string | un
 }
 
 function extractBootstrapFailureReason(text: string): string | null {
-  const trimmed = text.trim();
+  const trimmed = normalizeLaunchFailureReasonText(text) ?? text.trim();
   if (!trimmed) return null;
   if (isBootstrapInstructionPrompt(trimmed)) return null;
   const lower = trimmed.toLowerCase();
@@ -6054,9 +6116,14 @@ export class TeamProvisioningService {
         return { delivered: false, reason: 'opencode_runtime_not_active' };
       }
     }
+    const inMemorySecondaryLaneRunId =
+      laneIdentity.laneKind === 'secondary' && laneIdentity.laneOwnerProviderId === 'opencode'
+        ? this.getCurrentOpenCodeRuntimeRunId(teamName, laneIdentity.laneId)
+        : null;
     let runtimeRunId =
       laneIdentity.laneKind === 'secondary' && laneIdentity.laneOwnerProviderId === 'opencode'
         ? (liveSecondaryLaneRunId ??
+          inMemorySecondaryLaneRunId ??
           (await this.resolveCurrentOpenCodeRuntimeRunId(teamName, laneIdentity.laneId)))
         : (trackedRunId ??
           (await this.resolveCurrentOpenCodeRuntimeRunId(teamName, laneIdentity.laneId)));
@@ -6102,8 +6169,11 @@ export class TeamProvisioningService {
     }
     if (
       runtimeActive &&
+      runtimeRunId &&
       laneIdentity.laneKind === 'secondary' &&
-      laneIdentity.laneOwnerProviderId === 'opencode'
+      laneIdentity.laneOwnerProviderId === 'opencode' &&
+      !liveSecondaryLaneRunId &&
+      !inMemorySecondaryLaneRunId
     ) {
       const laneStorage = await inspectOpenCodeRuntimeLaneStorage({
         teamsBasePath: getTeamsBasePath(),
@@ -17556,6 +17626,64 @@ export class TeamProvisioningService {
     this.emitMemberSpawnChange(run, lane.member.name);
   }
 
+  private async guardCommittedOpenCodeSecondaryLaneEvidence(params: {
+    teamName: string;
+    laneId: string;
+    result: TeamRuntimeLaunchResult;
+    memberName: string;
+  }): Promise<TeamRuntimeLaunchResult> {
+    const memberEvidence = params.result.members[params.memberName];
+    if (!memberEvidence) {
+      return params.result;
+    }
+
+    const claimsBootstrapConfirmed =
+      memberEvidence.launchState === 'confirmed_alive' ||
+      memberEvidence.bootstrapConfirmed === true ||
+      memberEvidence.livenessKind === 'confirmed_bootstrap';
+    if (!claimsBootstrapConfirmed) {
+      return params.result;
+    }
+
+    const storage = await inspectOpenCodeRuntimeLaneStorage({
+      teamsBasePath: getTeamsBasePath(),
+      teamName: params.teamName,
+      laneId: params.laneId,
+    });
+    if (storage.hasRuntimeEvidenceOnDisk) {
+      return params.result;
+    }
+
+    const diagnostics = buildOpenCodeUncommittedBootstrapDiagnostic(storage);
+    const members = {
+      ...params.result.members,
+      [params.memberName]: downgradeUncommittedOpenCodeBootstrapEvidence(
+        memberEvidence,
+        diagnostics
+      ),
+    };
+    await upsertOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: getTeamsBasePath(),
+      teamName: params.teamName,
+      laneId: params.laneId,
+      state: 'active',
+      diagnostics,
+    }).catch((error: unknown) => {
+      logger.warn(
+        `[${params.teamName}] Failed to annotate OpenCode lane ${params.laneId} after uncommitted bootstrap evidence: ${getErrorMessage(error)}`
+      );
+    });
+
+    const teamLaunchState = summarizeRuntimeLaunchResultMembers(members);
+    return {
+      ...params.result,
+      launchPhase: teamLaunchState === 'clean_success' ? params.result.launchPhase : 'active',
+      teamLaunchState,
+      members,
+      diagnostics: Array.from(new Set([...params.result.diagnostics, ...diagnostics])),
+    };
+  }
+
   private buildMixedPersistedLaunchSnapshotForRun(
     run: ProvisioningRun,
     launchPhase: PersistedTeamLaunchPhase
@@ -17899,7 +18027,7 @@ export class TeamProvisioningService {
         laneId: lane.laneId,
         runId: lane.runId,
       });
-      const result = await adapter.launch({
+      const rawResult = await adapter.launch({
         runId: lane.runId,
         laneId: lane.laneId,
         teamName: run.teamName,
@@ -17922,6 +18050,12 @@ export class TeamProvisioningService {
           },
         ],
         previousLaunchState,
+      });
+      const result = await this.guardCommittedOpenCodeSecondaryLaneEvidence({
+        teamName: run.teamName,
+        laneId: lane.laneId,
+        memberName: lane.member.name,
+        result: rawResult,
       });
       if (run.cancelRequested || run.processKilled) {
         this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);

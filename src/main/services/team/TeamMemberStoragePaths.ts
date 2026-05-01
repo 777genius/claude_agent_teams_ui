@@ -1,7 +1,6 @@
+import { atomicWriteAsync } from '@main/utils/atomicWrite';
 import { mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
-
-import { atomicWriteAsync } from '@main/utils/atomicWrite';
 
 export interface TeamMemberStorageMetaFile {
   schemaVersion: 1;

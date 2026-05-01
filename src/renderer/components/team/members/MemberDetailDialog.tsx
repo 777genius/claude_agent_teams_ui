@@ -13,6 +13,7 @@ import {
   hasMemberLaunchDiagnosticsDetails,
   hasMemberLaunchDiagnosticsError,
 } from '@renderer/utils/memberLaunchDiagnostics';
+import { isOpenCodeRelaunchActionable } from '@renderer/utils/memberHelpers';
 import {
   getRuntimeMemorySourceLabel,
   resolveMemberRuntimeSummary,
@@ -173,10 +174,14 @@ export const MemberDetailDialog = ({
     [launchParams, member, runtimeEntry, spawnEntry]
   );
   const memorySourceLabel = getRuntimeMemorySourceLabel(runtimeEntry);
+  const openCodeRelaunchActionable = member
+    ? isOpenCodeRelaunchActionable({ member, spawnEntry, runtimeEntry })
+    : false;
   const restartInFlight =
-    spawnEntry?.launchState === 'starting' ||
-    spawnEntry?.launchState === 'runtime_pending_bootstrap' ||
-    spawnEntry?.launchState === 'runtime_pending_permission';
+    !openCodeRelaunchActionable &&
+    (spawnEntry?.launchState === 'starting' ||
+      spawnEntry?.launchState === 'runtime_pending_bootstrap' ||
+      spawnEntry?.launchState === 'runtime_pending_permission');
   const launchDiagnosticsPayload = useMemo(
     () =>
       member
@@ -203,7 +208,8 @@ export const MemberDetailDialog = ({
   const effectiveLaunchErrorMessage = openCodeNoRuntimeEvidence
     ? OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE
     : launchErrorMessage;
-  const restartButtonLabel = openCodeNoRuntimeEvidence ? 'Relaunch OpenCode' : 'Restart';
+  const restartButtonLabel =
+    openCodeNoRuntimeEvidence || openCodeRelaunchActionable ? 'Relaunch OpenCode' : 'Restart';
 
   useEffect(() => {
     if (!open || !member) {

@@ -190,6 +190,37 @@ describe('TeamInboxWriter', () => {
     });
   });
 
+  it('deduplicates repeated runtime delivery replies to the same inbound message', async () => {
+    const first = await writer.sendMessage('my-team', {
+      member: 'user',
+      from: 'alice',
+      to: 'user',
+      text: 'Да, я здесь!',
+      source: 'runtime_delivery',
+      relayOfMessageId: 'inbound-1',
+    });
+    const second = await writer.sendMessage('my-team', {
+      member: 'user',
+      from: 'alice',
+      to: 'user',
+      text: ' Да,   я здесь! ',
+      source: 'runtime_delivery',
+      relayOfMessageId: 'inbound-1',
+    });
+
+    const userInboxPath = '/mock/teams/my-team/inboxes/user.json';
+    const persisted = JSON.parse(hoisted.files.get(userInboxPath) ?? '[]') as Record<
+      string,
+      unknown
+    >[];
+    expect(persisted).toHaveLength(1);
+    expect(second).toMatchObject({
+      deliveredToInbox: true,
+      deduplicated: true,
+      messageId: first.messageId,
+    });
+  });
+
   it('omits source field from payload when not provided in request', async () => {
     await writer.sendMessage('my-team', {
       member: 'alice',

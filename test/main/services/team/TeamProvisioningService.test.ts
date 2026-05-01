@@ -3232,6 +3232,63 @@ describe('TeamProvisioningService', () => {
       );
     });
 
+    it('does not trust OpenCode secondary bootstrap success without committed lane evidence', async () => {
+      const svc = new TeamProvisioningService();
+      await upsertOpenCodeRuntimeLaneIndexEntry({
+        teamsBasePath: tempTeamsBase,
+        teamName: 'mixed-team-no-committed-evidence',
+        laneId: 'secondary:opencode:bob',
+        state: 'active',
+      });
+      await setOpenCodeRuntimeActiveRunManifest({
+        teamsBasePath: tempTeamsBase,
+        teamName: 'mixed-team-no-committed-evidence',
+        laneId: 'secondary:opencode:bob',
+        runId: 'lane-run-bob',
+      });
+
+      const result = await (svc as any).guardCommittedOpenCodeSecondaryLaneEvidence({
+        teamName: 'mixed-team-no-committed-evidence',
+        laneId: 'secondary:opencode:bob',
+        memberName: 'bob',
+        result: {
+          runId: 'lane-run-bob',
+          teamName: 'mixed-team-no-committed-evidence',
+          launchPhase: 'finished',
+          teamLaunchState: 'clean_success',
+          members: {
+            bob: {
+              memberName: 'bob',
+              providerId: 'opencode',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              diagnostics: [],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        },
+      });
+
+      expect(result.teamLaunchState).toBe('partial_pending');
+      expect(result.launchPhase).toBe('active');
+      expect(result.members.bob).toMatchObject({
+        launchState: 'starting',
+        agentToolAccepted: false,
+        runtimeAlive: false,
+        bootstrapConfirmed: false,
+        livenessKind: 'registered_only',
+        runtimeDiagnostic:
+          'OpenCode bootstrap confirmation was not committed to lane runtime evidence.',
+      });
+      expect(result.members.bob.diagnostics).toContain(
+        'OpenCode bridge reported bootstrap confirmation, but no lane runtime evidence was committed.'
+      );
+    });
+
     it('delivers direct messages to OpenCode secondary lanes with the lane run id', async () => {
       const svc = new TeamProvisioningService();
       const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
@@ -3334,6 +3391,14 @@ describe('TeamProvisioningService', () => {
 
       (svc as any).getTrackedRunId = vi.fn(() => null);
       (svc as any).canDeliverToOpenCodeRuntimeForTeam = vi.fn(() => true);
+      (svc as any).setSecondaryRuntimeRun({
+        teamName: 'team-a',
+        runId: 'opencode-run-bob',
+        providerId: 'opencode',
+        laneId: 'secondary:opencode:bob',
+        memberName: 'bob',
+        cwd: '/repo/.agent-team-worktrees/bob',
+      });
       (svc as any).resolveCurrentOpenCodeRuntimeRunId = vi.fn(async () => 'opencode-run-bob');
       (svc as any).isOpenCodeRuntimeLaneIndexActive = vi.fn(async () => true);
       (svc as any).configReader = {
@@ -8426,9 +8491,31 @@ describe('TeamProvisioningService', () => {
       const adapterLaunch = vi.fn(async (input: Record<string, unknown>) => {
         const expectedMembers = input.expectedMembers as Array<{ name: string }>;
         const memberName = expectedMembers[0]?.name ?? 'unknown';
+        const teamName = String(input.teamName);
+        const laneId = String(input.laneId);
+        const runId = String(input.runId);
+        const manifestPath = getOpenCodeRuntimeManifestPath(tempTeamsBase, teamName, laneId);
+        await fsPromises.mkdir(path.dirname(manifestPath), { recursive: true });
+        await fsPromises.writeFile(
+          manifestPath,
+          `${JSON.stringify(
+            {
+              ...createDefaultRuntimeStoreManifest(teamName, '2026-04-22T12:00:00.000Z'),
+              activeRunId: runId,
+            },
+            null,
+            2
+          )}\n`,
+          'utf8'
+        );
+        await fsPromises.writeFile(
+          path.join(path.dirname(manifestPath), 'opencode-sessions.json'),
+          `${JSON.stringify({ sessions: [{ id: `oc-session-${memberName}` }] })}\n`,
+          'utf8'
+        );
         return {
-          runId: String(input.runId),
-          teamName: String(input.teamName),
+          runId,
+          teamName,
           launchPhase: 'finished',
           teamLaunchState: 'clean_success',
           members: {
@@ -9722,6 +9809,75 @@ describe('TeamProvisioningService', () => {
     );
 
     expect(reason).toBeNull();
+  });
+
+  it('extracts a human-readable bootstrap failure from message_send tool result JSON', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-message-send-json-failure';
+    const leadSessionId = 'lead-session';
+    const memberSessionId = 'alice-session';
+    const projectPath = '/Users/test/proj';
+    const projectId = '-Users-test-proj';
+    const acceptedAt = new Date(Date.now() - 5_000).toISOString();
+    const failureAt = new Date(Date.now() - 4_000).toISOString();
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['alice']);
+
+    const projectRoot = path.join(tempProjectsBase, projectId);
+    fs.mkdirSync(projectRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, `${memberSessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: acceptedAt,
+          teamName,
+          agentName: 'alice',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: `You are bootstrapping into team "${teamName}" as member "alice".`,
+          },
+        }),
+        JSON.stringify({
+          timestamp: failureAt,
+          teamName,
+          agentName: 'alice',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'toolu-message-send',
+                content: JSON.stringify({
+                  success: true,
+                  message: "Message sent to team-lead's inbox",
+                  routing: {
+                    sender: 'alice',
+                    target: '@team-lead',
+                    summary: 'Bootstrap failed - no member_briefing tool',
+                    content: 'Не могу выполнить member_briefing: tool not found.',
+                  },
+                }),
+              },
+            ],
+          },
+        }),
+      ].join('\n') + '\n',
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const reason = await (svc as any).findBootstrapTranscriptFailureReason(
+      teamName,
+      'alice',
+      Date.parse(acceptedAt) - 1
+    );
+
+    expect(reason).toBe(
+      'Bootstrap failed - no member_briefing tool: Не могу выполнить member_briefing: tool not found.'
+    );
+    expect(reason).not.toContain('{"success":true');
   });
 
   it('clears a stale persisted bootstrap-prompt failure when member_briefing later succeeds', async () => {

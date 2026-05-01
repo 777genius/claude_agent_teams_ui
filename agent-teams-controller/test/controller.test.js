@@ -235,6 +235,44 @@ describe('agent-teams-controller API', () => {
     expect(delivered.deliveredToInbox).toBe(true);
   });
 
+  it('deduplicates repeated runtime_delivery replies to the same inbound message', () => {
+    const claudeDir = makeClaudeDir();
+    const configPath = path.join(claudeDir, 'teams', 'my-team', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    config.members = [
+      { name: 'alice', role: 'team-lead' },
+      { name: 'bob', role: 'developer', providerId: 'opencode', model: 'opencode/test-model' },
+    ];
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const first = controller.messages.sendMessage({
+      to: 'user',
+      from: 'bob',
+      text: 'Да, я здесь!',
+      source: 'runtime_delivery',
+      relayOfMessageId: 'msg-inbound-1',
+    });
+    const second = controller.messages.sendMessage({
+      to: 'user',
+      from: 'bob',
+      text: ' Да,   я здесь! ',
+      source: 'runtime_delivery',
+      relayOfMessageId: 'msg-inbound-1',
+    });
+
+    const userInboxPath = path.join(claudeDir, 'teams', 'my-team', 'inboxes', 'user.json');
+    const rows = JSON.parse(fs.readFileSync(userInboxPath, 'utf8'));
+    expect(rows).toHaveLength(1);
+    expect(second).toMatchObject({
+      deliveredToInbox: true,
+      deduplicated: true,
+      messageId: first.messageId,
+      duplicateOfMessageId: first.messageId,
+      deduplicationNotice: expect.stringContaining('do not call agent-teams_message_send again'),
+    });
+  });
+
   it('strips hallucinated zero task placeholder prefixes from visible messages', () => {
     const claudeDir = makeClaudeDir();
     const controller = createController({ teamName: 'my-team', claudeDir });
