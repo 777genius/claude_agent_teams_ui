@@ -4520,6 +4520,30 @@ describe('TeamDataService', () => {
     ]);
   });
 
+  it('does not block the team snapshot on slow runtime advisories', async () => {
+    vi.useFakeTimers();
+    const deferred = createDeferred<Map<string, unknown>>();
+    try {
+      const harness = createGetTeamDataHarness({
+        resolveMembers: () => [buildResolvedMember('alice')],
+        getMemberAdvisories: async () => deferred.promise,
+      });
+
+      const pending = harness.service.getTeamData('my-team');
+      await vi.advanceTimersByTimeAsync(751);
+      const data = await pending;
+
+      expect(harness.advisoryService.getMemberAdvisories).toHaveBeenCalledTimes(1);
+      expect(data.members).toEqual([expect.objectContaining({ name: 'alice' })]);
+      expect(data.members[0]?.runtimeAdvisory).toBeUndefined();
+
+      deferred.resolve(new Map());
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('synthesizes a team lead from team meta when config and members meta have no lead entry', async () => {
     const harness = createGetTeamDataHarness({
       config: {

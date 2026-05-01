@@ -6,9 +6,10 @@ import { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
 import type { MemberRuntimeAdvisory, ResolvedTeamMember } from '@shared/types';
 
 const LOOKBACK_MS = 10 * 60 * 1000;
-const CACHE_TTL_MS = 5_000;
+const CACHE_TTL_MS = 30_000;
 const TAIL_BYTES = 64 * 1024;
 const BATCH_WARN_MS = 200;
+const ADVISORY_FETCH_CONCURRENCY = 2;
 const QUOTA_EXHAUSTED_TOKENS = [
   'exhausted your capacity',
   'capacity exceeded',
@@ -92,6 +93,28 @@ function classifyRetryReason(message: string | undefined): MemberRuntimeAdvisory
     return 'provider_overloaded';
   }
   return 'backend_error';
+}
+
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let index = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = new Array(workerCount).fill(0).map(async () => {
+    while (true) {
+      const currentIndex = index;
+      index += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+      results[currentIndex] = await fn(items[currentIndex]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export class TeamMemberRuntimeAdvisoryService {
@@ -187,11 +210,13 @@ export class TeamMemberRuntimeAdvisoryService {
     }
 
     if (membersToFetch.length > 0) {
-      const fetched = await Promise.all(
-        membersToFetch.map(async (memberName) => {
+      const fetched = await mapLimit(
+        membersToFetch,
+        ADVISORY_FETCH_CONCURRENCY,
+        async (memberName) => {
           const advisory = await this.findRecentMemberAdvisory(teamName, memberName);
           return [memberName, advisory] as const;
-        })
+        }
       );
       const fetchedAt = Date.now();
       for (const [memberName, advisory] of fetched) {

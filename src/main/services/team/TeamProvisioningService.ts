@@ -5122,6 +5122,21 @@ export class TeamProvisioningService {
     return this.provisioningRunByTeam.get(teamName) ?? null;
   }
 
+  private getResolvableProvisioningRunId(teamName: string): string | null {
+    const runId = this.getProvisioningRunId(teamName);
+    if (!runId) {
+      return null;
+    }
+    if (this.runs.has(runId) || this.runtimeAdapterProgressByRunId.has(runId)) {
+      return runId;
+    }
+    if (this.provisioningRunByTeam.get(teamName) === runId) {
+      this.provisioningRunByTeam.delete(teamName);
+    }
+    logger.debug(`[${teamName}] Cleared stale provisioning run id before launch: ${runId}`);
+    return null;
+  }
+
   private getAliveRunId(teamName: string): string | null {
     return this.aliveRunByTeam.get(teamName) ?? null;
   }
@@ -13411,7 +13426,7 @@ export class TeamProvisioningService {
     onProgress: (progress: TeamProvisioningProgress) => void
   ): Promise<TeamCreateResponse> {
     this.cleanedStoppedTeamOpenCodeRuntimeLanes.delete(request.teamName);
-    const existingProvisioningRunId = this.getProvisioningRunId(request.teamName);
+    const existingProvisioningRunId = this.getResolvableProvisioningRunId(request.teamName);
     if (existingProvisioningRunId) {
       return { runId: existingProvisioningRunId };
     }
@@ -14311,7 +14326,7 @@ export class TeamProvisioningService {
     request: TeamLaunchRequest,
     onProgress: (progress: TeamProvisioningProgress) => void
   ): Promise<TeamLaunchResponse> {
-    const existingProvisioningRunId = this.getProvisioningRunId(request.teamName);
+    const existingProvisioningRunId = this.getResolvableProvisioningRunId(request.teamName);
     if (existingProvisioningRunId) {
       return { runId: existingProvisioningRunId };
     }

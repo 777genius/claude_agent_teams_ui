@@ -61,6 +61,14 @@ function shouldBreakExistingLock(lockPath: string, staleTimeoutMs: number): bool
   return info.ageMs !== null && info.ageMs > staleTimeoutMs;
 }
 
+function removeLockPath(lockPath: string): void {
+  try {
+    fs.rmSync(lockPath, { recursive: true, force: true });
+  } catch {
+    /* another process may have cleaned it */
+  }
+}
+
 function tryAcquire(lockPath: string, options: Required<FileLockOptions>): boolean {
   try {
     const dir = path.dirname(lockPath);
@@ -72,13 +80,10 @@ function tryAcquire(lockPath: string, options: Required<FileLockOptions>): boole
     fs.closeSync(fd);
     return true;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST' || code === 'EISDIR') {
       if (shouldBreakExistingLock(lockPath, options.staleTimeoutMs)) {
-        try {
-          fs.unlinkSync(lockPath);
-        } catch {
-          /* another process may have cleaned it */
-        }
+        removeLockPath(lockPath);
       }
       return false;
     }

@@ -386,6 +386,42 @@ describe('TeamMemberRuntimeAdvisoryService', () => {
     expect(Array.from(advisories.keys())).toEqual(['Alice', 'Bob', 'Charlie']);
   });
 
+  it('limits concurrent member advisory log scans', async () => {
+    const { service, logsFinder } = createStubbedServiceHarness();
+    let activeScans = 0;
+    let maxActiveScans = 0;
+    const activeGates: Deferred<void>[] = [];
+    logsFinder.findMemberLogs.mockImplementation(async (_teamName: string, memberName: string) => {
+      activeScans += 1;
+      maxActiveScans = Math.max(maxActiveScans, activeScans);
+      const gate = createDeferred<void>();
+      activeGates.push(gate);
+      await gate.promise;
+      activeScans -= 1;
+      return [{ filePath: `/logs/${memberName}.jsonl` }];
+    });
+
+    const request = service.getMemberAdvisories('signal-ops', [
+      buildMember('Alice'),
+      buildMember('Bob'),
+      buildMember('Charlie'),
+      buildMember('Tom'),
+    ]);
+    await vi.waitFor(() => {
+      expect(logsFinder.findMemberLogs).toHaveBeenCalledTimes(2);
+    });
+    expect(maxActiveScans).toBe(2);
+
+    activeGates.splice(0).forEach((gate) => gate.resolve());
+    await vi.waitFor(() => {
+      expect(logsFinder.findMemberLogs).toHaveBeenCalledTimes(4);
+    });
+    activeGates.splice(0).forEach((gate) => gate.resolve());
+    await request;
+
+    expect(maxActiveScans).toBeLessThanOrEqual(2);
+  });
+
   it('caches null advisory batches and avoids repeated lookups within ttl', async () => {
     const { service, logsFinder } = createStubbedServiceHarness();
     logsFinder.findMemberLogs.mockResolvedValue([]);

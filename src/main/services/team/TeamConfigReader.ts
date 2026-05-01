@@ -37,10 +37,26 @@ const LARGE_CONFIG_BYTES = 512 * 1024;
 const CONFIG_HEAD_BYTES = 64 * 1024;
 const MAX_CONFIG_READ_BYTES = 10 * 1024 * 1024; // 10MB hard limit for full config reads
 const PER_TEAM_READ_TIMEOUT_MS = 5_000;
+const GET_CONFIG_CACHE_TTL_MS = 750;
+const GET_CONFIG_SLOW_READ_WARN_MS = 500;
 const MAX_SESSION_HISTORY_IN_SUMMARY = 2000;
 const MAX_PROJECT_PATH_HISTORY_IN_SUMMARY = 200;
 const MAX_LAUNCH_STATE_BYTES = 32 * 1024;
 const TEAM_LAUNCH_STATE_FILE = 'launch-state.json';
+
+interface CachedTeamConfig {
+  value: TeamConfig;
+  expiresAt: number;
+}
+
+interface ConfigReadTiming {
+  teamName: string;
+  size: number | null;
+  statMs: number | null;
+  readMs: number | null;
+  parseMs: number | null;
+  totalMs: number;
+}
 
 function normalizeProjectPathCandidate(value: unknown): string | undefined {
   if (typeof value !== 'string') {
@@ -155,7 +171,14 @@ function withReadTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+function cloneConfig(config: TeamConfig): TeamConfig {
+  return structuredClone(config);
+}
+
 export class TeamConfigReader {
+  private static readonly configCacheByPath = new Map<string, CachedTeamConfig>();
+  private static readonly configReadInFlightByPath = new Map<string, Promise<TeamConfig | null>>();
+
   constructor(
     private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
     private readonly teamMetaStore: TeamMetaStore = new TeamMetaStore()
@@ -506,8 +529,77 @@ export class TeamConfigReader {
 
   async getConfig(teamName: string): Promise<TeamConfig | null> {
     const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
+    const now = Date.now();
+    const cached = TeamConfigReader.configCacheByPath.get(configPath);
+    if (cached && cached.expiresAt > now) {
+      return cloneConfig(cached.value);
+    }
+
+    const existingRead = TeamConfigReader.configReadInFlightByPath.get(configPath);
+    if (existingRead) {
+      return this.resolveConfigRead(teamName, configPath, existingRead);
+    }
+
+    const readPromise = this.readConfigFromDisk(teamName, configPath).then((config) => {
+      if (config) {
+        TeamConfigReader.configCacheByPath.set(configPath, {
+          value: cloneConfig(config),
+          expiresAt: Date.now() + GET_CONFIG_CACHE_TTL_MS,
+        });
+      }
+      return config;
+    });
+    TeamConfigReader.configReadInFlightByPath.set(configPath, readPromise);
+
     try {
+      return await this.resolveConfigRead(teamName, configPath, readPromise);
+    } catch (error) {
+      return null;
+    } finally {
+      if (TeamConfigReader.configReadInFlightByPath.get(configPath) === readPromise) {
+        TeamConfigReader.configReadInFlightByPath.delete(configPath);
+      }
+    }
+  }
+
+  private async resolveConfigRead(
+    teamName: string,
+    configPath: string,
+    readPromise: Promise<TeamConfig | null>
+  ): Promise<TeamConfig | null> {
+    try {
+      const config = await readPromise;
+      return config ? cloneConfig(config) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async readConfigFromDisk(
+    teamName: string,
+    configPath: string
+  ): Promise<TeamConfig | null> {
+    const startedAt = performance.now();
+    let size: number | null = null;
+    let statMs: number | null = null;
+    let readMs: number | null = null;
+    let parseMs: number | null = null;
+
+    const buildTiming = (): ConfigReadTiming => ({
+      teamName,
+      size,
+      statMs,
+      readMs,
+      parseMs,
+      totalMs: Math.round(performance.now() - startedAt),
+    });
+
+    try {
+      const statStartedAt = performance.now();
       const stat = await fs.promises.stat(configPath);
+      statMs = Math.round(performance.now() - statStartedAt);
+      size = stat.size;
+
       // Safety: refuse special files and huge/binary configs
       if (!stat.isFile()) {
         return null;
@@ -519,19 +611,31 @@ export class TeamConfigReader {
         return null;
       }
 
+      const readStartedAt = performance.now();
       const raw = await readFileUtf8WithTimeout(configPath, PER_TEAM_READ_TIMEOUT_MS);
+      readMs = Math.round(performance.now() - readStartedAt);
+
+      const parseStartedAt = performance.now();
       const config = JSON.parse(raw) as TeamConfig;
+      parseMs = Math.round(performance.now() - parseStartedAt);
       if (typeof config.name !== 'string' || config.name.trim() === '') {
         return null;
       }
       const resolvedProjectPath = resolveProjectPathFromConfig(config);
-      return resolvedProjectPath ? { ...config, projectPath: resolvedProjectPath } : config;
+      const resolvedConfig = resolvedProjectPath
+        ? { ...config, projectPath: resolvedProjectPath }
+        : config;
+
+      const totalMs = performance.now() - startedAt;
+      if (totalMs >= GET_CONFIG_SLOW_READ_WARN_MS) {
+        logger.warn(`[getConfig] slow read diag=${JSON.stringify(buildTiming())}`);
+      }
+      return resolvedConfig;
     } catch (error) {
       if (error instanceof FileReadTimeoutError) {
-        logger.warn(`[getConfig] ${error.message}`);
-        return null;
+        logger.warn(`[getConfig] ${error.message} diag=${JSON.stringify(buildTiming())}`);
       }
-      return null;
+      throw error;
     }
   }
 
@@ -557,6 +661,10 @@ export class TeamConfigReader {
     }
     const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
     await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+    TeamConfigReader.configCacheByPath.set(configPath, {
+      value: cloneConfig(config),
+      expiresAt: Date.now() + GET_CONFIG_CACHE_TTL_MS,
+    });
     return config;
   }
 }

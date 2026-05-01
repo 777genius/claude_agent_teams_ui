@@ -21,6 +21,16 @@ import type {
 
 const logger = createLogger('Service:TeamTaskReader');
 const MAX_TASK_FILE_BYTES = 2 * 1024 * 1024;
+const ALL_TASKS_CACHE_TTL_MS = 500;
+
+interface CachedAllTasks {
+  value: (TeamTask & { teamName: string })[];
+  expiresAt: number;
+}
+
+function cloneTasks<T>(tasks: T[]): T[] {
+  return structuredClone(tasks);
+}
 
 /**
  * Normalise escaped newline sequences (`\\n`) that some MCP/CLI sources
@@ -63,6 +73,9 @@ function normalizeTaskRefs(value: unknown): TaskRef[] | undefined {
 }
 
 export class TeamTaskReader {
+  private static allTasksCache: CachedAllTasks | null = null;
+  private static allTasksInFlight: Promise<(TeamTask & { teamName: string })[]> | null = null;
+
   /**
    * Returns the next available numeric task ID by scanning ALL task files
    * (including _internal ones) to avoid ID collisions.
@@ -433,6 +446,32 @@ export class TeamTaskReader {
   }
 
   async getAllTasks(): Promise<(TeamTask & { teamName: string })[]> {
+    const cached = TeamTaskReader.allTasksCache;
+    if (cached && cached.expiresAt > Date.now()) {
+      return cloneTasks(cached.value);
+    }
+
+    if (TeamTaskReader.allTasksInFlight) {
+      return cloneTasks(await TeamTaskReader.allTasksInFlight);
+    }
+
+    const request = this.readAllTasksUncached();
+    TeamTaskReader.allTasksInFlight = request;
+    try {
+      const tasks = await request;
+      TeamTaskReader.allTasksCache = {
+        value: cloneTasks(tasks),
+        expiresAt: Date.now() + ALL_TASKS_CACHE_TTL_MS,
+      };
+      return cloneTasks(tasks);
+    } finally {
+      if (TeamTaskReader.allTasksInFlight === request) {
+        TeamTaskReader.allTasksInFlight = null;
+      }
+    }
+  }
+
+  private async readAllTasksUncached(): Promise<(TeamTask & { teamName: string })[]> {
     const worker = getTeamFsWorkerClient();
     if (worker.isAvailable()) {
       const startedAt = Date.now();
