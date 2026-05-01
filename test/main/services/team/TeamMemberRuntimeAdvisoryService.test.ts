@@ -48,6 +48,9 @@ function createStubbedServiceHarness() {
     findMemberLogs: vi.fn(async (_teamName: string, memberName: string) => [
       { filePath: `/logs/${memberName}.jsonl` },
     ]),
+    findRecentMemberLogFileRefsByMember: undefined as
+      | undefined
+      | ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown[]>>>,
   };
   const service = new TeamMemberRuntimeAdvisoryService(logsFinder as never);
   const advisoryByFilePath = new Map<string, MemberRuntimeAdvisory | null>();
@@ -384,6 +387,61 @@ describe('TeamMemberRuntimeAdvisoryService', () => {
       'Charlie',
     ]);
     expect(Array.from(advisories.keys())).toEqual(['Alice', 'Bob', 'Charlie']);
+  });
+
+  it('uses batch member log refs once instead of scanning logs per missing member', async () => {
+    const { service, logsFinder, advisoryByFilePath } = createStubbedServiceHarness();
+    logsFinder.findRecentMemberLogFileRefsByMember = vi.fn(async () => [
+      { memberName: 'Alice', filePath: '/logs/alice-new.jsonl', mtimeMs: 300 },
+      { memberName: 'Alice', filePath: '/logs/alice-old.jsonl', mtimeMs: 100 },
+      { memberName: 'Bob', filePath: '/logs/bob.jsonl', mtimeMs: 200 },
+    ]);
+    advisoryByFilePath.set('/logs/alice-new.jsonl', null);
+    advisoryByFilePath.set('/logs/alice-old.jsonl', buildRetryingAdvisory('alice-old'));
+    advisoryByFilePath.set('/logs/bob.jsonl', buildRetryingAdvisory('bob'));
+
+    const advisories = await service.getMemberAdvisories('signal-ops', [
+      buildMember('Alice'),
+      buildMember('Bob'),
+      buildMember('Charlie'),
+    ]);
+
+    expect(logsFinder.findRecentMemberLogFileRefsByMember).toHaveBeenCalledTimes(1);
+    expect(logsFinder.findRecentMemberLogFileRefsByMember).toHaveBeenCalledWith(
+      'signal-ops',
+      ['Alice', 'Bob', 'Charlie'],
+      expect.any(Number)
+    );
+    expect(logsFinder.findMemberLogs).not.toHaveBeenCalled();
+    expect(advisories.get('Alice')?.message).toBe('retry:alice-old');
+    expect(advisories.get('Bob')?.message).toBe('retry:bob');
+    expect(advisories.has('Charlie')).toBe(false);
+
+    await service.getMemberAdvisories('signal-ops', [
+      buildMember('Alice'),
+      buildMember('Bob'),
+      buildMember('Charlie'),
+    ]);
+    expect(logsFinder.findRecentMemberLogFileRefsByMember).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to per-member log scans when the batch log ref lookup fails', async () => {
+    const { service, logsFinder } = createStubbedServiceHarness();
+    logsFinder.findRecentMemberLogFileRefsByMember = vi.fn(async () => {
+      throw new Error('batch unavailable');
+    });
+
+    const advisories = await service.getMemberAdvisories('signal-ops', [
+      buildMember('Alice'),
+      buildMember('Bob'),
+    ]);
+
+    expect(logsFinder.findRecentMemberLogFileRefsByMember).toHaveBeenCalledTimes(1);
+    expect(logsFinder.findMemberLogs.mock.calls.map((call) => call[1])).toEqual([
+      'Alice',
+      'Bob',
+    ]);
+    expect(Array.from(advisories.keys())).toEqual(['Alice', 'Bob']);
   });
 
   it('limits concurrent member advisory log scans', async () => {

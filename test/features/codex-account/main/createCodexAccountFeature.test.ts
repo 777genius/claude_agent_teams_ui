@@ -21,6 +21,7 @@ const {
   loginStateListeners,
   logoutMock,
   readAccountMock,
+  readAccountSnapshotMock,
   readRateLimitsMock,
 } = vi.hoisted(() => ({
   binaryResolveMock: vi.fn(),
@@ -28,6 +29,7 @@ const {
   detectLocalAccountStateMock: vi.fn(),
   getCachedShellEnvMock: vi.fn(),
   readAccountMock: vi.fn(),
+  readAccountSnapshotMock: vi.fn(),
   readRateLimitsMock: vi.fn(),
   logoutMock: vi.fn(),
   loginStartMock: vi.fn(),
@@ -89,6 +91,7 @@ vi.mock(
   '../../../../src/features/codex-account/main/infrastructure/CodexAccountAppServerClient',
   () => ({
     CodexAccountAppServerClient: class MockCodexAccountAppServerClient {
+      readAccountSnapshot = readAccountSnapshotMock;
       readAccount = readAccountMock;
       readRateLimits = readRateLimitsMock;
       logout = logoutMock;
@@ -192,6 +195,29 @@ function createRateLimitsResponse() {
   };
 }
 
+function createDeferred<T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
+  let reject: ((error: unknown) => void) | null = null;
+  const promise = new Promise<T>((fulfill, fail) => {
+    resolve = fulfill;
+    reject = fail;
+  });
+
+  if (!resolve || !reject) {
+    throw new Error('Failed to create deferred promise.');
+  }
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 describe('createCodexAccountFeature', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -204,6 +230,7 @@ describe('createCodexAccountFeature', () => {
       hasActiveChatgptAccount: false,
     });
     getCachedShellEnvMock.mockReturnValue({});
+    readAccountSnapshotMock.mockReset();
     readAccountMock.mockReset();
     readRateLimitsMock.mockReset();
     logoutMock.mockReset();
@@ -217,6 +244,40 @@ describe('createCodexAccountFeature', () => {
     };
     loginStateListeners.clear();
     loginSettledListeners.clear();
+    readAccountSnapshotMock.mockImplementation(
+      async (options: {
+        binaryPath: string;
+        env: NodeJS.ProcessEnv;
+        refreshToken?: boolean;
+        includeRateLimits?: boolean;
+      }) => {
+        const account = await readAccountMock(options);
+        if (options.includeRateLimits !== true) {
+          return {
+            ...account,
+            rateLimits: null,
+          };
+        }
+
+        try {
+          return {
+            ...account,
+            rateLimits: {
+              ok: true,
+              payload: await readRateLimitsMock(options),
+            },
+          };
+        } catch (error) {
+          return {
+            ...account,
+            rateLimits: {
+              ok: false,
+              error,
+            },
+          };
+        }
+      }
+    );
   });
 
   afterAll(() => {
@@ -285,6 +346,263 @@ describe('createCodexAccountFeature', () => {
         })
       );
       expect(readRateLimitsMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('reuses a fresh refresh snapshot when the request does not need stronger data', async () => {
+    readAccountMock.mockResolvedValue({
+      account: createAccountResponse(),
+      initialize: {
+        codexHome: '/Users/test/.codex',
+        platformFamily: 'unix',
+        platformOs: 'macos',
+      },
+    });
+
+    const feature = createCodexAccountFeature({
+      logger: createLoggerPort(),
+      configManager: createConfigManager('chatgpt'),
+    });
+
+    try {
+      const firstSnapshot = await feature.refreshSnapshot();
+      const secondSnapshot = await feature.refreshSnapshot();
+
+      expect(firstSnapshot.managedAccount?.email).toBe('user@example.com');
+      expect(secondSnapshot.managedAccount?.email).toBe('user@example.com');
+      expect(readAccountMock).toHaveBeenCalledTimes(1);
+      expect(readAccountSnapshotMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('does not reuse a snapshot without rate limits for an includeRateLimits refresh', async () => {
+    readAccountMock.mockResolvedValue({
+      account: createAccountResponse(),
+      initialize: {
+        codexHome: '/Users/test/.codex',
+        platformFamily: 'unix',
+        platformOs: 'macos',
+      },
+    });
+    readRateLimitsMock.mockResolvedValue(createRateLimitsResponse());
+
+    const feature = createCodexAccountFeature({
+      logger: createLoggerPort(),
+      configManager: createConfigManager('chatgpt'),
+    });
+
+    try {
+      const firstSnapshot = await feature.refreshSnapshot();
+      const secondSnapshot = await feature.refreshSnapshot({ includeRateLimits: true });
+
+      expect(firstSnapshot.rateLimits).toBeNull();
+      expect(secondSnapshot.rateLimits?.primary?.usedPercent).toBe(77);
+      expect(readAccountMock).toHaveBeenCalledTimes(2);
+      expect(readRateLimitsMock).toHaveBeenCalledTimes(1);
+      expect(readAccountSnapshotMock.mock.calls[1]?.[0]).toMatchObject({
+        includeRateLimits: true,
+      });
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('force-refreshes account truth even when a fresh snapshot exists', async () => {
+    readAccountMock.mockResolvedValue({
+      account: createAccountResponse(),
+      initialize: {
+        codexHome: '/Users/test/.codex',
+        platformFamily: 'unix',
+        platformOs: 'macos',
+      },
+    });
+
+    const feature = createCodexAccountFeature({
+      logger: createLoggerPort(),
+      configManager: createConfigManager('chatgpt'),
+    });
+
+    try {
+      await feature.refreshSnapshot();
+      await feature.refreshSnapshot({ forceRefreshToken: true });
+
+      expect(readAccountMock).toHaveBeenCalledTimes(2);
+      expect(readAccountMock.mock.calls[1]?.[0]).toMatchObject({
+        refreshToken: true,
+      });
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('does not serve stale cached auth state while logout mutation is active', async () => {
+    const logoutDeferred = createDeferred<void>();
+    readAccountMock
+      .mockResolvedValueOnce({
+        account: createAccountResponse(),
+        initialize: {
+          codexHome: '/Users/test/.codex',
+          platformFamily: 'unix',
+          platformOs: 'macos',
+        },
+      })
+      .mockResolvedValue({
+        account: createAccountResponse({ account: null, requiresOpenaiAuth: false }),
+        initialize: {
+          codexHome: '/Users/test/.codex',
+          platformFamily: 'unix',
+          platformOs: 'macos',
+        },
+      });
+    logoutMock.mockReturnValue(logoutDeferred.promise);
+    readRateLimitsMock.mockResolvedValue(createRateLimitsResponse());
+
+    const feature = createCodexAccountFeature({
+      logger: createLoggerPort(),
+      configManager: createConfigManager('chatgpt'),
+    });
+
+    try {
+      const initialSnapshot = await feature.refreshSnapshot();
+      expect(initialSnapshot.managedAccount?.email).toBe('user@example.com');
+
+      const logoutPromise = feature.logout();
+      await vi.waitFor(() => {
+        expect(logoutMock).toHaveBeenCalledTimes(1);
+      });
+
+      let refreshSettled = false;
+      const refreshDuringLogout = feature.refreshSnapshot().then((snapshot) => {
+        refreshSettled = true;
+        return snapshot;
+      });
+      await Promise.resolve();
+
+      expect(refreshSettled).toBe(false);
+
+      logoutDeferred.resolve();
+      const [duringLogoutSnapshot, afterLogoutSnapshot] = await Promise.all([
+        refreshDuringLogout,
+        logoutPromise,
+      ]);
+
+      expect(duringLogoutSnapshot.managedAccount).toBeNull();
+      expect(afterLogoutSnapshot.managedAccount).toBeNull();
+      expect(afterLogoutSnapshot.requiresOpenaiAuth).toBe(false);
+      expect(readAccountMock.mock.calls.at(-1)?.[0]).toMatchObject({
+        refreshToken: true,
+      });
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('coalesces mixed snapshot callers and preserves auth truth across logout end-to-end', async () => {
+    const firstRead = createDeferred<{
+      account: ReturnType<typeof createAccountResponse>;
+      initialize: { codexHome: string; platformFamily: string; platformOs: string };
+    }>();
+    const healthyRead = {
+      account: createAccountResponse(),
+      initialize: {
+        codexHome: '/Users/test/.codex',
+        platformFamily: 'unix',
+        platformOs: 'macos',
+      },
+    };
+    readAccountMock
+      .mockReturnValueOnce(firstRead.promise)
+      .mockResolvedValueOnce(healthyRead)
+      .mockResolvedValueOnce({
+        account: createAccountResponse({ account: null, requiresOpenaiAuth: false }),
+        initialize: {
+          codexHome: '/Users/test/.codex',
+          platformFamily: 'unix',
+          platformOs: 'macos',
+        },
+      });
+    readRateLimitsMock.mockResolvedValue(createRateLimitsResponse());
+    logoutMock.mockResolvedValue({});
+
+    const feature = createCodexAccountFeature({
+      logger: createLoggerPort(),
+      configManager: createConfigManager('chatgpt'),
+    });
+
+    try {
+      const passiveSnapshot = feature.getSnapshot();
+      const rateLimitedSnapshot = feature.refreshSnapshot({ includeRateLimits: true });
+      const launchReadiness = feature.getLaunchReadiness();
+
+      await vi.waitFor(() => {
+        expect(readAccountMock).toHaveBeenCalledTimes(1);
+      });
+      firstRead.resolve(healthyRead);
+
+      const [passiveResult, rateLimitedResult, readinessResult] = await Promise.all([
+        passiveSnapshot,
+        rateLimitedSnapshot,
+        launchReadiness,
+      ]);
+
+      expect(passiveResult.managedAccount?.email).toBe('user@example.com');
+      expect(rateLimitedResult.rateLimits?.primary?.usedPercent).toBe(77);
+      expect(readinessResult.launchAllowed).toBe(true);
+      expect(readAccountMock).toHaveBeenCalledTimes(2);
+      expect(readRateLimitsMock).toHaveBeenCalledTimes(1);
+
+      const cachedRateLimitedResult = await feature.refreshSnapshot({ includeRateLimits: true });
+      expect(cachedRateLimitedResult.rateLimits?.primary?.usedPercent).toBe(77);
+      expect(readAccountMock).toHaveBeenCalledTimes(2);
+      expect(readRateLimitsMock).toHaveBeenCalledTimes(1);
+
+      const logoutResult = await feature.logout();
+      expect(logoutResult.managedAccount).toBeNull();
+      expect(logoutResult.requiresOpenaiAuth).toBe(false);
+      expect(logoutResult.launchAllowed).toBe(false);
+      expect(readAccountMock).toHaveBeenCalledTimes(3);
+      expect(readAccountMock.mock.calls.at(-1)?.[0]).toMatchObject({
+        refreshToken: true,
+      });
+
+      const cachedLoggedOutResult = await feature.getSnapshot();
+      expect(cachedLoggedOutResult.managedAccount).toBeNull();
+      expect(readAccountMock).toHaveBeenCalledTimes(3);
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('keeps account snapshot healthy when the optional rate limits read fails', async () => {
+    readAccountMock.mockResolvedValue({
+      account: createAccountResponse(),
+      initialize: {
+        codexHome: '/Users/test/.codex',
+        platformFamily: 'unix',
+        platformOs: 'macos',
+      },
+    });
+    readRateLimitsMock.mockRejectedValue(new Error('rate limit service unavailable'));
+    const logger = createLoggerPort();
+
+    const feature = createCodexAccountFeature({
+      logger,
+      configManager: createConfigManager('chatgpt'),
+    });
+
+    try {
+      const snapshot = await feature.refreshSnapshot({ includeRateLimits: true });
+
+      expect(snapshot.appServerState).toBe('healthy');
+      expect(snapshot.managedAccount?.email).toBe('user@example.com');
+      expect(snapshot.rateLimits).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith('codex account rate limits refresh failed', {
+        error: 'rate limit service unavailable',
+      });
     } finally {
       await feature.dispose();
     }
@@ -360,9 +678,12 @@ describe('createCodexAccountFeature', () => {
       logger: createLoggerPort(),
       configManager: createConfigManager('chatgpt'),
     });
+    const dateNowSpy = vi.spyOn(Date, 'now');
 
     try {
+      dateNowSpy.mockReturnValue(1_776_000_000_000);
       const firstSnapshot = await feature.refreshSnapshot();
+      dateNowSpy.mockReturnValue(1_776_000_006_000);
       const secondSnapshot = await feature.refreshSnapshot();
 
       expect(firstSnapshot.managedAccount?.email).toBe('user@example.com');
@@ -373,7 +694,9 @@ describe('createCodexAccountFeature', () => {
       expect(secondSnapshot.launchAllowed).toBe(true);
       expect(secondSnapshot.launchReadinessState).toBe('ready_chatgpt');
       expect(secondSnapshot.launchIssueMessage).toBeNull();
+      expect(readAccountMock).toHaveBeenCalledTimes(2);
     } finally {
+      dateNowSpy.mockRestore();
       await feature.dispose();
     }
   });

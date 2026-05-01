@@ -19384,6 +19384,70 @@ export class TeamProvisioningService {
     return false;
   }
 
+  private async applyBootstrapTranscriptEvidenceOverlay(
+    snapshot: PersistedTeamLaunchSnapshot | null
+  ): Promise<PersistedTeamLaunchSnapshot | null> {
+    if (!snapshot) {
+      return null;
+    }
+
+    let changed = false;
+    const nextMembers: Record<string, PersistedTeamLaunchMemberState> = { ...snapshot.members };
+    for (const expected of this.getPersistedLaunchMemberNames(snapshot)) {
+      const current = nextMembers[expected];
+      if (
+        !current ||
+        current.bootstrapConfirmed ||
+        isPersistedOpenCodeSecondaryLaneMember(current)
+      ) {
+        continue;
+      }
+
+      const acceptedAtMs =
+        current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+      const transcriptOutcome = await this.findBootstrapTranscriptOutcome(
+        snapshot.teamName,
+        expected,
+        Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
+      );
+      if (transcriptOutcome?.kind !== 'success') {
+        continue;
+      }
+
+      const nextMember: PersistedTeamLaunchMemberState = {
+        ...current,
+        agentToolAccepted: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        hardFailureReason: undefined,
+        lastHeartbeatAt: current.lastHeartbeatAt ?? transcriptOutcome.observedAt,
+        lastEvaluatedAt: nowIso(),
+        sources: {
+          ...(current.sources ?? {}),
+          hardFailureSignal: undefined,
+        },
+        diagnostics: undefined,
+      };
+      nextMember.launchState = deriveMemberLaunchState(nextMember);
+      nextMembers[expected] = nextMember;
+      changed = true;
+    }
+
+    if (!changed) {
+      return snapshot;
+    }
+
+    return createPersistedLaunchSnapshot({
+      teamName: snapshot.teamName,
+      expectedMembers: snapshot.expectedMembers,
+      bootstrapExpectedMembers: snapshot.bootstrapExpectedMembers,
+      leadSessionId: snapshot.leadSessionId,
+      launchPhase: snapshot.launchPhase,
+      members: nextMembers,
+      updatedAt: nowIso(),
+    });
+  }
+
   private needsBootstrapAcceptanceReconcile(
     snapshot: PersistedTeamLaunchSnapshot | null,
     bootstrapSnapshot: PersistedTeamLaunchSnapshot | null
@@ -19449,11 +19513,13 @@ export class TeamProvisioningService {
     const filteredBootstrapSnapshot = bootstrapSnapshot
       ? this.filterRemovedMembersFromLaunchSnapshot(bootstrapSnapshot, metaMembers)
       : null;
+    const overlaidBootstrapSnapshot =
+      await this.applyBootstrapTranscriptEvidenceOverlay(filteredBootstrapSnapshot);
     if (
       stableRecoveredMixedSnapshot &&
       !this.needsBootstrapAcceptanceReconcile(
         stableRecoveredMixedSnapshot,
-        filteredBootstrapSnapshot
+        overlaidBootstrapSnapshot
       ) &&
       !(await this.hasBootstrapTranscriptLaunchReconcileOutcome(stableRecoveredMixedSnapshot))
     ) {
@@ -19480,10 +19546,10 @@ export class TeamProvisioningService {
         ? await this.writeLaunchStateSnapshot(teamName, filteredPersisted)
         : filteredPersisted;
     const preferredSnapshot = choosePreferredLaunchSnapshot(
-      filteredBootstrapSnapshot,
+      overlaidBootstrapSnapshot,
       persistedWithCommittedEvidence
     );
-    if (preferredSnapshot && preferredSnapshot === filteredBootstrapSnapshot) {
+    if (preferredSnapshot && preferredSnapshot === overlaidBootstrapSnapshot) {
       return {
         snapshot: preferredSnapshot,
         statuses: snapshotToMemberSpawnStatuses(preferredSnapshot),
@@ -19529,7 +19595,7 @@ export class TeamProvisioningService {
       ) &&
       !this.needsBootstrapAcceptanceReconcile(
         persistedWithCommittedEvidence,
-        filteredBootstrapSnapshot
+        overlaidBootstrapSnapshot
       ) &&
       !(await this.hasBootstrapTranscriptLaunchReconcileOutcome(persistedWithCommittedEvidence))
     ) {

@@ -12,26 +12,39 @@ const ACCOUNT_RATE_LIMITS_TIMEOUT_MS = 4_500;
 const ACCOUNT_LOGOUT_TIMEOUT_MS = 3_500;
 const INITIALIZE_TIMEOUT_MS = 6_000;
 const TOTAL_TIMEOUT_MS = 9_000;
+const TOTAL_WITH_RATE_LIMITS_TIMEOUT_MS = 15_000;
+
+type CodexAccountRateLimitsReadResult =
+  | { ok: true; payload: CodexAppServerGetAccountRateLimitsResponse }
+  | { ok: false; error: unknown };
 
 export class CodexAccountAppServerClient {
   constructor(private readonly sessionFactory: CodexAppServerSessionFactory) {}
 
-  async readAccount(options: {
+  async readAccountSnapshot(options: {
     binaryPath: string;
     env: NodeJS.ProcessEnv;
     refreshToken?: boolean;
+    includeRateLimits?: boolean;
   }): Promise<{
     account: CodexAppServerGetAccountResponse;
+    rateLimits: CodexAccountRateLimitsReadResult | null;
     initialize: { codexHome: string; platformFamily: string; platformOs: string };
   }> {
+    const includeRateLimits = options.includeRateLimits === true;
+
     return this.sessionFactory.withSession(
       {
         binaryPath: options.binaryPath,
         env: options.env,
-        requestTimeoutMs: ACCOUNT_READ_TIMEOUT_MS,
+        requestTimeoutMs: includeRateLimits
+          ? ACCOUNT_RATE_LIMITS_TIMEOUT_MS
+          : ACCOUNT_READ_TIMEOUT_MS,
         initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
-        totalTimeoutMs: TOTAL_TIMEOUT_MS,
-        label: 'codex app-server account/read',
+        totalTimeoutMs: includeRateLimits ? TOTAL_WITH_RATE_LIMITS_TIMEOUT_MS : TOTAL_TIMEOUT_MS,
+        label: includeRateLimits
+          ? 'codex app-server account/read with rateLimits/read'
+          : 'codex app-server account/read',
       },
       async (session) => {
         const account = await session.request<CodexAppServerGetAccountResponse>(
@@ -42,8 +55,25 @@ export class CodexAccountAppServerClient {
           ACCOUNT_READ_TIMEOUT_MS
         );
 
+        let rateLimits: CodexAccountRateLimitsReadResult | null = null;
+        if (includeRateLimits) {
+          try {
+            rateLimits = {
+              ok: true,
+              payload: await session.request<CodexAppServerGetAccountRateLimitsResponse>(
+                'account/rateLimits/read',
+                undefined,
+                ACCOUNT_RATE_LIMITS_TIMEOUT_MS
+              ),
+            };
+          } catch (error) {
+            rateLimits = { ok: false, error };
+          }
+        }
+
         return {
           account,
+          rateLimits,
           initialize: {
             codexHome: session.initializeResponse.codexHome,
             platformFamily: session.initializeResponse.platformFamily,
@@ -52,6 +82,21 @@ export class CodexAccountAppServerClient {
         };
       }
     );
+  }
+
+  async readAccount(options: {
+    binaryPath: string;
+    env: NodeJS.ProcessEnv;
+    refreshToken?: boolean;
+  }): Promise<{
+    account: CodexAppServerGetAccountResponse;
+    initialize: { codexHome: string; platformFamily: string; platformOs: string };
+  }> {
+    const result = await this.readAccountSnapshot(options);
+    return {
+      account: result.account,
+      initialize: result.initialize,
+    };
   }
 
   async readRateLimits(options: {

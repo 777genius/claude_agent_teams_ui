@@ -264,7 +264,13 @@ function writeLaunchState(
 
 function writeBootstrapState(
   teamName: string,
-  members: { name: string; status: string; lastAttemptAt?: number; lastObservedAt?: number }[],
+  members: {
+    name: string;
+    status: string;
+    lastAttemptAt?: number;
+    lastObservedAt?: number;
+    failureReason?: string;
+  }[],
   updatedAt = new Date().toISOString()
 ): void {
   fs.writeFileSync(
@@ -10106,6 +10112,143 @@ describe('TeamProvisioningService', () => {
       runtimeAlive: true,
     });
     expect(result.statuses.alice?.error).toBeUndefined();
+  });
+
+  it('heals terminal bootstrap-state failures when transcript shows successful member_briefing', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-transcript-heals';
+    const leadSessionId = 'lead-session';
+    const memberSessionId = 'jack-session';
+    const projectPath = '/Users/test/proj';
+    const projectId = '-Users-test-proj';
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const successAt = new Date(Date.now() - 60_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+
+    const projectRoot = path.join(tempProjectsBase, projectId);
+    fs.mkdirSync(projectRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, `${memberSessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: acceptedAt,
+          teamName,
+          agentName: 'jack',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: `You are bootstrapping into team "${teamName}" as member "jack".`,
+          },
+        }),
+        JSON.stringify({
+          timestamp: successAt,
+          teamName,
+          agentName: 'jack',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'item_1',
+                content: `Member briefing for jack on team "${teamName}" (${teamName}).\nTask briefing for jack:\nNo actionable tasks.`,
+                is_error: false,
+              },
+            ],
+          },
+        }),
+      ].join('\n') + '\n',
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('clean_success');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      hardFailure: false,
+      error: undefined,
+    });
+  });
+
+  it('does not heal bootstrap-state failures from stale pre-launch transcript success', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-stale-transcript-ignored';
+    const leadSessionId = 'lead-session';
+    const memberSessionId = 'jack-session';
+    const projectPath = '/Users/test/proj';
+    const projectId = '-Users-test-proj';
+    const staleSuccessAt = new Date(Date.now() - 180_000).toISOString();
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+
+    const projectRoot = path.join(tempProjectsBase, projectId);
+    fs.mkdirSync(projectRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, `${memberSessionId}.jsonl`),
+      JSON.stringify({
+        timestamp: staleSuccessAt,
+        teamName,
+        agentName: 'jack',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'item_1',
+              content: `Member briefing for jack on team "${teamName}" (${teamName}).\nTask briefing for jack:\nNo actionable tasks.`,
+              is_error: false,
+            },
+          ],
+        },
+      }) + '\n',
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('partial_failure');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'error',
+      launchState: 'failed_to_start',
+      bootstrapConfirmed: false,
+      hardFailure: true,
+    });
   });
 
   it('does not classify the bootstrap instruction prompt as a member launch failure', async () => {
