@@ -482,10 +482,6 @@ export class TeamLogSourceTracker {
   }
 
   private emitLogSourceChange(teamName: string): void {
-    this.emitter?.({
-      type: 'log-source-change',
-      teamName,
-    });
     for (const listener of this.changeListeners) {
       try {
         listener(teamName);
@@ -493,6 +489,10 @@ export class TeamLogSourceTracker {
         logger.warn(`Log-source listener failed for ${teamName}: ${String(error)}`);
       }
     }
+    this.emitter?.({
+      type: 'log-source-change',
+      teamName,
+    });
   }
 
   private async computeSnapshot(context: {
