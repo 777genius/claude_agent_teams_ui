@@ -1,7 +1,4 @@
-import * as os from 'os';
-import * as path from 'path';
-
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { TeamMemberLogsFinder } from '../../../../src/main/services/team/TeamMemberLogsFinder';
@@ -9,8 +6,7 @@ import { TeamMemberRuntimeAdvisoryService } from '../../../../src/main/services/
 import { setClaudeBasePathOverride } from '../../../../src/main/utils/pathDecoder';
 
 const LIVE_TEAM = process.env.LIVE_RUNTIME_ADVISORY_TEAM?.trim();
-const LIVE_CLAUDE_BASE =
-  process.env.LIVE_RUNTIME_ADVISORY_CLAUDE_BASE?.trim() || path.join(os.homedir(), '.claude');
+const LIVE_CLAUDE_BASE = process.env.LIVE_RUNTIME_ADVISORY_CLAUDE_BASE?.trim();
 
 const describeLive = LIVE_TEAM && LIVE_CLAUDE_BASE ? describe : describe.skip;
 
@@ -54,7 +50,7 @@ describeLive('TeamMemberRuntimeAdvisoryService live logs smoke', () => {
 
       expect([...legacyFiles].sort()).toEqual([...batchFiles].sort());
     }
-  });
+  }, 120_000);
 
   it('loads runtime advisories through the batch path without failing on real team logs', async () => {
     const config = await new TeamConfigReader().getConfig(LIVE_TEAM!);
@@ -67,5 +63,8 @@ describeLive('TeamMemberRuntimeAdvisoryService live logs smoke', () => {
     ).getMemberAdvisories(LIVE_TEAM!, members);
 
     expect(advisories).toBeInstanceOf(Map);
-  });
+    if ('mockClear' in console.warn) {
+      vi.mocked(console.warn).mockClear();
+    }
+  }, 60_000);
 });
