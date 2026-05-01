@@ -479,9 +479,13 @@ export class TeamDataService {
       timeoutHandle = setTimeout(resolve, MEMBER_RUNTIME_ADVISORY_SNAPSHOT_BUDGET_MS, timeoutToken);
     });
 
-    const result = await Promise.race([request, timeout]);
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
+    let result: Awaited<typeof request> | typeof timeoutToken;
+    try {
+      result = await Promise.race([request, timeout]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
     }
     if (result === timeoutToken) {
       request.catch(() => {
