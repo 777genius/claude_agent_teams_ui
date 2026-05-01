@@ -4,7 +4,10 @@ import { DisplayItemList } from '@renderer/components/chat/DisplayItemList';
 import { LastOutputDisplay } from '@renderer/components/chat/LastOutputDisplay';
 import { SystemChatGroup } from '@renderer/components/chat/SystemChatGroup';
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
+import { MemberBadge } from '@renderer/components/team/MemberBadge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
+import { getTeamColorSet, getThemedBorder } from '@renderer/constants/teamColors';
+import { useTheme } from '@renderer/hooks/useTheme';
 import { enhanceAIGroup } from '@renderer/utils/aiGroupEnhancer';
 import { transformChunksToConversation } from '@renderer/utils/groupTransformer';
 import { extractAgentBlockContents, stripAgentBlocks } from '@shared/constants/agentBlocks';
@@ -17,6 +20,8 @@ import type { AIGroup, UserGroup } from '@renderer/types/groups';
 interface MemberExecutionLogProps {
   chunks: EnhancedChunk[];
   memberName?: string;
+  memberColor?: string;
+  teamName?: string;
 }
 
 type ExpandedItemIdsByGroup = Map<string, Set<string>>;
@@ -24,6 +29,8 @@ type ExpandedItemIdsByGroup = Map<string, Set<string>>;
 export const MemberExecutionLog = ({
   chunks,
   memberName,
+  memberColor,
+  teamName,
 }: MemberExecutionLogProps): React.JSX.Element => {
   const conversation = useMemo(() => transformChunksToConversation(chunks, [], false), [chunks]);
 
@@ -60,6 +67,8 @@ export const MemberExecutionLog = ({
               key={item.group.id}
               group={item.group}
               memberName={memberName}
+              memberColor={memberColor}
+              teamName={teamName}
               expanded={!collapsedGroupIds.has(item.group.id)}
               expandedItemIds={expandedItemIdsByGroup.get(item.group.id) ?? new Set()}
               onToggleExpanded={() => {
@@ -151,6 +160,8 @@ const UserLogItem = ({ group }: { group: UserGroup }): React.JSX.Element => {
 interface AIExecutionGroupProps {
   group: AIGroup;
   memberName?: string;
+  memberColor?: string;
+  teamName?: string;
   expanded: boolean;
   expandedItemIds: Set<string>;
   onToggleExpanded: () => void;
@@ -160,11 +171,14 @@ interface AIExecutionGroupProps {
 const AIExecutionGroup = ({
   group,
   memberName,
+  memberColor,
+  teamName,
   expanded,
   expandedItemIds,
   onToggleExpanded,
   onToggleItem,
 }: AIExecutionGroupProps): React.JSX.Element => {
+  const { isLight } = useTheme();
   const enhanced = useMemo(() => {
     if (!memberName) {
       return enhanceAIGroup(group);
@@ -175,13 +189,18 @@ const AIExecutionGroup = ({
     );
     return enhanceAIGroup({ ...group, processes: filteredProcesses });
   }, [group, memberName]);
-  const groupLabel = memberName?.trim() ? `${memberName.trim()} turn` : 'Agent turn';
+  const normalizedMemberName = memberName?.trim();
+  const groupLabel = normalizedMemberName ? `${normalizedMemberName} turn` : 'Agent turn';
   const hasToggleContent = enhanced.displayItems.length > 0;
   const visibleLastOutput =
     enhanced.lastOutput?.type === 'tool_result' && hasToggleContent ? null : enhanced.lastOutput;
+  const groupColors = getTeamColorSet(memberColor ?? '');
+  const borderColor = normalizedMemberName
+    ? getThemedBorder(groupColors, isLight)
+    : 'var(--chat-ai-border)';
 
   return (
-    <div className="space-y-3 border-l-2 pl-3" style={{ borderColor: 'var(--chat-ai-border)' }}>
+    <div className="space-y-3 border-l-2 pl-3" style={{ borderColor }}>
       {hasToggleContent ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -191,10 +210,27 @@ const AIExecutionGroup = ({
               onClick={onToggleExpanded}
               aria-expanded={expanded}
             >
-              <Bot className="size-4 shrink-0 text-[var(--color-text-secondary)]" />
-              <span className="shrink-0 text-xs font-semibold text-[var(--color-text-secondary)]">
-                {groupLabel}
-              </span>
+              {normalizedMemberName ? (
+                <>
+                  <MemberBadge
+                    name={normalizedMemberName}
+                    color={memberColor}
+                    teamName={teamName}
+                    size="sm"
+                    disableHoverCard
+                  />
+                  <span className="shrink-0 text-xs font-semibold text-[var(--color-text-secondary)]">
+                    turn
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Bot className="size-4 shrink-0 text-[var(--color-text-secondary)]" />
+                  <span className="shrink-0 text-xs font-semibold text-[var(--color-text-secondary)]">
+                    {groupLabel}
+                  </span>
+                </>
+              )}
               <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-text-muted)]">
                 {enhanced.itemsSummary}
               </span>

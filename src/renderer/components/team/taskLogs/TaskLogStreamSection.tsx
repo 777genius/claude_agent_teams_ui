@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
+import { MemberBadge } from '@renderer/components/team/MemberBadge';
 import { MemberExecutionLog } from '@renderer/components/team/members/MemberExecutionLog';
+import {
+  getTeamColorSet,
+  getThemedBadge,
+  getThemedBorder,
+  getThemedText,
+} from '@renderer/constants/teamColors';
+import { useTheme } from '@renderer/hooks/useTheme';
+import { useStore } from '@renderer/store';
+import { selectResolvedMembersForTeamName } from '@renderer/store/slices/teamSlice';
 import { asEnhancedChunkArray } from '@renderer/types/data';
+import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { isLeadMember } from '@shared/utils/leadDetection';
 import { AlertCircle, Clock, FileText, Loader2 } from 'lucide-react';
 
 import type {
   BoardTaskLogActor,
+  ResolvedTeamMember,
   BoardTaskLogSegment,
   BoardTaskLogStreamResponse,
 } from '@shared/types';
@@ -87,12 +100,51 @@ function describeStreamSource(stream: BoardTaskLogStreamResponse | null): string
   return 'Task-scoped transcript logs rendered with the same execution-log components used in Logs.';
 }
 
+interface ParticipantVisual {
+  name: string;
+  color?: string;
+}
+
+function buildParticipantVisualMap(
+  stream: BoardTaskLogStreamResponse | null,
+  members: readonly ResolvedTeamMember[],
+  memberColorMap: ReadonlyMap<string, string>
+): Map<string, ParticipantVisual> {
+  const visuals = new Map<string, ParticipantVisual>();
+  const leadMember = members.find((member) => isLeadMember(member));
+
+  for (const participant of stream?.participants ?? []) {
+    const matchingSegment = stream?.segments.find(
+      (segment) => segment.participantKey === participant.key
+    );
+    const name =
+      matchingSegment?.actor.memberName ??
+      (participant.isLead ? leadMember?.name : undefined) ??
+      participant.label;
+
+    visuals.set(participant.key, {
+      name,
+      color: memberColorMap.get(name) ?? memberColorMap.get(participant.label),
+    });
+  }
+
+  for (const segment of stream?.segments ?? []) {
+    if (visuals.has(segment.participantKey)) {
+      continue;
+    }
+    const name = segment.actor.memberName ?? actorLabel(segment.actor);
+    visuals.set(segment.participantKey, {
+      name,
+      color: memberColorMap.get(name),
+    });
+  }
+
+  return visuals;
+}
+
 const SegmentMarker = ({ segment }: { segment: BoardTaskLogSegment }): React.JSX.Element => {
   return (
-    <div className="mb-2 flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
-      <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5 font-medium text-[var(--color-text-secondary)]">
-        {actorLabel(segment.actor)}
-      </span>
+    <div className="mb-2 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
       <span className="flex items-center gap-1">
         <Clock size={10} />
         {formatRelativeTime(segment.endTimestamp)}
@@ -104,15 +156,65 @@ const SegmentMarker = ({ segment }: { segment: BoardTaskLogSegment }): React.JSX
 const SegmentBlock = ({
   segment,
   showHeader,
+  teamName,
+  visual,
 }: {
   segment: BoardTaskLogSegment;
   showHeader: boolean;
+  teamName: string;
+  visual?: ParticipantVisual;
 }): React.JSX.Element => {
   return (
     <div className="min-w-0 overflow-hidden">
       {showHeader ? <SegmentMarker segment={segment} /> : null}
-      <MemberExecutionLog chunks={segment.chunks} memberName={segment.actor.memberName} />
+      <MemberExecutionLog
+        chunks={segment.chunks}
+        memberName={segment.actor.memberName}
+        memberColor={visual?.color}
+        teamName={teamName}
+      />
     </div>
+  );
+};
+
+const ParticipantFilterChip = ({
+  label,
+  selected,
+  visual,
+  teamName,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  visual?: ParticipantVisual;
+  teamName: string;
+  onClick: () => void;
+}): React.JSX.Element => {
+  const { isLight } = useTheme();
+  const colors = getTeamColorSet(visual?.color ?? '');
+  const borderColor = selected ? getThemedBorder(colors, isLight) : 'var(--color-border)';
+  const backgroundColor = selected ? getThemedBadge(colors, isLight) : 'transparent';
+  const textColor = selected ? getThemedText(colors, isLight) : 'var(--color-text-muted)';
+
+  return (
+    <button
+      type="button"
+      className="rounded-full border px-2 py-1 text-[11px] transition-colors hover:text-[var(--color-text)]"
+      style={{ borderColor, backgroundColor, color: textColor }}
+      onClick={onClick}
+    >
+      {visual ? (
+        <MemberBadge
+          name={visual.name}
+          color={visual.color}
+          teamName={teamName}
+          size="xs"
+          disableHoverCard
+        />
+      ) : (
+        label
+      )}
+    </button>
   );
 };
 
@@ -126,6 +228,7 @@ export const TaskLogStreamSection = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedParticipantKey, setSelectedParticipantKey] = useState<'all' | string>('all');
+  const teamMembers = useStore((s) => selectResolvedMembersForTeamName(s, teamName));
   const requestSeqRef = useRef(0);
   const streamRef = useRef<BoardTaskLogStreamResponse | null>(null);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -277,6 +380,11 @@ export const TaskLogStreamSection = ({
   }, [liveEnabled, loadStream, taskId, teamName]);
 
   const participants = stream?.participants ?? [];
+  const memberColorMap = useMemo(() => buildMemberColorMap(teamMembers), [teamMembers]);
+  const participantVisuals = useMemo(
+    () => buildParticipantVisualMap(stream, teamMembers, memberColorMap),
+    [memberColorMap, stream, teamMembers]
+  );
   const showChips = participants.length > 1;
   const streamDescription = useMemo(() => describeStreamSource(stream), [stream]);
   const visibleSegments = useMemo(() => {
@@ -340,18 +448,14 @@ export const TaskLogStreamSection = ({
             All
           </button>
           {participants.map((participant) => (
-            <button
+            <ParticipantFilterChip
               key={participant.key}
-              type="button"
-              className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
-                selectedParticipantKey === participant.key
-                  ? 'bg-[var(--color-accent)]/10 border-[var(--color-accent)] text-[var(--color-text)]'
-                  : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
-              }`}
+              label={participant.label}
+              selected={selectedParticipantKey === participant.key}
+              visual={participantVisuals.get(participant.key)}
+              teamName={teamName}
               onClick={() => setSelectedParticipantKey(participant.key)}
-            >
-              {participant.label}
-            </button>
+            />
           ))}
         </div>
       ) : null}
@@ -372,6 +476,8 @@ export const TaskLogStreamSection = ({
               key={buildStableSegmentRenderKey(segment)}
               segment={segment}
               showHeader={showSegmentHeaders}
+              teamName={teamName}
+              visual={participantVisuals.get(segment.participantKey)}
             />
           ))}
         </div>
