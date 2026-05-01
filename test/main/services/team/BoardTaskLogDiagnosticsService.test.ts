@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BoardTaskActivityRecordBuilder } from '../../../../src/main/services/team/taskLogs/activity/BoardTaskActivityRecordBuilder';
 import { BoardTaskActivityRecordSource } from '../../../../src/main/services/team/taskLogs/activity/BoardTaskActivityRecordSource';
@@ -10,6 +10,7 @@ import { BoardTaskActivityTranscriptReader } from '../../../../src/main/services
 import { BoardTaskLogDiagnosticsService } from '../../../../src/main/services/team/taskLogs/diagnostics/BoardTaskLogDiagnosticsService';
 import { BoardTaskLogStreamService } from '../../../../src/main/services/team/taskLogs/stream/BoardTaskLogStreamService';
 
+import type { BoardTaskActivityRecord } from '../../../../src/main/services/team/taskLogs/activity/BoardTaskActivityRecord';
 import type { TeamTask } from '../../../../src/shared/types';
 
 const TEAM_NAME = 'beacon-desk-2';
@@ -464,5 +465,138 @@ describe('BoardTaskLogDiagnosticsService', () => {
 
     expect(report.stream.emptyPayloadExamples).toEqual([]);
     expect(report.stream.visibleToolNames).toEqual(['mcp__agent-teams__task_add_comment']);
+  });
+
+  it('bounds diagnostics strict parsing to activity-record candidate files', async () => {
+    const projectDir = path.join(tmpdir(), 'diagnostics-project');
+    const rootFile = path.join(projectDir, 'session-tom.jsonl');
+    const subagentFile = path.join(projectDir, 'session-tom', 'subagents', 'agent-work.jsonl');
+    const unrelatedFile = path.join(projectDir, 'session-alice.jsonl');
+    const task = createTask({ owner: 'tom' });
+    const record: BoardTaskActivityRecord = {
+      id: 'record-comment',
+      timestamp: '2026-04-12T15:36:00.000Z',
+      task: {
+        locator: { ref: 'c414cd52', refKind: 'display', canonicalId: TASK_ID },
+        resolution: 'resolved',
+      },
+      linkKind: 'board_action',
+      targetRole: 'subject',
+      actor: {
+        memberName: 'tom',
+        role: 'member',
+        sessionId: 'session-tom',
+        isSidechain: false,
+      },
+      actorContext: { relation: 'same_task' },
+      action: {
+        canonicalToolName: 'task_add_comment',
+        toolUseId: 'tool-comment',
+        category: 'comment',
+      },
+      source: {
+        filePath: rootFile,
+        messageUuid: 'message-comment',
+        toolUseId: 'tool-comment',
+        sourceOrder: 1,
+      },
+    };
+    const strictParser = {
+      parseFiles: async (filePaths: string[]) =>
+        new Map(filePaths.map((filePath) => [filePath, []])),
+    };
+    const parseSpy = vi.spyOn(strictParser, 'parseFiles');
+    const diagnosticsService = new BoardTaskLogDiagnosticsService(
+      {
+        getTasks: async () => [task],
+        getDeletedTasks: async () => [] as TeamTask[],
+      } as never,
+      {
+        getContext: async () => ({
+          projectDir,
+          transcriptFiles: [rootFile, subagentFile, unrelatedFile],
+        }),
+      } as never,
+      {
+        getTaskRecords: async () => [record],
+      } as never,
+      strictParser as never,
+      {
+        getTaskLogStream: async () => ({
+          participants: [],
+          defaultFilter: 'all' as const,
+          segments: [],
+        }),
+      } as never,
+    );
+
+    const report = await diagnosticsService.diagnose(TEAM_NAME, TASK_ID);
+
+    expect(parseSpy).toHaveBeenCalledWith([rootFile, subagentFile]);
+    expect(parseSpy.mock.calls.flatMap((call) => call[0] as string[])).not.toContain(
+      unrelatedFile,
+    );
+    expect(report.transcript.parsedFileCount).toBe(2);
+    expect(report.transcript.candidateSelection).toMatchObject({
+      mode: 'activity_records',
+      candidateFileCount: 2,
+    });
+  });
+
+  it('bounds diagnostics historical recovery parsing to raw-probe hit files', async () => {
+    const task = createTask({ owner: 'tom' });
+    const hitFile = path.join(tmpdir(), 'diagnostics-historical-hit.jsonl');
+    const unrelatedFile = path.join(tmpdir(), 'diagnostics-historical-unrelated.jsonl');
+    const strictParser = {
+      parseFiles: async (filePaths: string[]) =>
+        new Map(filePaths.map((filePath) => [filePath, []])),
+    };
+    const parseSpy = vi.spyOn(strictParser, 'parseFiles');
+    const rawProbe = {
+      findCandidateFiles: async () => ({
+        filePaths: [hitFile],
+        scannedFileCount: 2,
+        hitCount: 1,
+        elapsedMs: 0,
+      }),
+    };
+    const diagnosticsService = new BoardTaskLogDiagnosticsService(
+      {
+        getTasks: async () => [task],
+        getDeletedTasks: async () => [] as TeamTask[],
+      } as never,
+      {
+        getContext: async () => ({
+          projectDir: tmpdir(),
+          transcriptFiles: [hitFile, unrelatedFile],
+        }),
+      } as never,
+      {
+        getTaskRecords: async () => [],
+      } as never,
+      strictParser as never,
+      {
+        getTaskLogStream: async () => ({
+          participants: [],
+          defaultFilter: 'all' as const,
+          segments: [],
+        }),
+      } as never,
+      undefined,
+      rawProbe as never,
+    );
+
+    const report = await diagnosticsService.diagnose(TEAM_NAME, TASK_ID);
+
+    expect(parseSpy).toHaveBeenCalledWith([hitFile]);
+    expect(parseSpy.mock.calls.flatMap((call) => call[0] as string[])).not.toContain(
+      unrelatedFile,
+    );
+    expect(report.transcript.candidateSelection).toMatchObject({
+      mode: 'historical_raw_probe',
+      candidateFileCount: 1,
+      rawProbeScannedFileCount: 2,
+      rawProbeHitCount: 1,
+    });
   });
 });

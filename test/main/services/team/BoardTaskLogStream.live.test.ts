@@ -1,11 +1,11 @@
 import * as os from 'os';
 import * as path from 'path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { BoardTaskLogStreamService } from '../../../../src/main/services/team/taskLogs/stream/BoardTaskLogStreamService';
 import { BoardTaskLogDiagnosticsService } from '../../../../src/main/services/team/taskLogs/diagnostics/BoardTaskLogDiagnosticsService';
-import { setClaudeBasePathOverride } from '../../../../src/main/utils/pathDecoder';
+import { setClaudeBasePathOverride } from '@main/utils/pathDecoder';
 
 const LIVE_TEAM = process.env.LIVE_TASK_LOG_TEAM?.trim();
 const LIVE_TASK = process.env.LIVE_TASK_LOG_TASK?.trim();
@@ -54,6 +54,7 @@ describeLive('BoardTaskLogStream live smoke', () => {
 
     const stream = await streamService.getTaskLogStream(LIVE_TEAM!, report.task.taskId);
     expect(stream.segments.length).toBeGreaterThan(0);
+    vi.mocked(console.warn).mockClear();
 
     if (EXPECT_MISSING_WORKER_LINKS) {
       expect(report.intervalToolResults.worker.missingExplicit).toBeGreaterThan(0);

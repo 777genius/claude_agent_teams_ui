@@ -94,8 +94,17 @@ function describeStreamSource(stream: BoardTaskLogStreamResponse | null): string
     }
     return 'Task-scoped OpenCode runtime logs projected into the same execution-log components used in Logs.';
   }
+  if (stream?.source === 'codex_native_trace_fallback') {
+    return 'Task-scoped Codex native trace logs projected into the same execution-log components used in Logs.';
+  }
+  if (stream?.source === 'mixed_transcript_codex_native_trace') {
+    return 'Task-scoped transcript logs merged with Codex native trace logs and rendered with the same execution-log components used in Logs.';
+  }
   if (stream?.runtimeProjection?.provider === 'opencode') {
     return 'Task-scoped transcript logs merged with OpenCode runtime logs and rendered with the same execution-log components used in Logs.';
+  }
+  if (stream?.runtimeProjection?.provider === 'codex_native') {
+    return 'Task-scoped transcript logs merged with Codex native trace logs and rendered with the same execution-log components used in Logs.';
   }
   return 'Task-scoped transcript logs rendered with the same execution-log components used in Logs.';
 }
@@ -142,9 +151,26 @@ function buildParticipantVisualMap(
   return visuals;
 }
 
-const SegmentMarker = ({ segment }: { segment: BoardTaskLogSegment }): React.JSX.Element => {
+const SegmentMarker = ({
+  segment,
+  visual,
+  teamName,
+}: {
+  segment: BoardTaskLogSegment;
+  visual?: ParticipantVisual;
+  teamName: string;
+}): React.JSX.Element => {
   return (
-    <div className="mb-2 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+    <div className="mb-2 flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+      {visual ? (
+        <MemberBadge
+          name={visual.name}
+          color={visual.color}
+          teamName={teamName}
+          size="xs"
+          disableHoverCard
+        />
+      ) : null}
       <span className="flex items-center gap-1">
         <Clock size={10} />
         {formatRelativeTime(segment.endTimestamp)}
@@ -166,12 +192,13 @@ const SegmentBlock = ({
 }): React.JSX.Element => {
   return (
     <div className="min-w-0 overflow-hidden">
-      {showHeader ? <SegmentMarker segment={segment} /> : null}
+      {showHeader ? <SegmentMarker segment={segment} visual={visual} teamName={teamName} /> : null}
       <MemberExecutionLog
         chunks={segment.chunks}
         memberName={segment.actor.memberName}
         memberColor={visual?.color}
         teamName={teamName}
+        hideMemberHeading={showHeader && Boolean(segment.actor.memberName)}
       />
     </div>
   );

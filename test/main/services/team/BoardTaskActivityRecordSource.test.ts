@@ -136,4 +136,52 @@ describe('BoardTaskActivityRecordSource', () => {
     expect(transcriptReader.readFiles).toHaveBeenCalledTimes(1);
     expect(recordBuilder.buildForTasks).toHaveBeenCalledTimes(1);
   });
+
+  it('rebuilds the team index when transcript discovery generation changes', async () => {
+    const task = {
+      id: 'task-a',
+      displayId: 'aaaa1111',
+      subject: 'A',
+      status: 'pending',
+    };
+    let generation = 0;
+    const transcriptFiles = ['/tmp/a.jsonl'];
+    const firstRecords = [{ id: 'record-a-1' }];
+    const secondRecords = [{ id: 'record-a-2' }];
+
+    const locator = {
+      getGeneration: vi.fn(() => generation),
+      getContext: vi.fn(async () => ({
+        transcriptFiles,
+      })),
+    };
+    const taskReader = {
+      getTasks: vi.fn(async () => [task]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const transcriptReader = {
+      readFiles: vi.fn(async () => [{ uuid: `m${generation}` }]),
+    };
+    const recordBuilder = {
+      buildForTasks: vi
+        .fn()
+        .mockReturnValueOnce(new Map([['task-a', firstRecords]]))
+        .mockReturnValueOnce(new Map([['task-a', secondRecords]])),
+    };
+
+    const source = new BoardTaskActivityRecordSource(
+      locator as never,
+      taskReader as never,
+      transcriptReader as never,
+      recordBuilder as never,
+    );
+
+    await expect(source.getTaskRecords('demo', 'task-a')).resolves.toEqual(firstRecords);
+    generation += 1;
+    await expect(source.getTaskRecords('demo', 'task-a')).resolves.toEqual(secondRecords);
+
+    expect(locator.getContext).toHaveBeenCalledTimes(2);
+    expect(transcriptReader.readFiles).toHaveBeenCalledTimes(2);
+    expect(recordBuilder.buildForTasks).toHaveBeenCalledTimes(2);
+  });
 });

@@ -158,9 +158,9 @@ describe('BoardTaskLogStreamService', () => {
     expect(response.source).toBe('opencode_runtime_fallback');
     expect(response.segments).toHaveLength(1);
     expect(await service.getTaskLogStreamSummary('demo', 'task-a')).toEqual({
-      segmentCount: 0,
+      segmentCount: 1,
     });
-    expect(runtimeFallbackSource.getTaskLogStream).toHaveBeenCalledTimes(1);
+    expect(runtimeFallbackSource.getTaskLogStream).toHaveBeenCalledTimes(2);
   });
 
   it('merges OpenCode runtime stream when board transcript slices mask member execution', async () => {
@@ -1089,6 +1089,225 @@ describe('BoardTaskLogStreamService', () => {
     expect(response.segments[0]?.participantKey).toBe('member:alice');
     const mergedMessages = buildBundleChunks.mock.calls[0]?.[0] as ParsedMessage[];
     expect(mergedMessages.map((message) => message.uuid)).toEqual(['alice-read-detail']);
+    expect(strictParser.parseFiles).toHaveBeenCalledTimes(1);
+    expect(strictParser.parseFiles.mock.calls.flatMap((call) => call[0] as string[])).not.toContain(
+      '/tmp/alice.jsonl'
+    );
+  });
+
+  it('limits inferred native parsing to direct and same-session transcript candidates', async () => {
+    const projectDir = '/tmp/task-log-project';
+    const rootFile = `${projectDir}/session-alice.jsonl`;
+    const subagentFile = `${projectDir}/session-alice/subagents/agent-worker.jsonl`;
+    const unrelatedFiles = Array.from(
+      { length: 300 },
+      (_, index) => `${projectDir}/session-unrelated-${index}.jsonl`
+    );
+    const alice = {
+      memberName: 'alice',
+      role: 'member' as const,
+      sessionId: 'session-alice',
+      isSidechain: false,
+    };
+    const baseRecord = makeRecord(
+      'alice-comment',
+      '2026-04-12T16:00:00.000Z',
+      alice,
+      'tool-comment'
+    );
+    const commentRecord: BoardTaskActivityRecord = {
+      ...baseRecord,
+      action: {
+        canonicalToolName: 'task_add_comment',
+        toolUseId: 'tool-comment',
+        category: 'comment',
+      },
+      source: {
+        ...baseRecord.source,
+        filePath: rootFile,
+      },
+    };
+    const candidate: BoardTaskExactLogBundleCandidate = {
+      ...makeCandidate('alice-comment', '2026-04-12T16:00:00.000Z', alice, 'tool-comment'),
+      source: commentRecord.source,
+      records: [commentRecord],
+      actionCategory: 'comment',
+      canonicalToolName: 'task_add_comment',
+    };
+    const nativeMessage: ParsedMessage = {
+      uuid: 'alice-bash',
+      parentUuid: null,
+      type: 'assistant',
+      timestamp: new Date('2026-04-12T16:01:00.000Z'),
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'tool-bash',
+          name: 'Bash',
+          input: { command: 'npm test' },
+        } as never,
+      ],
+      toolCalls: [
+        {
+          id: 'tool-bash',
+          name: 'Bash',
+          input: { command: 'npm test' },
+          isTask: false,
+        },
+      ],
+      toolResults: [],
+      sessionId: 'session-alice',
+      agentName: 'alice',
+      isSidechain: false,
+      isMeta: false,
+      isCompactSummary: false,
+    };
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => [commentRecord]),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => [candidate]),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async (filePaths: string[]) =>
+        new Map(
+          filePaths.map((filePath) => [
+            filePath,
+            filePath === subagentFile ? [nativeMessage] : [],
+          ])
+        )
+      ),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(() => ({
+        id: 'alice-comment',
+        timestamp: '2026-04-12T16:00:00.000Z',
+        actor: alice,
+        source: candidate.source,
+        records: [commentRecord],
+        filteredMessages: [
+          makeMessage('alice-comment-detail', '2026-04-12T16:00:00.000Z', 'comment'),
+        ],
+      })),
+    };
+    const taskReader = {
+      getTasks: vi.fn(async () => [
+        {
+          id: 'task-a',
+          displayId: 'abcd1234',
+          owner: 'alice',
+          status: 'in_progress',
+          createdAt: '2026-04-12T15:59:00.000Z',
+          updatedAt: '2026-04-12T16:05:00.000Z',
+        },
+      ]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const transcriptSourceLocator = {
+      getContext: vi.fn(async () => ({
+        projectDir,
+        transcriptFiles: [rootFile, subagentFile, ...unrelatedFiles],
+        config: { members: [{ name: 'team-lead', agentType: 'team-lead' }] },
+      })),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+      taskReader as never,
+      transcriptSourceLocator as never,
+      { getTaskLogStream: vi.fn(async () => null) } as never,
+      { getMembers: vi.fn(async () => [{ name: 'alice', providerId: 'codex' }]) } as never,
+      { getConfig: vi.fn(async () => null) } as never,
+      { getTaskLogStream: vi.fn(async () => null) } as never
+    );
+
+    await service.getTaskLogStream('demo', 'task-a');
+
+    expect(strictParser.parseFiles.mock.calls.map((call) => call[0])).toEqual([
+      [rootFile],
+      [subagentFile],
+    ]);
+    const parsedFiles = strictParser.parseFiles.mock.calls.flatMap((call) => call[0] as string[]);
+    expect(parsedFiles).not.toEqual(expect.arrayContaining(unrelatedFiles));
+    expect(buildBundleChunks.mock.calls[0]?.[0].map((message: ParsedMessage) => message.uuid)).toEqual([
+      'alice-comment-detail',
+      'alice-bash',
+    ]);
+  });
+
+  it('limits historical board MCP recovery parsing to raw-probe candidate files', async () => {
+    const hitFile = '/tmp/historical-hit.jsonl';
+    const unrelatedFile = '/tmp/historical-unrelated.jsonl';
+    const taskReader = {
+      getTasks: vi.fn(async () => [
+        {
+          id: 'task-a',
+          displayId: 'abcd1234',
+          owner: 'tom',
+          status: 'completed',
+          createdAt: '2026-04-12T16:00:00.000Z',
+          updatedAt: '2026-04-12T16:05:00.000Z',
+        },
+      ]),
+      getDeletedTasks: vi.fn(async () => []),
+    };
+    const transcriptSourceLocator = {
+      getContext: vi.fn(async () => ({
+        transcriptFiles: [hitFile, unrelatedFile],
+        config: {
+          members: [{ name: 'team-lead', agentType: 'team-lead' }],
+        },
+      })),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map<string, ParsedMessage[]>([[hitFile, []]])),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => {
+        throw new Error('empty parsed historical candidate should not create records');
+      }),
+    };
+    const rawProbe = {
+      findCandidateFiles: vi.fn(async () => ({
+        filePaths: [hitFile],
+        scannedFileCount: 2,
+        hitCount: 1,
+        elapsedMs: 0,
+      })),
+    };
+
+    const service = new BoardTaskLogStreamService(
+      { getTaskRecords: vi.fn(async () => []) } as never,
+      summarySelector as never,
+      strictParser as never,
+      undefined as never,
+      undefined as never,
+      taskReader as never,
+      transcriptSourceLocator as never,
+      { getTaskLogStream: vi.fn(async () => null) } as never,
+      undefined as never,
+      undefined as never,
+      { getTaskLogStream: vi.fn(async () => null) } as never,
+      undefined as never,
+      rawProbe as never
+    );
+
+    await expect(service.getTaskLogStream('demo', 'task-a')).resolves.toEqual({
+      participants: [],
+      defaultFilter: 'all',
+      segments: [],
+    });
+    expect(rawProbe.findCandidateFiles).toHaveBeenCalledWith({
+      task: expect.objectContaining({ id: 'task-a' }),
+      transcriptFiles: [hitFile, unrelatedFile],
+    });
+    expect(strictParser.parseFiles).toHaveBeenCalledWith([hitFile]);
   });
 
   it('does not recover task_get logs from nested task refs in result payloads', async () => {
@@ -1595,4 +1814,129 @@ describe('BoardTaskLogStreamService', () => {
       },
     ]);
   });
+  it('merges Codex native trace fallback even when primary transcript has MCP execution records', async () => {
+    const atlas = {
+      memberName: 'atlas',
+      role: 'member' as const,
+      sessionId: 'session-atlas',
+      agentId: 'agent-atlas',
+      isSidechain: true,
+    };
+    const baseCandidate = makeCandidate(
+      'c1',
+      '2026-05-01T17:10:00.000Z',
+      atlas,
+      'mcp-tool-1'
+    );
+    const executionRecord: BoardTaskActivityRecord = {
+      ...baseCandidate.records[0]!,
+      linkKind: 'execution',
+    };
+    const candidate: BoardTaskExactLogBundleCandidate = {
+      ...baseCandidate,
+      records: [executionRecord],
+      linkKinds: ['execution'],
+    };
+    const recordSource = {
+      getTaskRecords: vi.fn(async () => candidate.records),
+    };
+    const summarySelector = {
+      selectSummaries: vi.fn(() => [candidate]),
+    };
+    const strictParser = {
+      parseFiles: vi.fn(async () => new Map([['/tmp/codex-task.jsonl', []]])),
+    };
+    const detailSelector = {
+      selectDetail: vi.fn(() => ({
+        id: candidate.id,
+        timestamp: candidate.timestamp,
+        actor: atlas,
+        source: candidate.source,
+        records: candidate.records,
+        filteredMessages: [makeMessage('mcp-message', '2026-05-01T17:10:00.000Z', 'mcp task_start')],
+      })),
+    };
+    const buildBundleChunks = vi.fn((messages: ParsedMessage[]) => [{ id: messages[0]?.uuid }]);
+    const openCodeRuntimeFallbackSource = {
+      getTaskLogStream: vi.fn(async () => {
+        throw new Error('OpenCode fallback should stay behind OpenCode-only conditions');
+      }),
+    };
+    const membersMetaStore = {
+      getMembers: vi.fn(async () => [{ name: 'atlas', providerId: 'codex' }]),
+    };
+    const configReader = {
+      getConfig: vi.fn(async () => null),
+    };
+    const codexNativeTraceFallbackSource = {
+      getTaskLogStream: vi.fn(async () => ({
+        participants: [
+          {
+            key: 'member:atlas',
+            label: 'atlas',
+            role: 'member' as const,
+            isLead: false,
+            isSidechain: true,
+          },
+        ],
+        defaultFilter: 'member:atlas',
+        segments: [
+          {
+            id: 'codex-native:demo:task-a:atlas',
+            participantKey: 'member:atlas',
+            actor: atlas,
+            startTimestamp: '2026-05-01T17:10:02.000Z',
+            endTimestamp: '2026-05-01T17:10:05.000Z',
+            chunks: [{ id: 'bash-chunk' }],
+          },
+        ],
+        source: 'codex_native_trace_fallback' as const,
+        runtimeProjection: {
+          provider: 'codex_native' as const,
+          mode: 'trace' as const,
+          attributionRecordCount: 0,
+          projectedMessageCount: 2,
+          nativeToolCount: 1,
+          fallbackReason: 'codex_native_trace' as const,
+          traceFileCount: 1,
+          traceRunCount: 1,
+          dedupedNativeToolCount: 0,
+        },
+      })),
+    };
+
+    const service = new BoardTaskLogStreamService(
+      recordSource as never,
+      summarySelector as never,
+      strictParser as never,
+      detailSelector as never,
+      { buildBundleChunks } as never,
+      undefined as never,
+      undefined as never,
+      openCodeRuntimeFallbackSource as never,
+      membersMetaStore as never,
+      configReader as never,
+      codexNativeTraceFallbackSource as never
+    );
+
+    const response = await service.getTaskLogStream('demo', 'task-a');
+
+    expect(openCodeRuntimeFallbackSource.getTaskLogStream).not.toHaveBeenCalled();
+    expect(codexNativeTraceFallbackSource.getTaskLogStream).toHaveBeenCalledWith(
+      'demo',
+      'task-a',
+      { excludeNativeToolSignatures: expect.any(Set) }
+    );
+    expect(response.source).toBe('mixed_transcript_codex_native_trace');
+    expect(response.participants.map((participant) => participant.key)).toEqual(['member:atlas']);
+    expect(response.segments.map((segment) => segment.id)).toEqual([
+      'member:atlas:c1:c1',
+      'codex-native:demo:task-a:atlas',
+    ]);
+    expect(response.runtimeProjection).toMatchObject({
+      provider: 'codex_native',
+      nativeToolCount: 1,
+    });
+  });
+
 });

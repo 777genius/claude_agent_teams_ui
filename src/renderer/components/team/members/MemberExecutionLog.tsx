@@ -22,6 +22,7 @@ interface MemberExecutionLogProps {
   memberName?: string;
   memberColor?: string;
   teamName?: string;
+  hideMemberHeading?: boolean;
 }
 
 type ExpandedItemIdsByGroup = Map<string, Set<string>>;
@@ -31,6 +32,7 @@ export const MemberExecutionLog = ({
   memberName,
   memberColor,
   teamName,
+  hideMemberHeading,
 }: MemberExecutionLogProps): React.JSX.Element => {
   const conversation = useMemo(() => transformChunksToConversation(chunks, [], false), [chunks]);
 
@@ -69,6 +71,7 @@ export const MemberExecutionLog = ({
               memberName={memberName}
               memberColor={memberColor}
               teamName={teamName}
+              hideMemberHeading={hideMemberHeading}
               expanded={!collapsedGroupIds.has(item.group.id)}
               expandedItemIds={expandedItemIdsByGroup.get(item.group.id) ?? new Set()}
               onToggleExpanded={() => {
@@ -162,6 +165,7 @@ interface AIExecutionGroupProps {
   memberName?: string;
   memberColor?: string;
   teamName?: string;
+  hideMemberHeading?: boolean;
   expanded: boolean;
   expandedItemIds: Set<string>;
   onToggleExpanded: () => void;
@@ -173,6 +177,7 @@ const AIExecutionGroup = ({
   memberName,
   memberColor,
   teamName,
+  hideMemberHeading,
   expanded,
   expandedItemIds,
   onToggleExpanded,
@@ -210,7 +215,7 @@ const AIExecutionGroup = ({
               onClick={onToggleExpanded}
               aria-expanded={expanded}
             >
-              {normalizedMemberName ? (
+              {normalizedMemberName && !hideMemberHeading ? (
                 <>
                   <MemberBadge
                     name={normalizedMemberName}
@@ -223,6 +228,10 @@ const AIExecutionGroup = ({
                     turn
                   </span>
                 </>
+              ) : hideMemberHeading ? (
+                <span className="shrink-0 text-xs font-semibold text-[var(--color-text-secondary)]">
+                  turn
+                </span>
               ) : (
                 <>
                   <Bot className="size-4 shrink-0 text-[var(--color-text-secondary)]" />

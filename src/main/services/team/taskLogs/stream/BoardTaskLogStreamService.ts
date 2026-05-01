@@ -3,7 +3,6 @@ import { isLeadMember as isLeadMemberCheck } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
 import { getTaskDisplayId } from '@shared/utils/taskIdentity';
 
-import { canonicalizeAgentTeamsToolName } from '../../agentTeamsToolNames';
 import { TeamConfigReader } from '../../TeamConfigReader';
 import { TeamMembersMetaStore } from '../../TeamMembersMetaStore';
 import { TeamTaskReader } from '../../TeamTaskReader';
@@ -17,6 +16,14 @@ import { isBoardTaskExactLogsReadEnabled } from '../exact/featureGates';
 import { getBoardTaskExactLogFileVersions } from '../exact/fileVersions';
 
 import { OpenCodeTaskLogStreamSource } from './OpenCodeTaskLogStreamSource';
+import { CodexNativeTaskLogStreamSource } from './CodexNativeTaskLogStreamSource';
+import { buildCodexNativeToolSignature } from './CodexNativeTraceProjector';
+import { HistoricalBoardMcpRawProbe } from './HistoricalBoardMcpRawProbe';
+import { TaskLogTranscriptCandidateSelector } from './TaskLogTranscriptCandidateSelector';
+import {
+  canonicalizeBoardTaskLogToolName,
+  isBoardTaskLogMcpToolName,
+} from './boardTaskLogToolNames';
 
 import type { BoardTaskActivityRecord } from '../activity/BoardTaskActivityRecord';
 import type { BoardTaskExactLogDetailCandidate } from '../exact/BoardTaskExactLogTypes';
@@ -71,27 +78,9 @@ const INFERRED_RECORD_RANGE_AFTER_MS = 60_000;
 const STREAM_LAYOUT_CACHE_TTL_MS = 1_000;
 const STREAM_LAYOUT_BUILD_WARN_MS = 3_000;
 const RUNTIME_FALLBACK_WARN_MS = 3_000;
-const HISTORICAL_BOARD_LIFECYCLE_TOOL_NAMES = new Set([
-  'task_complete',
-  'task_set_status',
-  'task_start',
-  'review_approve',
-  'review_request_changes',
-  'review_start',
-]);
-const HISTORICAL_BOARD_ACTION_TOOL_NAMES = new Set([
-  'review_request',
-  'task_add_comment',
-  'task_attach_comment_file',
-  'task_attach_file',
-  'task_get',
-  'task_get_comment',
-  'task_link',
-  'task_set_clarification',
-  'task_set_owner',
-  'task_unlink',
-]);
-const READ_ONLY_BOARD_TOOL_NAMES = new Set(['task_get', 'task_get_comment']);
+const INFERRED_CANDIDATE_SELECTION_WARN_COUNT = 100;
+const HISTORICAL_RAW_PROBE_WARN_MS = 3_000;
+const HISTORICAL_RAW_PROBE_WARN_FILE_COUNT = 500;
 const TASK_REFERENCE_KEYS = new Set(['task', 'taskid', 'id', 'displayid', 'targetid']);
 
 function emptyResponse(): BoardTaskLogStreamResponse {
@@ -112,21 +101,8 @@ function normalizeMemberName(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function isBoardMcpToolName(toolName: string | undefined): boolean {
-  if (!toolName) return false;
-  const canonical = canonicalizeBoardToolName(toolName);
-  return (
-    canonical !== null &&
-    (HISTORICAL_BOARD_LIFECYCLE_TOOL_NAMES.has(canonical) ||
-      HISTORICAL_BOARD_ACTION_TOOL_NAMES.has(canonical))
-  );
-}
-
-function canonicalizeBoardToolName(toolName: string | undefined): string | null {
-  if (!toolName) return null;
-  const normalized = canonicalizeAgentTeamsToolName(toolName).trim().toLowerCase();
-  return normalized.length > 0 ? normalized : null;
-}
+const isBoardMcpToolName = isBoardTaskLogMcpToolName;
+const canonicalizeBoardToolName = canonicalizeBoardTaskLogToolName;
 
 function normalizeTaskReference(value: unknown): string | null {
   if (typeof value !== 'string' && typeof value !== 'number') {
@@ -231,13 +207,28 @@ function normalizeRelationshipDetail(
 }
 
 function inferHistoricalLinkKind(canonicalToolName: string): 'lifecycle' | 'board_action' | null {
-  if (HISTORICAL_BOARD_LIFECYCLE_TOOL_NAMES.has(canonicalToolName)) {
-    return 'lifecycle';
+  switch (canonicalToolName) {
+    case 'task_complete':
+    case 'task_set_status':
+    case 'task_start':
+    case 'review_approve':
+    case 'review_request_changes':
+    case 'review_start':
+      return 'lifecycle';
+    case 'review_request':
+    case 'task_add_comment':
+    case 'task_attach_comment_file':
+    case 'task_attach_file':
+    case 'task_get':
+    case 'task_get_comment':
+    case 'task_link':
+    case 'task_set_clarification':
+    case 'task_set_owner':
+    case 'task_unlink':
+      return 'board_action';
+    default:
+      return null;
   }
-  if (HISTORICAL_BOARD_ACTION_TOOL_NAMES.has(canonicalToolName)) {
-    return 'board_action';
-  }
-  return null;
 }
 
 function inferHistoricalActionCategory(canonicalToolName: string): BoardTaskActivityCategory {
@@ -1388,10 +1379,9 @@ function collectAllowedMemberNames(
 
   for (const record of records) {
     const canonicalToolName = canonicalizeBoardToolName(record.action?.canonicalToolName);
-    if (
-      record.action?.category === 'read' ||
-      (canonicalToolName !== null && READ_ONLY_BOARD_TOOL_NAMES.has(canonicalToolName))
-    ) {
+    const isReadOnlyTool =
+      canonicalToolName === 'task_get' || canonicalToolName === 'task_get_comment';
+    if (record.action?.category === 'read' || isReadOnlyTool) {
       continue;
     }
 
@@ -1578,13 +1568,71 @@ function mergeRuntimeFallbackResponse(
   fallback: BoardTaskLogStreamResponse
 ): BoardTaskLogStreamResponse {
   const participants = mergeParticipants(primary.participants, fallback.participants);
+  const source =
+    fallback.source === 'codex_native_trace_fallback'
+      ? 'mixed_transcript_codex_native_trace'
+      : 'mixed_transcript_opencode_runtime';
   return {
     participants,
     defaultFilter: chooseDefaultFilter(participants),
     segments: mergeSegments(primary.segments, fallback.segments),
-    source: primary.source,
+    source,
     runtimeProjection: fallback.runtimeProjection ?? primary.runtimeProjection,
   };
+}
+
+function collectNativeToolSignatures(response: BoardTaskLogStreamResponse): Set<string> {
+  const signatures = new Set<string>();
+  for (const segment of response.segments) {
+    for (const chunk of segment.chunks) {
+      const record = chunk as unknown as Record<string, unknown>;
+      const toolExecutions = Array.isArray(record.toolExecutions) ? record.toolExecutions : [];
+      for (const execution of toolExecutions) {
+        const toolCall = (execution as Record<string, unknown>)?.toolCall as
+          | { name?: string; input?: Record<string, unknown> }
+          | undefined;
+        const signature = buildCodexNativeToolSignature({
+          toolName: toolCall?.name,
+          input: toolCall?.input,
+        });
+        if (signature) {
+          signatures.add(signature);
+        }
+      }
+      const semanticSteps = Array.isArray(record.semanticSteps) ? record.semanticSteps : [];
+      for (const step of semanticSteps) {
+        const content = (step as Record<string, unknown>)?.content as
+          | { toolName?: string; toolInput?: Record<string, unknown> }
+          | undefined;
+        const signature = buildCodexNativeToolSignature({
+          toolName: content?.toolName,
+          input: content?.toolInput,
+        });
+        if (signature) {
+          signatures.add(signature);
+        }
+      }
+    }
+  }
+  return signatures;
+}
+
+function collectNativeToolSignaturesFromSlices(slices: StreamSlice[]): Set<string> {
+  const signatures = new Set<string>();
+  for (const slice of slices) {
+    for (const message of slice.filteredMessages) {
+      for (const toolCall of message.toolCalls) {
+        const signature = buildCodexNativeToolSignature({
+          toolName: toolCall.name,
+          input: toolCall.input,
+        });
+        if (signature) {
+          signatures.add(signature);
+        }
+      }
+    }
+  }
+  return signatures;
 }
 
 export class BoardTaskLogStreamService {
@@ -1613,9 +1661,12 @@ export class BoardTaskLogStreamService {
     private readonly chunkBuilder: BoardTaskExactLogChunkBuilder = new BoardTaskExactLogChunkBuilder(),
     private readonly taskReader: TeamTaskReader = new TeamTaskReader(),
     private readonly transcriptSourceLocator: TeamTranscriptSourceLocator = new TeamTranscriptSourceLocator(),
-    private readonly runtimeFallbackSource: TaskLogRuntimeStreamSource = new OpenCodeTaskLogStreamSource(),
+    private readonly openCodeRuntimeFallbackSource: TaskLogRuntimeStreamSource = new OpenCodeTaskLogStreamSource(),
     private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
-    private readonly configReader: TeamConfigReader = new TeamConfigReader()
+    private readonly configReader: TeamConfigReader = new TeamConfigReader(),
+    private readonly codexNativeTraceFallbackSource: CodexNativeTaskLogStreamSource = new CodexNativeTaskLogStreamSource(),
+    private readonly transcriptCandidateSelector: TaskLogTranscriptCandidateSelector = new TaskLogTranscriptCandidateSelector(),
+    private readonly historicalBoardMcpRawProbe: HistoricalBoardMcpRawProbe = new HistoricalBoardMcpRawProbe()
   ) {}
 
   private buildLayoutCacheKey(teamName: string, taskId: string): string {
@@ -1695,7 +1746,23 @@ export class BoardTaskLogStreamService {
     }
 
     const transcriptFiles = transcriptContext?.transcriptFiles ?? [];
-    const missingFiles = transcriptFiles.filter((filePath) => !parsedMessagesByFile.has(filePath));
+    const candidateSelection = this.transcriptCandidateSelector.selectInferredNativeTranscriptFiles(
+      {
+        records,
+        transcriptFiles,
+        projectDir: transcriptContext?.projectDir,
+        alreadyParsedFilePaths: new Set(parsedMessagesByFile.keys()),
+      }
+    );
+    if (
+      candidateSelection.diagnostics.finalCandidateCount >= INFERRED_CANDIDATE_SELECTION_WARN_COUNT
+    ) {
+      logger.warn(
+        `Broad inferred native task-log candidate selection: team=${teamName} task=${taskId} files=${candidateSelection.diagnostics.finalCandidateCount} recordFiles=${candidateSelection.diagnostics.recordFileCount} sessions=${candidateSelection.diagnostics.nonReadSessionCount} reason=${candidateSelection.diagnostics.reason}`
+      );
+    }
+
+    const missingFiles = candidateSelection.filePaths;
     let mergedParsedMessagesByFile = parsedMessagesByFile;
     if (missingFiles.length > 0) {
       const additionalParsedMessages = await this.strictParser.parseFiles(missingFiles);
@@ -1800,7 +1867,27 @@ export class BoardTaskLogStreamService {
       };
     }
 
-    const parsedMessagesByFile = await this.strictParser.parseFiles(transcriptFiles);
+    const rawProbe = await this.historicalBoardMcpRawProbe.findCandidateFiles({
+      task,
+      transcriptFiles,
+    });
+    if (
+      rawProbe.elapsedMs >= HISTORICAL_RAW_PROBE_WARN_MS ||
+      rawProbe.scannedFileCount >= HISTORICAL_RAW_PROBE_WARN_FILE_COUNT
+    ) {
+      logger.warn(
+        `Historical board MCP raw probe: team=${teamName} task=${taskId} scanned=${rawProbe.scannedFileCount} hits=${rawProbe.hitCount} elapsedMs=${rawProbe.elapsedMs}`
+      );
+    }
+    if (rawProbe.filePaths.length === 0) {
+      return {
+        task,
+        parsedMessagesByFile: new Map(),
+        records: [],
+      };
+    }
+
+    const parsedMessagesByFile = await this.strictParser.parseFiles(rawProbe.filePaths);
     const taskRefs = buildTaskReferenceSet(task);
     const leadName =
       transcriptContext?.config.members
@@ -2020,7 +2107,9 @@ export class BoardTaskLogStreamService {
       };
     }
 
-    const candidateFilePaths = candidates.map((candidate) => candidate.source.filePath);
+    const candidateFilePaths = [
+      ...new Set(candidates.map((candidate) => candidate.source.filePath)),
+    ].sort((left, right) => left.localeCompare(right));
     const parsedMessagesByFileForCandidates =
       parsedMessagesByFile &&
       candidateFilePaths.every((filePath) => parsedMessagesByFile?.has(filePath))
@@ -2128,16 +2217,36 @@ export class BoardTaskLogStreamService {
     }
   }
 
-  private async loadRuntimeFallback(
+  private async loadOpenCodeRuntimeFallback(
     teamName: string,
     taskId: string
   ): Promise<BoardTaskLogStreamResponse | null> {
     const startedAt = Date.now();
-    const fallback = await this.runtimeFallbackSource.getTaskLogStream(teamName, taskId);
+    const fallback = await this.openCodeRuntimeFallbackSource.getTaskLogStream(teamName, taskId);
     const elapsedMs = Date.now() - startedAt;
     if (elapsedMs >= RUNTIME_FALLBACK_WARN_MS) {
       logger.warn(
         `Slow task-log runtime fallback: team=${teamName} task=${taskId} hit=${Boolean(
+          fallback
+        )} elapsedMs=${elapsedMs}`
+      );
+    }
+    return fallback;
+  }
+
+  private async loadCodexNativeTraceFallback(
+    teamName: string,
+    taskId: string,
+    excludeNativeToolSignatures?: ReadonlySet<string>
+  ): Promise<BoardTaskLogStreamResponse | null> {
+    const startedAt = Date.now();
+    const fallback = await this.codexNativeTraceFallbackSource.getTaskLogStream(teamName, taskId, {
+      excludeNativeToolSignatures,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= RUNTIME_FALLBACK_WARN_MS) {
+      logger.warn(
+        `Slow task-log Codex native trace fallback: team=${teamName} task=${taskId} hit=${Boolean(
           fallback
         )} elapsedMs=${elapsedMs}`
       );
@@ -2155,11 +2264,22 @@ export class BoardTaskLogStreamService {
 
     const layout = await this.getStreamLayout(teamName, taskId);
     if (layout.visibleSlices.length === 0) {
-      return emptySummary();
+      const codexFallback = await this.loadCodexNativeTraceFallback(teamName, taskId);
+      if (codexFallback) {
+        return { segmentCount: codexFallback.segments.length };
+      }
+      const runtimeFallback = await this.loadOpenCodeRuntimeFallback(teamName, taskId);
+      return runtimeFallback ? { segmentCount: runtimeFallback.segments.length } : emptySummary();
     }
 
+    const codexFallback = await this.loadCodexNativeTraceFallback(
+      teamName,
+      taskId,
+      collectNativeToolSignaturesFromSlices(layout.visibleSlices)
+    );
     return {
-      segmentCount: countSegmentsFromSlices(layout.visibleSlices),
+      segmentCount:
+        countSegmentsFromSlices(layout.visibleSlices) + (codexFallback?.segments.length ?? 0),
     };
   }
 
@@ -2170,7 +2290,11 @@ export class BoardTaskLogStreamService {
 
     const layout = await this.getStreamLayout(teamName, taskId);
     if (layout.visibleSlices.length === 0) {
-      const fallback = await this.loadRuntimeFallback(teamName, taskId);
+      const codexFallback = await this.loadCodexNativeTraceFallback(teamName, taskId);
+      if (codexFallback) {
+        return codexFallback;
+      }
+      const fallback = await this.loadOpenCodeRuntimeFallback(teamName, taskId);
       return fallback ?? emptyResponse();
     }
 
@@ -2219,18 +2343,29 @@ export class BoardTaskLogStreamService {
     }
     flushSegment();
 
-    const primaryResponse: BoardTaskLogStreamResponse = {
+    let primaryResponse: BoardTaskLogStreamResponse = {
       participants: layout.participants,
       defaultFilter: chooseDefaultFilter(layout.participants),
       segments,
       source: 'transcript',
     };
 
-    if (!layout.shouldMergeRuntimeFallback) {
-      return primaryResponse;
+    if (layout.shouldMergeRuntimeFallback) {
+      const fallback = await this.loadOpenCodeRuntimeFallback(teamName, taskId);
+      if (fallback) {
+        primaryResponse = mergeRuntimeFallbackResponse(primaryResponse, fallback);
+      }
     }
 
-    const fallback = await this.loadRuntimeFallback(teamName, taskId);
-    return fallback ? mergeRuntimeFallbackResponse(primaryResponse, fallback) : primaryResponse;
+    const codexFallback = await this.loadCodexNativeTraceFallback(
+      teamName,
+      taskId,
+      collectNativeToolSignatures(primaryResponse)
+    );
+    if (codexFallback) {
+      primaryResponse = mergeRuntimeFallbackResponse(primaryResponse, codexFallback);
+    }
+
+    return primaryResponse;
   }
 }

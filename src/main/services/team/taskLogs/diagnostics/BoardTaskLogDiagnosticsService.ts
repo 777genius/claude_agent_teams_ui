@@ -5,6 +5,8 @@ import { BoardTaskActivityRecordSource } from '../activity/BoardTaskActivityReco
 import { TeamTranscriptSourceLocator } from '../discovery/TeamTranscriptSourceLocator';
 import { BoardTaskExactLogStrictParser } from '../exact/BoardTaskExactLogStrictParser';
 import { BoardTaskLogStreamService } from '../stream/BoardTaskLogStreamService';
+import { HistoricalBoardMcpRawProbe } from '../stream/HistoricalBoardMcpRawProbe';
+import { TaskLogTranscriptCandidateSelector } from '../stream/TaskLogTranscriptCandidateSelector';
 
 import type { BoardTaskActivityRecord } from '../activity/BoardTaskActivityRecord';
 import type { ParsedMessage } from '@main/types';
@@ -37,6 +39,13 @@ export interface BoardTaskLogDiagnosticsReport {
   transcript: {
     fileCount: number;
     files: string[];
+    parsedFileCount: number;
+    candidateSelection?: {
+      mode: 'activity_records' | 'historical_raw_probe' | 'none';
+      candidateFileCount: number;
+      rawProbeScannedFileCount?: number;
+      rawProbeHitCount?: number;
+    };
   };
   explicitRecords: {
     total: number;
@@ -249,15 +258,96 @@ export class BoardTaskLogDiagnosticsService {
     private readonly transcriptSourceLocator: TeamTranscriptSourceLocator = new TeamTranscriptSourceLocator(),
     private readonly recordSource: BoardTaskActivityRecordSource = new BoardTaskActivityRecordSource(),
     private readonly strictParser: BoardTaskExactLogStrictParser = new BoardTaskExactLogStrictParser(),
-    private readonly streamService: BoardTaskLogStreamService = new BoardTaskLogStreamService()
+    private readonly streamService: BoardTaskLogStreamService = new BoardTaskLogStreamService(),
+    private readonly transcriptCandidateSelector: TaskLogTranscriptCandidateSelector = new TaskLogTranscriptCandidateSelector(),
+    private readonly historicalRawProbe: HistoricalBoardMcpRawProbe = new HistoricalBoardMcpRawProbe()
   ) {}
+
+  private async getTranscriptContext(teamName: string): Promise<{
+    projectDir?: string;
+    transcriptFiles: string[];
+  }> {
+    const locator = this.transcriptSourceLocator as {
+      getContext?: (
+        teamName: string
+      ) => Promise<{ projectDir: string; transcriptFiles: string[] } | null>;
+      listTranscriptFiles?: (teamName: string) => Promise<string[]>;
+    };
+    const context = await locator.getContext?.(teamName);
+    if (context) {
+      return {
+        projectDir: context.projectDir,
+        transcriptFiles: context.transcriptFiles,
+      };
+    }
+    return {
+      transcriptFiles: (await locator.listTranscriptFiles?.(teamName)) ?? [],
+    };
+  }
+
+  private async parseDiagnosticCandidateFiles(args: {
+    task: TeamTask;
+    records: BoardTaskActivityRecord[];
+    projectDir?: string;
+    transcriptFiles: string[];
+  }): Promise<{
+    parsedMessagesByFile: Map<string, ParsedMessage[]>;
+    candidateSelection: NonNullable<
+      BoardTaskLogDiagnosticsReport['transcript']['candidateSelection']
+    >;
+  }> {
+    if (args.transcriptFiles.length === 0) {
+      return {
+        parsedMessagesByFile: new Map(),
+        candidateSelection: {
+          mode: 'none',
+          candidateFileCount: 0,
+        },
+      };
+    }
+
+    if (args.records.length > 0) {
+      const selection = this.transcriptCandidateSelector.selectInferredNativeTranscriptFiles({
+        records: args.records,
+        transcriptFiles: args.transcriptFiles,
+        projectDir: args.projectDir,
+      });
+      return {
+        parsedMessagesByFile:
+          selection.filePaths.length > 0
+            ? await this.strictParser.parseFiles(selection.filePaths)
+            : new Map(),
+        candidateSelection: {
+          mode: 'activity_records',
+          candidateFileCount: selection.filePaths.length,
+        },
+      };
+    }
+
+    const rawProbe = await this.historicalRawProbe.findCandidateFiles({
+      task: args.task,
+      transcriptFiles: args.transcriptFiles,
+    });
+    return {
+      parsedMessagesByFile:
+        rawProbe.filePaths.length > 0
+          ? await this.strictParser.parseFiles(rawProbe.filePaths)
+          : new Map(),
+      candidateSelection: {
+        mode: 'historical_raw_probe',
+        candidateFileCount: rawProbe.filePaths.length,
+        rawProbeScannedFileCount: rawProbe.scannedFileCount,
+        rawProbeHitCount: rawProbe.hitCount,
+      },
+    };
+  }
 
   async diagnose(teamName: string, taskRef: string): Promise<BoardTaskLogDiagnosticsReport> {
     const normalizedRef = normalizeRequestedTaskRef(taskRef);
-    const [activeTasks, deletedTasks, transcriptFiles] = await Promise.all([
+    const [activeTasks, deletedTasks, transcriptContext] = await Promise.all([
       this.taskReader.getTasks(teamName),
       this.taskReader.getDeletedTasks(teamName),
-      this.transcriptSourceLocator.listTranscriptFiles(teamName),
+      this.getTranscriptContext(teamName),
     ]);
 
     const tasks = [...activeTasks, ...deletedTasks];
@@ -267,7 +357,12 @@ export class BoardTaskLogDiagnosticsService {
     }
 
     const records = await this.recordSource.getTaskRecords(teamName, task.id);
-    const parsedMessagesByFile = await this.strictParser.parseFiles(transcriptFiles);
+    const { parsedMessagesByFile, candidateSelection } = await this.parseDiagnosticCandidateFiles({
+      task,
+      records,
+      projectDir: transcriptContext.projectDir,
+      transcriptFiles: transcriptContext.transcriptFiles,
+    });
     const stream = await this.streamService.getTaskLogStream(teamName, task.id);
 
     const toolNameByUseId = buildToolNameMap(parsedMessagesByFile);
@@ -331,7 +426,7 @@ export class BoardTaskLogDiagnosticsService {
     }
 
     const diagnosis: string[] = [];
-    if (transcriptFiles.length === 0) {
+    if (transcriptContext.transcriptFiles.length === 0) {
       diagnosis.push('No transcript files were found for this team.');
     }
     if (records.length === 0) {
@@ -373,8 +468,10 @@ export class BoardTaskLogDiagnosticsService {
         workIntervals,
       },
       transcript: {
-        fileCount: transcriptFiles.length,
-        files: transcriptFiles,
+        fileCount: transcriptContext.transcriptFiles.length,
+        files: transcriptContext.transcriptFiles,
+        parsedFileCount: parsedMessagesByFile.size,
+        candidateSelection,
       },
       explicitRecords: {
         total: records.length,

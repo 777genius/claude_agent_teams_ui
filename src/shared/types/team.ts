@@ -349,8 +349,8 @@ export interface BoardTaskLogSegment {
 }
 
 export interface BoardTaskLogStreamRuntimeProjection {
-  provider: 'opencode';
-  mode: 'attribution' | 'heuristic';
+  provider: 'opencode' | 'codex_native';
+  mode: 'attribution' | 'heuristic' | 'trace';
   attributionRecordCount: number;
   projectedMessageCount: number;
   boardMcpToolCount?: number;
@@ -358,16 +358,26 @@ export interface BoardTaskLogStreamRuntimeProjection {
   fallbackReason?:
     | 'no_attribution_records'
     | 'attribution_no_projected_messages'
-    | 'task_tool_markers';
+    | 'task_tool_markers'
+    | 'codex_native_trace';
   markerMatchCount?: number;
   markerSpanCount?: number;
+  traceFileCount?: number;
+  traceRunCount?: number;
+  dedupedNativeToolCount?: number;
 }
 
 export interface BoardTaskLogStreamResponse {
   participants: BoardTaskLogParticipant[];
   defaultFilter: 'all' | string;
   segments: BoardTaskLogSegment[];
-  source?: 'transcript' | 'opencode_runtime_fallback' | 'opencode_runtime_attribution';
+  source?:
+    | 'transcript'
+    | 'opencode_runtime_fallback'
+    | 'opencode_runtime_attribution'
+    | 'codex_native_trace_fallback'
+    | 'mixed_transcript_codex_native_trace'
+    | 'mixed_transcript_opencode_runtime';
   runtimeProjection?: BoardTaskLogStreamRuntimeProjection;
 }
 
