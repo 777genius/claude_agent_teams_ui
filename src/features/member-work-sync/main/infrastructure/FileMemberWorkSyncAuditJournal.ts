@@ -125,6 +125,7 @@ export class NoopMemberWorkSyncAuditJournal implements MemberWorkSyncAuditJourna
 export class FileMemberWorkSyncAuditJournal implements MemberWorkSyncAuditJournalPort {
   private readonly maxBytes: number;
   private readonly rotatedFileCount: number;
+  private readonly appendChains = new Map<string, Promise<void>>();
 
   constructor(
     private readonly paths: MemberWorkSyncStorePaths,
@@ -136,9 +137,24 @@ export class FileMemberWorkSyncAuditJournal implements MemberWorkSyncAuditJourna
   }
 
   async append(event: MemberWorkSyncAuditEvent): Promise<void> {
+    const filePath = this.paths.getMemberJournalPath(event.teamName, event.memberName);
+    const previous = this.appendChains.get(filePath) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(() => this.appendToFile(filePath, event));
+
+    this.appendChains.set(filePath, next);
+
+    try {
+      await next;
+    } finally {
+      if (this.appendChains.get(filePath) === next) {
+        this.appendChains.delete(filePath);
+      }
+    }
+  }
+
+  private async appendToFile(filePath: string, event: MemberWorkSyncAuditEvent): Promise<void> {
     try {
       await this.paths.ensureMemberWorkSyncDir(event.teamName, event.memberName);
-      const filePath = this.paths.getMemberJournalPath(event.teamName, event.memberName);
       await mkdir(dirname(filePath), { recursive: true });
       await withFileLock(filePath, async () => {
         await rotateIfNeeded(filePath, this.maxBytes, this.rotatedFileCount);

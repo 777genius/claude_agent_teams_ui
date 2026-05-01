@@ -90,6 +90,26 @@ describe('FileMemberWorkSyncAuditJournal', () => {
     expect(latest.taskRefs[0].taskId).toHaveLength(243);
   });
 
+  it('serializes concurrent appends for the same member journal', async () => {
+    const journal = new FileMemberWorkSyncAuditJournal(new MemberWorkSyncStorePaths(root));
+    const events = Array.from({ length: 80 }, (_, index) => ({
+      timestamp: `2026-04-30T00:01:${String(index).padStart(2, '0')}.000Z`,
+      teamName: 'team-a',
+      memberName: 'bob',
+      event: 'queue_coalesced' as const,
+      source: 'test',
+      reason: `event-${index}`,
+    }));
+
+    await Promise.all(events.map((event) => journal.append(event)));
+
+    const lines = (await readFile(journalPath(root), 'utf8')).trim().split('\n');
+    expect(lines).toHaveLength(events.length);
+    expect(lines.map((line) => JSON.parse(line).reason)).toEqual(
+      events.map((event) => event.reason)
+    );
+  });
+
   it('logs and swallows append failures', async () => {
     const logger = { debug: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const paths = new MemberWorkSyncStorePaths(root);
