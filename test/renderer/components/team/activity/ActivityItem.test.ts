@@ -347,6 +347,39 @@ describe('ActivityItem slash command rendering', () => {
       await Promise.resolve();
     });
   });
+
+  it('renders agent error messages with the dedicated Agent Error badge', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    const message: InboxMessage = {
+      from: 'bob',
+      to: 'team-lead',
+      text: 'bob hit a mailbox turn execution error for #abc12345. API Error: Credit balance is too low',
+      timestamp: new Date('2026-05-01T12:02:00.000Z').toISOString(),
+      read: false,
+      source: 'inbox',
+      messageKind: 'agent_error',
+      summary: 'Mailbox turn execution failed',
+    };
+
+    await act(async () => {
+      root.render(React.createElement(ActivityItem, { message, teamName: 'my-team' }));
+      await Promise.resolve();
+    });
+
+    const badgeTexts = Array.from(host.querySelectorAll('span')).map((node) =>
+      node.textContent?.trim()
+    );
+    expect(badgeTexts).toContain('Agent Error');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
 });
 
 describe('ActivityItem legacy system message fallback', () => {
