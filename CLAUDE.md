@@ -110,6 +110,12 @@ Keep orphaned Task calls (no matching subagent) for visibility.
 Claude Code's "Orchestrate Teams" feature: multiple sessions coordinate as a team.
 Official docs: https://code.claude.com/docs/en/agent-teams
 
+#### Debugging Team Launches And Teammates
+- Use [`docs/team-management/debugging-agent-teams.md`](docs/team-management/debugging-agent-teams.md) when a team launch hangs, a teammate remains `registered`, OpenCode shows `bootstrap unconfirmed`, messages are missing, or Task Log Stream looks wrong.
+- Always correlate UI diagnostics with persisted files under `~/.claude/teams/<teamName>/`, live process state, and runtime-specific evidence before changing code.
+- For OpenCode secondary lanes, do not confuse primary filesystem readiness with lane bootstrap readiness. A missing OpenCode inbox during primary launch is not automatically a bug.
+- Do not treat `member_briefing` as runtime evidence. OpenCode deliverability requires lane-scoped committed runtime evidence such as `opencode-sessions.json` plus its manifest entry.
+
 #### Message Delivery Architecture
 - **Lead** reads ONLY stdin (stream-json). Messages to lead must go through `relayLeadInboxMessages()` which converts inbox entries to stdin.
 - **Teammates** are independent CLI processes. Claude Code runtime monitors each teammate's inbox file and delivers messages between turns. No relay through lead needed.

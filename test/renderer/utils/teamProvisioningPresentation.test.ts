@@ -556,6 +556,204 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.failedSpawnCount).toBe(0);
   });
 
+  it('shows core team ready when only OpenCode secondary lanes are still joining', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-opencode-secondary-ready',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Team provisioned - waiting for secondary runtime lane: tom',
+        messageSeverity: undefined,
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          providerId: 'codex',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'alice',
+          providerId: 'codex',
+          laneKind: 'primary',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'tom',
+          providerId: 'opencode',
+          laneId: 'secondary:opencode:tom',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+        tom: {
+          status: 'online',
+          launchState: 'runtime_pending_bootstrap',
+          updatedAt: '2026-04-13T10:00:07.000Z',
+          runtimeAlive: true,
+          livenessSource: 'process',
+          livenessKind: 'runtime_process_candidate',
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['alice', 'tom'],
+        statuses: {
+          alice: {
+            status: 'online',
+            launchState: 'confirmed_alive',
+            updatedAt: '2026-04-13T10:00:05.000Z',
+            runtimeAlive: true,
+            bootstrapConfirmed: true,
+            hardFailure: false,
+            agentToolAccepted: true,
+          },
+          tom: {
+            status: 'online',
+            launchState: 'runtime_pending_bootstrap',
+            updatedAt: '2026-04-13T10:00:07.000Z',
+            runtimeAlive: true,
+            livenessSource: 'process',
+            livenessKind: 'runtime_process_candidate',
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            agentToolAccepted: true,
+          },
+        },
+        summary: {
+          confirmedCount: 1,
+          pendingCount: 1,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+          runtimeCandidatePendingCount: 1,
+        },
+      },
+    });
+
+    expect(presentation?.successMessage).toBe('Core team ready');
+    expect(presentation?.panelMessage).toBe('Waiting for OpenCode: tom');
+    expect(presentation?.compactTitle).toBe('Core team ready');
+    expect(presentation?.compactDetail).toBe('Waiting for OpenCode: tom');
+    expect(presentation?.currentStepIndex).toBe(2);
+  });
+
+  it('does not show core team ready while a primary member is still joining', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-primary-still-starting',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Team provisioned - waiting for members',
+        messageSeverity: undefined,
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          providerId: 'codex',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'alice',
+          providerId: 'codex',
+          laneKind: 'primary',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'tom',
+          providerId: 'opencode',
+          laneId: 'secondary:opencode:tom',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'waiting',
+          launchState: 'starting',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+        tom: {
+          status: 'online',
+          launchState: 'runtime_pending_bootstrap',
+          updatedAt: '2026-04-13T10:00:07.000Z',
+          runtimeAlive: true,
+          livenessSource: 'process',
+          livenessKind: 'runtime_process_candidate',
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['alice', 'tom'],
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 2,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+          runtimeCandidatePendingCount: 1,
+        },
+      },
+    });
+
+    expect(presentation?.successMessage).toBe('Finishing launch');
+    expect(presentation?.panelMessage).not.toBe('Waiting for OpenCode: tom');
+    expect(presentation?.compactTitle).toBe('Finishing launch');
+  });
+
   it('surfaces permission-blocked teammates as awaiting approval while launch is finishing', () => {
     const presentation = buildTeamProvisioningPresentation({
       progress: {

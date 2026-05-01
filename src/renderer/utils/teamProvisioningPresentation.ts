@@ -20,6 +20,10 @@ interface ProvisioningMemberLike {
   name: string;
   removedAt?: number;
   agentType?: string;
+  providerId?: string;
+  laneId?: string;
+  laneKind?: 'primary' | 'secondary';
+  laneOwnerProviderId?: string;
   status?: string;
   currentTaskId?: string | null;
   taskCount?: number;
@@ -146,6 +150,12 @@ function buildAwaitingPermissionPhrase(count: number): string {
     : `${count} teammates awaiting permission approval`;
 }
 
+function formatMemberNameList(names: readonly string[]): string {
+  const listedNames = names.slice(0, MAX_PENDING_DIAGNOSTIC_NAMES).join(', ');
+  const remainingCount = names.length - Math.min(names.length, MAX_PENDING_DIAGNOSTIC_NAMES);
+  return `${listedNames}${remainingCount > 0 ? `, +${remainingCount} more` : ''}`;
+}
+
 function getMemberNamesFromSpawnSources(params: {
   memberSpawnStatuses: MemberSpawnStatusCollection;
   memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
@@ -223,13 +233,71 @@ function getPendingDiagnosticNameGroups(params: {
   return groups;
 }
 
+function getPendingSpawnNames(params: {
+  memberSpawnStatuses: MemberSpawnStatusCollection;
+  memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
+  memberSpawnSnapshotUpdatedAt?: string;
+}): string[] {
+  return getMemberNamesFromSpawnSources(params).filter((name) => {
+    const liveEntry =
+      params.memberSpawnStatuses instanceof Map
+        ? params.memberSpawnStatuses.get(name)
+        : params.memberSpawnStatuses?.[name];
+    const snapshotEntry = params.memberSpawnSnapshotStatuses?.[name];
+    const entry = getPreferredSpawnEntry({
+      liveEntry,
+      snapshotEntry,
+      snapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+    });
+    return (
+      entry != null &&
+      entry.launchState !== 'confirmed_alive' &&
+      !isFailedSpawnEntry(entry) &&
+      !isSkippedSpawnEntry(entry)
+    );
+  });
+}
+
+function isOpenCodeSecondaryMember(member: ProvisioningMemberLike | undefined): boolean {
+  if (!member || member.removedAt != null || member.providerId !== 'opencode') {
+    return false;
+  }
+  return (
+    member.laneKind === 'secondary' ||
+    member.laneOwnerProviderId === 'opencode' ||
+    member.laneId?.startsWith('secondary:opencode:') === true
+  );
+}
+
+function buildOpenCodeSecondaryWaitPhrase(params: {
+  members: readonly ProvisioningMemberLike[];
+  memberSpawnStatuses: MemberSpawnStatusCollection;
+  memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
+  memberSpawnSnapshotUpdatedAt?: string;
+}): string | null {
+  const pendingNames = getPendingSpawnNames({
+    memberSpawnStatuses: params.memberSpawnStatuses,
+    memberSpawnSnapshotStatuses: params.memberSpawnSnapshotStatuses,
+    memberSpawnSnapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+  });
+  if (pendingNames.length === 0) {
+    return null;
+  }
+
+  const memberByName = new Map(params.members.map((member) => [member.name, member]));
+  const pendingOnlyOpenCodeSecondary = pendingNames.every((name) =>
+    isOpenCodeSecondaryMember(memberByName.get(name))
+  );
+  return pendingOnlyOpenCodeSecondary
+    ? `Waiting for OpenCode: ${formatMemberNameList(pendingNames)}`
+    : null;
+}
+
 function formatNamedPendingDiagnostic(label: string, names: readonly string[]): string | null {
   if (names.length === 0) {
     return null;
   }
-  const listedNames = names.slice(0, MAX_PENDING_DIAGNOSTIC_NAMES).join(', ');
-  const remainingCount = names.length - Math.min(names.length, MAX_PENDING_DIAGNOSTIC_NAMES);
-  return `${label}: ${listedNames}${remainingCount > 0 ? `, +${remainingCount} more` : ''}`;
+  return `${label}: ${formatMemberNameList(names)}`;
 }
 
 function formatCountPendingDiagnostic(count: number | undefined, label: string): string | null {
@@ -578,6 +646,12 @@ export function buildTeamProvisioningPresentation({
     memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
     memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
   });
+  const openCodeSecondaryWaitPhrase = buildOpenCodeSecondaryWaitPhrase({
+    members,
+    memberSpawnStatuses,
+    memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
+    memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
+  });
 
   const { allTeammatesConfirmedAlive, hasMembersStillJoining, remainingJoinCount } =
     getLaunchJoinState({
@@ -637,13 +711,14 @@ export function buildTeamProvisioningPresentation({
       permissionBlockedCount === remainingJoinCount;
     const pendingDetailPhrase = pendingMembersAwaitApproval
       ? buildAwaitingPermissionPhrase(permissionBlockedCount)
-      : buildPendingDiagnosticPhrase({
+      : (openCodeSecondaryWaitPhrase ??
+        buildPendingDiagnosticPhrase({
           summary: memberSpawnSnapshot?.summary,
           memberSpawnStatuses,
           memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
           memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
           fallbackJoiningPhrase: joiningPhrase,
-        });
+        }));
     const readyCompactDetail =
       failedSpawnCount > 0
         ? (failedSpawnCompactDetail ??
@@ -684,7 +759,9 @@ export function buildTeamProvisioningPresentation({
             ? 'Team launched - lead online'
             : allTeammatesConfirmedAlive
               ? `Team launched - all ${expectedTeammateCount} teammates joined`
-              : 'Finishing launch';
+              : openCodeSecondaryWaitPhrase
+                ? 'Core team ready'
+                : 'Finishing launch';
 
     return {
       progress,
@@ -721,7 +798,9 @@ export function buildTeamProvisioningPresentation({
           : skippedSpawnCount > 0
             ? 'Launch continued with skipped teammates'
             : hasMembersStillJoining
-              ? 'Finishing launch'
+              ? openCodeSecondaryWaitPhrase
+                ? 'Core team ready'
+                : 'Finishing launch'
               : 'Team launched',
       compactDetail: readyCompactDetail,
       compactTone:
@@ -750,13 +829,14 @@ export function buildTeamProvisioningPresentation({
       permissionBlockedCount > 0 &&
       permissionBlockedCount === remainingJoinCount
         ? buildAwaitingPermissionPhrase(permissionBlockedCount)
-        : buildPendingDiagnosticPhrase({
+        : (openCodeSecondaryWaitPhrase ??
+          buildPendingDiagnosticPhrase({
             summary: memberSpawnSnapshot?.summary,
             memberSpawnStatuses,
             memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
             memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
             fallbackJoiningPhrase: activeJoiningPhrase,
-          });
+          }));
     return {
       progress,
       isActive: true,
@@ -773,22 +853,24 @@ export function buildTeamProvisioningPresentation({
       allTeammatesConfirmedAlive,
       hasMembersStillJoining,
       remainingJoinCount,
-      panelTitle: 'Launching team',
+      panelTitle: openCodeSecondaryWaitPhrase ? 'Core team ready' : 'Launching team',
       panelMessage:
         failedSpawnCount > 0
           ? (failedSpawnPanelMessage ?? genericFailedSpawnPanelMessage ?? progress.message)
           : skippedSpawnCount > 0
             ? (skippedSpawnPanelMessage ??
               `${skippedSpawnCount}/${Math.max(expectedTeammateCount, skippedSpawnCount)} teammates skipped for this launch`)
-            : hasMembersStillJoining &&
-                permissionBlockedCount > 0 &&
-                permissionBlockedCount === remainingJoinCount
-              ? activePendingDetailPhrase
-              : progress.message,
+            : openCodeSecondaryWaitPhrase
+              ? openCodeSecondaryWaitPhrase
+              : hasMembersStillJoining &&
+                  permissionBlockedCount > 0 &&
+                  permissionBlockedCount === remainingJoinCount
+                ? activePendingDetailPhrase
+                : progress.message,
       panelMessageSeverity:
         failedSpawnCount > 0 || skippedSpawnCount > 0 ? 'warning' : progress.messageSeverity,
       defaultLiveOutputOpen: false,
-      compactTitle: 'Launching team',
+      compactTitle: openCodeSecondaryWaitPhrase ? 'Core team ready' : 'Launching team',
       compactDetail:
         failedSpawnCount > 0
           ? (failedSpawnCompactDetail ??
@@ -796,13 +878,15 @@ export function buildTeamProvisioningPresentation({
           : skippedSpawnCount > 0
             ? (skippedSpawnCompactDetail ??
               `${skippedSpawnCount} teammate${skippedSpawnCount === 1 ? '' : 's'} skipped`)
-            : hasMembersStillJoining && failedSpawnCount === 0 && permissionBlockedCount > 0
-              ? permissionBlockedCount === remainingJoinCount
-                ? buildAwaitingPermissionPhrase(permissionBlockedCount)
-                : `${heartbeatConfirmedCount}/${expectedTeammateCount} teammates confirmed`
-              : expectedTeammateCount > 0 && progressStepIndex >= 2
-                ? `${heartbeatConfirmedCount}/${expectedTeammateCount} teammates confirmed`
-                : progress.message,
+            : openCodeSecondaryWaitPhrase
+              ? openCodeSecondaryWaitPhrase
+              : hasMembersStillJoining && failedSpawnCount === 0 && permissionBlockedCount > 0
+                ? permissionBlockedCount === remainingJoinCount
+                  ? buildAwaitingPermissionPhrase(permissionBlockedCount)
+                  : `${heartbeatConfirmedCount}/${expectedTeammateCount} teammates confirmed`
+                : expectedTeammateCount > 0 && progressStepIndex >= 2
+                  ? `${heartbeatConfirmedCount}/${expectedTeammateCount} teammates confirmed`
+                  : progress.message,
       compactTone: failedSpawnCount > 0 || skippedSpawnCount > 0 ? 'warning' : 'default',
     };
   }

@@ -12,12 +12,19 @@ import {
   getOpenCodeTeamRuntimeDirectory,
   inspectOpenCodeRuntimeLaneStorage,
   migrateLegacyOpenCodeRuntimeState,
+  readCommittedOpenCodeBootstrapSessionEvidence,
   readOpenCodeRuntimeLaneIndex,
   recoverStaleOpenCodeRuntimeLaneIndexEntry,
   setOpenCodeRuntimeActiveRunManifest,
   upsertOpenCodeRuntimeLaneIndexEntry,
 } from '../../../../src/main/services/team/opencode/store/OpenCodeRuntimeManifestEvidenceReader';
-import { createDefaultRuntimeStoreManifest } from '../../../../src/main/services/team/opencode/store/RuntimeStoreManifest';
+import {
+  createRuntimeStoreManifestStore,
+  createRuntimeStoreReceiptStore,
+  OPENCODE_RUNTIME_STORE_DESCRIPTORS,
+  RuntimeStoreBatchWriter,
+  createDefaultRuntimeStoreManifest,
+} from '../../../../src/main/services/team/opencode/store/RuntimeStoreManifest';
 
 describe('OpenCodeRuntimeManifestEvidenceReader migration', () => {
   let tempDir: string;
@@ -30,6 +37,127 @@ describe('OpenCodeRuntimeManifestEvidenceReader migration', () => {
 
   afterEach(async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function writeCommittedSessionStore(input: {
+    teamName: string;
+    laneId: string;
+    sessions: unknown[];
+  }) {
+    const descriptor = OPENCODE_RUNTIME_STORE_DESCRIPTORS.find(
+      (candidate) => candidate.schemaName === 'opencode.sessionStore'
+    );
+    if (!descriptor) throw new Error('session descriptor missing');
+    const manifestPath = getOpenCodeRuntimeManifestPath(tempDir, input.teamName, input.laneId);
+    const runtimeDirectory = path.dirname(manifestPath);
+    await fs.mkdir(runtimeDirectory, { recursive: true });
+    const writer = new RuntimeStoreBatchWriter(
+      runtimeDirectory,
+      createRuntimeStoreManifestStore({ filePath: manifestPath, teamName: input.teamName }),
+      createRuntimeStoreReceiptStore({
+        filePath: path.join(runtimeDirectory, 'opencode-runtime-receipts.json'),
+      }),
+      {
+        clock: () => now,
+        batchIdFactory: () => 'batch-1',
+        receiptIdFactory: () => 'receipt-1',
+      }
+    );
+    await writer.writeBatch({
+      teamName: input.teamName,
+      runId: 'runtime-run-1',
+      capabilitySnapshotId: null,
+      behaviorFingerprint: null,
+      reason: 'launch_checkpoint',
+      writes: [{ descriptor, data: { sessions: input.sessions } }],
+    });
+  }
+
+  it('reads only committed OpenCode bootstrap check-in session evidence', async () => {
+    const teamName = 'team-committed-session';
+    const laneId = 'secondary:opencode:tom';
+    await writeCommittedSessionStore({
+      teamName,
+      laneId,
+      sessions: [
+        {
+          id: 'ses-tom',
+          teamName,
+          memberName: 'tom',
+          runId: 'runtime-run-1',
+          laneId,
+          providerId: 'opencode',
+          observedAt: '2026-04-22T10:00:00.000Z',
+          source: 'runtime_bootstrap_checkin',
+        },
+        {
+          id: 'ses-ignored',
+          teamName,
+          memberName: 'tom',
+          runId: 'runtime-run-1',
+          laneId,
+          source: 'member_briefing',
+        },
+      ],
+    });
+
+    await expect(
+      readCommittedOpenCodeBootstrapSessionEvidence({ teamsBasePath: tempDir, teamName, laneId })
+    ).resolves.toMatchObject({
+      state: 'healthy',
+      committed: true,
+      sessions: [
+        {
+          id: 'ses-tom',
+          teamName,
+          memberName: 'tom',
+          laneId,
+          runId: 'runtime-run-1',
+          source: 'runtime_bootstrap_checkin',
+        },
+      ],
+    });
+  });
+
+  it('does not treat an uncommitted session file as OpenCode bootstrap evidence', async () => {
+    const teamName = 'team-uncommitted-session';
+    const laneId = 'secondary:opencode:tom';
+    const sessionPath = getOpenCodeLaneScopedRuntimeFilePath({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+      fileName: 'opencode-sessions.json',
+    });
+    await fs.mkdir(path.dirname(sessionPath), { recursive: true });
+    await fs.writeFile(
+      sessionPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: '2026-04-22T10:00:00.000Z',
+        data: {
+          sessions: [
+            {
+              id: 'ses-tom',
+              teamName,
+              memberName: 'tom',
+              laneId,
+              source: 'runtime_bootstrap_checkin',
+            },
+          ],
+        },
+      }),
+      'utf8'
+    );
+
+    const evidence = await readCommittedOpenCodeBootstrapSessionEvidence({
+      teamsBasePath: tempDir,
+      teamName,
+      laneId,
+    });
+
+    expect(evidence.committed).toBe(false);
+    expect(evidence.state).toBe('uncommitted_write');
+    expect(evidence.sessions).toEqual([]);
   });
 
   it('migrates legacy team-scoped OpenCode runtime files into the addressed lane', async () => {

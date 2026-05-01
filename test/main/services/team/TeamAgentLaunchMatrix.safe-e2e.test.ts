@@ -16958,6 +16958,7 @@ class FakeOpenCodeRuntimeAdapter implements TeamLaunchRuntimeAdapter {
       hardFailure: failed,
       hardFailureReason: failed ? 'fake_open_code_launch_failure' : undefined,
       pendingPermissionRequestIds: permissionPending ? [`perm-${member.name}`] : undefined,
+      sessionId: failed ? undefined : `session-${member.name}`,
       runtimePid: failed ? undefined : 10_000 + index,
       livenessKind,
       pidSource: failed ? undefined : 'opencode_bridge',
