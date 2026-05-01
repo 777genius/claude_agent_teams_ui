@@ -59,9 +59,9 @@ export { TaskBoundaryParser } from './TaskBoundaryParser';
 export { BoardTaskActivityDetailService } from './taskLogs/activity/BoardTaskActivityDetailService';
 export { BoardTaskActivityRecordSource } from './taskLogs/activity/BoardTaskActivityRecordSource';
 export { BoardTaskActivityService } from './taskLogs/activity/BoardTaskActivityService';
+export { TeamTranscriptSourceLocator } from './taskLogs/discovery/TeamTranscriptSourceLocator';
 export { BoardTaskExactLogDetailService } from './taskLogs/exact/BoardTaskExactLogDetailService';
 export { BoardTaskExactLogsService } from './taskLogs/exact/BoardTaskExactLogsService';
-export { TeamTranscriptSourceLocator } from './taskLogs/discovery/TeamTranscriptSourceLocator';
 export { BoardTaskLogStreamService } from './taskLogs/stream/BoardTaskLogStreamService';
 export type {
   OpenCodeTaskLogAttributionBulkWriteOutcome,

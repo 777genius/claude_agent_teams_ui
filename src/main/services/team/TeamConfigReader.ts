@@ -553,8 +553,6 @@ export class TeamConfigReader {
 
     try {
       return await this.resolveConfigRead(teamName, configPath, readPromise);
-    } catch (error) {
-      return null;
     } finally {
       if (TeamConfigReader.configReadInFlightByPath.get(configPath) === readPromise) {
         TeamConfigReader.configReadInFlightByPath.delete(configPath);
