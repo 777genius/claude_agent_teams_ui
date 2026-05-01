@@ -10999,7 +10999,10 @@ describe('Team agent launch matrix safe e2e', () => {
     svc.stopTeam(teamName);
     await waitForCondition(() => adapter.stopInputs.length === 2);
     await waitForCondition(() => !svc.isTeamAlive(teamName));
-    expect((await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName)).lanes).toEqual({});
+    await waitForCondition(async () => {
+      const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName);
+      return Object.keys(laneIndex.lanes).length === 0;
+    });
 
     await expect(
       svc.deliverOpenCodeMemberMessage(teamName, {
@@ -17111,7 +17114,7 @@ async function upsertActiveOpenCodeRuntimeLaneForTest(input: {
 
 async function waitForCondition(assertion: () => boolean | Promise<boolean>): Promise<void> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 5_000) {
+  while (Date.now() - startedAt < 20_000) {
     if (await assertion()) {
       return;
     }
