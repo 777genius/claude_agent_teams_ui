@@ -11,6 +11,8 @@ import {
 } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
 
+import { TeamConfigReader } from './TeamConfigReader';
+
 const logger = createLogger('TeamBackupService');
 
 // ---------------------------------------------------------------------------
@@ -602,6 +604,7 @@ export class TeamBackupService {
       if (config._backupIdentityId === identityId) return;
       config._backupIdentityId = identityId;
       await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
     } catch {
       // best-effort — config may not exist yet
     }
@@ -661,6 +664,7 @@ export class TeamBackupService {
       await fs.promises.mkdir(path.dirname(configDest), { recursive: true });
       const content = await fs.promises.readFile(configBackup, 'utf8');
       await atomicWriteAsync(configDest, content);
+      TeamConfigReader.invalidateTeam(teamName);
       count++;
     } catch (err: unknown) {
       logger.warn(`[Backup] Failed to restore config.json for ${teamName}: ${String(err)}`);

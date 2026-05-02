@@ -186,7 +186,9 @@ export class TeamTranscriptProjectResolver {
     { value: TeamTranscriptProjectContext; expiresAt: number }
   >();
 
-  constructor(private readonly configReader: TeamConfigReader = new TeamConfigReader()) {}
+  constructor(
+    private readonly configReader: Pick<TeamConfigReader, 'getConfig'> = new TeamConfigReader()
+  ) {}
 
   async getContext(
     teamName: string,
@@ -605,6 +607,7 @@ export class TeamTranscriptProjectResolver {
         normalizedNextPath
       );
       await atomicWriteAsync(configPath, JSON.stringify(parsed, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
       logger.info(
         `[${teamName}] Repaired transcript projectPath via exact session match: ${normalizedNextPath}`
       );

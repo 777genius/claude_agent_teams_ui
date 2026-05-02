@@ -136,6 +136,7 @@ import {
   writeTeamControlApiState,
 } from './services/team/TeamControlApiState';
 import { TeamInboxReader } from './services/team/TeamInboxReader';
+import { getTeamDataWorkerClient } from './services/team/TeamDataWorkerClient';
 import { TeamMemberRuntimeAdvisoryService } from './services/team/TeamMemberRuntimeAdvisoryService';
 import {
   createTeamReconcileDrainScheduler,
@@ -807,6 +808,11 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       const detail = typeof row.detail === 'string' ? row.detail : '';
       memberWorkSyncFeature?.noteTeamChange(row as TeamChangeEvent);
 
+      if (row.type === 'config' && detail === 'config.json') {
+        TeamConfigReader.invalidateTeam(teamName);
+        getTeamDataWorkerClient().invalidateTeamConfig(teamName);
+      }
+
       if (
         teamDataService &&
         (row.type === 'inbox' || row.type === 'lead-message' || row.type === 'config')
@@ -1197,6 +1203,10 @@ async function initializeServices(): Promise<void> {
   });
 
   const forwardTeamChange = (event: TeamChangeEvent): void => {
+    if (event.type === 'config' && event.detail === 'config.json') {
+      TeamConfigReader.invalidateTeam(event.teamName);
+      getTeamDataWorkerClient().invalidateTeamConfig(event.teamName);
+    }
     if (
       teamDataService &&
       (event.type === 'inbox' || event.type === 'lead-message' || event.type === 'config')

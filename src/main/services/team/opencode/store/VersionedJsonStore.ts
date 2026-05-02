@@ -2,7 +2,7 @@ import { atomicWriteAsync } from '@main/utils/atomicWrite';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
-import { withFileLock } from '../../fileLock';
+import { type FileLockOptions, withFileLock } from '../../fileLock';
 
 export interface VersionedJsonStoreEnvelope<TData> {
   schemaVersion: number;
@@ -45,6 +45,7 @@ export interface VersionedJsonStoreOptions<TData> {
   validate: (value: unknown) => TData;
   clock?: () => Date;
   quarantineDir?: string;
+  lockOptions?: FileLockOptions;
 }
 
 export class VersionedJsonStoreError extends Error {
@@ -65,6 +66,7 @@ export class VersionedJsonStore<TData> {
   private readonly validate: (value: unknown) => TData;
   private readonly clock: () => Date;
   private readonly quarantineDir: string | null;
+  private readonly lockOptions: FileLockOptions | undefined;
 
   constructor(options: VersionedJsonStoreOptions<TData>) {
     this.filePath = options.filePath;
@@ -73,6 +75,7 @@ export class VersionedJsonStore<TData> {
     this.validate = options.validate;
     this.clock = options.clock ?? (() => new Date());
     this.quarantineDir = options.quarantineDir ?? null;
+    this.lockOptions = options.lockOptions;
   }
 
   async read(): Promise<VersionedJsonStoreReadResult<TData>> {
@@ -82,36 +85,44 @@ export class VersionedJsonStore<TData> {
   async updateLocked(
     updater: (current: TData) => TData | Promise<TData>
   ): Promise<VersionedJsonStoreUpdateResult<TData>> {
-    return withFileLock(this.filePath, async () => {
-      const current = await this.readUnlocked();
-      if (!current.ok) {
-        throw new VersionedJsonStoreError(current.message, current.reason, current.quarantinePath);
-      }
+    return withFileLock(
+      this.filePath,
+      async () => {
+        const current = await this.readUnlocked();
+        if (!current.ok) {
+          throw new VersionedJsonStoreError(
+            current.message,
+            current.reason,
+            current.quarantinePath
+          );
+        }
 
-      const nextData = await updater(cloneJson(current.data));
-      const validatedNextData = this.validate(nextData);
-      const currentJson = stableJsonStringify(current.data);
-      const nextJson = stableJsonStringify(validatedNextData);
-      const changed = current.status === 'missing' || currentJson !== nextJson;
-      const envelope: VersionedJsonStoreEnvelope<TData> = {
-        schemaVersion: this.schemaVersion,
-        updatedAt: changed
-          ? this.clock().toISOString()
-          : (current.envelope?.updatedAt ?? this.clock().toISOString()),
-        data: changed ? validatedNextData : current.data,
-      };
+        const nextData = await updater(cloneJson(current.data));
+        const validatedNextData = this.validate(nextData);
+        const currentJson = stableJsonStringify(current.data);
+        const nextJson = stableJsonStringify(validatedNextData);
+        const changed = current.status === 'missing' || currentJson !== nextJson;
+        const envelope: VersionedJsonStoreEnvelope<TData> = {
+          schemaVersion: this.schemaVersion,
+          updatedAt: changed
+            ? this.clock().toISOString()
+            : (current.envelope?.updatedAt ?? this.clock().toISOString()),
+          data: changed ? validatedNextData : current.data,
+        };
 
-      if (changed) {
-        await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-        await atomicWriteAsync(this.filePath, `${JSON.stringify(envelope, null, 2)}\n`);
-      }
+        if (changed) {
+          await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+          await atomicWriteAsync(this.filePath, `${JSON.stringify(envelope, null, 2)}\n`);
+        }
 
-      return {
-        changed,
-        data: envelope.data,
-        envelope,
-      };
-    });
+        return {
+          changed,
+          data: envelope.data,
+          envelope,
+        };
+      },
+      this.lockOptions
+    );
   }
 
   private async readUnlocked(): Promise<VersionedJsonStoreReadResult<TData>> {

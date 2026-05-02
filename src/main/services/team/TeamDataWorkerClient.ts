@@ -68,6 +68,7 @@ export class TeamDataWorkerClient {
   private readonly workerPath: string | null = resolveWorkerPath();
   private warnedUnavailable = false;
   private pending = new Map<string, PendingEntry>();
+  private getTeamDataInFlight = new Map<string, Promise<TeamViewSnapshot>>();
 
   private failWorker(worker: Worker, error: Error): void {
     if (this.worker !== worker) return;
@@ -157,7 +158,25 @@ export class TeamDataWorkerClient {
 
   async getTeamData(teamName: string): Promise<TeamViewSnapshot> {
     if (!SAFE_NAME_RE.test(teamName)) throw new Error('Invalid teamName');
-    return this.call('getTeamData', { teamName }) as Promise<TeamViewSnapshot>;
+    const existing = this.getTeamDataInFlight.get(teamName);
+    if (existing) return existing;
+
+    const promise = (this.call('getTeamData', { teamName }) as Promise<TeamViewSnapshot>).finally(
+      () => {
+        if (this.getTeamDataInFlight.get(teamName) === promise) {
+          this.getTeamDataInFlight.delete(teamName);
+        }
+      }
+    );
+    this.getTeamDataInFlight.set(teamName, promise);
+    return promise;
+  }
+
+  invalidateTeamConfig(teamName: string): void {
+    if (!SAFE_NAME_RE.test(teamName)) return;
+    this.getTeamDataInFlight.delete(teamName);
+    if (!this.worker) return;
+    void this.call('invalidateTeamConfig', { teamName }).catch(() => undefined);
   }
 
   async getMessagesPage(
@@ -193,6 +212,7 @@ export class TeamDataWorkerClient {
   dispose(): void {
     this.worker?.terminate().catch(() => undefined);
     this.worker = null;
+    this.getTeamDataInFlight.clear();
     for (const [, entry] of this.pending) {
       entry.reject(new Error('Client disposed'));
     }

@@ -156,6 +156,7 @@ export const MemberCard = ({
   const launchVisualState = launchPresentation.launchVisualState;
   const launchStatusLabel = launchPresentation.launchStatusLabel;
   const displayPresenceLabel =
+    launchVisualState === 'queued' ||
     launchVisualState === 'runtime_pending' ||
     launchVisualState === 'permission_pending' ||
     launchVisualState === 'shell_only' ||
@@ -200,6 +201,7 @@ export const MemberCard = ({
     !runtimeAdvisoryLabel &&
     (presenceLabel === 'starting' ||
       presenceLabel === 'connecting' ||
+      launchVisualState === 'queued' ||
       launchVisualState === 'runtime_pending' ||
       launchVisualState === 'shell_only' ||
       launchVisualState === 'runtime_candidate' ||

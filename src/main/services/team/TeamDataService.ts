@@ -267,6 +267,25 @@ function extractPassiveUserPeerSummaryBody(text: string): string | null {
   return body.length > 0 ? body : null;
 }
 
+function readConfigForUiSnapshot(
+  configReader: TeamConfigReader & {
+    getConfigSnapshot?: (teamName: string) => Promise<TeamConfig | null>;
+  },
+  teamName: string
+): Promise<TeamConfig | null> {
+  return typeof configReader.getConfigSnapshot === 'function'
+    ? configReader.getConfigSnapshot(teamName)
+    : configReader.getConfig(teamName);
+}
+
+function createUiSnapshotProjectResolver(
+  configReader: TeamConfigReader
+): TeamTranscriptProjectResolver {
+  return new TeamTranscriptProjectResolver({
+    getConfig: (teamName) => readConfigForUiSnapshot(configReader, teamName),
+  });
+}
+
 function isExplicitLeadRole(role: string | undefined): boolean {
   const normalized = role?.trim().toLowerCase();
   return normalized === 'lead' || normalized === 'team lead' || normalized === 'team-lead';
@@ -385,18 +404,22 @@ export class TeamDataService {
     private readonly teamMetaStore: TeamMetaStore = new TeamMetaStore(),
     private memberRuntimeAdvisoryService: TeamMemberRuntimeAdvisoryService = new TeamMemberRuntimeAdvisoryService(),
     private readonly leadSessionParseCache: LeadSessionParseCache = new LeadSessionParseCache(),
-    private readonly projectResolver: TeamTranscriptProjectResolver = new TeamTranscriptProjectResolver(
+    private readonly projectResolver: TeamTranscriptProjectResolver = createUiSnapshotProjectResolver(
       configReader
     ),
     private readonly launchStateStore: TeamLaunchStateStore = new TeamLaunchStateStore()
   ) {
     this.messageFeedService = new TeamMessageFeedService({
-      getConfig: (teamName) => this.configReader.getConfig(teamName),
+      getConfig: (teamName) => this.readSnapshotConfig(teamName),
       getInboxMessages: (teamName) => this.inboxReader.getMessages(teamName),
       getLeadSessionMessages: (teamName, config) => this.extractLeadSessionTexts(teamName, config),
       getSentMessages: (teamName) => this.sentMessagesStore.readMessages(teamName),
     });
     this.memberActivityMetaService = new MemberActivityMetaService(this.messageFeedService);
+  }
+
+  private readSnapshotConfig(teamName: string): Promise<TeamConfig | null> {
+    return readConfigForUiSnapshot(this.configReader, teamName);
   }
 
   private getController(teamName: string): AgentTeamsController {
@@ -1077,6 +1100,7 @@ export class TeamDataService {
     config.deletedAt = new Date().toISOString();
     const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
     await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+    await TeamConfigReader.primeConfig(teamName, config);
   }
 
   async restoreTeam(teamName: string): Promise<void> {
@@ -1087,11 +1111,13 @@ export class TeamDataService {
     delete config.deletedAt;
     const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
     await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+    await TeamConfigReader.primeConfig(teamName, config);
   }
 
   async permanentlyDeleteTeam(teamName: string): Promise<void> {
     const teamsDir = path.join(getTeamsBasePath(), teamName);
     await fs.promises.rm(teamsDir, { recursive: true, force: true });
+    TeamConfigReader.invalidateTeam(teamName);
 
     const tasksDir = path.join(getTasksBasePath(), teamName);
     await fs.promises.rm(tasksDir, { recursive: true, force: true });
@@ -1113,7 +1139,7 @@ export class TeamDataService {
       return typeof fromTs === 'number' && typeof toTs === 'number' ? toTs - fromTs : -1;
     };
 
-    const config = await this.configReader.getConfig(teamName);
+    const config = await this.readSnapshotConfig(teamName);
     if (!config) {
       throw new Error(`Team not found: ${teamName}`);
     }

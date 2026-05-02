@@ -423,6 +423,9 @@ function createGetTeamDataHarness(
   const getConfig = vi.fn(async () =>
     options.config === undefined ? buildDefaultTeamConfig() : options.config
   );
+  const getConfigSnapshot = vi.fn(async () =>
+    options.config === undefined ? buildDefaultTeamConfig() : options.config
+  );
   const getTasks =
     options.getTasks ??
     (async () => {
@@ -496,6 +499,7 @@ function createGetTeamDataHarness(
     {
       listTeams: vi.fn(),
       getConfig,
+      getConfigSnapshot,
     } as never,
     taskReader as never,
     inboxReader as never,
@@ -522,6 +526,7 @@ function createGetTeamDataHarness(
   return {
     service,
     getConfig,
+    getConfigSnapshot,
     taskReader,
     inboxReader,
     membersMetaStore,
@@ -4429,6 +4434,24 @@ describe('TeamDataService', () => {
     expect(harness.sentMessagesStore.readMessages).not.toHaveBeenCalled();
     expect(harness.kanbanManager.getState).not.toHaveBeenCalled();
     expect(harness.listProcessesSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses snapshot config reads for UI team data snapshots', async () => {
+    const harness = createGetTeamDataHarness();
+
+    await harness.service.getTeamData('my-team');
+
+    expect(harness.getConfigSnapshot).toHaveBeenCalledWith('my-team');
+    expect(harness.getConfig).not.toHaveBeenCalled();
+  });
+
+  it('uses snapshot config reads for UI message feed snapshots', async () => {
+    const harness = createGetTeamDataHarness();
+
+    await harness.service.getMessageFeed('my-team');
+
+    expect(harness.getConfigSnapshot).toHaveBeenCalledWith('my-team');
+    expect(harness.getConfig).not.toHaveBeenCalled();
   });
 
   it('starts light reads immediately, bounds heavy reads, and keeps processes outside the parallel phase', async () => {

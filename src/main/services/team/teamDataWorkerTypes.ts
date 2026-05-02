@@ -38,18 +38,23 @@ export interface FindLogsForTaskPayload {
   };
 }
 
+export interface InvalidateTeamConfigPayload {
+  teamName: string;
+}
+
 // ── Request / Response ──
 
 export type TeamDataWorkerRequest =
   | { id: string; op: 'getTeamData'; payload: GetTeamDataPayload }
   | { id: string; op: 'getMessagesPage'; payload: GetMessagesPagePayload }
   | { id: string; op: 'getMemberActivityMeta'; payload: GetMemberActivityMetaPayload }
-  | { id: string; op: 'findLogsForTask'; payload: FindLogsForTaskPayload };
+  | { id: string; op: 'findLogsForTask'; payload: FindLogsForTaskPayload }
+  | { id: string; op: 'invalidateTeamConfig'; payload: InvalidateTeamConfigPayload };
 
 export type TeamDataWorkerResponse =
   | {
       id: string;
       ok: true;
-      result: TeamViewSnapshot | MessagesPage | TeamMemberActivityMeta | MemberLogSummary[];
+      result: TeamViewSnapshot | MessagesPage | TeamMemberActivityMeta | MemberLogSummary[] | null;
     }
   | { id: string; ok: false; error: string };

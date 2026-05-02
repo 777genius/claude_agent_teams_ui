@@ -546,6 +546,7 @@ export function getLaunchAwarePresenceLabel(
 }
 
 export type MemberLaunchVisualState =
+  | 'queued'
   | 'waiting'
   | 'spawning'
   | 'permission_pending'
@@ -573,6 +574,8 @@ export interface MemberLaunchPresentation {
 
 export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState): string | null {
   switch (visualState) {
+    case 'queued':
+      return 'queued';
     case 'waiting':
       return 'waiting to start';
     case 'spawning':
@@ -602,6 +605,8 @@ export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState)
 
 function getLaunchVisualStateDotClass(visualState: MemberLaunchVisualState): string | null {
   switch (visualState) {
+    case 'queued':
+      return SPAWN_DOT_COLORS.waiting;
     case 'permission_pending':
     case 'runtime_pending':
     case 'runtime_candidate':
@@ -615,6 +620,29 @@ function getLaunchVisualStateDotClass(visualState: MemberLaunchVisualState): str
     default:
       return null;
   }
+}
+
+function isQueuedOpenCodeLaunch(
+  member: ResolvedTeamMember,
+  spawnStatus: MemberSpawnStatus | undefined,
+  spawnLaunchState: MemberLaunchState | undefined,
+  runtimeEntry: TeamAgentRuntimeEntry | undefined,
+  isLaunchSettling: boolean,
+  isTeamProvisioning: boolean | undefined
+): boolean {
+  if (member.providerId !== 'opencode') {
+    return false;
+  }
+  if (isTeamProvisioning !== true && !isLaunchSettling) {
+    return false;
+  }
+  if (spawnStatus !== 'waiting' || spawnLaunchState !== 'starting') {
+    return false;
+  }
+
+  // Only label lanes as queued before runtime evidence appears. Once the
+  // backend has any liveness signal, show the exact runtime state instead.
+  return runtimeEntry == null || runtimeEntry.livenessKind == null;
 }
 
 function hasElapsedSinceIso(
@@ -784,6 +812,17 @@ export function buildMemberLaunchPresentation({
     ) {
       launchVisualState = 'stale_runtime';
     } else if (
+      isQueuedOpenCodeLaunch(
+        member,
+        spawnStatus,
+        spawnLaunchState,
+        runtimeEntry,
+        isLaunchSettling,
+        isTeamProvisioning
+      )
+    ) {
+      launchVisualState = 'queued';
+    } else if (
       isLaunchStillStarting(
         spawnStatus,
         spawnLaunchState,
@@ -810,6 +849,7 @@ export function buildMemberLaunchPresentation({
   const launchStatusLabel = getMemberLaunchStatusLabel(launchVisualState);
   const launchVisualStateDotClass = getLaunchVisualStateDotClass(launchVisualState);
   const shouldShowLaunchStatusAsPresence =
+    launchVisualState === 'queued' ||
     launchVisualState === 'permission_pending' ||
     launchVisualState === 'runtime_pending' ||
     launchVisualState === 'shell_only' ||

@@ -83,6 +83,80 @@ describe('memberHelpers spawn-aware presence', () => {
     ).toBe('starting');
   });
 
+  it('labels queued OpenCode lanes separately from active startup', () => {
+    const openCodeMember: ResolvedTeamMember = { ...member, providerId: 'opencode' };
+
+    expect(
+      buildMemberLaunchPresentation({
+        member: openCodeMember,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'starting',
+        spawnLivenessSource: undefined,
+        spawnRuntimeAlive: false,
+        runtimeAdvisory: undefined,
+        isLaunchSettling: true,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'queued',
+      launchVisualState: 'queued',
+      launchStatusLabel: 'queued',
+      dotClass: expect.stringContaining('bg-zinc-400'),
+    });
+  });
+
+  it('does not label non-OpenCode waiting lanes as queued', () => {
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'starting',
+        spawnLivenessSource: undefined,
+        spawnRuntimeAlive: false,
+        runtimeAdvisory: undefined,
+        isLaunchSettling: true,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'starting',
+      launchVisualState: 'waiting',
+      launchStatusLabel: 'waiting to start',
+    });
+  });
+
+  it('keeps OpenCode runtime evidence states more specific than queued', () => {
+    const openCodeMember: ResolvedTeamMember = { ...member, providerId: 'opencode' };
+
+    expect(
+      buildMemberLaunchPresentation({
+        member: openCodeMember,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'starting',
+        spawnLivenessSource: undefined,
+        spawnRuntimeAlive: false,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          providerId: 'opencode',
+          livenessKind: 'registered_only',
+          runtimeDiagnostic: 'registered runtime metadata without live process',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: true,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'registered',
+      launchVisualState: 'registered_only',
+      launchStatusLabel: 'registered',
+    });
+  });
+
   it('keeps starting visuals after provisioning already transitioned out of active state', () => {
     expect(
       getSpawnAwarePresenceLabel(

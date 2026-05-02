@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
+import type { FileLockOptions } from '../../fileLock';
+
 import { VersionedJsonStore, VersionedJsonStoreError } from './VersionedJsonStore';
 
 export const OPENCODE_RUNTIME_STORE_MANIFEST_SCHEMA_VERSION = 1;
@@ -917,6 +919,7 @@ export function createRuntimeStoreManifestStore(options: {
   filePath: string;
   teamName: string;
   clock?: () => Date;
+  lockOptions?: FileLockOptions;
 }): RuntimeStoreManifestStore {
   const clock = options.clock ?? (() => new Date());
   return new RuntimeStoreManifestStore(
@@ -926,6 +929,7 @@ export function createRuntimeStoreManifestStore(options: {
       defaultData: () => createDefaultRuntimeStoreManifest(options.teamName, clock().toISOString()),
       validate: validateRuntimeStoreManifest,
       clock,
+      lockOptions: options.lockOptions,
     }),
     clock
   );
@@ -934,6 +938,7 @@ export function createRuntimeStoreManifestStore(options: {
 export function createRuntimeStoreReceiptStore(options: {
   filePath: string;
   clock?: () => Date;
+  lockOptions?: FileLockOptions;
 }): RuntimeStoreReceiptStore {
   const clock = options.clock ?? (() => new Date());
   return new RuntimeStoreReceiptStore(
@@ -943,6 +948,7 @@ export function createRuntimeStoreReceiptStore(options: {
       defaultData: () => [],
       validate: validateRuntimeStoreWriteBatches,
       clock,
+      lockOptions: options.lockOptions,
     }),
     clock
   );

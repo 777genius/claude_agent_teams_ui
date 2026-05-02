@@ -8,6 +8,7 @@
 
 import { parentPort } from 'node:worker_threads';
 
+import { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import { TeamDataService } from '@main/services/team/TeamDataService';
 import { TeamMemberLogsFinder } from '@main/services/team/TeamMemberLogsFinder';
 import { createLogger } from '@shared/utils/logger';
@@ -53,6 +54,11 @@ parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
       case 'getMemberActivityMeta': {
         const result = await teamDataService.getMemberActivityMeta(msg.payload.teamName);
         respond({ id: msg.id, ok: true, result });
+        break;
+      }
+      case 'invalidateTeamConfig': {
+        TeamConfigReader.invalidateTeam(msg.payload.teamName);
+        respond({ id: msg.id, ok: true, result: null });
         break;
       }
       case 'findLogsForTask': {

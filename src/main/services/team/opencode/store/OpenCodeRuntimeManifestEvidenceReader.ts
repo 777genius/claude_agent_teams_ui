@@ -71,6 +71,7 @@ export interface OpenCodeCommittedBootstrapSessionRecord {
 export interface OpenCodeCommittedBootstrapSessionEvidence {
   state: RuntimeStoreManifestEntryState | 'invalid_store' | 'descriptor_missing';
   committed: boolean;
+  activeRunId: string | null;
   sessions: OpenCodeCommittedBootstrapSessionRecord[];
   diagnostics: string[];
 }
@@ -497,6 +498,7 @@ export async function readCommittedOpenCodeBootstrapSessionEvidence(params: {
     return {
       state: 'descriptor_missing',
       committed: false,
+      activeRunId: null,
       sessions: [],
       diagnostics: ['OpenCode session store descriptor is not registered.'],
     };
@@ -521,6 +523,7 @@ export async function readCommittedOpenCodeBootstrapSessionEvidence(params: {
     return {
       state: 'invalid_store',
       committed: false,
+      activeRunId: null,
       sessions: [],
       diagnostics: ['OpenCode runtime manifest could not be read.'],
     };
@@ -539,6 +542,7 @@ export async function readCommittedOpenCodeBootstrapSessionEvidence(params: {
     return {
       state: inspection.state,
       committed: false,
+      activeRunId: manifest.activeRunId,
       sessions: [],
       diagnostics,
     };
@@ -561,6 +565,7 @@ export async function readCommittedOpenCodeBootstrapSessionEvidence(params: {
   return {
     state: 'healthy',
     committed: true,
+    activeRunId: manifest.activeRunId,
     sessions,
     diagnostics,
   };

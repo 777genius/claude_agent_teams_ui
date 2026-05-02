@@ -49,6 +49,7 @@ const { mockTeamDataWorkerClient } = vi.hoisted(() => ({
     getMessagesPage: vi.fn(),
     getMemberActivityMeta: vi.fn(),
     findLogsForTask: vi.fn(),
+    invalidateTeamConfig: vi.fn(),
   },
 }));
 vi.mock('@main/services/infrastructure/NotificationManager', () => ({
@@ -313,6 +314,7 @@ describe('ipc teams handlers', () => {
     mockTeamDataWorkerClient.getMessagesPage.mockReset();
     mockTeamDataWorkerClient.getMemberActivityMeta.mockReset();
     mockTeamDataWorkerClient.findLogsForTask.mockReset();
+    mockTeamDataWorkerClient.invalidateTeamConfig.mockReset();
     initializeTeamHandlers(
       service as never,
       provisioningService as never,
