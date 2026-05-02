@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { memo, type ReactNode, useState } from 'react';
 
 import { CARD_BG, CARD_BORDER_STYLE, CARD_ICON_MUTED } from '@renderer/constants/cssVariables';
 import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
@@ -32,14 +32,14 @@ interface ActivityEntry {
   kind: 'working' | 'reviewing';
 }
 
-export const ActiveTasksBlock = ({
+export const ActiveTasksBlock = memo(function ActiveTasksBlock({
   members,
   tasks,
   defaultCollapsed = false,
   headerRight,
   onMemberClick,
   onTaskClick,
-}: ActiveTasksBlockProps): React.JSX.Element | null => {
+}: ActiveTasksBlockProps): React.JSX.Element | null {
   const { isLight } = useTheme();
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const colorMap = buildMemberColorMap(members);
@@ -188,4 +188,4 @@ export const ActiveTasksBlock = ({
         })}
     </div>
   );
-};
+});

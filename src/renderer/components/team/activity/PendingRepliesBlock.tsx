@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 import { CARD_BG, CARD_BORDER_STYLE, CARD_ICON_MUTED } from '@renderer/constants/cssVariables';
 import { getTeamColorSet, getThemedBadge } from '@renderer/constants/teamColors';
 import { useTheme } from '@renderer/hooks/useTheme';
@@ -32,13 +34,13 @@ interface PendingRepliesBlockProps {
   onMemberClick?: (member: ResolvedTeamMember) => void;
 }
 
-export const PendingRepliesBlock = ({
+export const PendingRepliesBlock = memo(function PendingRepliesBlock({
   members,
   pendingRepliesByMember,
   pendingCrossTeamReplies = [],
   headerRight,
   onMemberClick,
-}: PendingRepliesBlockProps): React.JSX.Element | null => {
+}: PendingRepliesBlockProps): React.JSX.Element | null {
   const { isLight } = useTheme();
   const pendingApprovals = useStore(useShallow((s) => s.pendingApprovals));
   const colorMap = buildMemberColorMap(members);
@@ -270,4 +272,4 @@ export const PendingRepliesBlock = ({
       })}
     </div>
   );
-};
+});
