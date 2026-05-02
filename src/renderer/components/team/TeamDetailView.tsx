@@ -78,12 +78,9 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 
 import { AddMemberDialog } from './dialogs/AddMemberDialog';
-import { CreateTaskDialog } from './dialogs/CreateTaskDialog';
 import { EditTeamDialog } from './dialogs/EditTeamDialog';
 import type { TeamLaunchDialogMode } from './dialogs/LaunchTeamDialog';
 import { ReviewDialog } from './dialogs/ReviewDialog';
-import { SendMessageDialog } from './dialogs/SendMessageDialog';
-import { TaskDetailDialog } from './dialogs/TaskDetailDialog';
 import { executeTeamRelaunch } from './dialogs/teamRelaunchFlow';
 import { KanbanBoard } from './kanban/KanbanBoard';
 import { UNASSIGNED_OWNER } from './kanban/KanbanFilterPopover';
@@ -107,9 +104,20 @@ const TeamGraphOverlay = lazy(() =>
     default: m.TeamGraphOverlay,
   }))
 );
+const TaskDetailDialog = lazy(() =>
+  import('./dialogs/TaskDetailDialog').then((m) => ({ default: m.TaskDetailDialog }))
+);
+const SendMessageDialog = lazy(() =>
+  import('./dialogs/SendMessageDialog').then((m) => ({ default: m.SendMessageDialog }))
+);
+const CreateTaskDialog = lazy(() =>
+  import('./dialogs/CreateTaskDialog').then((m) => ({ default: m.CreateTaskDialog }))
+);
+const ChangeReviewDialog = lazy(() =>
+  import('./review/ChangeReviewDialog').then((m) => ({ default: m.ChangeReviewDialog }))
+);
 import { MemberList } from './members/MemberList';
 import { MessagesPanel } from './messages/MessagesPanel';
-import { ChangeReviewDialog } from './review/ChangeReviewDialog';
 import { ScheduleSection } from './schedule/ScheduleSection';
 import { TeamSidebarHost } from './sidebar/TeamSidebarHost';
 import { TeamSidebarPortalSource } from './sidebar/TeamSidebarPortalSource';
@@ -2857,21 +2865,23 @@ export const TeamDetailView = memo(
                   }}
                 />
 
-                <CreateTaskDialog
-                  open={createTaskDialog.open}
-                  teamName={teamName}
-                  members={activeMembers}
-                  tasks={data.tasks}
-                  isTeamAlive={data.isAlive && !isTeamProvisioning}
-                  defaultSubject={createTaskDialog.defaultSubject}
-                  defaultDescription={createTaskDialog.defaultDescription}
-                  defaultOwner={createTaskDialog.defaultOwner}
-                  defaultStartImmediately={createTaskDialog.defaultStartImmediately}
-                  defaultChip={createTaskDialog.defaultChip}
-                  onClose={closeCreateTaskDialog}
-                  onSubmit={handleCreateTask}
-                  submitting={creatingTask}
-                />
+                <Suspense fallback={null}>
+                  <CreateTaskDialog
+                    open={createTaskDialog.open}
+                    teamName={teamName}
+                    members={activeMembers}
+                    tasks={data.tasks}
+                    isTeamAlive={data.isAlive && !isTeamProvisioning}
+                    defaultSubject={createTaskDialog.defaultSubject}
+                    defaultDescription={createTaskDialog.defaultDescription}
+                    defaultOwner={createTaskDialog.defaultOwner}
+                    defaultStartImmediately={createTaskDialog.defaultStartImmediately}
+                    defaultChip={createTaskDialog.defaultChip}
+                    onClose={closeCreateTaskDialog}
+                    onSubmit={handleCreateTask}
+                    submitting={creatingTask}
+                  />
+                </Suspense>
 
                 <EditTeamDialog
                   open={editDialogOpen}
@@ -2997,103 +3007,107 @@ export const TeamDetailView = memo(
                   />
                 </Suspense>
 
-                <SendMessageDialog
-                  open={sendDialogOpen}
-                  teamName={teamName}
-                  members={activeMembers}
-                  defaultRecipient={sendDialogRecipient}
-                  defaultText={sendDialogDefaultText}
-                  defaultChip={sendDialogDefaultChip}
-                  quotedMessage={replyQuote}
-                  isTeamAlive={data.isAlive}
-                  sending={sendingMessage}
-                  sendError={sendMessageError}
-                  sendWarning={sendMessageWarning}
-                  sendDebugDetails={sendMessageDebugDetails}
-                  lastResult={lastSendMessageResult}
-                  onSend={async (member, text, summary, attachments, actionMode, taskRefs) => {
-                    const sentAtMs = Date.now();
-                    setPendingRepliesByMember((prev) => ({ ...prev, [member]: sentAtMs }));
-                    try {
-                      const result = await sendTeamMessage(teamName, {
-                        member,
-                        text,
-                        summary,
-                        attachments,
-                        actionMode,
-                        taskRefs,
-                      });
-                      if (
-                        result?.runtimeDelivery?.attempted === true &&
-                        result.runtimeDelivery.delivered === false
-                      ) {
+                <Suspense fallback={null}>
+                  <SendMessageDialog
+                    open={sendDialogOpen}
+                    teamName={teamName}
+                    members={activeMembers}
+                    defaultRecipient={sendDialogRecipient}
+                    defaultText={sendDialogDefaultText}
+                    defaultChip={sendDialogDefaultChip}
+                    quotedMessage={replyQuote}
+                    isTeamAlive={data.isAlive}
+                    sending={sendingMessage}
+                    sendError={sendMessageError}
+                    sendWarning={sendMessageWarning}
+                    sendDebugDetails={sendMessageDebugDetails}
+                    lastResult={lastSendMessageResult}
+                    onSend={async (member, text, summary, attachments, actionMode, taskRefs) => {
+                      const sentAtMs = Date.now();
+                      setPendingRepliesByMember((prev) => ({ ...prev, [member]: sentAtMs }));
+                      try {
+                        const result = await sendTeamMessage(teamName, {
+                          member,
+                          text,
+                          summary,
+                          attachments,
+                          actionMode,
+                          taskRefs,
+                        });
+                        if (
+                          result?.runtimeDelivery?.attempted === true &&
+                          result.runtimeDelivery.delivered === false
+                        ) {
+                          setPendingRepliesByMember((prev) => {
+                            if (prev[member] !== sentAtMs) return prev;
+                            const next = { ...prev };
+                            delete next[member];
+                            return next;
+                          });
+                        }
+                        return result;
+                      } catch (error) {
                         setPendingRepliesByMember((prev) => {
                           if (prev[member] !== sentAtMs) return prev;
                           const next = { ...prev };
                           delete next[member];
                           return next;
                         });
+                        throw error;
                       }
-                      return result;
-                    } catch (error) {
-                      setPendingRepliesByMember((prev) => {
-                        if (prev[member] !== sentAtMs) return prev;
-                        const next = { ...prev };
-                        delete next[member];
-                        return next;
-                      });
-                      throw error;
-                    }
-                  }}
-                  onClose={() => {
-                    setSendDialogOpen(false);
-                    setReplyQuote(undefined);
-                    setSendDialogDefaultText(undefined);
-                    setSendDialogDefaultChip(undefined);
-                  }}
-                />
+                    }}
+                    onClose={() => {
+                      setSendDialogOpen(false);
+                      setReplyQuote(undefined);
+                      setSendDialogDefaultText(undefined);
+                      setSendDialogDefaultChip(undefined);
+                    }}
+                  />
+                </Suspense>
 
-                <TaskDetailDialog
-                  open={selectedTask !== null}
-                  task={selectedTask}
-                  teamName={teamName}
-                  kanbanTaskState={
-                    selectedTask ? data?.kanbanState.tasks[selectedTask.id] : undefined
-                  }
-                  taskMap={taskMap}
-                  members={activeMembers}
-                  onClose={() => setSelectedTask(null)}
-                  onScrollToTask={(taskId) => {
-                    setSelectedTask(null);
-                    const el = document.querySelector(`[data-task-id="${taskId}"]`);
-                    if (el) {
-                      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                      el.classList.remove('kanban-card-focus-pulse');
-                      void (el as HTMLElement).offsetWidth;
-                      el.classList.add('kanban-card-focus-pulse');
-                      el.addEventListener(
-                        'animationend',
-                        () => el.classList.remove('kanban-card-focus-pulse'),
-                        { once: true }
-                      );
+                <Suspense fallback={null}>
+                  <TaskDetailDialog
+                    open={selectedTask !== null}
+                    task={selectedTask}
+                    teamName={teamName}
+                    kanbanTaskState={
+                      selectedTask ? data?.kanbanState.tasks[selectedTask.id] : undefined
                     }
-                  }}
-                  onOwnerChange={(taskId, owner) => {
-                    void (async () => {
-                      try {
-                        await updateTaskOwner(teamName, taskId, owner);
-                      } catch {
-                        // error via store
+                    taskMap={taskMap}
+                    members={activeMembers}
+                    onClose={() => setSelectedTask(null)}
+                    onScrollToTask={(taskId) => {
+                      setSelectedTask(null);
+                      const el = document.querySelector(`[data-task-id="${taskId}"]`);
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        el.classList.remove('kanban-card-focus-pulse');
+                        void (el as HTMLElement).offsetWidth;
+                        el.classList.add('kanban-card-focus-pulse');
+                        el.addEventListener(
+                          'animationend',
+                          () => el.classList.remove('kanban-card-focus-pulse'),
+                          { once: true }
+                        );
                       }
-                    })();
-                  }}
-                  onViewChanges={handleViewChangesForFile}
-                  onOpenInEditor={(filePath) => {
-                    const { revealFileInEditor } = useStore.getState();
-                    revealFileInEditor(filePath);
-                  }}
-                  onDeleteTask={handleDeleteTask}
-                />
+                    }}
+                    onOwnerChange={(taskId, owner) => {
+                      void (async () => {
+                        try {
+                          await updateTaskOwner(teamName, taskId, owner);
+                        } catch {
+                          // error via store
+                        }
+                      })();
+                    }}
+                    onViewChanges={handleViewChangesForFile}
+                    onOpenInEditor={(filePath) => {
+                      const { revealFileInEditor } = useStore.getState();
+                      revealFileInEditor(filePath);
+                    }}
+                    onDeleteTask={handleDeleteTask}
+                  />
+                </Suspense>
 
                 <TrashDialog
                   open={trashOpen}
@@ -3110,26 +3124,28 @@ export const TeamDetailView = memo(
                   }}
                 />
 
-                <ChangeReviewDialog
-                  open={reviewDialogState.open}
-                  onOpenChange={(open) =>
-                    setReviewDialogState((prev) => ({
-                      ...prev,
-                      open,
-                      ...(open
-                        ? {}
-                        : { initialFilePath: undefined, taskChangeRequestOptions: undefined }),
-                    }))
-                  }
-                  teamName={teamName}
-                  mode={reviewDialogState.mode}
-                  memberName={reviewDialogState.memberName}
-                  taskId={reviewDialogState.taskId}
-                  initialFilePath={reviewDialogState.initialFilePath}
-                  taskChangeRequestOptions={reviewDialogState.taskChangeRequestOptions}
-                  projectPath={data.config.projectPath}
-                  onEditorAction={handleEditorAction}
-                />
+                <Suspense fallback={null}>
+                  <ChangeReviewDialog
+                    open={reviewDialogState.open}
+                    onOpenChange={(open) =>
+                      setReviewDialogState((prev) => ({
+                        ...prev,
+                        open,
+                        ...(open
+                          ? {}
+                          : { initialFilePath: undefined, taskChangeRequestOptions: undefined }),
+                      }))
+                    }
+                    teamName={teamName}
+                    mode={reviewDialogState.mode}
+                    memberName={reviewDialogState.memberName}
+                    taskId={reviewDialogState.taskId}
+                    initialFilePath={reviewDialogState.initialFilePath}
+                    taskChangeRequestOptions={reviewDialogState.taskChangeRequestOptions}
+                    projectPath={data.config.projectPath}
+                    onEditorAction={handleEditorAction}
+                  />
+                </Suspense>
               </div>
               <div
                 ref={setMessagesPanelMountPoint}
