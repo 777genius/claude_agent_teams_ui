@@ -10,6 +10,9 @@ import type { TeamLaunchParams } from '@renderer/store/slices/teamSlice';
 import type { TaskStatusCounts } from '@renderer/utils/pathNormalize';
 import type {
   LeadActivityState,
+  MemberLaunchState,
+  MemberSpawnLivenessSource,
+  MemberSpawnStatus,
   MemberSpawnStatusEntry,
   ResolvedTeamMember,
   TeamAgentRuntimeEntry,
@@ -255,6 +258,115 @@ function areMemberListPropsEqual(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Per-member row wrapper — creates stable callbacks so MemberCard memo holds
+// ---------------------------------------------------------------------------
+
+interface MemberCardRowProps {
+  member: ResolvedTeamMember;
+  isRemoved: boolean;
+  memberColor: string;
+  currentTask: TeamTaskWithKanban | null;
+  reviewTask: TeamTaskWithKanban | null;
+  awaitingReply: boolean;
+  taskCounts?: TaskStatusCounts | null;
+  runtimeSummary?: string;
+  runtimeEntry?: TeamAgentRuntimeEntry;
+  runtimeRunId?: string | null;
+  spawnStatus?: MemberSpawnStatus;
+  spawnEntry?: MemberSpawnStatusEntry;
+  spawnError?: string;
+  spawnLivenessSource?: MemberSpawnLivenessSource;
+  spawnLaunchState?: MemberLaunchState;
+  spawnRuntimeAlive?: boolean;
+  isTeamAlive?: boolean;
+  isTeamProvisioning?: boolean;
+  leadActivity?: LeadActivityState;
+  isLaunchSettling?: boolean;
+  onOpenTask?: (taskId: string) => void;
+  onMemberClick?: (member: ResolvedTeamMember) => void;
+  onSendMessage?: (member: ResolvedTeamMember) => void;
+  onAssignTask?: (member: ResolvedTeamMember) => void;
+  onRestartMember?: (memberName: string) => Promise<void> | void;
+  onSkipMemberForLaunch?: (memberName: string) => Promise<void> | void;
+}
+
+const MemberCardRow = memo(function MemberCardRow({
+  member,
+  isRemoved,
+  memberColor,
+  currentTask,
+  reviewTask,
+  awaitingReply,
+  taskCounts,
+  runtimeSummary,
+  runtimeEntry,
+  runtimeRunId,
+  spawnStatus,
+  spawnEntry,
+  spawnError,
+  spawnLivenessSource,
+  spawnLaunchState,
+  spawnRuntimeAlive,
+  isTeamAlive,
+  isTeamProvisioning,
+  leadActivity,
+  isLaunchSettling,
+  onOpenTask,
+  onMemberClick,
+  onSendMessage,
+  onAssignTask,
+  onRestartMember,
+  onSkipMemberForLaunch,
+}: MemberCardRowProps): React.JSX.Element {
+  const currentTaskId = currentTask?.id;
+  const reviewTaskId = reviewTask?.id;
+
+  const handleOpenTask = useCallback(() => {
+    if (currentTaskId) onOpenTask?.(currentTaskId);
+  }, [onOpenTask, currentTaskId]);
+
+  const handleOpenReviewTask = useCallback(() => {
+    if (reviewTaskId) onOpenTask?.(reviewTaskId);
+  }, [onOpenTask, reviewTaskId]);
+
+  const handleClick = useCallback(() => onMemberClick?.(member), [onMemberClick, member]);
+  const handleSendMessage = useCallback(() => onSendMessage?.(member), [onSendMessage, member]);
+  const handleAssignTask = useCallback(() => onAssignTask?.(member), [onAssignTask, member]);
+
+  return (
+    <MemberCard
+      member={member}
+      memberColor={memberColor}
+      taskCounts={taskCounts}
+      isTeamAlive={isTeamAlive}
+      isTeamProvisioning={isTeamProvisioning}
+      leadActivity={isLeadMember(member) ? leadActivity : undefined}
+      currentTask={currentTask}
+      reviewTask={reviewTask}
+      isAwaitingReply={awaitingReply}
+      isRemoved={isRemoved}
+      runtimeSummary={runtimeSummary}
+      runtimeEntry={runtimeEntry}
+      runtimeRunId={runtimeRunId}
+      spawnStatus={spawnStatus}
+      spawnEntry={spawnEntry}
+      spawnError={spawnError}
+      spawnLivenessSource={spawnLivenessSource}
+      spawnLaunchState={spawnLaunchState}
+      spawnRuntimeAlive={spawnRuntimeAlive}
+      isLaunchSettling={isLaunchSettling}
+      onOpenTask={currentTask ? handleOpenTask : undefined}
+      onOpenReviewTask={reviewTask ? handleOpenReviewTask : undefined}
+      onClick={handleClick}
+      onSendMessage={handleSendMessage}
+      onAssignTask={handleAssignTask}
+      onRestartMember={onRestartMember}
+      onSkipMemberForLaunch={onSkipMemberForLaunch}
+    />
+  );
+});
+
 export const MemberList = memo(function MemberList({
   members,
   memberTaskCounts,
@@ -340,63 +452,89 @@ export const MemberList = memo(function MemberList({
     return result;
   }, [taskMap]);
 
-  const renderCard = (member: ResolvedTeamMember, isRemoved: boolean): React.JSX.Element => {
-    const currentTask =
-      member.currentTaskId && taskMap ? (taskMap.get(member.currentTaskId) ?? null) : null;
-    const reviewCandidate = reviewTaskByMember.get(member.name) ?? null;
-    const reviewTask =
-      reviewCandidate && reviewCandidate.id !== member.currentTaskId ? reviewCandidate : null;
-    const awaitingReply = isTeamAlive !== false && Boolean(pendingRepliesByMember?.[member.name]);
-    const spawnEntry = memberSpawnStatuses?.get(member.name);
-    const runtimeEntry = memberRuntimeEntries?.get(member.name);
-    return (
-      <MemberCard
-        key={member.name}
-        member={member}
-        memberColor={colorMap.get(member.name) ?? 'blue'}
-        taskCounts={memberTaskCounts?.get(member.name.toLowerCase())}
-        isTeamAlive={isTeamAlive}
-        isTeamProvisioning={isTeamProvisioning}
-        leadActivity={isLeadMember(member) ? leadActivity : undefined}
-        currentTask={isRemoved ? null : currentTask}
-        reviewTask={isRemoved ? null : reviewTask}
-        isAwaitingReply={isRemoved ? false : awaitingReply}
-        isRemoved={isRemoved}
-        runtimeSummary={buildRuntimeSummary(
-          member,
-          isRemoved ? undefined : spawnEntry,
-          isRemoved ? undefined : runtimeEntry
-        )}
-        runtimeEntry={isRemoved ? undefined : runtimeEntry}
-        runtimeRunId={isRemoved ? undefined : runtimeRunId}
-        spawnStatus={isRemoved ? undefined : spawnEntry?.status}
-        spawnEntry={isRemoved ? undefined : spawnEntry}
-        spawnError={isRemoved ? undefined : (spawnEntry?.error ?? spawnEntry?.hardFailureReason)}
-        spawnLivenessSource={isRemoved ? undefined : spawnEntry?.livenessSource}
-        spawnLaunchState={isRemoved ? undefined : spawnEntry?.launchState}
-        spawnRuntimeAlive={isRemoved ? undefined : spawnEntry?.runtimeAlive}
-        isLaunchSettling={isRemoved ? false : isLaunchSettling}
-        onOpenTask={!isRemoved && currentTask ? () => onOpenTask?.(currentTask.id) : undefined}
-        onOpenReviewTask={!isRemoved && reviewTask ? () => onOpenTask?.(reviewTask.id) : undefined}
-        onClick={() => onMemberClick?.(member)}
-        onSendMessage={() => onSendMessage?.(member)}
-        onAssignTask={() => onAssignTask?.(member)}
-        onRestartMember={isRemoved ? undefined : onRestartMember}
-        onSkipMemberForLaunch={isRemoved ? undefined : onSkipMemberForLaunch}
-      />
-    );
-  };
-
   return (
     <div ref={containerRef} className="flex flex-col gap-1">
-      <div className={gridClass}>{activeMembers.map((member) => renderCard(member, false))}</div>
+      <div className={gridClass}>
+        {activeMembers.map((member) => {
+          const currentTask =
+            member.currentTaskId && taskMap ? (taskMap.get(member.currentTaskId) ?? null) : null;
+          const reviewCandidate = reviewTaskByMember.get(member.name) ?? null;
+          const reviewTask =
+            reviewCandidate && reviewCandidate.id !== member.currentTaskId ? reviewCandidate : null;
+          const spawnEntry = memberSpawnStatuses?.get(member.name);
+          const runtimeEntry = memberRuntimeEntries?.get(member.name);
+          return (
+            <MemberCardRow
+              key={member.name}
+              member={member}
+              isRemoved={false}
+              memberColor={colorMap.get(member.name) ?? 'blue'}
+              currentTask={currentTask}
+              reviewTask={reviewTask}
+              awaitingReply={
+                isTeamAlive !== false && Boolean(pendingRepliesByMember?.[member.name])
+              }
+              taskCounts={memberTaskCounts?.get(member.name.toLowerCase())}
+              runtimeSummary={buildRuntimeSummary(member, spawnEntry, runtimeEntry)}
+              runtimeEntry={runtimeEntry}
+              runtimeRunId={runtimeRunId}
+              spawnStatus={spawnEntry?.status}
+              spawnEntry={spawnEntry}
+              spawnError={spawnEntry?.error ?? spawnEntry?.hardFailureReason}
+              spawnLivenessSource={spawnEntry?.livenessSource}
+              spawnLaunchState={spawnEntry?.launchState}
+              spawnRuntimeAlive={spawnEntry?.runtimeAlive}
+              isTeamAlive={isTeamAlive}
+              isTeamProvisioning={isTeamProvisioning}
+              leadActivity={leadActivity}
+              isLaunchSettling={isLaunchSettling}
+              onOpenTask={onOpenTask}
+              onMemberClick={onMemberClick}
+              onSendMessage={onSendMessage}
+              onAssignTask={onAssignTask}
+              onRestartMember={onRestartMember}
+              onSkipMemberForLaunch={onSkipMemberForLaunch}
+            />
+          );
+        })}
+      </div>
       {removedMembers.length > 0 && (
         <>
           <div className="mt-2 text-[10px] text-[var(--color-text-muted)]">
             Removed ({removedMembers.length})
           </div>
           <div className={gridClass}>
-            {removedMembers.map((member) => renderCard(member, true))}
+            {removedMembers.map((member) => (
+              <MemberCardRow
+                key={member.name}
+                member={member}
+                isRemoved={true}
+                memberColor={colorMap.get(member.name) ?? 'blue'}
+                currentTask={null}
+                reviewTask={null}
+                awaitingReply={false}
+                taskCounts={memberTaskCounts?.get(member.name.toLowerCase())}
+                runtimeSummary={buildRuntimeSummary(member, undefined, undefined)}
+                runtimeEntry={undefined}
+                runtimeRunId={undefined}
+                spawnStatus={undefined}
+                spawnEntry={undefined}
+                spawnError={undefined}
+                spawnLivenessSource={undefined}
+                spawnLaunchState={undefined}
+                spawnRuntimeAlive={undefined}
+                isTeamAlive={isTeamAlive}
+                isTeamProvisioning={isTeamProvisioning}
+                leadActivity={leadActivity}
+                isLaunchSettling={false}
+                onOpenTask={onOpenTask}
+                onMemberClick={onMemberClick}
+                onSendMessage={onSendMessage}
+                onAssignTask={onAssignTask}
+                onRestartMember={undefined}
+                onSkipMemberForLaunch={undefined}
+              />
+            ))}
           </div>
         </>
       )}
