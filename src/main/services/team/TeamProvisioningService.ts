@@ -4435,6 +4435,27 @@ interface OpenCodeMemberInboxDelivery {
   diagnostics?: string[];
 }
 
+interface OpenCodeMemberDirectory {
+  config: TeamConfig | null;
+  teamMeta: Awaited<ReturnType<TeamMetaStore['getMeta']>> | null;
+  metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>>;
+}
+
+type OpenCodeMemberIdentityResolution =
+  | {
+      ok: true;
+      canonicalMemberName: string;
+      laneId: string;
+      laneIdentity: ReturnType<typeof buildPlannedMemberLaneIdentity>;
+      configMember?: TeamMember;
+      metaMember?: TeamMember;
+      memberRuntimeCwd?: string;
+    }
+  | {
+      ok: false;
+      reason: 'recipient_is_not_opencode' | 'recipient_removed' | 'opencode_recipient_unavailable';
+    };
+
 interface OpenCodeMemberInboxRelayResult {
   relayed: number;
   attempted: number;
@@ -4611,6 +4632,106 @@ export class TeamProvisioningService {
     return typeof configReader.getConfigSnapshot === 'function'
       ? configReader.getConfigSnapshot(teamName)
       : configReader.getConfig(teamName);
+  }
+
+  private readConfigForObservation(teamName: string): Promise<TeamConfig | null> {
+    return this.readConfigSnapshot(teamName);
+  }
+
+  private readConfigForStrictDecision(teamName: string): Promise<TeamConfig | null> {
+    return this.configReader.getConfig(teamName);
+  }
+
+  private async readOpenCodeMemberDirectory(teamName: string): Promise<OpenCodeMemberDirectory> {
+    const [config, teamMeta, metaMembers] = await Promise.all([
+      this.readConfigForObservation(teamName).catch(() => null),
+      this.teamMetaStore.getMeta(teamName).catch(() => null),
+      this.membersMetaStore.getMembers(teamName).catch(() => []),
+    ]);
+    return { config, teamMeta, metaMembers };
+  }
+
+  private resolveOpenCodeMemberIdentityFromDirectory(
+    teamName: string,
+    memberName: string,
+    directory: OpenCodeMemberDirectory
+  ): OpenCodeMemberIdentityResolution {
+    const normalizedMemberName = memberName.trim();
+    const configMember = directory.config?.members?.find(
+      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
+    );
+    const metaMember = directory.metaMembers.find(
+      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
+    );
+    if (!configMember && !metaMember) {
+      return { ok: false, reason: 'opencode_recipient_unavailable' };
+    }
+
+    const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
+    const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
+    const providerId =
+      normalizeTeamProviderLike(metaMember?.providerId) ??
+      normalizeTeamProviderLike(metaProvider) ??
+      normalizeTeamProviderLike(configMember?.providerId) ??
+      normalizeTeamProviderLike(configProvider) ??
+      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
+    if (providerId !== 'opencode') {
+      return { ok: false, reason: 'recipient_is_not_opencode' };
+    }
+
+    const removedAt =
+      metaMember != null
+        ? metaMember.removedAt
+        : (configMember as { removedAt?: unknown } | undefined)?.removedAt;
+    if (removedAt != null) {
+      return { ok: false, reason: 'recipient_removed' };
+    }
+
+    const canonicalMemberName =
+      metaMember?.name?.trim() || configMember?.name?.trim() || normalizedMemberName;
+    const runtimeRun = this.runtimeAdapterRunByTeam.get(teamName);
+    if (runtimeRun?.providerId === 'opencode') {
+      const laneIdentity = buildPlannedMemberLaneIdentity({
+        leadProviderId: 'opencode',
+        member: {
+          name: canonicalMemberName,
+          providerId: 'opencode',
+        },
+      });
+      const memberRuntimeCwd = metaMember?.cwd?.trim() || configMember?.cwd?.trim();
+      return {
+        ok: true,
+        canonicalMemberName,
+        laneId: laneIdentity.laneId,
+        laneIdentity,
+        ...(configMember ? { configMember } : {}),
+        ...(metaMember ? { metaMember } : {}),
+        ...(memberRuntimeCwd ? { memberRuntimeCwd } : {}),
+      };
+    }
+
+    const leadMember = directory.config?.members?.find((member) => isLeadMember(member));
+    const leadProviderId =
+      normalizeOptionalTeamProviderId(directory.teamMeta?.launchIdentity?.providerId) ??
+      normalizeOptionalTeamProviderId(directory.teamMeta?.providerId) ??
+      normalizeOptionalTeamProviderId(leadMember?.providerId);
+    const laneIdentity = buildPlannedMemberLaneIdentity({
+      leadProviderId,
+      member: {
+        name: canonicalMemberName,
+        providerId,
+      },
+    });
+    const memberRuntimeCwd = metaMember?.cwd?.trim() || configMember?.cwd?.trim();
+    return {
+      ok: true,
+      canonicalMemberName,
+      laneId: laneIdentity.laneId,
+      laneIdentity,
+      ...(configMember ? { configMember } : {}),
+      ...(metaMember ? { metaMember } : {}),
+      ...(memberRuntimeCwd ? { memberRuntimeCwd } : {}),
+    };
   }
 
   setRuntimeAdapterRegistry(registry: TeamRuntimeAdapterRegistry | null): void {
@@ -5283,7 +5404,7 @@ export class TeamProvisioningService {
     const adapter = this.getOpenCodeRuntimeAdapter();
     const previousLaunchState = await this.launchStateStore.read(teamName).catch(() => null);
     const [config, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
+      this.readConfigForObservation(teamName).catch(() => null),
       this.membersMetaStore.getMembers(teamName).catch(() => []),
     ]);
     const evidenceReader = new OpenCodeRuntimeManifestEvidenceReader({
@@ -5813,8 +5934,7 @@ export class TeamProvisioningService {
   }): Promise<string[]> {
     const explicitRecipient = input.replyRecipient?.trim() || 'user';
     const candidates = [explicitRecipient];
-    const configuredLeadName = await this.configReader
-      .getConfig(input.teamName)
+    const configuredLeadName = await this.readConfigForObservation(input.teamName)
       .then(
         (config) => config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null
       )
@@ -6236,51 +6356,25 @@ export class TeamProvisioningService {
     if (!adapter) {
       return { delivered: false, reason: 'opencode_runtime_message_bridge_unavailable' };
     }
-    const [config, teamMeta, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.teamMetaStore.getMeta(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
+    const directory = await this.readOpenCodeMemberDirectory(teamName);
+    const identity = this.resolveOpenCodeMemberIdentityFromDirectory(
+      teamName,
+      input.memberName,
+      directory
+    );
+    if (!identity.ok) {
+      return {
+        delivered: false,
+        reason:
+          identity.reason === 'opencode_recipient_unavailable'
+            ? 'recipient_is_not_opencode'
+            : identity.reason,
+      };
+    }
+    const { config } = directory;
+    const { canonicalMemberName, laneIdentity, configMember, metaMember, memberRuntimeCwd } =
+      identity;
     const normalizedMemberName = input.memberName.trim();
-    const configMember = config?.members?.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
-    );
-    const metaMember = metaMembers.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
-    );
-    const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
-    const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const providerId =
-      normalizeTeamProviderLike(metaMember?.providerId) ??
-      normalizeTeamProviderLike(metaProvider) ??
-      normalizeTeamProviderLike(configMember?.providerId) ??
-      normalizeTeamProviderLike(configProvider) ??
-      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
-    if (providerId !== 'opencode') {
-      return { delivered: false, reason: 'recipient_is_not_opencode' };
-    }
-    const removedAt =
-      metaMember != null
-        ? metaMember.removedAt
-        : (configMember as { removedAt?: unknown } | undefined)?.removedAt;
-    if (removedAt != null) {
-      return { delivered: false, reason: 'recipient_removed' };
-    }
-    const canonicalMemberName =
-      metaMember?.name?.trim() || configMember?.name?.trim() || normalizedMemberName;
-
-    const leadMember = config?.members?.find((member) => isLeadMember(member));
-    const leadProviderId =
-      normalizeOptionalTeamProviderId(teamMeta?.launchIdentity?.providerId) ??
-      normalizeOptionalTeamProviderId(teamMeta?.providerId) ??
-      normalizeOptionalTeamProviderId(leadMember?.providerId);
-    const laneIdentity = buildPlannedMemberLaneIdentity({
-      leadProviderId,
-      member: {
-        name: canonicalMemberName,
-        providerId,
-      },
-    });
     if (
       laneIdentity.laneKind === 'secondary' &&
       laneIdentity.laneOwnerProviderId === 'opencode' &&
@@ -6288,7 +6382,6 @@ export class TeamProvisioningService {
     ) {
       return { delivered: false, reason: 'opencode_runtime_not_active' };
     }
-    const memberRuntimeCwd = metaMember?.cwd?.trim() || configMember?.cwd?.trim();
     const cwd =
       laneIdentity.laneKind === 'secondary' && laneIdentity.laneOwnerProviderId === 'opencode'
         ? memberRuntimeCwd ||
@@ -7150,64 +7243,18 @@ export class TeamProvisioningService {
           | 'opencode_recipient_unavailable';
       }
   > {
-    const [config, teamMeta, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.teamMetaStore.getMeta(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
-    const normalizedMemberName = memberName.trim();
-    const configMember = config?.members?.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
+    const directory = await this.readOpenCodeMemberDirectory(teamName);
+    const laneIdentity = this.resolveOpenCodeMemberIdentityFromDirectory(
+      teamName,
+      memberName,
+      directory
     );
-    const metaMember = metaMembers.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
-    );
-    if (!configMember && !metaMember) {
-      return { ok: false, reason: 'opencode_recipient_unavailable' };
+    if (!laneIdentity.ok) {
+      return laneIdentity;
     }
-    const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
-    const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const providerId =
-      normalizeTeamProviderLike(metaMember?.providerId) ??
-      normalizeTeamProviderLike(metaProvider) ??
-      normalizeTeamProviderLike(configMember?.providerId) ??
-      normalizeTeamProviderLike(configProvider) ??
-      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
-    if (providerId !== 'opencode') {
-      return { ok: false, reason: 'recipient_is_not_opencode' };
-    }
-    const removedAt =
-      metaMember != null
-        ? metaMember.removedAt
-        : (configMember as { removedAt?: unknown } | undefined)?.removedAt;
-    if (removedAt != null) {
-      return { ok: false, reason: 'recipient_removed' };
-    }
-    const canonicalMemberName =
-      metaMember?.name?.trim() || configMember?.name?.trim() || normalizedMemberName;
-    const runtimeRun = this.runtimeAdapterRunByTeam.get(teamName);
-    if (runtimeRun?.providerId === 'opencode') {
-      return {
-        ok: true,
-        canonicalMemberName,
-        laneId: 'primary',
-      };
-    }
-    const leadMember = config?.members?.find((member) => isLeadMember(member));
-    const leadProviderId =
-      normalizeOptionalTeamProviderId(teamMeta?.launchIdentity?.providerId) ??
-      normalizeOptionalTeamProviderId(teamMeta?.providerId) ??
-      normalizeOptionalTeamProviderId(leadMember?.providerId);
-    const laneIdentity = buildPlannedMemberLaneIdentity({
-      leadProviderId,
-      member: {
-        name: canonicalMemberName,
-        providerId,
-      },
-    });
     return {
       ok: true,
-      canonicalMemberName,
+      canonicalMemberName: laneIdentity.canonicalMemberName,
       laneId: laneIdentity.laneId,
     };
   }
@@ -7216,24 +7263,21 @@ export class TeamProvisioningService {
     teamName: string,
     laneId: string
   ): Promise<string[]> {
-    const [config, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
+    const directory = await this.readOpenCodeMemberDirectory(teamName);
     const names = new Set<string>();
-    for (const member of config?.members ?? []) {
+    for (const member of directory.config?.members ?? []) {
       if (member.name?.trim()) {
         names.add(member.name.trim());
       }
     }
-    for (const member of metaMembers) {
+    for (const member of directory.metaMembers) {
       if (member.name?.trim()) {
         names.add(member.name.trim());
       }
     }
     const resolved: string[] = [];
     for (const name of names) {
-      const identity = await this.resolveOpenCodeMemberDeliveryIdentity(teamName, name);
+      const identity = this.resolveOpenCodeMemberIdentityFromDirectory(teamName, name, directory);
       if (identity.ok && identity.laneId === laneId) {
         resolved.push(identity.canonicalMemberName);
       }
@@ -7306,7 +7350,7 @@ export class TeamProvisioningService {
     }
 
     const [config, teamMeta, metaMembers, currentLaneIndex] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
+      this.readConfigForObservation(teamName).catch(() => null),
       this.teamMetaStore.getMeta(teamName).catch(() => null),
       this.membersMetaStore.getMembers(teamName).catch(() => []),
       readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName).catch(() => null),
@@ -8831,7 +8875,7 @@ export class TeamProvisioningService {
     memberName: string;
     previousMember?: PersistedTeamLaunchMemberState;
   }): Promise<void> {
-    const config = await this.configReader.getConfig(input.teamName).catch(() => null);
+    const config = await this.readConfigForStrictDecision(input.teamName).catch(() => null);
     const metaMembers = await this.membersMetaStore.getMembers(input.teamName).catch(() => []);
     const configuredMember = this.resolveEffectiveConfiguredMember(
       config?.members ?? [],
@@ -10886,7 +10930,7 @@ export class TeamProvisioningService {
       metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>>;
       configuredMember: ReturnType<TeamProvisioningService['resolveEffectiveConfiguredMember']>;
     }> => {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await this.readConfigForStrictDecision(teamName);
       const configuredMembers = config?.members ?? [];
       let metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>> = [];
       try {
@@ -11202,7 +11246,7 @@ export class TeamProvisioningService {
       throw new Error('Member name is required');
     }
 
-    const config = await this.configReader.getConfig(teamName);
+    const config = await this.readConfigForStrictDecision(teamName);
     if (!config) {
       throw new Error(`Team "${teamName}" configuration is no longer available`);
     }
@@ -11362,7 +11406,7 @@ export class TeamProvisioningService {
       throw new Error('OpenCode runtime adapter is not available for controlled lane reattach.');
     }
 
-    const config = await this.configReader.getConfig(teamName);
+    const config = await this.readConfigForStrictDecision(teamName);
     if (!config) {
       throw new Error(`Team "${teamName}" configuration is no longer available`);
     }
@@ -16255,7 +16299,7 @@ export class TeamProvisioningService {
       // as read after native delivery, so we must scan ALL messages (including read).
       let config: Awaited<ReturnType<TeamConfigReader['getConfig']>> | null = null;
       try {
-        config = await this.configReader.getConfig(teamName);
+        config = await this.readConfigForObservation(teamName);
       } catch {
         // config not ready yet during early provisioning — skip scan
       }
@@ -16304,7 +16348,7 @@ export class TeamProvisioningService {
       // Re-read config if needed (already fetched above but guard provisioningComplete path)
       if (!config) {
         try {
-          config = await this.configReader.getConfig(teamName);
+          config = await this.readConfigForObservation(teamName);
         } catch {
           return 0;
         }
@@ -16782,7 +16826,7 @@ export class TeamProvisioningService {
 
     for (const teamName of aliveTeams) {
       try {
-        const config = await this.configReader.getConfig(teamName);
+        const config = await this.readConfigForStrictDecision(teamName);
         if (!config) continue;
 
         const oldCode = config.language || 'system';
@@ -21962,7 +22006,7 @@ export class TeamProvisioningService {
     let currentMembers: TeamCreateRequest['members'] = run.request.members;
     let leadName = 'team-lead';
     try {
-      const config = await this.configReader.getConfig(run.teamName);
+      const config = await this.readConfigForObservation(run.teamName);
       if (config?.members) {
         const configLead = config.members.find((m) => isLeadMember(m));
         leadName = configLead?.name?.trim() || 'team-lead';
@@ -22122,7 +22166,7 @@ export class TeamProvisioningService {
     let leadName =
       run.effectiveMembers.find((m) => m.role?.toLowerCase().includes('lead'))?.name || 'team-lead';
     try {
-      const config = await this.configReader.getConfig(run.teamName);
+      const config = await this.readConfigForObservation(run.teamName);
       if (config?.members) {
         const configLead = config.members.find((m) => isLeadMember(m));
         leadName = configLead?.name?.trim() || leadName;
@@ -22833,7 +22877,7 @@ export class TeamProvisioningService {
     // Resolve project cwd from team config
     let projectCwd: string | undefined;
     try {
-      const config = await this.configReader.getConfig(run.teamName);
+      const config = await this.readConfigForStrictDecision(run.teamName);
       projectCwd = config?.projectPath ?? config?.members?.[0]?.cwd;
     } catch {
       // best-effort

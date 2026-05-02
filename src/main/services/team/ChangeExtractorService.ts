@@ -123,6 +123,12 @@ export class ChangeExtractorService {
     this.taskChangeComputer = new TaskChangeComputer(logsFinder, boundaryParser);
   }
 
+  private readConfigForObservation(teamName: string) {
+    return typeof this.configReader.getConfigSnapshot === 'function'
+      ? this.configReader.getConfigSnapshot(teamName)
+      : this.configReader.getConfig(teamName);
+  }
+
   setTaskChangePresenceServices(
     repository: TaskChangePresenceRepository,
     tracker: TeamLogSourceTracker
@@ -671,7 +677,7 @@ export class ChangeExtractorService {
     try {
       const [meta, config] = await Promise.all([
         this.teamMetaStore.getMeta(teamName).catch(() => null),
-        this.configReader.getConfig(teamName).catch(() => null),
+        this.readConfigForObservation(teamName).catch(() => null),
       ]);
       const hasOpenCodeMember = (config?.members ?? []).some(
         (member) => member.providerId === 'opencode'
@@ -996,7 +1002,7 @@ export class ChangeExtractorService {
   /** Получить projectPath из конфига команды */
   private async resolveProjectPath(teamName: string): Promise<string | undefined> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await this.readConfigForObservation(teamName);
       return config?.projectPath?.trim() || undefined;
     } catch {
       return undefined;

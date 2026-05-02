@@ -307,6 +307,45 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(service.getLiveLeadProcessMessages(teamName)).toHaveLength(1);
   });
 
+  it('uses snapshot config reads for lead inbox relay routing', async () => {
+    const getConfig = vi.fn(async () => {
+      throw new Error('verified config read should not be used for inbox relay routing');
+    });
+    const getConfigSnapshot = vi.fn(async () => ({
+      name: 'My Team',
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    }));
+    const service = new TeamProvisioningService({
+      getConfig,
+      getConfigSnapshot,
+    } as any);
+    const teamName = 'my-team';
+    seedLeadInbox(teamName, [
+      {
+        from: 'bob',
+        text: 'Please assign this to Alice.',
+        timestamp: '2026-02-23T10:00:00.000Z',
+        read: false,
+        summary: 'Need delegation',
+        messageId: 'm-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: 'OK, will do.' }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+    await expect(relayPromise).resolves.toBe(1);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(getConfigSnapshot).toHaveBeenCalledWith(teamName);
+    expect(getConfig).not.toHaveBeenCalled();
+  });
+
   it('shows assistant text after relay capture has already settled', () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';

@@ -46,6 +46,11 @@ interface SessionProjectMatch extends ProjectDirCandidate {
   matchedSessionId: string;
 }
 
+interface TeamTranscriptProjectConfigReader {
+  getConfig(teamName: string): Promise<TeamConfig | null>;
+  getConfigSnapshot?: (teamName: string) => Promise<TeamConfig | null>;
+}
+
 type ScannedSessionProjectMatch = Omit<SessionProjectMatch, 'projectPath'> & {
   projectPath?: string;
 };
@@ -187,8 +192,14 @@ export class TeamTranscriptProjectResolver {
   >();
 
   constructor(
-    private readonly configReader: Pick<TeamConfigReader, 'getConfig'> = new TeamConfigReader()
+    private readonly configReader: TeamTranscriptProjectConfigReader = new TeamConfigReader()
   ) {}
+
+  private readConfigForObservation(teamName: string): Promise<TeamConfig | null> {
+    return typeof this.configReader.getConfigSnapshot === 'function'
+      ? this.configReader.getConfigSnapshot(teamName)
+      : this.configReader.getConfig(teamName);
+  }
 
   async getContext(
     teamName: string,
@@ -203,7 +214,7 @@ export class TeamTranscriptProjectResolver {
       return cached.value;
     }
 
-    const config = await this.configReader.getConfig(teamName);
+    const config = await this.readConfigForObservation(teamName);
     if (!config) {
       return null;
     }

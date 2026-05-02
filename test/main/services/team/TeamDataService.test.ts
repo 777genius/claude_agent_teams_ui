@@ -339,6 +339,35 @@ describe('TeamDataService task projection cache invalidation', () => {
     expect(configInvalidateSpy).toHaveBeenCalledWith('gone-team');
     expect(taskInvalidateSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps team deletion mutations on verified config reads', async () => {
+    const claudeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'team-data-delete-verified-'));
+    tempPaths.push(claudeRoot);
+    setClaudeBasePathOverride(claudeRoot);
+    await fs.mkdir(path.join(claudeRoot, 'teams', 'my-team'), { recursive: true });
+
+    const getConfig = vi.fn(async () => ({
+      name: 'My team',
+      members: [],
+    }));
+    const getConfigSnapshot = vi.fn(async () => {
+      throw new Error('snapshot config read should not be used for team deletion');
+    });
+    const service = new TeamDataService({
+      listTeams: vi.fn(),
+      getConfig,
+      getConfigSnapshot,
+    } as never);
+
+    await service.deleteTeam('my-team');
+
+    const written = JSON.parse(
+      await fs.readFile(path.join(claudeRoot, 'teams', 'my-team', 'config.json'), 'utf8')
+    ) as TeamConfig;
+    expect(written.deletedAt).toBeTruthy();
+    expect(getConfig).toHaveBeenCalledWith('my-team');
+    expect(getConfigSnapshot).not.toHaveBeenCalled();
+  });
 });
 
 describe('TeamDataService draft metadata', () => {
@@ -1370,15 +1399,20 @@ describe('TeamDataService', () => {
 
   it('includes projectPath from config when creating a task', async () => {
     const createTaskMock = vi.fn((task) => task);
+    const getConfig = vi.fn(async () => {
+      throw new Error('verified config read should not be used for task enrichment');
+    });
+    const getConfigSnapshot = vi.fn(async () => ({
+      name: 'My team',
+      members: [],
+      projectPath: '/Users/dev/my-project',
+    }));
 
     const service = new TeamDataService(
       {
         listTeams: vi.fn(),
-        getConfig: vi.fn(async () => ({
-          name: 'My team',
-          members: [],
-          projectPath: '/Users/dev/my-project',
-        })),
+        getConfig,
+        getConfigSnapshot,
       } as never,
       {
         getNextTaskId: vi.fn(async () => '1'),
@@ -1417,6 +1451,8 @@ describe('TeamDataService', () => {
     expect(createTaskMock).toHaveBeenCalledWith(
       expect.objectContaining({ projectPath: '/Users/dev/my-project' })
     );
+    expect(getConfigSnapshot).toHaveBeenCalledWith('my-team');
+    expect(getConfig).not.toHaveBeenCalled();
   });
 
   it('returns lightweight notification context from config without hydrating team data', async () => {

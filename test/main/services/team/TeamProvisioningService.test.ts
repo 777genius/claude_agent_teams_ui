@@ -3439,6 +3439,111 @@ describe('TeamProvisioningService', () => {
       });
     });
 
+    it('uses snapshot config reads for OpenCode member delivery routing', async () => {
+      const getConfig = vi.fn(async () => {
+        throw new Error('verified config read should not be used for delivery routing');
+      });
+      const getConfigSnapshot = vi.fn(async () => ({
+        projectPath: '/repo',
+        members: [
+          { name: 'team-lead', providerId: 'codex', model: 'gpt-5.4' },
+          { name: 'bob', providerId: 'opencode', model: 'minimax-m2.5-free' },
+        ],
+      }));
+      const svc = new TeamProvisioningService({
+        getConfig,
+        getConfigSnapshot,
+      } as any);
+      const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
+        ok: true,
+        providerId: 'opencode',
+        memberName: String(input.memberName),
+        sessionId: 'oc-session-bob',
+        diagnostics: [],
+      }));
+      svc.setRuntimeAdapterRegistry(
+        new TeamRuntimeAdapterRegistry([
+          {
+            providerId: 'opencode',
+            prepare: vi.fn(),
+            launch: vi.fn(),
+            reconcile: vi.fn(),
+            stop: vi.fn(),
+            sendMessageToMember,
+          } as any,
+        ])
+      );
+      (svc as any).teamMetaStore = {
+        getMeta: vi.fn(async () => ({
+          launchIdentity: { providerId: 'codex' },
+          providerId: 'codex',
+        })),
+      };
+      (svc as any).membersMetaStore = {
+        getMembers: vi.fn(async () => [
+          { name: 'bob', providerId: 'opencode', model: 'opencode/minimax-m2.5-free' },
+        ]),
+      };
+      (svc as any).setSecondaryRuntimeRun({
+        teamName: 'team-a',
+        runId: 'opencode-run-bob',
+        providerId: 'opencode',
+        laneId: 'secondary:opencode:bob',
+        memberName: 'bob',
+        cwd: '/repo',
+      });
+
+      await expect(
+        svc.deliverOpenCodeMemberMessage('team-a', {
+          memberName: 'bob',
+          text: 'hello bob',
+          messageId: 'msg-1',
+        })
+      ).resolves.toMatchObject({ delivered: true });
+
+      expect(getConfigSnapshot).toHaveBeenCalledWith('team-a');
+      expect(getConfig).not.toHaveBeenCalled();
+    });
+
+    it('resolves OpenCode runtime lane members from one snapshot directory read', async () => {
+      const getConfig = vi.fn(async () => {
+        throw new Error('verified config read should not be used for lane member resolution');
+      });
+      const getConfigSnapshot = vi.fn(async () => ({
+        projectPath: '/repo',
+        members: [
+          { name: 'team-lead', providerId: 'codex', model: 'gpt-5.4' },
+          { name: 'bob', providerId: 'opencode', model: 'minimax-m2.5-free' },
+          { name: 'alice', providerId: 'codex', model: 'gpt-5.4' },
+        ],
+      }));
+      const svc = new TeamProvisioningService({
+        getConfig,
+        getConfigSnapshot,
+      } as any);
+      (svc as any).teamMetaStore = {
+        getMeta: vi.fn(async () => ({
+          launchIdentity: { providerId: 'codex' },
+          providerId: 'codex',
+        })),
+      };
+      (svc as any).membersMetaStore = {
+        getMembers: vi.fn(async () => [
+          { name: 'bob', providerId: 'opencode', model: 'opencode/minimax-m2.5-free' },
+        ]),
+      };
+
+      await expect(
+        (svc as any).resolveOpenCodeMembersForRuntimeLane(
+          'team-a',
+          'secondary:opencode:bob'
+        )
+      ).resolves.toEqual(['bob']);
+
+      expect(getConfigSnapshot).toHaveBeenCalledTimes(1);
+      expect(getConfig).not.toHaveBeenCalled();
+    });
+
     it('delivers OpenCode secondary-lane messages to the member worktree cwd after restart', async () => {
       const svc = new TeamProvisioningService();
       const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
@@ -6529,6 +6634,33 @@ describe('TeamProvisioningService', () => {
           runtimeSessionId: 'session-bob',
         })
       );
+    });
+
+    it('keeps OpenCode bootstrap check-in allowlist on verified config reads', async () => {
+      const getConfig = vi.fn(async () => ({
+        teamName: 'mixed-team',
+        members: [{ name: 'bob', providerId: 'opencode' }],
+      }));
+      const getConfigSnapshot = vi.fn(async () => {
+        throw new Error('snapshot config read should not be used for bootstrap check-in guards');
+      });
+      const svc = new TeamProvisioningService({
+        getConfig,
+        getConfigSnapshot,
+      } as any);
+      (svc as any).membersMetaStore = {
+        getMembers: vi.fn(async () => []),
+      };
+
+      await expect(
+        (svc as any).assertOpenCodeRuntimeMemberCheckinAllowed({
+          teamName: 'mixed-team',
+          memberName: 'bob',
+        })
+      ).resolves.toBeUndefined();
+
+      expect(getConfig).toHaveBeenCalledWith('mixed-team');
+      expect(getConfigSnapshot).not.toHaveBeenCalled();
     });
 
     it('rejects duplicate OpenCode bootstrap check-ins for members removed after the first check-in', async () => {
@@ -9664,11 +9796,16 @@ describe('TeamProvisioningService', () => {
 
   it('expands teammate permission suggestions to the operational tool set only', async () => {
     allowConsoleLogs();
+    const getConfig = vi.fn(async () => ({
+      projectPath: tempClaudeRoot,
+      members: [{ cwd: tempClaudeRoot }],
+    }));
+    const getConfigSnapshot = vi.fn(async () => {
+      throw new Error('snapshot config read should not be used for permission writes');
+    });
     const svc = new TeamProvisioningService({
-      getConfig: vi.fn(async () => ({
-        projectPath: tempClaudeRoot,
-        members: [{ cwd: tempClaudeRoot }],
-      })),
+      getConfig,
+      getConfigSnapshot,
     } as any);
 
     await (svc as any).respondToTeammatePermission(
@@ -9696,6 +9833,8 @@ describe('TeamProvisioningService', () => {
     );
     expect(settings.permissions?.allow).not.toContain('mcp__agent-teams__team_stop');
     expect(settings.permissions?.allow).not.toContain('mcp__agent-teams__kanban_clear');
+    expect(getConfig).toHaveBeenCalledWith('ops-team');
+    expect(getConfigSnapshot).not.toHaveBeenCalled();
   });
 
   it('does not broaden admin/runtime teammate permission suggestions', async () => {

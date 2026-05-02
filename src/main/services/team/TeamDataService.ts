@@ -1898,7 +1898,7 @@ export class TeamDataService {
 
     let projectPath: string | undefined;
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       projectPath = config?.projectPath;
     } catch {
       /* best-effort */
@@ -2237,7 +2237,7 @@ export class TeamDataService {
     let enrichedRequest = request;
     if (!enrichedRequest.leadSessionId) {
       try {
-        const config = await this.configReader.getConfig(teamName);
+        const config = await readConfigForUiSnapshot(this.configReader, teamName);
         if (config?.leadSessionId) {
           enrichedRequest = { ...enrichedRequest, leadSessionId: config.leadSessionId };
         }
@@ -2310,7 +2310,7 @@ export class TeamDataService {
 
   private async resolveLeadName(teamName: string): Promise<string> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       return this.resolveLeadNameFromConfig(config);
     } catch {
       return 'team-lead';
@@ -2321,7 +2321,7 @@ export class TeamDataService {
     teamName: string
   ): Promise<{ leadName: string; leadSessionId?: string }> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       return {
         leadName: this.resolveLeadNameFromConfig(config),
         leadSessionId: config?.leadSessionId,
@@ -2638,7 +2638,7 @@ export class TeamDataService {
     const recoverPending = options?.recoverPending === true;
     let config: TeamConfig | null = null;
     try {
-      config = await this.configReader.getConfig(teamName);
+      config = await readConfigForUiSnapshot(this.configReader, teamName);
     } catch {
       return;
     }
@@ -2793,7 +2793,7 @@ export class TeamDataService {
   ): Promise<SendMessageResult> {
     let leadSessionId: string | undefined;
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       leadSessionId = config?.leadSessionId;
     } catch {
       // non-critical — proceed without sessionId
@@ -2826,7 +2826,7 @@ export class TeamDataService {
 
   async getLeadMemberName(teamName: string): Promise<string | null> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
 
       // Check config.json members first (Claude Code-created teams)
       if (config?.members?.length) {
