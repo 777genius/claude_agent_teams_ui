@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { recordRecentProjectOpenPaths } from '@features/recent-projects/renderer';
 import { api, isElectronMode } from '@renderer/api';
@@ -233,7 +233,7 @@ const StatusBadge = ({ status }: { status: TeamStatus }): React.JSX.Element => {
   }
 };
 
-export const TeamListView = (): React.JSX.Element => {
+export const TeamListView = memo((): React.JSX.Element => {
   const { isLight } = useTheme();
   const electronMode = isElectronMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -1177,4 +1177,4 @@ export const TeamListView = (): React.JSX.Element => {
       </div>
     </TooltipProvider>
   );
-};
+});

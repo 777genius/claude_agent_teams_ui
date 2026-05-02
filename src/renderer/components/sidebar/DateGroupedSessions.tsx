@@ -4,7 +4,7 @@
  * Supports multi-select with bulk actions and hidden session filtering.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { recordRecentProjectOpenPaths } from '@features/recent-projects/renderer';
@@ -184,7 +184,7 @@ function matchesSessionSearch(session: Session, query: string): boolean {
   return haystack.includes(query);
 }
 
-export const DateGroupedSessions = (): React.JSX.Element => {
+export const DateGroupedSessions = memo((): React.JSX.Element => {
   const {
     sessions,
     selectedSessionId,
@@ -1114,4 +1114,4 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       </div>
     </div>
   );
-};
+});
