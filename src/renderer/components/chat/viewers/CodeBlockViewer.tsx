@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 
 import { getBaseName } from '@renderer/utils/pathUtils';
 import { createLogger } from '@shared/utils/logger';
@@ -117,14 +117,14 @@ function inferLanguage(fileName: string): string {
 // Component
 // =============================================================================
 
-export const CodeBlockViewer: React.FC<CodeBlockViewerProps> = ({
+export const CodeBlockViewer = memo(function CodeBlockViewer({
   fileName,
   content,
   language,
   startLine = 1,
   endLine,
   maxHeight = 'max-h-96',
-}): React.JSX.Element => {
+}: CodeBlockViewerProps): React.JSX.Element {
   const [isCopied, setIsCopied] = useState(false);
 
   // Infer language from file extension if not provided
@@ -241,4 +241,4 @@ export const CodeBlockViewer: React.FC<CodeBlockViewerProps> = ({
       </div>
     </div>
   );
-};
+});

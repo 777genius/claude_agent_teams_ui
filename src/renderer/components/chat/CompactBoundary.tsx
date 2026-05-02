@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 import {
@@ -28,9 +28,9 @@ interface CompactBoundaryProps {
  * CompactBoundary displays a horizontal divider indicating where
  * the conversation was compacted. Click to expand the compacted summary.
  */
-export const CompactBoundary = ({
+export const CompactBoundary = memo(function CompactBoundary({
   compactGroup,
-}: Readonly<CompactBoundaryProps>): React.JSX.Element => {
+}: Readonly<CompactBoundaryProps>): React.JSX.Element {
   const { timestamp, message } = compactGroup;
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -166,4 +166,4 @@ export const CompactBoundary = ({
       )}
     </div>
   );
-};
+});
