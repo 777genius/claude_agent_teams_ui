@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover';
@@ -18,9 +18,11 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { LaunchTeamDialog } from '../dialogs/LaunchTeamDialog';
-
 import { ScheduleEmptyState } from './ScheduleEmptyState';
+
+const LaunchTeamDialog = lazy(() =>
+  import('../dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
+);
 import { ScheduleRunLogDialog } from './ScheduleRunLogDialog';
 import { ScheduleRunRow } from './ScheduleRunRow';
 import { ScheduleStatusBadge } from './ScheduleStatusBadge';
@@ -305,13 +307,15 @@ export const ScheduleSection = ({ teamName }: ScheduleSectionProps): React.JSX.E
       )}
 
       {/* Create/Edit Dialog */}
-      <LaunchTeamDialog
-        mode="schedule"
-        open={dialogOpen}
-        teamName={teamName}
-        schedule={editingSchedule}
-        onClose={handleClose}
-      />
+      <Suspense fallback={null}>
+        <LaunchTeamDialog
+          mode="schedule"
+          open={dialogOpen}
+          teamName={teamName}
+          schedule={editingSchedule}
+          onClose={handleClose}
+        />
+      </Suspense>
     </div>
   );
 };

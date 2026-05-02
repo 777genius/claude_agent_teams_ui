@@ -202,7 +202,6 @@ export const DateGroupedSessions = memo((): React.JSX.Element => {
     toggleShowHiddenSessions,
     sidebarSelectedSessionIds,
     sidebarMultiSelectActive,
-    toggleSidebarSessionSelection,
     clearSidebarSelection,
     toggleSidebarMultiSelect,
     hideMultipleSessions,
@@ -239,7 +238,6 @@ export const DateGroupedSessions = memo((): React.JSX.Element => {
       toggleShowHiddenSessions: s.toggleShowHiddenSessions,
       sidebarSelectedSessionIds: s.sidebarSelectedSessionIds,
       sidebarMultiSelectActive: s.sidebarMultiSelectActive,
-      toggleSidebarSessionSelection: s.toggleSidebarSessionSelection,
       clearSidebarSelection: s.clearSidebarSelection,
       toggleSidebarMultiSelect: s.toggleSidebarMultiSelect,
       hideMultipleSessions: s.hideMultipleSessions,
@@ -1104,7 +1102,6 @@ export const DateGroupedSessions = memo((): React.JSX.Element => {
                     isHidden={item.isHidden}
                     multiSelectActive={sidebarMultiSelectActive}
                     isSelected={selectedSet.has(item.session.id)}
-                    onToggleSelect={() => toggleSidebarSessionSelection(item.session.id)}
                   />
                 )}
               </div>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { Input } from '@renderer/components/ui/input';
@@ -24,8 +24,11 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { LaunchTeamDialog } from '../team/dialogs/LaunchTeamDialog';
 import { ScheduleRunLogDialog } from '../team/schedule/ScheduleRunLogDialog';
+
+const LaunchTeamDialog = lazy(() =>
+  import('../team/dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
+);
 import { ScheduleRunRow } from '../team/schedule/ScheduleRunRow';
 import { ScheduleStatusBadge } from '../team/schedule/ScheduleStatusBadge';
 
@@ -562,13 +565,15 @@ export const SchedulesView = (): React.JSX.Element => {
       </div>
 
       {/* Create/Edit Dialog */}
-      <LaunchTeamDialog
-        mode="schedule"
-        open={dialogOpen}
-        teamName={editingSchedule?.teamName}
-        schedule={editingSchedule}
-        onClose={handleClose}
-      />
+      <Suspense fallback={null}>
+        <LaunchTeamDialog
+          mode="schedule"
+          open={dialogOpen}
+          teamName={editingSchedule?.teamName}
+          schedule={editingSchedule}
+          onClose={handleClose}
+        />
+      </Suspense>
     </div>
   );
 };

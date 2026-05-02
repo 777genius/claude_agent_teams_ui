@@ -80,7 +80,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { AddMemberDialog } from './dialogs/AddMemberDialog';
 import { CreateTaskDialog } from './dialogs/CreateTaskDialog';
 import { EditTeamDialog } from './dialogs/EditTeamDialog';
-import { LaunchTeamDialog, type TeamLaunchDialogMode } from './dialogs/LaunchTeamDialog';
+import type { TeamLaunchDialogMode } from './dialogs/LaunchTeamDialog';
 import { ReviewDialog } from './dialogs/ReviewDialog';
 import { SendMessageDialog } from './dialogs/SendMessageDialog';
 import { TaskDetailDialog } from './dialogs/TaskDetailDialog';
@@ -96,6 +96,9 @@ import type { AddMemberEntry } from './dialogs/AddMemberDialog';
 import type { TeamMessagesPanelMode } from '@renderer/types/teamMessagesPanelMode';
 import type { ComponentProps, CSSProperties } from 'react';
 
+const LaunchTeamDialog = lazy(() =>
+  import('./dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
+);
 const ProjectEditorOverlay = lazy(() =>
   import('./editor/ProjectEditorOverlay').then((m) => ({ default: m.ProjectEditorOverlay }))
 );
@@ -2176,18 +2179,20 @@ export const TeamDetailView = memo(
                 </div>
               </div>
             </div>
-            <LaunchTeamDialog
-              mode={launchDialogState.mode}
-              open={launchDialogOpen}
-              teamName={teamName}
-              members={[]}
-              defaultProjectPath={draftTeamSummary?.projectPath}
-              provisioningError={provisioningError}
-              clearProvisioningError={clearProvisioningError}
-              onClose={closeLaunchDialog}
-              onLaunch={handleLaunchDialogSubmit}
-              onRelaunch={handleRelaunchDialogSubmit}
-            />
+            <Suspense fallback={null}>
+              <LaunchTeamDialog
+                mode={launchDialogState.mode}
+                open={launchDialogOpen}
+                teamName={teamName}
+                members={[]}
+                defaultProjectPath={draftTeamSummary?.projectPath}
+                provisioningError={provisioningError}
+                clearProvisioningError={clearProvisioningError}
+                onClose={closeLaunchDialog}
+                onLaunch={handleLaunchDialogSubmit}
+                onRelaunch={handleRelaunchDialogSubmit}
+              />
+            </Suspense>
           </>
         );
       }
@@ -2976,19 +2981,21 @@ export const TeamDetailView = memo(
                   </DialogContent>
                 </Dialog>
 
-                <LaunchTeamDialog
-                  mode={launchDialogState.mode}
-                  open={launchDialogOpen}
-                  teamName={teamName}
-                  members={membersWithLiveBranches}
-                  defaultProjectPath={data.config.projectPath}
-                  provisioningError={provisioningError}
-                  clearProvisioningError={clearProvisioningError}
-                  activeTeams={activeTeamsForLaunch}
-                  onClose={closeLaunchDialog}
-                  onLaunch={handleLaunchDialogSubmit}
-                  onRelaunch={handleRelaunchDialogSubmit}
-                />
+                <Suspense fallback={null}>
+                  <LaunchTeamDialog
+                    mode={launchDialogState.mode}
+                    open={launchDialogOpen}
+                    teamName={teamName}
+                    members={membersWithLiveBranches}
+                    defaultProjectPath={data.config.projectPath}
+                    provisioningError={provisioningError}
+                    clearProvisioningError={clearProvisioningError}
+                    activeTeams={activeTeamsForLaunch}
+                    onClose={closeLaunchDialog}
+                    onLaunch={handleLaunchDialogSubmit}
+                    onRelaunch={handleRelaunchDialogSubmit}
+                  />
+                </Suspense>
 
                 <SendMessageDialog
                   open={sendDialogOpen}

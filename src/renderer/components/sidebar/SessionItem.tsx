@@ -30,7 +30,6 @@ interface SessionItemProps {
   isHidden?: boolean;
   multiSelectActive?: boolean;
   isSelected?: boolean;
-  onToggleSelect?: () => void;
 }
 
 /**
@@ -164,7 +163,6 @@ export const SessionItem = memo(
     isHidden,
     multiSelectActive,
     isSelected,
-    onToggleSelect,
   }: Readonly<SessionItemProps>): React.JSX.Element => {
     const {
       openTab,
@@ -174,6 +172,7 @@ export const SessionItem = memo(
       splitPane,
       togglePinSession,
       toggleHideSession,
+      toggleSidebarSessionSelection,
     } = useStore(
       useShallow((s) => ({
         openTab: s.openTab,
@@ -183,6 +182,7 @@ export const SessionItem = memo(
         splitPane: s.splitPane,
         togglePinSession: s.togglePinSession,
         toggleHideSession: s.toggleHideSession,
+        toggleSidebarSessionSelection: s.toggleSidebarSessionSelection,
       }))
     );
 
@@ -192,8 +192,8 @@ export const SessionItem = memo(
       if (!activeProjectId) return;
 
       // In multi-select mode, clicks toggle selection
-      if (multiSelectActive && onToggleSelect) {
-        onToggleSelect();
+      if (multiSelectActive) {
+        toggleSidebarSessionSelection(session.id);
         return;
       }
 
@@ -291,7 +291,7 @@ export const SessionItem = memo(
                     <input
                       type="checkbox"
                       checked={isSelected ?? false}
-                      onChange={() => onToggleSelect?.()}
+                      onChange={() => toggleSidebarSessionSelection(session.id)}
                       onClick={(e) => e.stopPropagation()}
                       className="size-3.5 shrink-0 accent-blue-500"
                     />
