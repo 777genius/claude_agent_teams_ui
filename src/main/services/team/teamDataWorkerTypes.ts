@@ -56,6 +56,7 @@ export interface TeamDataWorkerDiag {
 // ── Request / Response ──
 
 export type TeamDataWorkerRequest =
+  | { id: string; op: 'warmup'; payload?: Record<string, never> }
   | { id: string; op: 'getTeamData'; payload: GetTeamDataPayload }
   | { id: string; op: 'getMessagesPage'; payload: GetMessagesPagePayload }
   | { id: string; op: 'getMemberActivityMeta'; payload: GetMemberActivityMetaPayload }

@@ -36,6 +36,7 @@ interface GetAllTasksPayload {
 }
 
 type WorkerRequest =
+  | { id: string; op: 'warmup'; payload?: Record<string, never> }
   | { id: string; op: 'listTeams'; payload: ListTeamsPayload }
   | { id: string; op: 'getAllTasks'; payload: GetAllTasksPayload };
 
@@ -44,6 +45,9 @@ type WorkerResponse =
   | { id: string; ok: false; error: string };
 
 function summarizeWorkerPayload(payload: WorkerRequest['payload']): Record<string, unknown> {
+  if (!payload) {
+    return {};
+  }
   if ('teamsDir' in payload) {
     return {
       teamsDir: payload.teamsDir,
@@ -51,6 +55,9 @@ function summarizeWorkerPayload(payload: WorkerRequest['payload']): Record<strin
       maxConfigReadMs: payload.maxConfigReadMs,
       maxConfigBytes: payload.maxConfigBytes,
     };
+  }
+  if (!('tasksBase' in payload)) {
+    return {};
   }
   return {
     tasksBase: payload.tasksBase,
@@ -108,6 +115,18 @@ export class TeamFsWorkerClient {
     { resolve: (v: { result: unknown; diag?: WorkerDiag }) => void; reject: (e: Error) => void }
   >();
 
+  private failWorker(worker: Worker, error: Error): void {
+    if (this.worker !== worker) return;
+
+    this.worker = null;
+    const pendingEntries = Array.from(this.pending.values());
+    this.pending.clear();
+
+    for (const entry of pendingEntries) {
+      entry.reject(error);
+    }
+  }
+
   isAvailable(): boolean {
     if (!this.workerPath && !this.warnedUnavailable && shouldWarnUnavailableWorker()) {
       this.warnedUnavailable = true;
@@ -134,8 +153,9 @@ export class TeamFsWorkerClient {
       return this.worker;
     }
 
-    this.worker = new Worker(this.workerPath);
-    this.worker.on('message', (msg: WorkerResponse) => {
+    const worker = new Worker(this.workerPath);
+    this.worker = worker;
+    worker.on('message', (msg: WorkerResponse) => {
       const entry = this.pending.get(msg.id);
       if (!entry) return;
       this.pending.delete(msg.id);
@@ -145,26 +165,18 @@ export class TeamFsWorkerClient {
         entry.reject(new Error(msg.error));
       }
     });
-    this.worker.on('error', (err) => {
+    worker.on('error', (err) => {
       logger.error('Worker error', err);
-      for (const [, entry] of this.pending) {
-        entry.reject(err instanceof Error ? err : new Error(String(err)));
-      }
-      this.pending.clear();
-      this.worker = null;
+      this.failWorker(worker, err instanceof Error ? err : new Error(String(err)));
     });
-    this.worker.on('exit', (code) => {
+    worker.on('exit', (code) => {
       if (code !== 0) {
         logger.warn(`Worker exited with code ${code}`);
       }
-      for (const [, entry] of this.pending) {
-        entry.reject(new Error(`Worker exited with code ${code}`));
-      }
-      this.pending.clear();
-      this.worker = null;
+      this.failWorker(worker, new Error(`Worker exited with code ${code}`));
     });
 
-    return this.worker;
+    return worker;
   }
 
   private call(
@@ -177,21 +189,22 @@ export class TeamFsWorkerClient {
     const pendingAtStart = this.pending.size;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        try {
-          // Terminate and recreate on next call — worker may be stuck in native IO.
-          this.worker?.terminate().catch(() => undefined);
-        } catch {
-          // ignore
-        } finally {
-          this.worker = null;
-        }
+        const timeoutError = new Error(
+          `Worker call timeout after ${WORKER_CALL_TIMEOUT_MS}ms (${op})`
+        );
         logger.warn(
           `worker call timeout op=${op} ms=${Date.now() - startedAt} pendingAtStart=${pendingAtStart} pendingNow=${this.pending.size} payload=${JSON.stringify(
             summarizeWorkerPayload(payload)
           )}`
         );
-        reject(new Error(`Worker call timeout after ${WORKER_CALL_TIMEOUT_MS}ms (${op})`));
+        this.failWorker(worker, timeoutError);
+        try {
+          // Terminate and recreate on next call - worker may be stuck in native IO.
+          worker.terminate().catch(() => undefined);
+        } catch {
+          // ignore
+        }
+        reject(timeoutError);
       }, WORKER_CALL_TIMEOUT_MS);
 
       this.pending.set(id, {
@@ -222,6 +235,21 @@ export class TeamFsWorkerClient {
       });
       worker.postMessage({ id, op, payload } as WorkerRequest);
     });
+  }
+
+  async prewarm(): Promise<void> {
+    if (this.worker) {
+      return;
+    }
+    if (!this.isAvailable()) {
+      return;
+    }
+    const startedAt = Date.now();
+    await this.call('warmup', {});
+    const ms = Date.now() - startedAt;
+    if (ms >= 1500) {
+      logger.warn(`worker prewarm slow ms=${ms}`);
+    }
   }
 
   async listTeams(options: {

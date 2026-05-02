@@ -66,6 +66,9 @@ interface PendingEntry {
 function summarizeWorkerPayload(
   payload: TeamDataWorkerRequest['payload']
 ): Record<string, unknown> {
+  if (!payload) {
+    return {};
+  }
   if ('taskId' in payload) {
     return {
       teamName: payload.teamName,
@@ -211,6 +214,21 @@ export class TeamDataWorkerClient {
 
       worker.postMessage({ id, op, payload } as TeamDataWorkerRequest);
     });
+  }
+
+  async prewarm(): Promise<void> {
+    if (this.worker) {
+      return;
+    }
+    if (!this.isAvailable()) {
+      return;
+    }
+    const startedAt = Date.now();
+    await this.call('warmup', {});
+    const ms = Date.now() - startedAt;
+    if (ms >= 1500) {
+      logger.warn(`worker prewarm slow ms=${ms}`);
+    }
   }
 
   private postBestEffort(

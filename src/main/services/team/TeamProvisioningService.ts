@@ -4565,10 +4565,31 @@ export class TeamProvisioningService {
     string,
     { expiresAtMs: number; snapshot: TeamAgentRuntimeSnapshot }
   >();
+  private readonly agentRuntimeSnapshotInFlightByTeam = new Map<
+    string,
+    {
+      generationAtStart: number;
+      runIdAtStart: string | null;
+      promise: Promise<TeamAgentRuntimeSnapshot>;
+    }
+  >();
   private readonly liveTeamAgentRuntimeMetadataCache = new Map<
     string,
-    { expiresAtMs: number; metadata: Map<string, LiveTeamAgentRuntimeMetadata> }
+    {
+      expiresAtMs: number;
+      metadata: Map<string, LiveTeamAgentRuntimeMetadata>;
+      runId: string | null;
+    }
   >();
+  private readonly liveTeamAgentRuntimeMetadataInFlightByTeam = new Map<
+    string,
+    {
+      generationAtStart: number;
+      runIdAtStart: string | null;
+      promise: Promise<Map<string, LiveTeamAgentRuntimeMetadata>>;
+    }
+  >();
+  private readonly runtimeSnapshotCacheGenerationByTeam = new Map<string, number>();
   private readonly launchStateStore = new TeamLaunchStateStore();
   private readonly launchStateStoreQueue = new Map<string, Promise<unknown>>();
   private readonly memberLogsFinder: TeamMemberLogsFinder;
@@ -4649,6 +4670,35 @@ export class TeamProvisioningService {
       this.membersMetaStore.getMembers(teamName).catch(() => []),
     ]);
     return { config, teamMeta, metaMembers };
+  }
+
+  private getRuntimeSnapshotCacheGeneration(teamName: string): number {
+    return this.runtimeSnapshotCacheGenerationByTeam.get(teamName) ?? 0;
+  }
+
+  private invalidateRuntimeSnapshotCaches(teamName: string): void {
+    this.runtimeSnapshotCacheGenerationByTeam.set(
+      teamName,
+      this.getRuntimeSnapshotCacheGeneration(teamName) + 1
+    );
+    this.agentRuntimeSnapshotCache.delete(teamName);
+    this.agentRuntimeSnapshotInFlightByTeam.delete(teamName);
+    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.liveTeamAgentRuntimeMetadataInFlightByTeam.delete(teamName);
+  }
+
+  private cloneLiveTeamAgentRuntimeMetadata(
+    metadata: ReadonlyMap<string, LiveTeamAgentRuntimeMetadata>
+  ): Map<string, LiveTeamAgentRuntimeMetadata> {
+    return new Map(
+      [...metadata.entries()].map(([memberName, entry]) => [
+        memberName,
+        {
+          ...entry,
+          ...(entry.diagnostics ? { diagnostics: [...entry.diagnostics] } : {}),
+        },
+      ])
+    );
   }
 
   private resolveOpenCodeMemberIdentityFromDirectory(
@@ -5463,6 +5513,7 @@ export class TeamProvisioningService {
         this.runtimeAdapterRunByTeam.delete(teamName);
         this.aliveRunByTeam.delete(teamName);
         this.provisioningRunByTeam.delete(teamName);
+        this.invalidateRuntimeSnapshotCaches(teamName);
       }
     }
     if (cleaned > 0) {
@@ -7625,6 +7676,7 @@ export class TeamProvisioningService {
 
   private resetTeamScopedTransientStateForNewRun(teamName: string): void {
     peekAutoResumeService()?.cancelPendingAutoResume(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.retainedClaudeLogsByTeam.delete(teamName);
     this.persistedTranscriptClaudeLogsCache.delete(teamName);
     this.leadInboxRelayInFlight.delete(teamName);
@@ -9070,8 +9122,7 @@ export class TeamProvisioningService {
         trackedUpdate.run,
         this.getMixedSecondaryLaunchPhase(trackedUpdate.run)
       );
-      this.agentRuntimeSnapshotCache.delete(input.teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(input.teamName);
+      this.invalidateRuntimeSnapshotCaches(input.teamName);
       if (trackedUpdate.changed) {
         this.teamChangeEmitter?.({
           type: 'member-spawn',
@@ -9158,8 +9209,7 @@ export class TeamProvisioningService {
       updatedAt: input.observedAt,
     });
     await this.writeLaunchStateSnapshot(input.teamName, snapshot);
-    this.agentRuntimeSnapshotCache.delete(input.teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(input.teamName);
+    this.invalidateRuntimeSnapshotCaches(input.teamName);
     if (shouldEmitMemberSpawnChange) {
       this.teamChangeEmitter?.({
         type: 'member-spawn',
@@ -9936,8 +9986,7 @@ export class TeamProvisioningService {
               );
               return;
             }
-            this.agentRuntimeSnapshotCache.delete(run.teamName);
-            this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+            this.invalidateRuntimeSnapshotCaches(run.teamName);
             this.setMemberSpawnStatus(run, spawnedMemberName, 'waiting');
             this.appendMemberBootstrapDiagnostic(
               run,
@@ -10405,6 +10454,36 @@ export class TeamProvisioningService {
       return cached.snapshot;
     }
 
+    const generationAtStart = this.getRuntimeSnapshotCacheGeneration(teamName);
+    const existingRequest = this.agentRuntimeSnapshotInFlightByTeam.get(teamName);
+    if (
+      existingRequest &&
+      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest.runIdAtStart === runId
+    ) {
+      return existingRequest.promise;
+    }
+
+    const request = this.buildTeamAgentRuntimeSnapshot(teamName, runId, generationAtStart).finally(
+      () => {
+        if (this.agentRuntimeSnapshotInFlightByTeam.get(teamName)?.promise === request) {
+          this.agentRuntimeSnapshotInFlightByTeam.delete(teamName);
+        }
+      }
+    );
+    this.agentRuntimeSnapshotInFlightByTeam.set(teamName, {
+      generationAtStart,
+      runIdAtStart: runId,
+      promise: request,
+    });
+    return request;
+  }
+
+  private async buildTeamAgentRuntimeSnapshot(
+    teamName: string,
+    runId: string | null,
+    generationAtStart: number
+  ): Promise<TeamAgentRuntimeSnapshot> {
     const updatedAt = nowIso();
     const run = runId ? (this.runs.get(runId) ?? null) : null;
     const currentRuntimeAdapterRun = this.runtimeAdapterRunByTeam.get(teamName);
@@ -10627,10 +10706,15 @@ export class TeamProvisioningService {
       members: snapshotMembers,
     };
 
-    this.agentRuntimeSnapshotCache.set(teamName, {
-      expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
-      snapshot,
-    });
+    if (
+      this.getRuntimeSnapshotCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === runId
+    ) {
+      this.agentRuntimeSnapshotCache.set(teamName, {
+        expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
+        snapshot,
+      });
+    }
     return snapshot;
   }
 
@@ -11004,8 +11088,7 @@ export class TeamProvisioningService {
       );
     }
 
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     const liveRuntimeByMember = await this.getLiveTeamAgentRuntimeMetadata(teamName);
     const livePids = new Set<number>();
     let hasAliveRuntimeWithoutPid = false;
@@ -11150,8 +11233,7 @@ export class TeamProvisioningService {
       throw new Error('Lead restart is not supported from member controls');
     }
 
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.resetRuntimeToolActivity(run, memberName);
     this.clearMemberSpawnToolTracking(run, memberName);
     this.setMemberSpawnStatus(run, memberName, 'spawning');
@@ -11311,8 +11393,7 @@ export class TeamProvisioningService {
       : 'Skipped by user for this launch';
 
     if (run && !run.processKilled && !run.cancelRequested) {
-      this.agentRuntimeSnapshotCache.delete(teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+      this.invalidateRuntimeSnapshotCaches(teamName);
       this.resetRuntimeToolActivity(run, normalizedMemberName);
       this.clearMemberSpawnToolTracking(run, normalizedMemberName);
       this.setMemberSpawnStatus(run, normalizedMemberName, 'skipped', reason);
@@ -11374,8 +11455,7 @@ export class TeamProvisioningService {
       updatedAt,
     });
     await this.writeLaunchStateSnapshot(teamName, nextSnapshot);
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
   }
 
   private getMutableAliveRunOrThrow(teamName: string): ProvisioningRun {
@@ -11489,8 +11569,7 @@ export class TeamProvisioningService {
     }
 
     this.upsertRunAllEffectiveMember(run, memberSpec);
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.resetRuntimeToolActivity(run, memberName);
     this.clearMemberSpawnToolTracking(run, memberName);
     run.pendingMemberRestarts.delete(memberName);
@@ -11544,8 +11623,7 @@ export class TeamProvisioningService {
     );
     if (laneIndex < 0) {
       this.removeRunAllEffectiveMember(run, memberName);
-      this.agentRuntimeSnapshotCache.delete(teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+      this.invalidateRuntimeSnapshotCaches(teamName);
       await this.persistLaunchStateSnapshot(run, this.getMixedSecondaryLaunchPhase(run));
       return;
     }
@@ -11553,8 +11631,7 @@ export class TeamProvisioningService {
     const [lane] = run.mixedSecondaryLanes.splice(laneIndex, 1);
     await this.stopSingleMixedSecondaryRuntimeLane(run, lane, 'cleanup');
     this.removeRunAllEffectiveMember(run, memberName);
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.resetRuntimeToolActivity(run, memberName);
     this.clearMemberSpawnToolTracking(run, memberName);
     run.pendingMemberRestarts.delete(memberName);
@@ -14429,6 +14506,7 @@ export class TeamProvisioningService {
         }).catch(() => undefined);
         this.runtimeAdapterRunByTeam.delete(input.request.teamName);
         this.aliveRunByTeam.delete(input.request.teamName);
+        this.invalidateRuntimeSnapshotCaches(input.request.teamName);
       } else {
         this.runtimeAdapterRunByTeam.set(input.request.teamName, {
           runId,
@@ -14437,6 +14515,7 @@ export class TeamProvisioningService {
           members: result.members,
         });
         this.aliveRunByTeam.set(input.request.teamName, runId);
+        this.invalidateRuntimeSnapshotCaches(input.request.teamName);
       }
       if (this.provisioningRunByTeam.get(input.request.teamName) === runId) {
         this.provisioningRunByTeam.delete(input.request.teamName);
@@ -15399,6 +15478,7 @@ export class TeamProvisioningService {
     if (this.provisioningRunByTeam.get(teamName) === runId) {
       this.provisioningRunByTeam.delete(teamName);
     }
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.setRuntimeAdapterProgress({
       ...runtimeProgress,
       state: 'cancelled',
@@ -15478,6 +15558,7 @@ export class TeamProvisioningService {
     if (this.provisioningRunByTeam.get(teamName) === runId) {
       this.provisioningRunByTeam.delete(teamName);
     }
+    this.invalidateRuntimeSnapshotCaches(teamName);
   }
 
   private recordCancelledOpenCodeRuntimeAdapterLaunch(
@@ -15490,6 +15571,7 @@ export class TeamProvisioningService {
     this.provisioningRunByTeam.delete(teamName);
     this.runtimeAdapterRunByTeam.delete(teamName);
     this.aliveRunByTeam.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     const progress: TeamProvisioningProgress = {
       runId,
       teamName,
@@ -17519,12 +17601,44 @@ export class TeamProvisioningService {
   private async getLiveTeamAgentRuntimeMetadata(
     teamName: string
   ): Promise<Map<string, LiveTeamAgentRuntimeMetadata>> {
+    const runId = this.getTrackedRunId(teamName);
     const cached = this.liveTeamAgentRuntimeMetadataCache.get(teamName);
-    if (cached && cached.expiresAtMs > Date.now()) {
-      return cached.metadata;
+    if (cached && cached.expiresAtMs > Date.now() && cached.runId === runId) {
+      return this.cloneLiveTeamAgentRuntimeMetadata(cached.metadata);
     }
 
-    const runId = this.getTrackedRunId(teamName);
+    const generationAtStart = this.getRuntimeSnapshotCacheGeneration(teamName);
+    const existingRequest = this.liveTeamAgentRuntimeMetadataInFlightByTeam.get(teamName);
+    if (
+      existingRequest &&
+      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest.runIdAtStart === runId
+    ) {
+      return this.cloneLiveTeamAgentRuntimeMetadata(await existingRequest.promise);
+    }
+
+    const request = this.buildLiveTeamAgentRuntimeMetadata(
+      teamName,
+      runId,
+      generationAtStart
+    ).finally(() => {
+      if (this.liveTeamAgentRuntimeMetadataInFlightByTeam.get(teamName)?.promise === request) {
+        this.liveTeamAgentRuntimeMetadataInFlightByTeam.delete(teamName);
+      }
+    });
+    this.liveTeamAgentRuntimeMetadataInFlightByTeam.set(teamName, {
+      generationAtStart,
+      runIdAtStart: runId,
+      promise: request,
+    });
+    return this.cloneLiveTeamAgentRuntimeMetadata(await request);
+  }
+
+  private async buildLiveTeamAgentRuntimeMetadata(
+    teamName: string,
+    runId: string | null,
+    generationAtStart: number
+  ): Promise<Map<string, LiveTeamAgentRuntimeMetadata>> {
     const run = runId ? (this.runs.get(runId) ?? null) : null;
 
     let configuredMembers: TeamConfig['members'] = [];
@@ -17865,10 +17979,16 @@ export class TeamProvisioningService {
       });
     }
 
-    this.liveTeamAgentRuntimeMetadataCache.set(teamName, {
-      expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
-      metadata: metadataByMember,
-    });
+    if (
+      this.getRuntimeSnapshotCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === runId
+    ) {
+      this.liveTeamAgentRuntimeMetadataCache.set(teamName, {
+        expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
+        metadata: this.cloneLiveTeamAgentRuntimeMetadata(metadataByMember),
+        runId,
+      });
+    }
     return metadataByMember;
   }
 
@@ -18884,14 +19004,12 @@ export class TeamProvisioningService {
 
     if (filteredSnapshot.teamLaunchState === 'clean_success' && launchPhase !== 'active') {
       await this.clearPersistedLaunchStateNow(run.teamName);
-      this.agentRuntimeSnapshotCache.delete(run.teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+      this.invalidateRuntimeSnapshotCaches(run.teamName);
       return null;
     }
 
     const writtenSnapshot = await this.writeLaunchStateSnapshotNow(run.teamName, filteredSnapshot);
-    this.agentRuntimeSnapshotCache.delete(run.teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+    this.invalidateRuntimeSnapshotCaches(run.teamName);
     return writtenSnapshot;
   }
 
@@ -20772,8 +20890,7 @@ export class TeamProvisioningService {
    * Always uses SIGKILL via killTeamProcess() to prevent CLI cleanup.
    */
   async stopTeam(teamName: string): Promise<void> {
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.stopPersistentTeamMembers(teamName);
 
     const runId = this.getTrackedRunId(teamName);
@@ -21001,6 +21118,7 @@ export class TeamProvisioningService {
       this.runtimeAdapterRunByTeam.delete(teamName);
       this.aliveRunByTeam.delete(teamName);
       this.provisioningRunByTeam.delete(teamName);
+      this.invalidateRuntimeSnapshotCaches(teamName);
       return;
     }
     const startedAt = nowIso();
@@ -21019,6 +21137,7 @@ export class TeamProvisioningService {
     if (this.provisioningRunByTeam.get(teamName) === runId) {
       this.provisioningRunByTeam.delete(teamName);
     }
+    this.invalidateRuntimeSnapshotCaches(teamName);
     try {
       await clearOpenCodeRuntimeLaneStorage({
         teamsBasePath: getTeamsBasePath(),
@@ -21364,8 +21483,7 @@ export class TeamProvisioningService {
           );
           return true;
         }
-        this.agentRuntimeSnapshotCache.delete(run.teamName);
-        this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+        this.invalidateRuntimeSnapshotCaches(run.teamName);
         this.setMemberSpawnStatus(run, memberName, 'waiting');
         this.appendMemberBootstrapDiagnostic(
           run,
@@ -23760,8 +23878,7 @@ export class TeamProvisioningService {
       this.clearSecondaryRuntimeRuns(run.teamName);
     }
     if (!hasNewerTrackedRun) {
-      this.agentRuntimeSnapshotCache.delete(run.teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+      this.invalidateRuntimeSnapshotCaches(run.teamName);
       this.leadInboxRelayInFlight.delete(run.teamName);
       this.relayedLeadInboxMessageIds.delete(run.teamName);
       this.pendingCrossTeamFirstReplies.delete(run.teamName);

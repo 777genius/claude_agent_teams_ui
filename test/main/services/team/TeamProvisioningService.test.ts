@@ -206,6 +206,16 @@ function createPidusageStat(pid: number, memory: number) {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function writeLaunchConfig(
   teamName: string,
   projectPath: string,
@@ -619,6 +629,182 @@ describe('TeamProvisioningService', () => {
   });
 
   describe('getTeamAgentRuntimeSnapshot', () => {
+    it('dedupes concurrent runtime snapshot probes for the same team', async () => {
+      const svc = new TeamProvisioningService();
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'alice', model: 'gpt-5.4-mini' },
+          ],
+        })),
+      };
+      (svc as any).readPersistedRuntimeMembers = vi.fn(() => [
+        {
+          name: 'alice',
+          agentId: 'alice@runtime-team',
+          tmuxPaneId: '%1',
+          backendType: 'tmux',
+        },
+      ]);
+      (svc as any).aliveRunByTeam.set('runtime-team', 'run-1');
+      (svc as any).runs.set('run-1', {
+        runId: 'run-1',
+        child: { pid: 111 },
+        request: { model: 'gpt-5.4' },
+        processKilled: false,
+        cancelRequested: false,
+        spawnContext: null,
+      });
+      const paneInfo = createDeferred<Map<string, { paneId: string; panePid: number }>>();
+      vi.mocked(listTmuxPaneRuntimeInfoForCurrentPlatform).mockReturnValueOnce(
+        paneInfo.promise as ReturnType<typeof listTmuxPaneRuntimeInfoForCurrentPlatform>
+      );
+      vi.mocked(pidusage).mockResolvedValueOnce({
+        '111': createPidusageStat(111, 123_000_000),
+        '222': createPidusageStat(222, 456_000_000),
+      } as any);
+
+      const first = svc.getTeamAgentRuntimeSnapshot('runtime-team');
+      const second = svc.getTeamAgentRuntimeSnapshot('runtime-team');
+      paneInfo.resolve(
+        new Map([
+          [
+            '%1',
+            {
+              paneId: '%1',
+              panePid: 222,
+            },
+          ],
+        ])
+      );
+      const [firstSnapshot, secondSnapshot] = await Promise.all([first, second]);
+
+      expect(listTmuxPaneRuntimeInfoForCurrentPlatform).toHaveBeenCalledTimes(1);
+      expect(pidusage).toHaveBeenCalledTimes(1);
+      expect(firstSnapshot.members.alice?.pid).toBe(222);
+      expect(secondSnapshot.members.alice?.pid).toBe(222);
+    });
+
+    it('does not cache live runtime metadata when invalidated while the probe is in flight', async () => {
+      const svc = new TeamProvisioningService();
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'alice', model: 'gpt-5.4-mini' },
+          ],
+        })),
+      };
+      const processRows = createDeferred<Awaited<ReturnType<typeof listRuntimeProcessesForCurrentTmuxPlatform>>>();
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform)
+        .mockReturnValueOnce(processRows.promise)
+        .mockResolvedValueOnce([]);
+
+      const first = (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team') as Promise<
+        Map<string, unknown>
+      >;
+      (svc as any).invalidateRuntimeSnapshotCaches('runtime-team');
+      processRows.resolve([]);
+      await first;
+
+      await (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team');
+
+      expect(listRuntimeProcessesForCurrentTmuxPlatform).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns cloned live runtime metadata maps from cache', async () => {
+      const svc = new TeamProvisioningService();
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'alice', model: 'gpt-5.4-mini' },
+          ],
+        })),
+      };
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform).mockResolvedValueOnce([]);
+
+      const first = (await (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team')) as Map<
+        string,
+        unknown
+      >;
+      expect(first.has('alice')).toBe(true);
+      first.delete('alice');
+
+      const second = (await (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team')) as Map<
+        string,
+        unknown
+      >;
+
+      expect(second.has('alice')).toBe(true);
+      expect(listRuntimeProcessesForCurrentTmuxPlatform).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears runtime probe caches when starting a new run for the team', async () => {
+      const svc = new TeamProvisioningService();
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'alice', model: 'gpt-5.4-mini' },
+          ],
+        })),
+      };
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      await (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team');
+      (svc as any).resetTeamScopedTransientStateForNewRun('runtime-team');
+      await (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team');
+
+      expect(listRuntimeProcessesForCurrentTmuxPlatform).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not cache a probe that started before runtime adapter evidence was installed', async () => {
+      const svc = new TeamProvisioningService();
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'alice', providerId: 'opencode', model: 'gpt-5.4-mini' },
+          ],
+        })),
+      };
+      (svc as any).provisioningRunByTeam.set('runtime-team', 'run-1');
+      const processRows = createDeferred<Awaited<ReturnType<typeof listRuntimeProcessesForCurrentTmuxPlatform>>>();
+      vi.mocked(listRuntimeProcessesForCurrentTmuxPlatform)
+        .mockReturnValueOnce(processRows.promise)
+        .mockResolvedValueOnce([]);
+
+      const first = (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team') as Promise<
+        Map<string, unknown>
+      >;
+      (svc as any).runtimeAdapterRunByTeam.set('runtime-team', {
+        runId: 'run-1',
+        providerId: 'opencode',
+        cwd: '/tmp/runtime-project',
+        members: {
+          alice: {
+            providerId: 'opencode',
+            runtimeAlive: true,
+            bootstrapConfirmed: false,
+            runtimePid: 333,
+            livenessKind: 'runtime_process',
+            pidSource: 'agent_process_table',
+          },
+        },
+      });
+      (svc as any).invalidateRuntimeSnapshotCaches('runtime-team');
+      processRows.resolve([]);
+      await first;
+
+      await (svc as any).getLiveTeamAgentRuntimeMetadata('runtime-team');
+
+      expect(listRuntimeProcessesForCurrentTmuxPlatform).toHaveBeenCalledTimes(2);
+    });
+
     it('uses batched pidusage rss values for lead and teammates', async () => {
       const svc = new TeamProvisioningService();
       (svc as any).configReader = {

@@ -93,6 +93,25 @@ describe('TeamDataWorkerClient', () => {
     client.dispose();
   });
 
+  it('does not queue warmup behind an already running worker', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+
+    await client.getTeamData('my-team');
+    await client.prewarm();
+
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages).toHaveLength(1);
+    expect(hoisted.workers[0].messages[0]).toMatchObject({
+      op: 'getTeamData',
+      payload: { teamName: 'my-team' },
+    });
+
+    client.dispose();
+  });
+
   it('sends best-effort team config invalidation to the worker', async () => {
     const { TeamDataWorkerClient } = await import(
       '../../../../src/main/services/team/TeamDataWorkerClient'

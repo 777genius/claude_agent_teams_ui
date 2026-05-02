@@ -11,6 +11,7 @@ interface WorkerResponse {
   id: string;
   ok: boolean;
   result?: unknown;
+  diag?: unknown;
   error?: string;
 }
 
@@ -44,7 +45,11 @@ function createWorker(workerPath: string): Worker {
   return new Worker(workerPath);
 }
 
-function callListTeams(worker: Worker, teamsDir: string): Promise<unknown[]> {
+function callWorker(
+  worker: Worker,
+  op: string,
+  payload: Record<string, unknown> = {}
+): Promise<{ result: unknown; diag?: unknown }> {
   const requestId = `req-${Date.now()}`;
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -72,27 +77,54 @@ function callListTeams(worker: Worker, teamsDir: string): Promise<unknown[]> {
         reject(new Error(message.error || 'team-fs-worker returned an unknown error'));
         return;
       }
-      resolve(Array.isArray(message.result) ? message.result : []);
+      resolve({ result: message.result, diag: message.diag });
     };
 
     worker.on('message', onMessage);
     worker.on('error', onError);
-    worker.postMessage({
-      id: requestId,
-      op: 'listTeams',
-      payload: {
-        teamsDir,
-        largeConfigBytes: 8 * 1024,
-        configHeadBytes: 4 * 1024,
-        maxConfigBytes: 256 * 1024,
-        maxConfigReadMs: 5_000,
-        maxMembersMetaBytes: 256 * 1024,
-        maxSessionHistoryInSummary: 10,
-        maxProjectPathHistoryInSummary: 10,
-        concurrency: 2,
-      },
-    });
+    worker.postMessage({ id: requestId, op, payload });
   });
+}
+
+async function callListTeams(worker: Worker, teamsDir: string): Promise<{
+  teams: unknown[];
+  diag?: Record<string, unknown>;
+}> {
+  const { result, diag } = await callWorker(worker, 'listTeams', {
+    teamsDir,
+    largeConfigBytes: 8 * 1024,
+    configHeadBytes: 4 * 1024,
+    maxConfigBytes: 256 * 1024,
+    maxConfigReadMs: 5_000,
+    maxMembersMetaBytes: 256 * 1024,
+    maxSessionHistoryInSummary: 10,
+    maxProjectPathHistoryInSummary: 10,
+    concurrency: 2,
+  });
+  return {
+    teams: Array.isArray(result) ? result : [],
+    diag: diag && typeof diag === 'object' ? (diag as Record<string, unknown>) : undefined,
+  };
+}
+
+async function callGetAllTasks(worker: Worker, tasksBase: string): Promise<{
+  tasks: unknown[];
+  diag?: Record<string, unknown>;
+}> {
+  const { result, diag } = await callWorker(worker, 'getAllTasks', {
+    tasksBase,
+    maxTaskBytes: 256 * 1024,
+    maxTaskReadMs: 5_000,
+    concurrency: 2,
+  });
+  return {
+    tasks: Array.isArray(result) ? result : [],
+    diag: diag && typeof diag === 'object' ? (diag as Record<string, unknown>) : undefined,
+  };
+}
+
+async function callWarmup(worker: Worker): Promise<void> {
+  await callWorker(worker, 'warmup');
 }
 
 describe('team-fs-worker integration', () => {
@@ -183,7 +215,7 @@ describe('team-fs-worker integration', () => {
 
     const worker = createWorker(workerPath);
     try {
-      const teams = (await callListTeams(worker, tempDir)) as Array<Record<string, unknown>>;
+      const { teams } = await callListTeams(worker, tempDir);
       expect(teams).toHaveLength(1);
       expect(teams[0]).toMatchObject({
         teamName,
@@ -234,7 +266,7 @@ describe('team-fs-worker integration', () => {
 
     const worker = createWorker(workerPath);
     try {
-      const teams = (await callListTeams(worker, tempDir)) as Array<Record<string, unknown>>;
+      const { teams } = await callListTeams(worker, tempDir);
       expect(teams).toHaveLength(1);
       expect(teams[0]).toMatchObject({
         teamName,
@@ -243,6 +275,152 @@ describe('team-fs-worker integration', () => {
         leadName: 'team-lead',
         leadColor: '#123456',
       });
+    } finally {
+      await worker.terminate();
+    }
+  });
+
+  it('prewarms and reuses unchanged team summaries by fingerprint', async () => {
+    const workerPath = await getWorkerPath();
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'team-fs-worker-'));
+    const teamName = 'cached-worker-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(path.join(teamDir, 'inboxes'), { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Cached Worker Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(teamDir, 'members.meta.json'),
+      JSON.stringify({ version: 1, members: [{ name: 'alice' }] }),
+      'utf8'
+    );
+
+    const worker = createWorker(workerPath);
+    try {
+      await callWarmup(worker);
+      const first = await callListTeams(worker, tempDir);
+      expect(first.teams[0]).toMatchObject({ teamName, memberCount: 1 });
+      expect(first.diag?.cacheMisses).toBe(1);
+
+      const second = await callListTeams(worker, tempDir);
+      expect(second.teams[0]).toMatchObject({ teamName, memberCount: 1 });
+      expect(second.diag?.cacheHits).toBe(1);
+
+      await fs.writeFile(
+        path.join(teamDir, 'members.meta.json'),
+        JSON.stringify({ version: 1, members: [{ name: 'alice' }, { name: 'bob' }] }),
+        'utf8'
+      );
+      const changed = await callListTeams(worker, tempDir);
+      expect(changed.teams[0]).toMatchObject({ teamName, memberCount: 2 });
+      expect(changed.diag?.cacheMisses).toBe(1);
+    } finally {
+      await worker.terminate();
+    }
+  });
+
+  it('does not cache pending launch summaries because liveness can change without file writes', async () => {
+    const workerPath = await getWorkerPath();
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'team-fs-worker-'));
+    const teamName = 'pending-launch-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Pending Launch Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(teamDir, 'launch-summary.json'),
+      JSON.stringify({
+        version: 1,
+        teamName,
+        updatedAt: '2026-05-02T12:00:00.000Z',
+        teamLaunchState: 'partial_pending',
+        expectedMemberCount: 1,
+        pendingCount: 1,
+      }),
+      'utf8'
+    );
+
+    const worker = createWorker(workerPath);
+    try {
+      const first = await callListTeams(worker, tempDir);
+      expect(first.teams[0]).toMatchObject({
+        teamName,
+        teamLaunchState: 'partial_pending',
+        pendingCount: 1,
+      });
+      expect(first.diag?.cacheMisses).toBe(1);
+      expect(first.diag?.cacheWriteSkips).toBe(1);
+
+      const second = await callListTeams(worker, tempDir);
+      expect(second.teams[0]).toMatchObject({
+        teamName,
+        teamLaunchState: 'partial_pending',
+        pendingCount: 1,
+      });
+      expect(second.diag?.cacheHits).toBe(0);
+      expect(second.diag?.cacheMisses).toBe(1);
+      expect(second.diag?.cacheWriteSkips).toBe(1);
+    } finally {
+      await worker.terminate();
+    }
+  });
+
+  it('reuses unchanged parsed tasks and rereads changed task files by fingerprint', async () => {
+    const workerPath = await getWorkerPath();
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'team-fs-worker-'));
+    const tasksBase = path.join(tempDir, 'tasks');
+    const teamName = 'task-cache-team';
+    const tasksDir = path.join(tasksBase, teamName);
+    await fs.mkdir(tasksDir, { recursive: true });
+    const taskPath = path.join(tasksDir, '1.json');
+    await fs.writeFile(
+      taskPath,
+      JSON.stringify({
+        id: '1',
+        subject: 'First subject',
+        status: 'pending',
+        createdAt: '2026-05-02T12:00:00.000Z',
+      }),
+      'utf8'
+    );
+
+    const worker = createWorker(workerPath);
+    try {
+      const first = await callGetAllTasks(worker, tasksBase);
+      expect(first.tasks[0]).toMatchObject({ teamName, subject: 'First subject' });
+      expect(first.diag?.cacheMisses).toBe(1);
+
+      const second = await callGetAllTasks(worker, tasksBase);
+      expect(second.tasks[0]).toMatchObject({ teamName, subject: 'First subject' });
+      expect(second.diag?.cacheHits).toBe(1);
+
+      await fs.writeFile(
+        taskPath,
+        JSON.stringify({
+          id: '1',
+          subject: 'Changed subject with a different size',
+          status: 'pending',
+          createdAt: '2026-05-02T12:00:00.000Z',
+        }),
+        'utf8'
+      );
+      const changed = await callGetAllTasks(worker, tasksBase);
+      expect(changed.tasks[0]).toMatchObject({
+        teamName,
+        subject: 'Changed subject with a different size',
+      });
+      expect(changed.diag?.cacheMisses).toBe(1);
     } finally {
       await worker.terminate();
     }

@@ -39,12 +39,16 @@ parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
   const startedAt = Date.now();
   const buildDiag = (): NonNullable<Extract<TeamDataWorkerResponse, { ok: true }>['diag']> => ({
     op: msg.op,
-    ...('teamName' in msg.payload ? { teamName: msg.payload.teamName } : {}),
-    ...('taskId' in msg.payload ? { taskId: msg.payload.taskId } : {}),
+    ...(msg.payload && 'teamName' in msg.payload ? { teamName: msg.payload.teamName } : {}),
+    ...(msg.payload && 'taskId' in msg.payload ? { taskId: msg.payload.taskId } : {}),
     totalMs: Date.now() - startedAt,
   });
   try {
     switch (msg.op) {
+      case 'warmup': {
+        respond({ id: msg.id, ok: true, result: null, diag: buildDiag() });
+        break;
+      }
       case 'getTeamData': {
         const result = await teamDataService.getTeamData(msg.payload.teamName);
         respond({ id: msg.id, ok: true, result, diag: buildDiag() });
