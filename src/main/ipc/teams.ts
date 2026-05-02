@@ -135,6 +135,10 @@ import { TeamMetaStore } from '../services/team/TeamMetaStore';
 import { buildAddMemberSpawnMessage } from '../services/team/TeamProvisioningService';
 import { TeamTaskAttachmentStore } from '../services/team/TeamTaskAttachmentStore';
 import { TeamWorktreeGitService } from '../services/team/TeamWorktreeGitService';
+import {
+  cloneLaunchIoGovernorPayload,
+  type LaunchIoGovernor,
+} from '../services/team/LaunchIoGovernor';
 
 import {
   validateFromField,
@@ -512,6 +516,7 @@ let teamBackupService: TeamBackupService | null = null;
 let teammateToolTracker: TeammateToolTracker | null = null;
 let teamLogSourceTracker: TeamLogSourceTracker | null = null;
 let branchStatusService: BranchStatusService | null = null;
+let launchIoGovernor: LaunchIoGovernor | null = null;
 let boardTaskActivityService: BoardTaskActivityService | null = null;
 let boardTaskActivityDetailService: BoardTaskActivityDetailService | null = null;
 let boardTaskLogStreamService: BoardTaskLogStreamService | null = null;
@@ -564,7 +569,8 @@ export function initializeTeamHandlers(
   taskActivityDetailService?: BoardTaskActivityDetailService,
   taskLogStreamService?: BoardTaskLogStreamService,
   taskExactLogsService?: BoardTaskExactLogsService,
-  taskExactLogDetailService?: BoardTaskExactLogDetailService
+  taskExactLogDetailService?: BoardTaskExactLogDetailService,
+  ioGovernor?: LaunchIoGovernor
 ): void {
   teamDataService = service;
   teamProvisioningService = provisioningService;
@@ -575,6 +581,7 @@ export function initializeTeamHandlers(
   teammateToolTracker = toolTracker ?? null;
   teamLogSourceTracker = logSourceTracker ?? null;
   branchStatusService = branchTracker ?? null;
+  launchIoGovernor = ioGovernor ?? null;
   boardTaskActivityService = taskActivityService ?? null;
   boardTaskActivityDetailService = taskActivityDetailService ?? null;
   boardTaskLogStreamService = taskLogStreamService ?? null;
@@ -896,7 +903,14 @@ async function handleListTeams(_event: IpcMainInvokeEvent): Promise<IpcResult<Te
   setCurrentMainOp('team:list');
   const startedAt = Date.now();
   try {
-    return await wrapTeamHandler('list', () => getTeamDataService().listTeams());
+    return await wrapTeamHandler('list', () => {
+      const loadFresh = () => getTeamDataService().listTeams();
+      return launchIoGovernor
+        ? launchIoGovernor.runSummaryOperation('teams:list', loadFresh, {
+            clone: cloneLaunchIoGovernorPayload,
+          })
+        : loadFresh();
+    });
   } finally {
     const ms = Date.now() - startedAt;
     if (ms >= 1500) {
@@ -1851,6 +1865,21 @@ function sendProvisioningProgress(
   safeSendToRenderer(targetWindow, TEAM_PROVISIONING_PROGRESS, progress);
 }
 
+function noteLaunchIntentFailed(teamName: string, source: string): void {
+  if (!launchIoGovernor) {
+    return;
+  }
+  const now = new Date().toISOString();
+  launchIoGovernor.noteProvisioningProgress({
+    runId: `${source}:failed-before-progress`,
+    teamName,
+    state: 'failed',
+    message: 'Launch failed before provisioning progress',
+    startedAt: now,
+    updatedAt: now,
+  } as TeamProvisioningProgress);
+}
+
 async function handleCreateTeam(
   event: IpcMainInvokeEvent,
   request: unknown
@@ -1861,11 +1890,18 @@ async function handleCreateTeam(
   }
   const progressTargetWindow = BrowserWindow.fromWebContents(event.sender);
 
-  return wrapTeamHandler('create', () => {
+  return wrapTeamHandler('create', async () => {
     addMainBreadcrumb('team', 'create', { teamName: validation.value.teamName });
-    return getTeamProvisioningService().createTeam(validation.value, (progress) => {
-      sendProvisioningProgress(progressTargetWindow, progress);
-    });
+    launchIoGovernor?.noteLaunchIntent(validation.value.teamName, 'create');
+    try {
+      return await getTeamProvisioningService().createTeam(validation.value, (progress) => {
+        launchIoGovernor?.noteProvisioningProgress(progress);
+        sendProvisioningProgress(progressTargetWindow, progress);
+      });
+    } catch (error) {
+      noteLaunchIntentFailed(validation.value.teamName, 'create');
+      throw error;
+    }
   });
 }
 
@@ -1998,11 +2034,18 @@ async function handleLaunchTeam(
       members: savedRequest.members,
     };
 
-    return wrapTeamHandler('create', () =>
-      getTeamProvisioningService().createTeam(createRequest, (progress) => {
-        sendProvisioningProgress(progressTargetWindow, progress);
-      })
-    );
+    return wrapTeamHandler('create', async () => {
+      launchIoGovernor?.noteLaunchIntent(tn, 'draft-launch');
+      try {
+        return await getTeamProvisioningService().createTeam(createRequest, (progress) => {
+          launchIoGovernor?.noteProvisioningProgress(progress);
+          sendProvisioningProgress(progressTargetWindow, progress);
+        });
+      } catch (error) {
+        noteLaunchIntentFailed(tn, 'draft-launch');
+        throw error;
+      }
+    });
   }
 
   const persistedMeta = await teamMetaStore.getMeta(tn).catch(() => null);
@@ -2040,33 +2083,41 @@ async function handleLaunchTeam(
   const launchLimitContext =
     typeof payload.limitContext === 'boolean' ? payload.limitContext : persistedMeta?.limitContext;
 
-  return wrapTeamHandler('launch', () => {
+  return wrapTeamHandler('launch', async () => {
     addMainBreadcrumb('team', 'launch', { teamName: validatedTeamName.value! });
-    return getTeamProvisioningService().launchTeam(
-      {
-        teamName: validatedTeamName.value!,
-        cwd,
-        prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
-        providerId: launchProviderId,
-        providerBackendId: launchProviderBackendValidation.value,
-        model: rawLaunchModel,
-        effort: effortValidation.value,
-        fastMode: fastModeValidation.value,
-        limitContext: launchLimitContext,
-        clearContext: payload.clearContext === true ? true : undefined,
-        skipPermissions:
-          typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
-        worktree:
-          typeof payload.worktree === 'string' ? payload.worktree.trim() || undefined : undefined,
-        extraCliArgs:
-          typeof payload.extraCliArgs === 'string'
-            ? payload.extraCliArgs.trim() || undefined
-            : undefined,
-      },
-      (progress) => {
-        sendProvisioningProgress(progressTargetWindow, progress);
-      }
-    );
+    launchIoGovernor?.noteLaunchIntent(validatedTeamName.value!, 'launch');
+    try {
+      return await getTeamProvisioningService().launchTeam(
+        {
+          teamName: validatedTeamName.value!,
+          cwd,
+          prompt:
+            typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
+          providerId: launchProviderId,
+          providerBackendId: launchProviderBackendValidation.value,
+          model: rawLaunchModel,
+          effort: effortValidation.value,
+          fastMode: fastModeValidation.value,
+          limitContext: launchLimitContext,
+          clearContext: payload.clearContext === true ? true : undefined,
+          skipPermissions:
+            typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
+          worktree:
+            typeof payload.worktree === 'string' ? payload.worktree.trim() || undefined : undefined,
+          extraCliArgs:
+            typeof payload.extraCliArgs === 'string'
+              ? payload.extraCliArgs.trim() || undefined
+              : undefined,
+        },
+        (progress) => {
+          launchIoGovernor?.noteProvisioningProgress(progress);
+          sendProvisioningProgress(progressTargetWindow, progress);
+        }
+      );
+    } catch (error) {
+      noteLaunchIntentFailed(validatedTeamName.value!, 'launch');
+      throw error;
+    }
   });
 }
 
@@ -3786,7 +3837,14 @@ async function handleGetAllTasks(_event: IpcMainInvokeEvent): Promise<IpcResult<
   setCurrentMainOp('team:getAllTasks');
   const startedAt = Date.now();
   try {
-    return await wrapTeamHandler('getAllTasks', () => getTeamDataService().getAllTasks());
+    return await wrapTeamHandler('getAllTasks', () => {
+      const loadFresh = () => getTeamDataService().getAllTasks();
+      return launchIoGovernor
+        ? launchIoGovernor.runSummaryOperation('teams:getAllTasks', loadFresh, {
+            clone: cloneLaunchIoGovernorPayload,
+          })
+        : loadFresh();
+    });
   } finally {
     const ms = Date.now() - startedAt;
     if (ms >= 1500) {

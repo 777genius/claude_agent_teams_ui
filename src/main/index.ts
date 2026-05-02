@@ -144,6 +144,7 @@ import {
   type TeamReconcileTrigger,
 } from './services/team/TeamReconcileDrainScheduler';
 import { TeamSentMessagesStore } from './services/team/TeamSentMessagesStore';
+import { LaunchIoGovernor } from './services/team/LaunchIoGovernor';
 import { getAppIconPath } from './utils/appIcon';
 import {
   getClaudeBasePath,
@@ -590,6 +591,7 @@ let runtimeProviderManagementFeature: RuntimeProviderManagementFeatureFacade;
 let memberWorkSyncFeature: MemberWorkSyncFeatureFacade | null = null;
 let teamDataService: TeamDataService;
 let teamProvisioningService: TeamProvisioningService;
+let launchIoGovernor: LaunchIoGovernor | null = null;
 let cliInstallerService: CliInstallerService;
 let ptyTerminalService: PtyTerminalService;
 let httpServer: HttpServer;
@@ -826,6 +828,7 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       if (typeof row.teamName !== 'string' || row.teamName.trim().length === 0) return;
       const teamName = row.teamName.trim();
       const detail = typeof row.detail === 'string' ? row.detail : '';
+      launchIoGovernor?.noteTeamChange(row as TeamChangeEvent);
       memberWorkSyncFeature?.noteTeamChange(row as TeamChangeEvent);
 
       if (row.type === 'config') {
@@ -1070,6 +1073,10 @@ async function initializeServices(): Promise<void> {
   // Set notification manager on local context's file watcher
   localContext.fileWatcher.setNotificationManager(notificationManager);
 
+  launchIoGovernor = new LaunchIoGovernor({
+    logger: createLogger('Service:LaunchIoGovernor'),
+  });
+
   // Wire file watcher events for local context
   wireFileWatcherEvents(localContext);
 
@@ -1240,6 +1247,7 @@ async function initializeServices(): Promise<void> {
   });
 
   const forwardTeamChange = (event: TeamChangeEvent): void => {
+    launchIoGovernor?.noteTeamChange(event);
     if (event.type === 'config') {
       if (event.detail === 'config.json') {
         TeamConfigReader.invalidateTeam(event.teamName);
@@ -1437,7 +1445,8 @@ async function initializeServices(): Promise<void> {
     skillsMutationService,
     skillsWatcherService,
     crossTeamService,
-    teamBackupService ?? undefined
+    teamBackupService ?? undefined,
+    launchIoGovernor ?? undefined
   );
   registerCodexAccountIpc(ipcMain, codexAccountFeature);
   registerRecentProjectsIpc(ipcMain, recentProjectsFeature);

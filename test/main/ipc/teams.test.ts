@@ -157,6 +157,7 @@ import {
   removeTeamHandlers,
 } from '../../../src/main/ipc/teams';
 import { ConfigManager } from '../../../src/main/services/infrastructure/ConfigManager';
+import { LaunchIoGovernor } from '../../../src/main/services/team/LaunchIoGovernor';
 import { getAppDataPath } from '../../../src/main/utils/pathDecoder';
 
 describe('ipc teams handlers', () => {
@@ -169,6 +170,7 @@ describe('ipc teams handlers', () => {
       handlers.delete(channel);
     }),
   };
+  let launchIoGovernor: LaunchIoGovernor;
 
   const service = {
     listTeams: vi.fn(async () => [{ teamName: 'my-team', displayName: 'My Team' }]),
@@ -187,6 +189,7 @@ describe('ipc teams handlers', () => {
       feedRevision: 'rev-1',
       messages: [] as InboxMessage[],
     })),
+    getAllTasks: vi.fn(async () => [{ id: 'task-1', teamName: 'my-team', subject: 'Task 1' }]),
     getMessagesPage: vi.fn(
       async (..._args: unknown[]): Promise<MessagesPage> => ({
         messages: [] as InboxMessage[],
@@ -322,6 +325,12 @@ describe('ipc teams handlers', () => {
   beforeEach(() => {
     handlers.clear();
     vi.clearAllMocks();
+    service.listTeams.mockReset();
+    service.getAllTasks.mockReset();
+    service.listTeams.mockResolvedValue([{ teamName: 'my-team', displayName: 'My Team' }]);
+    service.getAllTasks.mockResolvedValue([
+      { id: 'task-1', teamName: 'my-team', subject: 'Task 1' },
+    ]);
     mockGetMembersMeta.mockReset();
     mockGetMembersMeta.mockResolvedValue([]);
     mockGetMembersMetaFile.mockReset();
@@ -339,6 +348,7 @@ describe('ipc teams handlers', () => {
     mockTeamDataWorkerClient.findLogsForTask.mockReset();
     mockTeamDataWorkerClient.invalidateTeamConfig.mockReset();
     mockTeamDataWorkerClient.invalidateTeamMessageFeed.mockReset();
+    launchIoGovernor = new LaunchIoGovernor({ quietWindowMs: 100 });
     initializeTeamHandlers(
       service as never,
       provisioningService as never,
@@ -352,12 +362,14 @@ describe('ipc teams handlers', () => {
       boardTaskActivityDetailService as never,
       boardTaskLogStreamService as never,
       boardTaskExactLogsService as never,
-      boardTaskExactLogDetailService as never
+      boardTaskExactLogDetailService as never,
+      launchIoGovernor
     );
     registerTeamHandlers(ipcMain as never);
   });
 
   afterEach(() => {
+    launchIoGovernor.clearForTests();
     vi.useRealTimers();
     setClaudeBasePathOverride(null);
   });
@@ -1069,6 +1081,155 @@ describe('ipc teams handlers', () => {
       op: 'set_column',
       column: 'approved',
     });
+  });
+
+  it('returns cached TEAM_LIST data under active launch pressure without starting another scan', async () => {
+    const first = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+      data: { teamName: string }[];
+    };
+    expect(first.success).toBe(true);
+    expect(first.data).toEqual([{ teamName: 'my-team', displayName: 'My Team' }]);
+
+    service.listTeams.mockResolvedValueOnce([{ teamName: 'fresh-team', displayName: 'Fresh' }]);
+    launchIoGovernor.noteLaunchIntent('my-team', 'test');
+
+    const second = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+      data: { teamName: string }[];
+    };
+
+    expect(second.success).toBe(true);
+    expect(second.data).toEqual([{ teamName: 'my-team', displayName: 'My Team' }]);
+    expect(service.listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns cached TEAM_GET_ALL_TASKS data under active launch pressure without starting another scan', async () => {
+    const first = (await handlers.get(TEAM_GET_ALL_TASKS)!({} as never)) as {
+      success: boolean;
+      data: { id: string }[];
+    };
+    expect(first.success).toBe(true);
+    expect(first.data).toEqual([{ id: 'task-1', teamName: 'my-team', subject: 'Task 1' }]);
+
+    service.getAllTasks.mockResolvedValueOnce([
+      { id: 'task-2', teamName: 'my-team', subject: 'Task 2' },
+    ]);
+    launchIoGovernor.noteLaunchIntent('my-team', 'test');
+
+    const second = (await handlers.get(TEAM_GET_ALL_TASKS)!({} as never)) as {
+      success: boolean;
+      data: { id: string }[];
+    };
+
+    expect(second.success).toBe(true);
+    expect(second.data).toEqual([{ id: 'task-1', teamName: 'my-team', subject: 'Task 1' }]);
+    expect(service.getAllTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps current fresh behavior for TEAM_LIST when launch pressure has no cached data', async () => {
+    launchIoGovernor.clearForTests();
+    launchIoGovernor.noteLaunchIntent('my-team', 'test');
+
+    const result = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+      data: { teamName: string }[];
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([{ teamName: 'my-team', displayName: 'My Team' }]);
+    expect(service.listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes TEAM_LIST once after terminal provisioning progress quiet window', async () => {
+    vi.useFakeTimers();
+    const first = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+    };
+    expect(first.success).toBe(true);
+
+    service.listTeams.mockResolvedValue([{ teamName: 'fresh-team', displayName: 'Fresh' }]);
+    launchIoGovernor.noteLaunchIntent('my-team', 'test');
+    await handlers.get(TEAM_LIST)!({} as never);
+    launchIoGovernor.noteProvisioningProgress({
+      runId: 'run-1',
+      teamName: 'my-team',
+      state: 'ready',
+      message: 'ready',
+      startedAt: '2026-05-02T00:00:00.000Z',
+      updatedAt: '2026-05-02T00:00:00.000Z',
+    } as TeamProvisioningProgress);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await flushMicrotasks();
+    expect(service.listTeams).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let provisioning status polling activate launch IO stale mode', async () => {
+    const first = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+      data: { teamName: string }[];
+    };
+    expect(first.success).toBe(true);
+
+    service.listTeams.mockResolvedValueOnce([{ teamName: 'fresh-team', displayName: 'Fresh' }]);
+    const status = (await handlers.get(TEAM_PROVISIONING_STATUS)!({} as never, 'run-1')) as {
+      success: boolean;
+    };
+    expect(status.success).toBe(true);
+
+    const second = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+      data: { teamName: string }[];
+    };
+    expect(second.success).toBe(true);
+    expect(second.data).toEqual([{ teamName: 'fresh-team', displayName: 'Fresh' }]);
+    expect(service.listTeams).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears launch IO pressure when create fails before first provisioning progress', async () => {
+    vi.useFakeTimers();
+    const first = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+    };
+    expect(first.success).toBe(true);
+    provisioningService.createTeam.mockRejectedValueOnce(new Error('bootstrap failed early'));
+    service.listTeams
+      .mockResolvedValueOnce([{ teamName: 'background-fresh', displayName: 'Background Fresh' }])
+      .mockResolvedValueOnce([{ teamName: 'fresh-team', displayName: 'Fresh' }]);
+
+    const createResult = (await handlers.get(TEAM_CREATE)!(
+      { sender: { send: vi.fn() } } as never,
+      {
+        teamName: 'my-team',
+        members: [{ name: 'alice' }],
+        cwd: os.tmpdir(),
+      }
+    )) as { success: boolean };
+    expect(createResult.success).toBe(false);
+    vi.mocked(console.error).mockClear();
+
+    await vi.advanceTimersByTimeAsync(100);
+    await flushMicrotasks();
+    const second = (await handlers.get(TEAM_LIST)!({} as never)) as {
+      success: boolean;
+      data: { teamName: string }[];
+    };
+    expect(second.success).toBe(true);
+    expect(second.data).toEqual([{ teamName: 'fresh-team', displayName: 'Fresh' }]);
+    expect(service.listTeams).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not route TEAM_GET_MESSAGES_PAGE through the launch IO governor', async () => {
+    launchIoGovernor.noteLaunchIntent('my-team', 'test');
+
+    const result = (await handlers.get(TEAM_GET_MESSAGES_PAGE)!({} as never, 'my-team', {
+      limit: 50,
+    })) as { success: boolean; data?: { feedRevision: string } };
+
+    expect(result.success).toBe(true);
+    expect(result.data?.feedRevision).toBe('rev-1');
+    expect(service.getMessagesPage).toHaveBeenCalledTimes(1);
   });
 
   it('keeps TEAM_GET_DATA structural and does not expose message transport', async () => {
