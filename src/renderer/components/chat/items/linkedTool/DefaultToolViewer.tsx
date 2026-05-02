@@ -4,7 +4,7 @@
  * Default rendering for tools that don't have specialized viewers.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 
 import { type ItemStatus } from '../BaseItem';
 
@@ -23,7 +23,10 @@ interface DefaultToolViewerProps {
   status: ItemStatus;
 }
 
-export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({ linkedTool, status }) => {
+export const DefaultToolViewer = memo(function DefaultToolViewer({
+  linkedTool,
+  status,
+}: DefaultToolViewerProps) {
   const displayOutputContent = linkedTool.result
     ? formatToolOutputForDisplay(linkedTool.name, linkedTool.result.content)
     : null;
@@ -64,4 +67,4 @@ export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({ linkedTool
         )}
     </>
   );
-};
+});

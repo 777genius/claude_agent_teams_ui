@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 
 import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
@@ -65,12 +65,12 @@ interface TaskTooltipProps {
  * Tooltip that shows task summary on hover over any #taskId link.
  * Reads task data from the current team in the store.
  */
-export const TaskTooltip = ({
+export const TaskTooltip = memo(function TaskTooltip({
   taskId,
   teamName,
   children,
   side = 'top',
-}: TaskTooltipProps): React.JSX.Element => {
+}: TaskTooltipProps): React.JSX.Element {
   const { selectedTeamName, selectedTeamData, selectedTeamMembers, globalTasks, teamByName } =
     useStore(
       useShallow((s) => ({
@@ -194,4 +194,4 @@ export const TaskTooltip = ({
       </TooltipContent>
     </Tooltip>
   );
-};
+});

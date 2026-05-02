@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@renderer/components/ui/badge';
 import { cn } from '@renderer/lib/utils';
@@ -44,7 +44,7 @@ interface CollapsibleTeamSectionProps {
   children: React.ReactNode;
 }
 
-export const CollapsibleTeamSection = ({
+export const CollapsibleTeamSection = memo(function CollapsibleTeamSection({
   title,
   icon,
   badge,
@@ -63,7 +63,7 @@ export const CollapsibleTeamSection = ({
   headerSurfaceClassName,
   keepMounted,
   children,
-}: CollapsibleTeamSectionProps): React.JSX.Element => {
+}: CollapsibleTeamSectionProps): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen);
   const isOpen = forceOpen ? true : open;
   const sectionRef = useRef<HTMLElement>(null);
@@ -174,4 +174,4 @@ export const CollapsibleTeamSection = ({
       )}
     </section>
   );
-};
+});
