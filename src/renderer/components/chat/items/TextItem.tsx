@@ -31,52 +31,54 @@ interface TextItemProps {
   titleText?: string;
 }
 
-export const TextItem: React.FC<TextItemProps> = ({
-  step,
-  preview,
-  onClick,
-  isExpanded,
-  timestamp,
-  timestampFormat,
-  searchQueryOverride,
-  markdownItemId,
-  highlightClasses,
-  highlightStyle,
-  notificationDotColor,
-  titleText,
-}) => {
-  const fullContent = step.content.outputText ?? preview;
-  const summary = searchQueryOverride
-    ? highlightQueryInText(preview, searchQueryOverride, `${markdownItemId ?? step.id}:summary`, {
-        forceAllActive: true,
-      })
-    : preview;
+export const TextItem: React.FC<TextItemProps> = React.memo(
+  ({
+    step,
+    preview,
+    onClick,
+    isExpanded,
+    timestamp,
+    timestampFormat,
+    searchQueryOverride,
+    markdownItemId,
+    highlightClasses,
+    highlightStyle,
+    notificationDotColor,
+    titleText,
+  }) => {
+    const fullContent = step.content.outputText ?? preview;
+    const summary = searchQueryOverride
+      ? highlightQueryInText(preview, searchQueryOverride, `${markdownItemId ?? step.id}:summary`, {
+          forceAllActive: true,
+        })
+      : preview;
 
-  // Get token count from step.tokens.output or step.content.tokenCount
-  const tokenCount = step.tokens?.output ?? step.content.tokenCount ?? 0;
+    // Get token count from step.tokens.output or step.content.tokenCount
+    const tokenCount = step.tokens?.output ?? step.content.tokenCount ?? 0;
 
-  return (
-    <BaseItem
-      icon={<MessageSquare className="size-4" />}
-      label="Output"
-      summary={summary}
-      tokenCount={tokenCount}
-      timestamp={timestamp}
-      timestampFormat={timestampFormat}
-      titleText={titleText}
-      onClick={onClick}
-      isExpanded={isExpanded}
-      highlightClasses={highlightClasses}
-      highlightStyle={highlightStyle}
-      notificationDotColor={notificationDotColor}
-    >
-      <MarkdownViewer
-        content={fullContent}
-        maxHeight="max-h-96"
-        copyable
-        itemId={markdownItemId}
-        searchQueryOverride={searchQueryOverride}
-      />
-    </BaseItem>
-  );
-};
+    return (
+      <BaseItem
+        icon={<MessageSquare className="size-4" />}
+        label="Output"
+        summary={summary}
+        tokenCount={tokenCount}
+        timestamp={timestamp}
+        timestampFormat={timestampFormat}
+        titleText={titleText}
+        onClick={onClick}
+        isExpanded={isExpanded}
+        highlightClasses={highlightClasses}
+        highlightStyle={highlightStyle}
+        notificationDotColor={notificationDotColor}
+      >
+        <MarkdownViewer
+          content={fullContent}
+          maxHeight="max-h-96"
+          copyable
+          itemId={markdownItemId}
+          searchQueryOverride={searchQueryOverride}
+        />
+      </BaseItem>
+    );
+  }
+);
