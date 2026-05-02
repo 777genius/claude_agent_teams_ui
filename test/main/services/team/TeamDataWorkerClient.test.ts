@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const hoisted = vi.hoisted(() => {
+  const skipResponsesForOps = new Set<string>();
   const workers: Array<{
     messages: unknown[];
     handlers: Map<string, (value: unknown) => void>;
@@ -15,6 +16,7 @@ const hoisted = vi.hoisted(() => {
       postMessage(message: unknown) {
         worker.messages.push(message);
         const request = message as { id: string; op: string; payload?: { teamName?: string } };
+        if (skipResponsesForOps.has(request.op)) return;
         queueMicrotask(() => {
           const handler = worker.handlers.get('message');
           if (!handler) return;
@@ -24,6 +26,8 @@ const hoisted = vi.hoisted(() => {
             result:
               request.op === 'getTeamData'
                 ? { teamName: request.payload?.teamName, config: { name: 'Team' } }
+                : request.op === 'getMessagesPage'
+                  ? { messages: [], nextCursor: null, hasMore: false, feedRevision: 'rev-1' }
                 : null,
           });
         });
@@ -39,6 +43,7 @@ const hoisted = vi.hoisted(() => {
   return {
     workers,
     createMockWorker,
+    skipResponsesForOps,
   };
 });
 
@@ -61,7 +66,9 @@ describe('TeamDataWorkerClient', () => {
   afterEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.useRealTimers();
     hoisted.workers.length = 0;
+    hoisted.skipResponsesForOps.clear();
   });
 
   it('deduplicates concurrent getTeamData calls for the same team', async () => {
@@ -107,6 +114,71 @@ describe('TeamDataWorkerClient', () => {
     client.dispose();
   });
 
+  it('deduplicates concurrent getMessagesPage calls with the same page key', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+
+    const [first, second] = await Promise.all([
+      client.getMessagesPage('my-team', { cursor: null, limit: 50 }),
+      client.getMessagesPage('my-team', { cursor: null, limit: 50 }),
+    ]);
+
+    expect(first).toEqual(second);
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages).toHaveLength(1);
+    expect(hoisted.workers[0].messages[0]).toMatchObject({
+      op: 'getMessagesPage',
+      payload: { teamName: 'my-team', options: { cursor: null, limit: 50 } },
+    });
+
+    client.dispose();
+  });
+
+  it('sends best-effort message feed invalidation to the worker', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+    await client.getTeamData('my-team');
+    hoisted.workers[0].messages.length = 0;
+
+    client.invalidateTeamMessageFeed('my-team');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages).toHaveLength(1);
+    expect(hoisted.workers[0].messages[0]).toMatchObject({
+      op: 'invalidateTeamMessageFeed',
+      payload: { teamName: 'my-team' },
+    });
+
+    client.dispose();
+  });
+
+  it('clears in-flight getMessagesPage dedupe when invalidating message feed', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+
+    const first = client.getMessagesPage('my-team', { cursor: null, limit: 50 });
+    client.invalidateTeamMessageFeed('my-team');
+    const second = client.getMessagesPage('my-team', { cursor: null, limit: 50 });
+
+    await Promise.all([first, second]);
+
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages.map((message) => (message as { op: string }).op)).toEqual([
+      'getMessagesPage',
+      'invalidateTeamMessageFeed',
+      'getMessagesPage',
+    ]);
+
+    client.dispose();
+  });
+
   it('clears in-flight getTeamData dedupe when invalidating team config', async () => {
     const { TeamDataWorkerClient } = await import(
       '../../../../src/main/services/team/TeamDataWorkerClient'
@@ -139,5 +211,24 @@ describe('TeamDataWorkerClient', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(hoisted.workers).toHaveLength(0);
+  });
+
+  it('does not attach a timeout that can kill the worker for best-effort invalidation', async () => {
+    vi.useFakeTimers();
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+    await client.getTeamData('my-team');
+    hoisted.workers[0].messages.length = 0;
+    hoisted.skipResponsesForOps.add('invalidateTeamMessageFeed');
+
+    client.invalidateTeamMessageFeed('my-team');
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(hoisted.workers[0].messages).toHaveLength(1);
+    expect(hoisted.workers[0].terminate).not.toHaveBeenCalled();
+
+    client.dispose();
   });
 });

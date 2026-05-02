@@ -42,6 +42,17 @@ export interface InvalidateTeamConfigPayload {
   teamName: string;
 }
 
+export interface InvalidateTeamMessageFeedPayload {
+  teamName: string;
+}
+
+export interface TeamDataWorkerDiag {
+  op: TeamDataWorkerRequest['op'];
+  teamName?: string;
+  taskId?: string;
+  totalMs: number;
+}
+
 // ── Request / Response ──
 
 export type TeamDataWorkerRequest =
@@ -49,12 +60,14 @@ export type TeamDataWorkerRequest =
   | { id: string; op: 'getMessagesPage'; payload: GetMessagesPagePayload }
   | { id: string; op: 'getMemberActivityMeta'; payload: GetMemberActivityMetaPayload }
   | { id: string; op: 'findLogsForTask'; payload: FindLogsForTaskPayload }
-  | { id: string; op: 'invalidateTeamConfig'; payload: InvalidateTeamConfigPayload };
+  | { id: string; op: 'invalidateTeamConfig'; payload: InvalidateTeamConfigPayload }
+  | { id: string; op: 'invalidateTeamMessageFeed'; payload: InvalidateTeamMessageFeedPayload };
 
 export type TeamDataWorkerResponse =
   | {
       id: string;
       ok: true;
       result: TeamViewSnapshot | MessagesPage | TeamMemberActivityMeta | MemberLogSummary[] | null;
+      diag?: TeamDataWorkerDiag;
     }
   | { id: string; ok: false; error: string };

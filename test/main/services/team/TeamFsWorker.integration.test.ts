@@ -1,4 +1,3 @@
-import { existsSync } from 'fs';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -18,11 +17,6 @@ interface WorkerResponse {
 let bundledWorkerPathPromise: Promise<string> | null = null;
 
 async function getWorkerPath(): Promise<string> {
-  const builtWorkerPath = path.join(process.cwd(), 'dist-electron', 'main', 'team-fs-worker.cjs');
-  if (existsSync(builtWorkerPath)) {
-    return builtWorkerPath;
-  }
-
   bundledWorkerPathPromise ??= bundleWorkerForTests();
   return bundledWorkerPathPromise;
 }
@@ -230,7 +224,7 @@ describe('team-fs-worker integration', () => {
       JSON.stringify({
         version: 1,
         members: [
-          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'team-lead', agentType: 'team-lead', color: '#123456' },
           { name: 'alice', removedAt: Date.parse('2026-04-22T12:01:00.000Z') },
           { name: 'bob', role: 'developer' },
         ],
@@ -246,6 +240,8 @@ describe('team-fs-worker integration', () => {
         teamName,
         displayName: 'Draft Worker Team',
         memberCount: 1,
+        leadName: 'team-lead',
+        leadColor: '#123456',
       });
     } finally {
       await worker.terminate();

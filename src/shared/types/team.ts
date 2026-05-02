@@ -55,6 +55,8 @@ export interface TeamSummary {
   color?: string;
   memberCount: number;
   members?: TeamSummaryMember[];
+  leadName?: string;
+  leadColor?: string;
   taskCount: number;
   lastActivity: string | null;
   projectPath?: string;

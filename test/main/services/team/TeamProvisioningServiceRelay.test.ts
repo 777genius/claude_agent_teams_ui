@@ -19,6 +19,15 @@ const hoisted = vi.hoisted(() => {
     return {
       isFile: () => true,
       size: Buffer.byteLength(data, 'utf8'),
+      mode: 0o100644,
+      dev: 1,
+      ino: 1,
+      mtimeMs: 1,
+      ctimeMs: 1,
+      birthtimeMs: 1,
+      mtimeNs: 1n,
+      ctimeNs: 1n,
+      birthtimeNs: 1n,
     };
   });
 
@@ -2207,10 +2216,12 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       delivered: true,
       diagnostics: [],
     });
+    const recipientSpy = vi.spyOn(service, 'isOpenCodeRuntimeRecipient');
 
     const relay = await service.relayInboxFileToLiveRecipient(teamName, 'jack');
 
     expect(relay).toMatchObject({ kind: 'opencode_member', relayed: 1 });
+    expect(recipientSpy).toHaveBeenCalledTimes(1);
     const rows = JSON.parse(
       hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
     );

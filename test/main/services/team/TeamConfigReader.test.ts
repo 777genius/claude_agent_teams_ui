@@ -200,6 +200,118 @@ describe('TeamConfigReader', () => {
     expect(teams[0]?.missingMembers).toBeUndefined();
   });
 
+  it('exposes lead summary fields without adding lead to teammate member chips', async () => {
+    const teamName = 'lead-summary-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Lead Summary Team',
+        members: [
+          { name: 'captain', agentType: 'team-lead', color: '#123456' },
+          { name: 'alice', role: 'reviewer', color: '#abcdef' },
+        ],
+      }),
+      'utf8'
+    );
+
+    const reader = new TeamConfigReader();
+    const teams = await reader.listTeams();
+
+    expect(teams).toHaveLength(1);
+    expect(teams[0]).toMatchObject({
+      teamName,
+      displayName: 'Lead Summary Team',
+      memberCount: 1,
+      members: [{ name: 'alice', role: 'reviewer', color: '#abcdef' }],
+      leadName: 'captain',
+      leadColor: '#123456',
+    });
+  });
+
+  it('dedupes and briefly caches listTeams scans until invalidated', async () => {
+    const teamName = 'cached-list-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Cached List Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    const readdirSpy = vi.spyOn(nodeFs.promises, 'readdir');
+
+    const reader = new TeamConfigReader();
+    const [first, second] = await Promise.all([reader.listTeams(), reader.listTeams()]);
+    const readdirAfterFirstBatch = readdirSpy.mock.calls.length;
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+
+    await reader.listTeams();
+    expect(readdirSpy).toHaveBeenCalledTimes(readdirAfterFirstBatch);
+
+    TeamConfigReader.invalidateTeam(teamName);
+    await reader.listTeams();
+    expect(readdirSpy.mock.calls.length).toBeGreaterThan(readdirAfterFirstBatch);
+  });
+
+  it('does not reuse a stale in-flight listTeams scan after invalidation', async () => {
+    const teamName = 'inflight-invalidated-list-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Before Invalidation',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+
+    const firstReadStarted = createDeferred<void>();
+    const releaseFirstRead = createDeferred<void>();
+    const originalReaddir = nodeFs.promises.readdir.bind(nodeFs.promises);
+    let blockedFirstTeamScan = false;
+    const readdirSpy = vi
+      .spyOn(nodeFs.promises, 'readdir')
+      .mockImplementation(async (...args: unknown[]) => {
+        if (!blockedFirstTeamScan && args[0] === tempDir) {
+          blockedFirstTeamScan = true;
+          firstReadStarted.resolve();
+          await releaseFirstRead.promise;
+        }
+        return originalReaddir(...(args as Parameters<typeof nodeFs.promises.readdir>));
+      });
+
+    const reader = new TeamConfigReader();
+    const first = reader.listTeams();
+    await firstReadStarted.promise;
+
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'After Invalidation',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    TeamConfigReader.invalidateTeam(teamName);
+
+    const second = reader.listTeams();
+    await Promise.resolve();
+
+    const teamDirReads = readdirSpy.mock.calls.filter((call) => call[0] === tempDir);
+    expect(teamDirReads.length).toBeGreaterThanOrEqual(2);
+
+    releaseFirstRead.resolve();
+    const [, secondTeams] = await Promise.all([first, second]);
+    expect(secondTeams[0]?.displayName).toBe('After Invalidation');
+  });
+
   it('does not let a removed base member hide an active auto-suffixed teammate in team summaries', async () => {
     const teamName = 'suffix-team';
     const teamDir = path.join(tempDir, teamName);
@@ -254,7 +366,7 @@ describe('TeamConfigReader', () => {
       JSON.stringify({
         version: 1,
         members: [
-          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'team-lead', agentType: 'team-lead', color: '#123456' },
           { name: 'alice', removedAt: Date.now() - 60_000 },
           { name: 'bob', role: 'developer' },
         ],
@@ -269,6 +381,46 @@ describe('TeamConfigReader', () => {
       teamName,
       displayName: 'Draft Summary Team',
       memberCount: 1,
+      leadName: 'team-lead',
+      leadColor: '#123456',
+      pendingCreate: true,
+    });
+  });
+
+  it('uses injected members meta store for draft team summaries', async () => {
+    const teamName = 'draft-summary-injected-store-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'team.meta.json'),
+      JSON.stringify({
+        version: 1,
+        cwd: tempDir,
+        displayName: 'Injected Draft Team',
+        createdAt: Date.parse('2026-04-22T12:00:00.000Z'),
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(teamDir, 'members.meta.json'),
+      JSON.stringify({ version: 1, members: [] }),
+      'utf8'
+    );
+    const getMembers = vi.fn(async () => [
+      { name: 'captain', agentType: 'team-lead', color: '#123456' },
+      { name: 'alice', role: 'developer' },
+    ]);
+
+    const reader = new TeamConfigReader({ getMembers } as never);
+    const teams = await reader.listTeams();
+
+    expect(getMembers).toHaveBeenCalledWith(teamName);
+    expect(teams[0]).toMatchObject({
+      teamName,
+      displayName: 'Injected Draft Team',
+      memberCount: 1,
+      leadName: 'captain',
+      leadColor: '#123456',
       pendingCreate: true,
     });
   });
@@ -330,6 +482,59 @@ describe('TeamConfigReader', () => {
     expect(second?.name).toBe('Snapshot Cache Team');
     expect(statSpy).toHaveBeenCalledTimes(2);
     expect(readFileSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs slow config reads with mode, likely cause, generation, and caller diagnostics', async () => {
+    const teamName = 'slow-read-diagnostics-team';
+    const teamDir = path.join(tempDir, teamName);
+    const configPath = path.join(teamDir, 'config.json');
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        name: 'Slow Diagnostics Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(1)
+      .mockReturnValueOnce(1)
+      .mockReturnValueOnce(2_001)
+      .mockReturnValueOnce(2_001)
+      .mockReturnValueOnce(2_001)
+      .mockReturnValueOnce(2_001)
+      .mockReturnValueOnce(2_001);
+
+    const reader = new TeamConfigReader();
+    expect((await reader.getConfigVerified(teamName))?.name).toBe('Slow Diagnostics Team');
+
+    const slowLog = warnSpy.mock.calls.find((call) =>
+      String(call[1] ?? '').includes('[getConfig] slow read diag=')
+    );
+    expect(slowLog).toBeTruthy();
+    const rawMessage = String(slowLog?.[1] ?? '');
+    const diag = JSON.parse(rawMessage.slice(rawMessage.indexOf('diag=') + 'diag='.length)) as {
+      mode: string;
+      configPath: string;
+      likelyCause: string;
+      readMs: number;
+      cacheGeneration: number;
+      currentGeneration: number;
+      caller: string | null;
+    };
+    expect(diag).toMatchObject({
+      mode: 'verified',
+      configPath,
+      likelyCause: 'io_read_slow',
+      readMs: 2000,
+      cacheGeneration: 0,
+      currentGeneration: 0,
+    });
+    expect(diag.caller).toBeTruthy();
   });
 
   it('shares in-flight snapshot stat and read work for concurrent calls', async () => {
@@ -509,6 +714,54 @@ describe('TeamConfigReader', () => {
 
     vi.spyOn(nodeFs.promises, 'stat').mockRejectedValue(new Error('stat unavailable'));
     expect((await reader.getConfigSnapshot(teamName))?.name).toBe('Fresh Prime');
+  });
+
+  it('does not reuse stale in-flight verified reads after app-owned primeConfig', async () => {
+    const teamName = 'verified-stale-read-prime-team';
+    const teamDir = path.join(tempDir, teamName);
+    const configPath = path.join(teamDir, 'config.json');
+    await fs.mkdir(teamDir, { recursive: true });
+    const staleRaw = JSON.stringify({
+      name: 'Stale Verified Read',
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    });
+    await fs.writeFile(configPath, staleRaw, 'utf8');
+
+    const readDeferred = createDeferred<string>();
+    const realReadFile = nodeFs.promises.readFile.bind(nodeFs.promises);
+    let intercepted = false;
+    vi.spyOn(nodeFs.promises, 'readFile').mockImplementation(
+      ((file: unknown, ...args: unknown[]) => {
+        if (!intercepted && String(file) === configPath) {
+          intercepted = true;
+          return readDeferred.promise as never;
+        }
+        return realReadFile(file as never, ...(args as never[])) as never;
+      }) as never
+    );
+
+    const reader = new TeamConfigReader();
+    const staleVerified = reader.getConfig(teamName);
+    await vi.waitFor(() => expect(intercepted).toBe(true));
+
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        name: 'Fresh Verified Prime',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    await TeamConfigReader.primeConfig(teamName, {
+      name: 'Fresh Verified Prime',
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    } as never);
+
+    expect((await reader.getConfig(teamName))?.name).toBe('Fresh Verified Prime');
+
+    readDeferred.resolve(staleRaw);
+    expect((await staleVerified)?.name).toBe('Stale Verified Read');
+    expect((await reader.getConfigSnapshot(teamName))?.name).toBe('Fresh Verified Prime');
   });
 
   it('does not let stale in-flight snapshot read failures invalidate a primed config cache', async () => {

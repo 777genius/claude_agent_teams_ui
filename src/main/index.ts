@@ -67,6 +67,7 @@ import {
   resolveAgentTeamsMcpLaunchSpec,
   TeamMcpConfigBuilder,
 } from '@main/services/team/TeamMcpConfigBuilder';
+import { TeamTranscriptProjectResolver } from '@main/services/team/TeamTranscriptProjectResolver';
 import { killTrackedCliProcesses } from '@main/utils/childProcess';
 import { resolveInteractiveShellEnv } from '@main/utils/shellEnv';
 import {
@@ -609,6 +610,8 @@ let shutdownComplete = false;
 const startupTimers = new Set<ReturnType<typeof setTimeout>>();
 
 const SHUTDOWN_STEP_TIMEOUT_MS = 5_000;
+const STARTUP_RECOVERY_DELAY_MS = 10_000;
+const STARTUP_RECOVERY_CONCURRENCY = 1;
 
 function isShutdownStarted(): boolean {
   return shutdownComplete || shutdownPromise !== null;
@@ -624,6 +627,23 @@ function scheduleStartupTask(action: () => void, delayMs: number): void {
   }, delayMs);
   timer.unref?.();
   startupTimers.add(timer);
+}
+
+async function runStartupJobsBounded<T>(
+  items: readonly T[],
+  concurrency: number,
+  run: (item: T) => Promise<void>
+): Promise<void> {
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  const workers = Array.from({ length: workerCount }, async (_, workerIndex) => {
+    for (let index = workerIndex; index < items.length; index += workerCount) {
+      if (isShutdownStarted()) {
+        return;
+      }
+      await run(items[index]!);
+    }
+  });
+  await Promise.allSettled(workers);
 }
 
 function clearStartupTimers(): void {
@@ -808,9 +828,18 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       const detail = typeof row.detail === 'string' ? row.detail : '';
       memberWorkSyncFeature?.noteTeamChange(row as TeamChangeEvent);
 
-      if (row.type === 'config' && detail === 'config.json') {
-        TeamConfigReader.invalidateTeam(teamName);
-        getTeamDataWorkerClient().invalidateTeamConfig(teamName);
+      if (row.type === 'config') {
+        if (detail === 'config.json') {
+          TeamConfigReader.invalidateTeam(teamName);
+          getTeamDataWorkerClient().invalidateTeamConfig(teamName);
+        } else if (detail === 'team.meta.json' || detail === 'members.meta.json') {
+          TeamConfigReader.invalidateListTeamsCache();
+          getTeamDataWorkerClient().invalidateTeamConfig(teamName);
+        }
+      }
+
+      if (row.type === 'task') {
+        TeamTaskReader.invalidateAllTasksCache();
       }
 
       if (
@@ -818,6 +847,9 @@ function wireFileWatcherEvents(context: ServiceContext): void {
         (row.type === 'inbox' || row.type === 'lead-message' || row.type === 'config')
       ) {
         teamDataService.invalidateMessageFeed(teamName);
+        if (row.type === 'inbox' || row.type === 'lead-message') {
+          getTeamDataWorkerClient().invalidateTeamMessageFeed(teamName);
+        }
       }
 
       // --- Inbox change events: relay to lead + native OS notifications ---
@@ -1060,7 +1092,12 @@ async function initializeServices(): Promise<void> {
   ptyTerminalService = new PtyTerminalService();
   const teamMemberLogsFinder = new TeamMemberLogsFinder();
   const teamLogSourceTracker = new TeamLogSourceTracker(teamMemberLogsFinder);
-  const teamTranscriptSourceLocator = new TeamTranscriptSourceLocator();
+  const taskLogConfigReader = new TeamConfigReader();
+  const teamTranscriptSourceLocator = new TeamTranscriptSourceLocator(
+    new TeamTranscriptProjectResolver({
+      getConfig: (teamName) => taskLogConfigReader.getConfigSnapshot(teamName),
+    })
+  );
   teamLogSourceTracker.onLogSourceChange((teamName) => {
     teamTranscriptSourceLocator.invalidateTeam(teamName);
   });
@@ -1203,15 +1240,26 @@ async function initializeServices(): Promise<void> {
   });
 
   const forwardTeamChange = (event: TeamChangeEvent): void => {
-    if (event.type === 'config' && event.detail === 'config.json') {
-      TeamConfigReader.invalidateTeam(event.teamName);
-      getTeamDataWorkerClient().invalidateTeamConfig(event.teamName);
+    if (event.type === 'config') {
+      if (event.detail === 'config.json') {
+        TeamConfigReader.invalidateTeam(event.teamName);
+        getTeamDataWorkerClient().invalidateTeamConfig(event.teamName);
+      } else if (event.detail === 'team.meta.json' || event.detail === 'members.meta.json') {
+        TeamConfigReader.invalidateListTeamsCache();
+        getTeamDataWorkerClient().invalidateTeamConfig(event.teamName);
+      }
+    }
+    if (event.type === 'task') {
+      TeamTaskReader.invalidateAllTasksCache();
     }
     if (
       teamDataService &&
       (event.type === 'inbox' || event.type === 'lead-message' || event.type === 'config')
     ) {
       teamDataService.invalidateMessageFeed(event.teamName);
+      if (event.type === 'inbox' || event.type === 'lead-message') {
+        getTeamDataWorkerClient().invalidateTeamMessageFeed(event.teamName);
+      }
     }
     safeSendToRenderer(mainWindow, TEAM_CHANGE, event);
     httpServer?.broadcast('team-change', event);
@@ -1235,18 +1283,25 @@ async function initializeServices(): Promise<void> {
   teamLogSourceTracker.onLogSourceChange((teamName) => {
     teammateToolTracker?.handleLogSourceChange(teamName);
   });
-  void teamDataService
-    .listTeams()
-    .then(async (teams) => {
-      await Promise.all(
-        teams.map((team) =>
-          teamProvisioningService.scanOpenCodePromptDeliveryWatchdog(team.teamName)
-        )
+  scheduleStartupTask(() => {
+    void teamDataService
+      .listTeams()
+      .then(async (teams) => {
+        const activeTeamNames = teams
+          .filter((team) => !team.deletedAt)
+          .map((team) => team.teamName);
+        await runStartupJobsBounded(
+          activeTeamNames,
+          STARTUP_RECOVERY_CONCURRENCY,
+          async (teamName) => {
+            await teamProvisioningService.scanOpenCodePromptDeliveryWatchdog(teamName);
+          }
+        );
+      })
+      .catch((error: unknown) =>
+        logger.warn(`[Init] OpenCode prompt delivery watchdog recovery failed: ${String(error)}`)
       );
-    })
-    .catch((error: unknown) =>
-      logger.warn(`[Init] OpenCode prompt delivery watchdog recovery failed: ${String(error)}`)
-    );
+  }, STARTUP_RECOVERY_DELAY_MS);
   teamTaskStallMonitor.start();
 
   // Allow SchedulerService to push schedule events to renderer
@@ -1301,16 +1356,25 @@ async function initializeServices(): Promise<void> {
       ? memberWorkSyncFeature.buildRuntimeTurnSettledEnvironment(input)
       : Promise.resolve(null)
   );
-  void teamDataService
-    .listTeams()
-    .then(async (teams) => {
-      const activeTeamNames = teams.filter((team) => !team.deletedAt).map((team) => team.teamName);
-      await memberWorkSyncFeature?.replayPendingReports(activeTeamNames);
-      await memberWorkSyncFeature?.enqueueStartupScan(activeTeamNames);
-    })
-    .catch((error: unknown) =>
-      logger.warn(`[Init] Member work sync startup scan failed: ${String(error)}`)
-    );
+  scheduleStartupTask(() => {
+    void teamDataService
+      .listTeams()
+      .then(async (teams) => {
+        const lifecycleActiveTeamNames = teams
+          .filter(
+            (team) =>
+              !team.deletedAt &&
+              (teamProvisioningService.isTeamAlive(team.teamName) ||
+                teamProvisioningService.hasProvisioningRun(team.teamName))
+          )
+          .map((team) => team.teamName);
+        await memberWorkSyncFeature?.replayPendingReports(lifecycleActiveTeamNames);
+        await memberWorkSyncFeature?.enqueueStartupScan(lifecycleActiveTeamNames);
+      })
+      .catch((error: unknown) =>
+        logger.warn(`[Init] Member work sync startup scan failed: ${String(error)}`)
+      );
+  }, STARTUP_RECOVERY_DELAY_MS + 2_000);
   codexAccountFeature = createCodexAccountFeature({
     logger: createLogger('Feature:CodexAccount'),
     configManager,

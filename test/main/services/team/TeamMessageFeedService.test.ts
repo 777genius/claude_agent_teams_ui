@@ -17,6 +17,16 @@ function makeMessage(overrides: Partial<InboxMessage> = {}): InboxMessage {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('TeamMessageFeedService', () => {
   const config: TeamConfig = {
     name: 'Signal Ops 4',
@@ -99,6 +109,75 @@ describe('TeamMessageFeedService', () => {
           message.text.includes('Да, я тут')
       )
     ).toBe(true);
+  });
+
+  it('deduplicates concurrent feed rebuilds for the same team', async () => {
+    const inboxRequest = createDeferred<InboxMessage[]>();
+    const getInboxMessages = vi.fn(() => inboxRequest.promise);
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages,
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const first = service.getFeed('signal-ops-4');
+    const second = service.getFeed('signal-ops-4');
+    await Promise.resolve();
+
+    expect(getInboxMessages).toHaveBeenCalledTimes(1);
+    inboxRequest.resolve([makeMessage()]);
+
+    const [firstFeed, secondFeed] = await Promise.all([first, second]);
+    expect(firstFeed).toEqual(secondFeed);
+    expect(firstFeed.messages).toHaveLength(1);
+  });
+
+  it('does not reuse or cache a stale in-flight rebuild after invalidation', async () => {
+    const firstInboxRequest = createDeferred<InboxMessage[]>();
+    const secondInboxRequest = createDeferred<InboxMessage[]>();
+    const getInboxMessages = vi
+      .fn()
+      .mockImplementationOnce(() => firstInboxRequest.promise)
+      .mockImplementationOnce(() => secondInboxRequest.promise);
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages,
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const staleRequest = service.getFeed('signal-ops-4');
+    await Promise.resolve();
+    expect(getInboxMessages).toHaveBeenCalledTimes(1);
+
+    service.invalidate('signal-ops-4');
+    const freshRequest = service.getFeed('signal-ops-4');
+    await Promise.resolve();
+    expect(getInboxMessages).toHaveBeenCalledTimes(2);
+
+    secondInboxRequest.resolve([
+      makeMessage({
+        messageId: 'fresh-message',
+        text: 'fresh',
+        timestamp: '2026-04-19T18:46:45.000Z',
+      }),
+    ]);
+    const freshFeed = await freshRequest;
+    expect(freshFeed.messages[0]?.messageId).toBe('fresh-message');
+
+    firstInboxRequest.resolve([
+      makeMessage({
+        messageId: 'stale-message',
+        text: 'stale',
+        timestamp: '2026-04-19T18:46:44.000Z',
+      }),
+    ]);
+    await staleRequest;
+
+    const cachedFeed = await service.getFeed('signal-ops-4');
+    expect(cachedFeed.messages[0]?.messageId).toBe('fresh-message');
+    expect(getInboxMessages).toHaveBeenCalledTimes(2);
   });
 
   it('adds UI-only OpenCode bootstrap start rows for side-lane teammates', async () => {

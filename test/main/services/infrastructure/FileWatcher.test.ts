@@ -191,6 +191,24 @@ describe('FileWatcher', () => {
     ]);
   });
 
+  it('emits config team-change events for team and members metadata changes', () => {
+    const dataCache = new DataCache(50, 10, false);
+    const watcher = new FileWatcher(dataCache, '/tmp/projects', '/tmp/todos');
+    const events: unknown[] = [];
+    watcher.on('team-change', (event) => events.push(event));
+
+    const testWatcher = watcher as unknown as {
+      processTeamsChange: (eventType: string, filename: string) => void;
+    };
+    testWatcher.processTeamsChange('change', 'team-a/team.meta.json');
+    testWatcher.processTeamsChange('change', 'team-a/members.meta.json');
+
+    expect(events).toEqual([
+      { type: 'config', teamName: 'team-a', detail: 'team.meta.json' },
+      { type: 'config', teamName: 'team-a', detail: 'members.meta.json' },
+    ]);
+  });
+
   it('keeps append offset pinned for partial trailing lines until completed', async () => {
     vi.useRealTimers();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-'));

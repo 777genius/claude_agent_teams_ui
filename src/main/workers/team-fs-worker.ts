@@ -384,13 +384,14 @@ async function readLaunchState(
  */
 async function readDraftTeamMeta(
   teamsDir: string,
-  teamName: string
+  teamName: string,
+  options: { maxConfigReadMs: number; maxMembersMetaBytes: number }
 ): Promise<Record<string, unknown> | null> {
   const metaPath = path.join(teamsDir, teamName, 'team.meta.json');
   try {
     const stat = await fs.promises.stat(metaPath);
     if (!stat.isFile() || stat.size > 256 * 1024) return null;
-    const raw = await fs.promises.readFile(metaPath, 'utf8');
+    const raw = await readFileUtf8WithTimeout(metaPath, options.maxConfigReadMs);
     const meta = JSON.parse(raw) as Record<string, unknown>;
     if (meta?.version !== 1 || typeof meta?.cwd !== 'string') return null;
 
@@ -401,14 +402,29 @@ async function readDraftTeamMeta(
 
     // Read members.meta.json for member count
     let memberCount = 0;
+    let leadName: string | undefined;
+    let leadColor: string | undefined;
     try {
       const membersPath = path.join(teamsDir, teamName, 'members.meta.json');
-      const membersRaw = await fs.promises.readFile(membersPath, 'utf8');
+      const membersStat = await fs.promises.stat(membersPath);
+      if (!membersStat.isFile() || membersStat.size > options.maxMembersMetaBytes) {
+        throw new Error('members_meta_too_large');
+      }
+      const membersRaw = await readFileUtf8WithTimeout(membersPath, options.maxConfigReadMs);
       const membersData = JSON.parse(membersRaw) as { members?: unknown[] };
       if (Array.isArray(membersData?.members)) {
         memberCount = membersData.members.filter((member) => {
           if (!isRawMember(member)) return false;
           const name = typeof member.name === 'string' ? member.name.trim() : '';
+          if (!member.removedAt && isLeadMember(member)) {
+            if (name) {
+              leadName = name;
+            }
+            const color = typeof member.color === 'string' ? member.color.trim() : '';
+            if (color) {
+              leadColor = color;
+            }
+          }
           if (!name || name === 'user' || isLeadMember(member)) return false;
           return !member.removedAt;
         }).length;
@@ -426,6 +442,8 @@ async function readDraftTeamMeta(
       lastActivity:
         typeof meta.createdAt === 'number' ? new Date(meta.createdAt).toISOString() : null,
       color: typeof meta.color === 'string' ? meta.color : undefined,
+      ...(leadName ? { leadName } : {}),
+      ...(leadColor ? { leadColor } : {}),
       projectPath: typeof meta.cwd === 'string' ? meta.cwd : undefined,
       pendingCreate: true,
     };
@@ -477,12 +495,12 @@ async function listTeams(
       stat = await fs.promises.stat(configPath);
     } catch {
       // Fallback: check for draft team (team.meta.json without config.json)
-      const draft = await readDraftTeamMeta(payload.teamsDir, teamName);
+      const draft = await readDraftTeamMeta(payload.teamsDir, teamName, payload);
       if (draft) return draft;
       return skip('config_stat_failed');
     }
     if (!stat.isFile()) {
-      const draft = await readDraftTeamMeta(payload.teamsDir, teamName);
+      const draft = await readDraftTeamMeta(payload.teamsDir, teamName, payload);
       if (draft) return draft;
       return skip('config_not_file');
     }
@@ -557,6 +575,21 @@ async function listTeams(
       removedAt?: unknown;
     }[] = [];
     let leadProviderId: 'anthropic' | 'codex' | 'gemini' | 'opencode' | undefined;
+    let leadName: string | undefined;
+    let leadColor: string | undefined;
+
+    const captureLeadMember = (member: RawMember, overwrite = false): void => {
+      if (member.removedAt) return;
+      if (!isLeadMember(member)) return;
+      const name = typeof member.name === 'string' ? member.name.trim() : '';
+      if (name && (overwrite || !leadName)) {
+        leadName = name;
+      }
+      const colorValue = typeof member.color === 'string' ? member.color.trim() : '';
+      if (colorValue && (overwrite || !leadColor)) {
+        leadColor = colorValue;
+      }
+    };
 
     try {
       const teamMetaPath = path.join(payload.teamsDir, teamName, 'team.meta.json');
@@ -595,6 +628,7 @@ async function listTeams(
               : undefined;
           const name = typeof member.name === 'string' ? member.name.trim() : '';
           if (!name) continue;
+          captureLeadMember(member);
           if (isLeadMember(member)) continue;
           const key = name.toLowerCase();
           if (member.removedAt) {
@@ -623,6 +657,7 @@ async function listTeams(
       for (const member of config.members as unknown[]) {
         if (isRawMember(member)) {
           const name = typeof member.name === 'string' ? member.name.trim() : '';
+          captureLeadMember(member, true);
           if (name && name !== 'user' && !isLeadMember(member)) {
             confirmedArtifactNames.add(name);
           }
@@ -691,6 +726,8 @@ async function listTeams(
       taskCount: 0,
       lastActivity: null,
       ...(coloredMembers.length > 0 ? { members: coloredMembers } : {}),
+      ...(leadName ? { leadName } : {}),
+      ...(leadColor ? { leadColor } : {}),
       ...(color ? { color } : {}),
       ...(projectPath ? { projectPath } : {}),
       ...(leadSessionId ? { leadSessionId } : {}),

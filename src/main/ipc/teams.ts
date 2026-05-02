@@ -220,6 +220,7 @@ import type { CliArgsValidationResult } from '@shared/utils/cliArgsParser';
 
 const logger = createLogger('IPC:teams');
 const OPENCODE_RUNTIME_DELIVERY_UI_TIMEOUT_MS = 12_000;
+const TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS = 250;
 
 /**
  * In-memory set of rate-limit message keys already processed.
@@ -916,35 +917,53 @@ async function handleGetData(
   const tn = validated.value!;
   const startedAt = Date.now();
   let data: TeamViewSnapshot;
+  let dataSource: 'worker' | 'main-fallback' | 'main-unavailable' = 'main-unavailable';
+  let workerAvailable = false;
   setCurrentMainOp('team:getData');
   try {
     // Prefer worker thread to keep main event loop responsive
     const worker = getTeamDataWorkerClient();
-    if (worker.isAvailable()) {
+    workerAvailable = worker.isAvailable();
+    const missingState = await classifyMissingTeamData(tn);
+    if (missingState === 'provisioning') {
+      return { success: false, error: 'TEAM_PROVISIONING' };
+    }
+    if (missingState === 'draft') {
+      return { success: false, error: 'TEAM_DRAFT' };
+    }
+
+    if (workerAvailable) {
       try {
         data = await worker.getTeamData(tn);
+        dataSource = 'worker';
       } catch (workerErr) {
         logger.warn(
           `[teams:getData] worker failed, falling back: ${workerErr instanceof Error ? workerErr.message : workerErr}`
         );
         noteHeavyTeamDataWorkerFallback('teams:getData');
         data = await getTeamDataService().getTeamData(tn);
+        dataSource = 'main-fallback';
       }
     } else {
       noteHeavyTeamDataWorkerFallback('teams:getData');
       data = await getTeamDataService().getTeamData(tn);
+      dataSource = 'main-unavailable';
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
       message === `Team not found: ${tn}` &&
-      getTeamProvisioningService().hasProvisioningRun(tn)
+      getTeamProvisioningService().hasProvisioningRun?.(tn) === true
     ) {
       return { success: false, error: 'TEAM_PROVISIONING' };
     }
     // Draft team: team.meta.json exists but config.json doesn't (provisioning failed before TeamCreate)
     if (message === `Team not found: ${tn}`) {
-      const meta = await teamMetaStore.getMeta(tn);
+      const meta = await withTimeoutValue(
+        teamMetaStore.getMeta(tn).catch(() => null),
+        TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+        null
+      );
       if (meta) {
         return { success: false, error: 'TEAM_DRAFT' };
       }
@@ -957,7 +976,9 @@ async function handleGetData(
   const getDataMs = Date.now() - startedAt;
 
   if (getDataMs >= 1500) {
-    logger.warn(`[teams:getData] slow team=${tn} ms=${getDataMs}`);
+    logger.warn(
+      `[teams:getData] slow team=${tn} ms=${getDataMs} source=${dataSource} workerAvailable=${workerAvailable}`
+    );
   }
   const teamDataService = getTeamDataService();
   if (data.processes.some((process) => !process.stoppedAt)) {
@@ -1013,6 +1034,33 @@ async function handleGetData(
   checkRateLimitMessages(merged, tn, displayName, projectPath, isAlive, currentLeadSessionId);
   checkApiErrorMessages(merged, tn, displayName, projectPath);
   return { success: true, data: { ...data, isAlive } };
+}
+
+async function classifyMissingTeamData(teamName: string): Promise<'provisioning' | 'draft' | null> {
+  const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
+  const configExists = await withTimeoutValue(
+    fs.promises
+      .access(configPath, fs.constants.F_OK)
+      .then(() => true)
+      .catch((error: unknown) => {
+        const code = typeof error === 'object' && error ? (error as { code?: unknown }).code : null;
+        return code === 'ENOENT' ? false : null;
+      }),
+    TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+    null
+  );
+  if (configExists !== false) {
+    return null;
+  }
+  if (getTeamProvisioningService().hasProvisioningRun?.(teamName) === true) {
+    return 'provisioning';
+  }
+  const meta = await withTimeoutValue(
+    teamMetaStore.getMeta(teamName).catch(() => null),
+    TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+    null
+  );
+  return meta ? 'draft' : null;
 }
 
 async function handleGetTaskChangePresence(
@@ -1116,6 +1164,7 @@ async function handleDeleteTeam(
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
     await getTeamProvisioningService().stopTeam(validated.value!);
     await getTeamDataService().deleteTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
   });
 }
 
@@ -1127,7 +1176,10 @@ async function handleRestoreTeam(
   if (!validated.valid) {
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
-  return wrapTeamHandler('restoreTeam', () => getTeamDataService().restoreTeam(validated.value!));
+  return wrapTeamHandler('restoreTeam', async () => {
+    await getTeamDataService().restoreTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
+  });
 }
 
 async function handlePermanentlyDeleteTeam(
@@ -1141,6 +1193,7 @@ async function handlePermanentlyDeleteTeam(
   return wrapTeamHandler('permanentlyDeleteTeam', async () => {
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
     await getTeamDataService().permanentlyDeleteTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
     // Clean up app-owned data (attachments, task-attachments) that lives outside ~/.claude/
     const appData = getAppDataPath();
     await fs.promises
@@ -1208,6 +1261,7 @@ async function handleUpdateConfig(
       }
     }
 
+    getTeamDataWorkerClient().invalidateTeamConfig(tn);
     return result;
   });
 }
@@ -2352,35 +2406,47 @@ async function handleGetMessagesPage(
 
   return wrapTeamHandler('getMessagesPage', async () => {
     let page: MessagesPage;
-    const notificationContext = await getTeamDataService().getTeamNotificationContext(vTeam.value!);
+    const teamName = vTeam.value!;
+    const scanNotifications = (messagesPage: MessagesPage): void => {
+      const notificationContextPromise: Promise<{ displayName: string; projectPath?: string }> =
+        getTeamDataService()
+          .getTeamNotificationContext(teamName)
+          .catch(() => ({ displayName: teamName }));
+      void notificationContextPromise
+        .then((notificationContext) => {
+          scanTeamMessageNotifications(
+            messagesPage.messages,
+            teamName,
+            notificationContext.displayName,
+            notificationContext.projectPath
+          );
+        })
+        .catch((error: unknown) => {
+          logger.debug(
+            `[teams:getMessagesPage] notification scan skipped team=${teamName}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        });
+    };
     const liveMessages =
-      cursor == null ? getTeamProvisioningService().getLiveLeadProcessMessages(vTeam.value!) : [];
+      cursor == null ? getTeamProvisioningService().getLiveLeadProcessMessages(teamName) : [];
 
     if (liveMessages.length > 0) {
-      page = await getTeamDataService().getMessagesPage(vTeam.value!, {
+      page = await getTeamDataService().getMessagesPage(teamName, {
         cursor,
         limit,
         liveMessages,
       });
-      scanTeamMessageNotifications(
-        page.messages,
-        vTeam.value!,
-        notificationContext.displayName,
-        notificationContext.projectPath
-      );
+      scanNotifications(page);
       return page;
     }
 
     const worker = getTeamDataWorkerClient();
     if (worker.isAvailable()) {
       try {
-        page = await worker.getMessagesPage(vTeam.value!, { cursor, limit });
-        scanTeamMessageNotifications(
-          page.messages,
-          vTeam.value!,
-          notificationContext.displayName,
-          notificationContext.projectPath
-        );
+        page = await worker.getMessagesPage(teamName, { cursor, limit });
+        scanNotifications(page);
         return page;
       } catch (workerErr) {
         logger.warn(
@@ -2391,13 +2457,8 @@ async function handleGetMessagesPage(
       }
     }
     noteHeavyTeamDataWorkerFallback('teams:getMessagesPage');
-    page = await getTeamDataService().getMessagesPage(vTeam.value!, { cursor, limit });
-    scanTeamMessageNotifications(
-      page.messages,
-      vTeam.value!,
-      notificationContext.displayName,
-      notificationContext.projectPath
-    );
+    page = await getTeamDataService().getMessagesPage(teamName, { cursor, limit });
+    scanNotifications(page);
     return page;
   });
 }
@@ -3307,8 +3368,8 @@ async function handleCreateConfig(
     });
   }
 
-  return wrapTeamHandler('createConfig', () =>
-    getTeamDataService().createTeamConfig({
+  return wrapTeamHandler('createConfig', async () => {
+    await getTeamDataService().createTeamConfig({
       teamName,
       displayName: payload.displayName?.trim() || undefined,
       description: payload.description?.trim() || undefined,
@@ -3332,8 +3393,9 @@ async function handleCreateConfig(
         typeof payload.extraCliArgs === 'string' && payload.extraCliArgs.trim()
           ? payload.extraCliArgs.trim()
           : undefined,
-    })
-  );
+    });
+    getTeamDataWorkerClient().invalidateTeamConfig(teamName);
+  });
 }
 
 function getTeamMemberLogsFinder(): TeamMemberLogsFinder {

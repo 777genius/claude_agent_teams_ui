@@ -43,6 +43,27 @@ type WorkerResponse =
   | { id: string; ok: true; result: unknown; diag?: WorkerDiag }
   | { id: string; ok: false; error: string };
 
+function summarizeWorkerPayload(payload: WorkerRequest['payload']): Record<string, unknown> {
+  if ('teamsDir' in payload) {
+    return {
+      teamsDir: payload.teamsDir,
+      concurrency: payload.concurrency,
+      maxConfigReadMs: payload.maxConfigReadMs,
+      maxConfigBytes: payload.maxConfigBytes,
+    };
+  }
+  return {
+    tasksBase: payload.tasksBase,
+    concurrency: payload.concurrency,
+    maxTaskReadMs: payload.maxTaskReadMs,
+    maxTaskBytes: payload.maxTaskBytes,
+  };
+}
+
+function getDiagTotalMs(diag: WorkerDiag | undefined): unknown {
+  return diag && typeof diag === 'object' ? diag.totalMs : undefined;
+}
+
 function makeId(): string {
   return `${Date.now()}-${crypto.randomUUID().slice(0, 12)}`;
 }
@@ -152,6 +173,8 @@ export class TeamFsWorkerClient {
   ): Promise<{ result: unknown; diag?: WorkerDiag }> {
     const worker = this.ensureWorker();
     const id = makeId();
+    const startedAt = Date.now();
+    const pendingAtStart = this.pending.size;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -163,16 +186,37 @@ export class TeamFsWorkerClient {
         } finally {
           this.worker = null;
         }
+        logger.warn(
+          `worker call timeout op=${op} ms=${Date.now() - startedAt} pendingAtStart=${pendingAtStart} pendingNow=${this.pending.size} payload=${JSON.stringify(
+            summarizeWorkerPayload(payload)
+          )}`
+        );
         reject(new Error(`Worker call timeout after ${WORKER_CALL_TIMEOUT_MS}ms (${op})`));
       }, WORKER_CALL_TIMEOUT_MS);
 
       this.pending.set(id, {
         resolve: (value) => {
           clearTimeout(timeout);
+          const ms = Date.now() - startedAt;
+          if (ms >= 1500) {
+            logger.warn(
+              `worker call slow op=${op} ms=${ms} workerTotalMs=${String(getDiagTotalMs(value.diag))} pendingAtStart=${pendingAtStart} pendingNow=${this.pending.size} payload=${JSON.stringify(
+                summarizeWorkerPayload(payload)
+              )}`
+            );
+          }
           resolve(value);
         },
         reject: (error) => {
           clearTimeout(timeout);
+          const ms = Date.now() - startedAt;
+          if (ms >= 1500) {
+            logger.warn(
+              `worker call failed slow op=${op} ms=${ms} pendingAtStart=${pendingAtStart} pendingNow=${this.pending.size} payload=${JSON.stringify(
+                summarizeWorkerPayload(payload)
+              )} error=${error.message}`
+            );
+          }
           reject(error);
         },
       });

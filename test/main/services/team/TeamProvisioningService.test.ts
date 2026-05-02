@@ -131,6 +131,7 @@ import {
 import { getTeamBootstrapStatePath } from '@main/services/team/TeamBootstrapStateReader';
 import { createPersistedLaunchSnapshot } from '@main/services/team/TeamLaunchStateEvaluator';
 import { getTeamLaunchStatePath } from '@main/services/team/TeamLaunchStateStore';
+import { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import {
   getOpenCodeLaneScopedRuntimeFilePath,
   getOpenCodeRuntimeManifestPath,
@@ -8709,6 +8710,38 @@ describe('TeamProvisioningService', () => {
       };
     }
 
+    it('invalidates config cache after writing OpenCode team config', async () => {
+      const teamName = 'opencode-config-cache-prime';
+      fs.mkdirSync(path.join(tempTeamsBase, teamName), { recursive: true });
+      const invalidateSpy = vi.spyOn(TeamConfigReader, 'invalidateTeam');
+      const { svc } = createSafeLaunchService();
+
+      await (svc as any).writeOpenCodeTeamConfig(
+        {
+          teamName,
+          displayName: 'OpenCode Config Cache Prime',
+          cwd: tempClaudeRoot,
+          providerId: 'opencode',
+          model: 'openrouter/test/model',
+          effort: 'medium',
+        },
+        [
+          {
+            name: 'bob',
+            role: 'Developer',
+            providerId: 'opencode',
+            model: 'openrouter/test/model',
+          },
+        ]
+      );
+
+      expect(invalidateSpy).toHaveBeenCalledWith(teamName);
+      expect((await new TeamConfigReader().getConfigSnapshot(teamName))?.name).toBe(
+        'OpenCode Config Cache Prime'
+      );
+      invalidateSpy.mockRestore();
+    });
+
     it('starts a pure Codex team through the app createTeam path without a real CLI process', async () => {
       allowConsoleLogs();
       vi.mocked(ClaudeBinaryResolver.resolve).mockResolvedValue('/mock/claude');
@@ -9158,6 +9191,7 @@ describe('TeamProvisioningService', () => {
       const teamName = 'mixed-opencode-post-launch-config';
       const teamDir = path.join(tempTeamsBase, teamName);
       const jackWorktree = path.join(tempClaudeRoot, 'worktrees', 'jack');
+      const invalidateSpy = vi.spyOn(TeamConfigReader, 'invalidateTeam');
       fs.mkdirSync(teamDir, { recursive: true });
       fs.writeFileSync(
         path.join(teamDir, 'config.json'),
@@ -9228,6 +9262,7 @@ describe('TeamProvisioningService', () => {
 
       expect(config.leadSessionId).toBe('new-lead-session');
       expect(config.projectPath).toBe(tempClaudeRoot);
+      expect(invalidateSpy).toHaveBeenCalledWith(teamName);
       expect(config.members).toEqual([
         expect.objectContaining({
           name: 'team-lead',
@@ -9255,6 +9290,7 @@ describe('TeamProvisioningService', () => {
         }),
       ]);
       expect(config.members.some((member) => member.name === 'alice')).toBe(false);
+      invalidateSpy.mockRestore();
     });
 
     it('launches isolated OpenCode side lanes from the resolved member worktree cwd', async () => {

@@ -9,6 +9,7 @@ import { encodePath, setClaudeBasePathOverride } from '../../../../src/main/util
 import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { buildTaskChangePresenceDescriptor } from '../../../../src/main/services/team/taskChangePresenceUtils';
 import { TeamDataService } from '../../../../src/main/services/team/TeamDataService';
+import { TeamTaskReader } from '../../../../src/main/services/team/TeamTaskReader';
 import type { TeamMetaFile } from '../../../../src/main/services/team/TeamMetaStore';
 
 import type {
@@ -237,6 +238,109 @@ afterEach(async () => {
   );
 });
 
+describe('TeamDataService task projection cache invalidation', () => {
+  it('invalidates global task projection cache after direct task mutations', async () => {
+    const task: TeamTask = {
+      id: 'task-1',
+      subject: 'Task 1',
+      status: 'pending',
+      createdAt: '2026-05-02T12:00:00.000Z',
+      updatedAt: '2026-05-02T12:00:00.000Z',
+    };
+    const taskController = {
+      createTask: vi.fn(() => task),
+      startTask: vi.fn(),
+      setTaskStatus: vi.fn(),
+      softDeleteTask: vi.fn(),
+      restoreTask: vi.fn(),
+      setTaskOwner: vi.fn(),
+      updateTaskFields: vi.fn(),
+      addTaskAttachmentMeta: vi.fn(),
+      removeTaskAttachment: vi.fn(),
+      setNeedsClarification: vi.fn(),
+      linkTask: vi.fn(),
+      unlinkTask: vi.fn(),
+      addTaskComment: vi.fn(() => ({
+        comment: {
+          id: 'comment-1',
+          author: 'user',
+          text: 'Comment',
+          createdAt: '2026-05-02T12:01:00.000Z',
+          type: 'regular',
+        },
+      })),
+    };
+    const service = new TeamDataService(
+      {
+        getConfig: vi.fn(async () => ({
+          name: 'my-team',
+          projectPath: '/repo',
+          members: [{ name: 'team-lead', role: 'Lead' }],
+        })),
+      } as never,
+      {
+        getTasks: vi.fn(async () => [task]),
+      } as never,
+      {
+        listInboxNames: vi.fn(async () => []),
+        getMessages: vi.fn(async () => []),
+      } as never,
+      {} as never,
+      {} as never,
+      { resolveMembers: vi.fn(() => []) } as never,
+      { getState: vi.fn(async () => ({ teamName: 'my-team', reviewers: [], tasks: {} })) } as never,
+      {} as never,
+      { getMembers: vi.fn(async () => []) } as never,
+      { readMessages: vi.fn(async () => []) } as never,
+      (() => ({ tasks: taskController })) as never
+    );
+    const invalidateSpy = vi.spyOn(TeamTaskReader, 'invalidateAllTasksCache');
+
+    await service.createTask('my-team', { subject: 'Task 1' });
+    await service.startTask('my-team', 'task-1');
+    await service.startTaskByUser('my-team', 'task-1');
+    await service.updateTaskStatus('my-team', 'task-1', 'completed');
+    await service.softDeleteTask('my-team', 'task-1');
+    await service.restoreTask('my-team', 'task-1');
+    await service.updateTaskOwner('my-team', 'task-1', 'alice');
+    await service.updateTaskFields('my-team', 'task-1', { subject: 'Task 1 updated' });
+    await service.addTaskAttachment('my-team', 'task-1', {
+      id: 'att-1',
+      filename: 'note.txt',
+      mimeType: 'text/plain',
+      size: 1,
+      createdAt: '2026-05-02T12:02:00.000Z',
+    } as never);
+    await service.removeTaskAttachment('my-team', 'task-1', 'att-1');
+    await service.setTaskNeedsClarification('my-team', 'task-1', 'lead');
+    await service.addTaskRelationship('my-team', 'task-1', 'task-2', 'related');
+    await service.removeTaskRelationship('my-team', 'task-1', 'task-2', 'related');
+    await service.addTaskComment('my-team', 'task-1', 'Comment');
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(14);
+  });
+
+  it('invalidates config and global task caches after permanent team deletion', async () => {
+    const claudeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'team-data-delete-cache-'));
+    tempPaths.push(claudeRoot);
+    setClaudeBasePathOverride(claudeRoot);
+
+    await fs.mkdir(path.join(claudeRoot, 'teams', 'gone-team'), { recursive: true });
+    await fs.mkdir(path.join(claudeRoot, 'tasks', 'gone-team'), { recursive: true });
+
+    const configInvalidateSpy = vi.spyOn(TeamConfigReader, 'invalidateTeam');
+    const taskInvalidateSpy = vi.spyOn(TeamTaskReader, 'invalidateAllTasksCache');
+
+    const service = new TeamDataService();
+    await service.permanentlyDeleteTeam('gone-team');
+
+    await expect(fs.access(path.join(claudeRoot, 'teams', 'gone-team'))).rejects.toThrow();
+    await expect(fs.access(path.join(claudeRoot, 'tasks', 'gone-team'))).rejects.toThrow();
+    expect(configInvalidateSpy).toHaveBeenCalledWith('gone-team');
+    expect(taskInvalidateSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('TeamDataService draft metadata', () => {
   it('round-trips create config metadata through getSavedRequest', async () => {
     const claudeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'team-data-saved-request-'));
@@ -244,6 +348,7 @@ describe('TeamDataService draft metadata', () => {
     setClaudeBasePathOverride(claudeRoot);
 
     const service = new TeamDataService();
+    const listCacheInvalidateSpy = vi.spyOn(TeamConfigReader, 'invalidateListTeamsCache');
     await service.createTeamConfig({
       teamName: 'draft-team',
       displayName: 'Draft Team',
@@ -271,6 +376,7 @@ describe('TeamDataService draft metadata', () => {
         },
       ],
     });
+    expect(listCacheInvalidateSpy).toHaveBeenCalled();
 
     await expect(service.getSavedRequest('missing-team')).resolves.toBeNull();
     await expect(service.getSavedRequest('draft-team')).resolves.toMatchObject({
@@ -1319,11 +1425,17 @@ describe('TeamDataService', () => {
       projectPath: '/Users/dev/my-project',
       members: [],
     }));
+    const getConfigSnapshot = vi.fn(async () => ({
+      name: 'My Team',
+      projectPath: '/Users/dev/my-project',
+      members: [],
+    }));
 
     const service = new TeamDataService(
       {
         listTeams: vi.fn(),
         getConfig,
+        getConfigSnapshot,
       } as never,
       {} as never,
       {} as never,
@@ -1343,7 +1455,8 @@ describe('TeamDataService', () => {
       displayName: 'My Team',
       projectPath: '/Users/dev/my-project',
     });
-    expect(getConfig).toHaveBeenCalledWith('my-team');
+    expect(getConfigSnapshot).toHaveBeenCalledWith('my-team');
+    expect(getConfig).not.toHaveBeenCalled();
   });
 
   it('creates task with status pending when startImmediately is false', async () => {

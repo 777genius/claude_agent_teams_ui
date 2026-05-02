@@ -4599,7 +4599,18 @@ export class TeamProvisioningService {
       this.inboxReader,
       this.membersMetaStore
     );
-    this.transcriptProjectResolver = new TeamTranscriptProjectResolver(this.configReader);
+    this.transcriptProjectResolver = new TeamTranscriptProjectResolver({
+      getConfig: (teamName) => this.configReader.getConfigSnapshot(teamName),
+    });
+  }
+
+  private async readConfigSnapshot(teamName: string): Promise<TeamConfig | null> {
+    const configReader = this.configReader as TeamConfigReader & {
+      getConfigSnapshot?: (name: string) => Promise<TeamConfig | null>;
+    };
+    return typeof configReader.getConfigSnapshot === 'function'
+      ? configReader.getConfigSnapshot(teamName)
+      : configReader.getConfig(teamName);
   }
 
   setRuntimeAdapterRegistry(registry: TeamRuntimeAdapterRegistry | null): void {
@@ -5473,16 +5484,15 @@ export class TeamProvisioningService {
     };
   }
 
-  async isOpenCodeRuntimeRecipient(teamName: string, memberName: string): Promise<boolean> {
+  private resolveRuntimeRecipientProviderIdFromSources(
+    memberName: string,
+    config: TeamConfig | null | undefined,
+    metaMembers: readonly TeamMember[]
+  ): TeamProviderId | undefined {
     const normalizedMemberName = memberName.trim().toLowerCase();
     if (!normalizedMemberName) {
-      return false;
+      return undefined;
     }
-
-    const [config, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
     const configMember = config?.members?.find(
       (member) => member.name?.trim().toLowerCase() === normalizedMemberName
     );
@@ -5491,13 +5501,37 @@ export class TeamProvisioningService {
     );
     const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
     const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const providerId =
+    return (
       normalizeTeamProviderLike(metaMember?.providerId) ??
       normalizeTeamProviderLike(metaProvider) ??
       normalizeTeamProviderLike(configMember?.providerId) ??
       normalizeTeamProviderLike(configProvider) ??
-      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
-    return providerId === 'opencode';
+      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model)
+    );
+  }
+
+  private isOpenCodeRuntimeRecipientFromSources(
+    memberName: string,
+    config: TeamConfig | null | undefined,
+    metaMembers: readonly TeamMember[]
+  ): boolean {
+    return (
+      this.resolveRuntimeRecipientProviderIdFromSources(memberName, config, metaMembers) ===
+      'opencode'
+    );
+  }
+
+  async isOpenCodeRuntimeRecipient(teamName: string, memberName: string): Promise<boolean> {
+    const normalizedMemberName = memberName.trim().toLowerCase();
+    if (!normalizedMemberName) {
+      return false;
+    }
+
+    const [config, metaMembers] = await Promise.all([
+      this.readConfigSnapshot(teamName).catch(() => null),
+      this.membersMetaStore.getMembers(teamName).catch(() => []),
+    ]);
+    return this.isOpenCodeRuntimeRecipientFromSources(normalizedMemberName, config, metaMembers);
   }
 
   private isOpenCodeDeliveryResponseReadCommitAllowed(input: {
@@ -10334,7 +10368,8 @@ export class TeamProvisioningService {
 
     let configuredMembers: TeamConfig['members'] = [];
     try {
-      configuredMembers = (await this.configReader.getConfig(teamName))?.members ?? [];
+      const config = await this.readConfigSnapshot(teamName);
+      configuredMembers = config?.members ?? [];
     } catch {
       configuredMembers = [];
     }
@@ -10671,6 +10706,7 @@ export class TeamProvisioningService {
     }
     parsed.members = members;
     await atomicWriteAsync(configPath, `${JSON.stringify(parsed, null, 2)}\n`);
+    TeamConfigReader.invalidateTeam(input.teamName);
   }
 
   private enqueueDirectRestartPrompt(input: {
@@ -14434,6 +14470,7 @@ export class TeamProvisioningService {
       ],
     };
     await atomicWriteAsync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    TeamConfigReader.invalidateTeam(request.teamName);
   }
 
   private async persistOpenCodeRuntimeAdapterLaunchResult(
@@ -15760,14 +15797,18 @@ export class TeamProvisioningService {
       return { kind: 'ignored', relayed: 0 };
     }
 
-    const leadName = await this.configReader
-      .getConfig(teamName)
-      .then(
-        (config) => config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null
-      )
-      .catch(() => null);
+    const [config, metaMembers] = await Promise.all([
+      this.readConfigSnapshot(teamName).catch(() => null),
+      this.membersMetaStore.getMembers(teamName).catch(() => []),
+    ]);
+    const leadName = config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null;
+    const isOpenCodeRecipient = this.isOpenCodeRuntimeRecipientFromSources(
+      inboxName,
+      config,
+      metaMembers
+    );
     if (inboxName.trim().toLowerCase() === leadName?.toLowerCase()) {
-      if (await this.isOpenCodeRuntimeRecipient(teamName, inboxName)) {
+      if (isOpenCodeRecipient) {
         const diagnostic =
           'opencode_lead_runtime_session_missing: OpenCode lead inbox relay is unsupported in v1; leaving inbox unread for durable retry/diagnostics.';
         logger.warn(`[${teamName}] ${diagnostic} inbox=${inboxName}`);
@@ -15783,7 +15824,7 @@ export class TeamProvisioningService {
       };
     }
 
-    if (await this.isOpenCodeRuntimeRecipient(teamName, inboxName)) {
+    if (isOpenCodeRecipient) {
       const relayOptions: OpenCodeMemberInboxRelayOptions = {
         source: options.source ?? 'watcher',
         ...(options.onlyMessageId ? { onlyMessageId: options.onlyMessageId } : {}),
@@ -17444,7 +17485,7 @@ export class TeamProvisioningService {
 
     let configuredMembers: TeamConfig['members'] = [];
     try {
-      configuredMembers = (await this.configReader.getConfig(teamName))?.members ?? [];
+      configuredMembers = (await this.readConfigSnapshot(teamName))?.members ?? [];
     } catch {
       configuredMembers = [];
     }
@@ -20169,9 +20210,9 @@ export class TeamProvisioningService {
     memberName: string,
     sinceMs: number | null
   ): Promise<BootstrapTranscriptOutcome[]> {
-    let config: Awaited<ReturnType<TeamConfigReader['getConfig']>>;
+    let config: TeamConfig | null;
     try {
-      config = await this.configReader.getConfig(teamName);
+      config = await this.readConfigSnapshot(teamName);
     } catch {
       return [];
     }
@@ -20221,7 +20262,7 @@ export class TeamProvisioningService {
   private async collectBootstrapTranscriptProjectDirs(
     teamName: string,
     memberName: string,
-    config: Awaited<ReturnType<TeamConfigReader['getConfig']>>
+    config: TeamConfig | null
   ): Promise<string[]> {
     const pathCandidates: string[] = [];
     const pathSeen = new Set<string>();
@@ -24435,6 +24476,7 @@ export class TeamProvisioningService {
       config.projectPathHistory = pathHistory.slice(-500);
 
       await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
       logger.info(`[${teamName}] Updated config.projectPath immediately: ${cwd}`);
     } catch (error) {
       // Non-fatal: updateConfigPostLaunch will update it later if provisioning succeeds.
@@ -24671,6 +24713,7 @@ export class TeamProvisioningService {
       this.applyEffectiveLaunchStateToConfig(teamName, config, launchState);
 
       await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
     } catch (error) {
       logger.warn(
         `[${teamName}] Failed to update config post-launch: ${
@@ -24721,6 +24764,7 @@ export class TeamProvisioningService {
           if (removedFromConfig.length > 0) {
             parsed.members = nextMembers;
             await atomicWriteAsync(configPath, JSON.stringify(parsed, null, 2));
+            TeamConfigReader.invalidateTeam(teamName);
             logger.warn(
               `[${teamName}] Removed CLI auto-suffixed members from config.json: ${removedFromConfig.join(', ')}`
             );
@@ -24977,6 +25021,7 @@ export class TeamProvisioningService {
     config.members = leadMembers;
     try {
       await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
       logger.info(
         `[${teamName}] Normalized config.json for launch: kept ${leadMembers.length} lead member(s)`
       );
@@ -25008,6 +25053,7 @@ export class TeamProvisioningService {
         return;
       }
       await atomicWriteAsync(configPath, backupRaw);
+      TeamConfigReader.invalidateTeam(teamName);
       logger.info(`[${teamName}] Restored config.json from prelaunch backup after launch failure`);
     } catch {
       logger.debug(`[${teamName}] No prelaunch backup to restore (or read failed)`);
