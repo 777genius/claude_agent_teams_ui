@@ -129,7 +129,10 @@ import {
   initializeAutoResumeService,
 } from '@main/services/team/AutoResumeService';
 import { getTeamBootstrapStatePath } from '@main/services/team/TeamBootstrapStateReader';
-import { createPersistedLaunchSnapshot } from '@main/services/team/TeamLaunchStateEvaluator';
+import {
+  createPersistedLaunchSnapshot,
+  snapshotFromRuntimeMemberStatuses,
+} from '@main/services/team/TeamLaunchStateEvaluator';
 import { getTeamLaunchStatePath } from '@main/services/team/TeamLaunchStateStore';
 import { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import {
@@ -625,6 +628,364 @@ describe('TeamProvisioningService', () => {
         total: 0,
         hasMore: false,
       });
+    });
+  });
+
+  describe('member spawn status launch reads', () => {
+    it('coalesces concurrent active launch status reads and serves a short cached follow-up', async () => {
+      const svc = new TeamProvisioningService();
+      const teamName = 'spawn-cache-team';
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+      });
+      run.isLaunch = true;
+      run.progress = {
+        teamName,
+        state: 'launching',
+        message: 'Launching',
+        updatedAt: '2026-05-02T10:00:00.000Z',
+      };
+      run.onProgress = vi.fn();
+      (svc as any).aliveRunByTeam.set(teamName, run.runId);
+      (svc as any).runs.set(run.runId, run);
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => null),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(async () => new Map());
+      const refreshDeferred = createDeferred<void>();
+      const refreshLeadInbox = vi
+        .spyOn(svc as any, 'refreshMemberSpawnStatusesFromLeadInbox')
+        .mockImplementation(async () => refreshDeferred.promise);
+      const auditStatuses = vi
+        .spyOn(svc as any, 'maybeAuditMemberSpawnStatuses')
+        .mockResolvedValue(undefined);
+      const persistSnapshot = vi
+        .spyOn(svc as any, 'persistLaunchStateSnapshot')
+        .mockResolvedValue(null);
+
+      const first = svc.getMemberSpawnStatuses(teamName);
+      const second = svc.getMemberSpawnStatuses(teamName);
+      await Promise.resolve();
+
+      expect(refreshLeadInbox).toHaveBeenCalledTimes(1);
+      refreshDeferred.resolve();
+      const [firstSnapshot, secondSnapshot] = await Promise.all([first, second]);
+
+      expect(firstSnapshot).toEqual(secondSnapshot);
+      expect(auditStatuses).toHaveBeenCalledTimes(1);
+      expect(persistSnapshot).toHaveBeenCalledTimes(1);
+
+      await svc.getMemberSpawnStatuses(teamName);
+
+      expect(refreshLeadInbox).toHaveBeenCalledTimes(1);
+      expect(auditStatuses).toHaveBeenCalledTimes(1);
+      expect(persistSnapshot).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidates the short status cache when a real member-spawn change is emitted', async () => {
+      const svc = new TeamProvisioningService();
+      const teamName = 'spawn-cache-invalidated-team';
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+      });
+      run.isLaunch = true;
+      run.progress = {
+        teamName,
+        state: 'launching',
+        message: 'Launching',
+        updatedAt: '2026-05-02T10:00:00.000Z',
+      };
+      run.onProgress = vi.fn();
+      (svc as any).aliveRunByTeam.set(teamName, run.runId);
+      (svc as any).runs.set(run.runId, run);
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => null),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(async () => new Map());
+      const refreshLeadInbox = vi
+        .spyOn(svc as any, 'refreshMemberSpawnStatusesFromLeadInbox')
+        .mockResolvedValue(undefined);
+      vi.spyOn(svc as any, 'maybeAuditMemberSpawnStatuses').mockResolvedValue(undefined);
+      vi.spyOn(svc as any, 'persistLaunchStateSnapshot').mockResolvedValue(null);
+
+      await svc.getMemberSpawnStatuses(teamName);
+      expect(refreshLeadInbox).toHaveBeenCalledTimes(1);
+
+      (svc as any).setMemberSpawnStatus(
+        run,
+        'alice',
+        'online',
+        undefined,
+        'heartbeat',
+        '2026-05-02T10:00:05.000Z'
+      );
+      await svc.getMemberSpawnStatuses(teamName);
+
+      expect(refreshLeadInbox).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries the owner status request when a member-spawn change lands while it is building', async () => {
+      const svc = new TeamProvisioningService();
+      const teamName = 'spawn-cache-owner-retry-team';
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+      });
+      run.isLaunch = true;
+      run.progress = {
+        teamName,
+        state: 'launching',
+        message: 'Launching',
+        updatedAt: '2026-05-02T10:00:00.000Z',
+      };
+      run.onProgress = vi.fn();
+      (svc as any).aliveRunByTeam.set(teamName, run.runId);
+      (svc as any).runs.set(run.runId, run);
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => null),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(async () => new Map());
+      const firstRefresh = createDeferred<void>();
+      const refreshLeadInbox = vi
+        .spyOn(svc as any, 'refreshMemberSpawnStatusesFromLeadInbox')
+        .mockImplementationOnce(async () => firstRefresh.promise)
+        .mockResolvedValue(undefined);
+      vi.spyOn(svc as any, 'maybeAuditMemberSpawnStatuses').mockResolvedValue(undefined);
+      vi.spyOn(svc as any, 'persistLaunchStateSnapshot').mockResolvedValue(null);
+
+      const pending = svc.getMemberSpawnStatuses(teamName);
+      await Promise.resolve();
+      expect(refreshLeadInbox).toHaveBeenCalledTimes(1);
+
+      (svc as any).setMemberSpawnStatus(
+        run,
+        'alice',
+        'online',
+        undefined,
+        'heartbeat',
+        '2026-05-02T10:00:05.000Z'
+      );
+      firstRefresh.resolve();
+      const result = await pending;
+
+      expect(refreshLeadInbox).toHaveBeenCalledTimes(2);
+      expect(result.statuses.alice).toMatchObject({
+        status: 'online',
+        launchState: 'confirmed_alive',
+        bootstrapConfirmed: true,
+      });
+    });
+  });
+
+  describe('launch-state no-op persistence guard', () => {
+    it('does not rewrite launch-state or invalidate runtime cache for a recent semantic no-op', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-02T10:00:05.000Z'));
+      const svc = new TeamProvisioningService();
+      const teamName = 'launch-state-noop-team';
+      const status = createMemberSpawnStatusEntry({
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        firstSpawnAcceptedAt: '2026-05-02T10:00:00.000Z',
+      });
+      const previousSnapshot = snapshotFromRuntimeMemberStatuses({
+        teamName,
+        expectedMembers: ['alice'],
+        launchPhase: 'active',
+        updatedAt: '2026-05-02T10:00:02.000Z',
+        statuses: { alice: status as any },
+      });
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+        memberSpawnStatuses: new Map([['alice', status]]),
+      });
+      run.isLaunch = true;
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => previousSnapshot),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).launchStateWrittenRunIdByTeam.set(teamName, run.runId);
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      const invalidateRuntime = vi.spyOn(svc as any, 'invalidateRuntimeSnapshotCaches');
+
+      const result = await (svc as any).persistLaunchStateSnapshotNow(run, 'active');
+
+      expect(result).toBe(previousSnapshot);
+      expect((svc as any).launchStateStore.write).not.toHaveBeenCalled();
+      expect(invalidateRuntime).not.toHaveBeenCalled();
+    });
+
+    it('keeps a bounded launch-state heartbeat for unchanged active snapshots', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-02T10:00:20.000Z'));
+      const svc = new TeamProvisioningService();
+      const teamName = 'launch-state-heartbeat-team';
+      const status = createMemberSpawnStatusEntry({
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        firstSpawnAcceptedAt: '2026-05-02T10:00:00.000Z',
+      });
+      const previousSnapshot = snapshotFromRuntimeMemberStatuses({
+        teamName,
+        expectedMembers: ['alice'],
+        launchPhase: 'active',
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        statuses: { alice: status as any },
+      });
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+        memberSpawnStatuses: new Map([['alice', status]]),
+      });
+      run.isLaunch = true;
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => previousSnapshot),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      const invalidateRuntime = vi.spyOn(svc as any, 'invalidateRuntimeSnapshotCaches');
+
+      const result = await (svc as any).persistLaunchStateSnapshotNow(run, 'active');
+
+      expect(result.updatedAt).toBe('2026-05-02T10:00:20.000Z');
+      expect((svc as any).launchStateStore.write).toHaveBeenCalledTimes(1);
+      expect(invalidateRuntime).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not skip the first service-owned launch-state write for an existing snapshot', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-02T10:00:05.000Z'));
+      const svc = new TeamProvisioningService();
+      const teamName = 'launch-state-first-write-team';
+      const status = createMemberSpawnStatusEntry({
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        firstSpawnAcceptedAt: '2026-05-02T10:00:00.000Z',
+      });
+      const previousSnapshot = snapshotFromRuntimeMemberStatuses({
+        teamName,
+        expectedMembers: ['alice'],
+        launchPhase: 'active',
+        updatedAt: '2026-05-02T10:00:02.000Z',
+        statuses: { alice: status as any },
+      });
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+        memberSpawnStatuses: new Map([['alice', status]]),
+      });
+      run.isLaunch = true;
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => previousSnapshot),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      const invalidateRuntime = vi.spyOn(svc as any, 'invalidateRuntimeSnapshotCaches');
+
+      await (svc as any).persistLaunchStateSnapshotNow(run, 'active');
+
+      expect((svc as any).launchStateStore.write).toHaveBeenCalledTimes(1);
+      expect(invalidateRuntime).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not skip the first write for a new run even when the previous snapshot is semantically equal', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-02T10:00:05.000Z'));
+      const svc = new TeamProvisioningService();
+      const teamName = 'launch-state-new-run-team';
+      const status = createMemberSpawnStatusEntry({
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        firstSpawnAcceptedAt: '2026-05-02T10:00:00.000Z',
+      });
+      const previousSnapshot = snapshotFromRuntimeMemberStatuses({
+        teamName,
+        expectedMembers: ['alice'],
+        launchPhase: 'active',
+        updatedAt: '2026-05-02T10:00:02.000Z',
+        statuses: { alice: status as any },
+      });
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+        memberSpawnStatuses: new Map([['alice', status]]),
+      });
+      run.isLaunch = true;
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => previousSnapshot),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).launchStateWrittenRunIdByTeam.set(teamName, 'previous-run-id');
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      const invalidateRuntime = vi.spyOn(svc as any, 'invalidateRuntimeSnapshotCaches');
+
+      const result = await (svc as any).persistLaunchStateSnapshotNow(run, 'active');
+
+      expect(result.updatedAt).toBe('2026-05-02T10:00:05.000Z');
+      expect((svc as any).launchStateStore.write).toHaveBeenCalledTimes(1);
+      expect(invalidateRuntime).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes and invalidates runtime cache when launch-state semantics change', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-02T10:00:05.000Z'));
+      const svc = new TeamProvisioningService();
+      const teamName = 'launch-state-change-team';
+      const previousStatus = createMemberSpawnStatusEntry({
+        status: 'waiting',
+        launchState: 'runtime_pending_bootstrap',
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        firstSpawnAcceptedAt: '2026-05-02T10:00:00.000Z',
+      });
+      const nextStatus = createMemberSpawnStatusEntry({
+        status: 'online',
+        launchState: 'confirmed_alive',
+        runtimeAlive: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        livenessSource: 'heartbeat',
+        updatedAt: '2026-05-02T10:00:05.000Z',
+        firstSpawnAcceptedAt: '2026-05-02T10:00:00.000Z',
+        lastHeartbeatAt: '2026-05-02T10:00:05.000Z',
+      });
+      const previousSnapshot = snapshotFromRuntimeMemberStatuses({
+        teamName,
+        expectedMembers: ['alice'],
+        launchPhase: 'active',
+        updatedAt: '2026-05-02T10:00:02.000Z',
+        statuses: { alice: previousStatus as any },
+      });
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['alice'],
+        memberSpawnStatuses: new Map([['alice', nextStatus]]),
+      });
+      run.isLaunch = true;
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => previousSnapshot),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+      (svc as any).membersMetaStore = { getMembers: vi.fn(async () => []) };
+      const invalidateRuntime = vi.spyOn(svc as any, 'invalidateRuntimeSnapshotCaches');
+
+      const result = await (svc as any).persistLaunchStateSnapshotNow(run, 'active');
+
+      expect(result.members.alice?.launchState).toBe('confirmed_alive');
+      expect((svc as any).launchStateStore.write).toHaveBeenCalledTimes(1);
+      expect(invalidateRuntime).toHaveBeenCalledTimes(1);
     });
   });
 

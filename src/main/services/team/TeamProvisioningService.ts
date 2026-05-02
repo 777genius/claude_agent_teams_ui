@@ -313,6 +313,11 @@ interface OpenCodeRuntimeControlAck {
   observedAt: string;
 }
 
+interface LaunchStateWriteResult {
+  snapshot: PersistedTeamLaunchSnapshot;
+  wrote: boolean;
+}
+
 type BootstrapTranscriptOutcome =
   | {
       kind: 'success';
@@ -336,6 +341,7 @@ import type {
   LeadContextUsage,
   MemberLaunchState,
   MemberSpawnLivenessSource,
+  MemberSpawnStatusesSnapshot,
   MemberSpawnStatus,
   MemberSpawnStatusEntry,
   PersistedTeamLaunchMemberState,
@@ -4505,6 +4511,8 @@ export class TeamProvisioningService {
   private static readonly SAME_TEAM_RUN_START_SKEW_MS = 1_000;
   private static readonly SAME_TEAM_PERSIST_RETRY_MS = 2_000;
   private static readonly AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS = 2_000;
+  private static readonly MEMBER_SPAWN_STATUS_SNAPSHOT_CACHE_TTL_MS = 500;
+  private static readonly LAUNCH_STATE_NOOP_REFRESH_MS = 15_000;
 
   private readonly runs = new Map<string, ProvisioningRun>();
   private readonly provisioningRunByTeam = new Map<string, string>();
@@ -4590,8 +4598,27 @@ export class TeamProvisioningService {
     }
   >();
   private readonly runtimeSnapshotCacheGenerationByTeam = new Map<string, number>();
+  private readonly memberSpawnStatusesSnapshotCache = new Map<
+    string,
+    {
+      expiresAtMs: number;
+      generation: number;
+      runId: string;
+      snapshot: MemberSpawnStatusesSnapshot;
+    }
+  >();
+  private readonly memberSpawnStatusesInFlightByTeam = new Map<
+    string,
+    {
+      generationAtStart: number;
+      runIdAtStart: string;
+      promise: Promise<MemberSpawnStatusesSnapshot>;
+    }
+  >();
+  private readonly memberSpawnStatusesCacheGenerationByTeam = new Map<string, number>();
   private readonly launchStateStore = new TeamLaunchStateStore();
   private readonly launchStateStoreQueue = new Map<string, Promise<unknown>>();
+  private readonly launchStateWrittenRunIdByTeam = new Map<string, string>();
   private readonly memberLogsFinder: TeamMemberLogsFinder;
   private readonly transcriptProjectResolver: TeamTranscriptProjectResolver;
   private teamChangeEmitter: ((event: TeamChangeEvent) => void) | null = null;
@@ -4676,6 +4703,19 @@ export class TeamProvisioningService {
     return this.runtimeSnapshotCacheGenerationByTeam.get(teamName) ?? 0;
   }
 
+  private getMemberSpawnStatusesCacheGeneration(teamName: string): number {
+    return this.memberSpawnStatusesCacheGenerationByTeam.get(teamName) ?? 0;
+  }
+
+  private invalidateMemberSpawnStatusesCache(teamName: string): void {
+    this.memberSpawnStatusesCacheGenerationByTeam.set(
+      teamName,
+      this.getMemberSpawnStatusesCacheGeneration(teamName) + 1
+    );
+    this.memberSpawnStatusesSnapshotCache.delete(teamName);
+    this.memberSpawnStatusesInFlightByTeam.delete(teamName);
+  }
+
   private invalidateRuntimeSnapshotCaches(teamName: string): void {
     this.runtimeSnapshotCacheGenerationByTeam.set(
       teamName,
@@ -4685,6 +4725,27 @@ export class TeamProvisioningService {
     this.agentRuntimeSnapshotInFlightByTeam.delete(teamName);
     this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
     this.liveTeamAgentRuntimeMetadataInFlightByTeam.delete(teamName);
+  }
+
+  private cloneMemberSpawnStatusesSnapshot(
+    snapshot: MemberSpawnStatusesSnapshot
+  ): MemberSpawnStatusesSnapshot {
+    return {
+      ...snapshot,
+      statuses: Object.fromEntries(
+        Object.entries(snapshot.statuses).map(([memberName, entry]) => [
+          memberName,
+          {
+            ...entry,
+            ...(entry.pendingPermissionRequestIds
+              ? { pendingPermissionRequestIds: [...entry.pendingPermissionRequestIds] }
+              : {}),
+          },
+        ])
+      ),
+      ...(snapshot.expectedMembers ? { expectedMembers: [...snapshot.expectedMembers] } : {}),
+      ...(snapshot.summary ? { summary: { ...snapshot.summary } } : {}),
+    };
   }
 
   private cloneLiveTeamAgentRuntimeMetadata(
@@ -10409,6 +10470,68 @@ export class TeamProvisioningService {
       return readPersistedStatuses(runId);
     }
 
+    if (!this.shouldCacheMemberSpawnStatusesSnapshot(run)) {
+      return this.buildMemberSpawnStatusesSnapshotForRun(run);
+    }
+
+    const generationAtStart = this.getMemberSpawnStatusesCacheGeneration(teamName);
+    const cached = this.memberSpawnStatusesSnapshotCache.get(teamName);
+    if (
+      cached &&
+      cached.expiresAtMs > Date.now() &&
+      cached.runId === run.runId &&
+      cached.generation === generationAtStart
+    ) {
+      return this.cloneMemberSpawnStatusesSnapshot(cached.snapshot);
+    }
+
+    const existingRequest = this.memberSpawnStatusesInFlightByTeam.get(teamName);
+    if (
+      existingRequest &&
+      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest.runIdAtStart === run.runId
+    ) {
+      const snapshot = await existingRequest.promise;
+      if (
+        this.getMemberSpawnStatusesCacheGeneration(teamName) === generationAtStart &&
+        this.getTrackedRunId(teamName) === run.runId
+      ) {
+        return this.cloneMemberSpawnStatusesSnapshot(snapshot);
+      }
+      return this.getMemberSpawnStatuses(teamName);
+    }
+
+    const request = this.buildMemberSpawnStatusesSnapshotForRun(run, generationAtStart).finally(
+      () => {
+        if (this.memberSpawnStatusesInFlightByTeam.get(teamName)?.promise === request) {
+          this.memberSpawnStatusesInFlightByTeam.delete(teamName);
+        }
+      }
+    );
+    this.memberSpawnStatusesInFlightByTeam.set(teamName, {
+      generationAtStart,
+      runIdAtStart: run.runId,
+      promise: request,
+    });
+    const snapshot = await request;
+    if (
+      this.getMemberSpawnStatusesCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === run.runId
+    ) {
+      return this.cloneMemberSpawnStatusesSnapshot(snapshot);
+    }
+    return this.getMemberSpawnStatuses(teamName);
+  }
+
+  private shouldCacheMemberSpawnStatusesSnapshot(run: ProvisioningRun): boolean {
+    return run.isLaunch === true && run.provisioningComplete !== true;
+  }
+
+  private async buildMemberSpawnStatusesSnapshotForRun(
+    run: ProvisioningRun,
+    generationAtStart?: number
+  ): Promise<MemberSpawnStatusesSnapshot> {
+    const teamName = run.teamName;
     await this.refreshMemberSpawnStatusesFromLeadInbox(run);
     await this.maybeAuditMemberSpawnStatuses(run);
     await this.persistLaunchStateSnapshot(run, run.provisioningComplete ? 'finished' : 'active');
@@ -10428,23 +10551,37 @@ export class TeamProvisioningService {
       });
     const rawSnapshot = liveSnapshot ?? persisted;
     const metaMembers = await this.membersMetaStore.getMembers(teamName).catch(() => []);
-    const snapshot = this.filterRemovedMembersFromLaunchSnapshot(rawSnapshot, metaMembers);
+    const launchSnapshot = this.filterRemovedMembersFromLaunchSnapshot(rawSnapshot, metaMembers);
     const statuses = await this.attachLiveRuntimeMetadataToStatuses(
       teamName,
-      snapshotToMemberSpawnStatuses(snapshot)
+      snapshotToMemberSpawnStatuses(launchSnapshot)
     );
-    const expectedMembers = this.getPersistedLaunchMemberNames(snapshot);
+    const expectedMembers = this.getPersistedLaunchMemberNames(launchSnapshot);
     const summary = summarizeMemberSpawnStatusRecord(expectedMembers, statuses);
-    return {
+    const spawnSnapshot: MemberSpawnStatusesSnapshot = {
       statuses,
-      runId,
+      runId: run.runId,
       teamLaunchState: deriveTeamLaunchAggregateState(summary),
-      launchPhase: snapshot.launchPhase,
+      launchPhase: launchSnapshot.launchPhase,
       expectedMembers,
-      updatedAt: snapshot.updatedAt,
+      updatedAt: launchSnapshot.updatedAt,
       summary,
       source: persisted ? 'merged' : 'live',
     };
+    if (
+      generationAtStart != null &&
+      this.shouldCacheMemberSpawnStatusesSnapshot(run) &&
+      this.getMemberSpawnStatusesCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === run.runId
+    ) {
+      this.memberSpawnStatusesSnapshotCache.set(teamName, {
+        expiresAtMs: Date.now() + TeamProvisioningService.MEMBER_SPAWN_STATUS_SNAPSHOT_CACHE_TTL_MS,
+        generation: generationAtStart,
+        runId: run.runId,
+        snapshot: this.cloneMemberSpawnStatusesSnapshot(spawnSnapshot),
+      });
+    }
+    return spawnSnapshot;
   }
 
   async getTeamAgentRuntimeSnapshot(teamName: string): Promise<TeamAgentRuntimeSnapshot> {
@@ -18041,6 +18178,7 @@ export class TeamProvisioningService {
 
   private async clearPersistedLaunchStateNow(teamName: string): Promise<void> {
     await this.launchStateStore.clear(teamName);
+    this.launchStateWrittenRunIdByTeam.delete(teamName);
     await clearBootstrapState(teamName);
   }
 
@@ -18302,15 +18440,17 @@ export class TeamProvisioningService {
     teamName: string,
     snapshot: PersistedTeamLaunchSnapshot
   ): Promise<PersistedTeamLaunchSnapshot> {
-    return this.enqueueLaunchStateStoreOperation(teamName, () =>
+    const result = await this.enqueueLaunchStateStoreOperation(teamName, () =>
       this.writeLaunchStateSnapshotNow(teamName, snapshot)
     );
+    return result.snapshot;
   }
 
   private async writeLaunchStateSnapshotNow(
     teamName: string,
-    snapshot: PersistedTeamLaunchSnapshot
-  ): Promise<PersistedTeamLaunchSnapshot> {
+    snapshot: PersistedTeamLaunchSnapshot,
+    options?: { allowNoopSkip?: boolean; runId?: string }
+  ): Promise<LaunchStateWriteResult> {
     const previousSnapshot = await this.launchStateStore.read(teamName).catch(() => null);
     const metaMembers = await this.membersMetaStore.getMembers(teamName).catch(() => []);
     const overlaidSnapshot = await this.applyOpenCodeSecondaryEvidenceOverlay({
@@ -18319,8 +18459,74 @@ export class TeamProvisioningService {
       previousSnapshot,
       metaMembers,
     });
+    if (
+      options?.allowNoopSkip === true &&
+      typeof options.runId === 'string' &&
+      this.launchStateWrittenRunIdByTeam.get(teamName) === options.runId &&
+      previousSnapshot &&
+      this.areLaunchStateSnapshotsSemanticallyEqual(previousSnapshot, overlaidSnapshot) &&
+      !this.isLaunchStateNoopRefreshDue(previousSnapshot)
+    ) {
+      return { snapshot: previousSnapshot, wrote: false };
+    }
     await this.launchStateStore.write(teamName, overlaidSnapshot);
-    return overlaidSnapshot;
+    if (typeof options?.runId === 'string') {
+      this.launchStateWrittenRunIdByTeam.set(teamName, options.runId);
+    }
+    return { snapshot: overlaidSnapshot, wrote: true };
+  }
+
+  private isLaunchStateNoopRefreshDue(snapshot: PersistedTeamLaunchSnapshot): boolean {
+    const updatedAtMs = Date.parse(snapshot.updatedAt);
+    return (
+      !Number.isFinite(updatedAtMs) ||
+      Date.now() - updatedAtMs >= TeamProvisioningService.LAUNCH_STATE_NOOP_REFRESH_MS
+    );
+  }
+
+  private areLaunchStateSnapshotsSemanticallyEqual(
+    left: PersistedTeamLaunchSnapshot,
+    right: PersistedTeamLaunchSnapshot
+  ): boolean {
+    return (
+      JSON.stringify(this.toLaunchStateSemanticValue(left)) ===
+      JSON.stringify(this.toLaunchStateSemanticValue(right))
+    );
+  }
+
+  private toLaunchStateSemanticValue(snapshot: PersistedTeamLaunchSnapshot): unknown {
+    const { updatedAt: _updatedAt, members, ...rest } = snapshot;
+    const stableMembers = Object.fromEntries(
+      Object.entries(members)
+        .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
+        .map(([memberName, member]) => {
+          const {
+            lastEvaluatedAt: _lastEvaluatedAt,
+            lastRuntimeAliveAt: _lastRuntimeAliveAt,
+            ...stableMember
+          } = member;
+          return [memberName, stableMember];
+        })
+    );
+    return this.toStableJsonValue({
+      ...rest,
+      members: stableMembers,
+    });
+  }
+
+  private toStableJsonValue(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.toStableJsonValue(item));
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entryValue]) => entryValue !== undefined)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entryValue]) => [key, this.toStableJsonValue(entryValue)])
+    );
   }
 
   private async enqueueLaunchStateStoreOperation<T>(
@@ -18657,6 +18863,7 @@ export class TeamProvisioningService {
     run: Pick<ProvisioningRun, 'teamName' | 'runId'>,
     memberName: string
   ) {
+    this.invalidateMemberSpawnStatusesCache(run.teamName);
     this.teamChangeEmitter?.({
       type: 'member-spawn',
       teamName: run.teamName,
@@ -19008,9 +19215,14 @@ export class TeamProvisioningService {
       return null;
     }
 
-    const writtenSnapshot = await this.writeLaunchStateSnapshotNow(run.teamName, filteredSnapshot);
-    this.invalidateRuntimeSnapshotCaches(run.teamName);
-    return writtenSnapshot;
+    const writeResult = await this.writeLaunchStateSnapshotNow(run.teamName, filteredSnapshot, {
+      allowNoopSkip: true,
+      runId: run.runId,
+    });
+    if (writeResult.wrote) {
+      this.invalidateRuntimeSnapshotCaches(run.teamName);
+    }
+    return writeResult.snapshot;
   }
 
   private async launchSingleMixedSecondaryLane(
@@ -23879,6 +24091,7 @@ export class TeamProvisioningService {
     }
     if (!hasNewerTrackedRun) {
       this.invalidateRuntimeSnapshotCaches(run.teamName);
+      this.invalidateMemberSpawnStatusesCache(run.teamName);
       this.leadInboxRelayInFlight.delete(run.teamName);
       this.relayedLeadInboxMessageIds.delete(run.teamName);
       this.pendingCrossTeamFirstReplies.delete(run.teamName);
