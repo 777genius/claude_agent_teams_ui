@@ -121,6 +121,7 @@ import { ProcessesSection } from './ProcessesSection';
 import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from './provisioningSteps';
 import { TeamProvisioningBanner } from './TeamProvisioningBanner';
 import {
+  loadTeamSessionMetadata,
   isLeadSessionMissing,
   shouldSuppressMissingLeadSessionFetch,
 } from './teamSessionFetchGuards';
@@ -1525,7 +1526,10 @@ export const TeamDetailView = ({
 
     void (async () => {
       try {
-        const result = await api.getSessions(projectId);
+        const result = await loadTeamSessionMetadata(api, projectId, {
+          leadSessionId: data?.config.leadSessionId ?? null,
+          sessionHistory: data?.config.sessionHistory ?? [],
+        });
         if (!cancelled) {
           setSessions(result);
         }
@@ -1543,7 +1547,7 @@ export const TeamDetailView = ({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [data?.config.leadSessionId, projectId, sessionHistoryKey]);
 
   // Live git branch tracking for the lead project and member worktrees
   const teamProjectPath = data?.config.projectPath?.trim() ?? null;
