@@ -14,7 +14,7 @@ interface TaskRowProps {
   task: TeamTaskWithKanban;
 }
 
-export const TaskRow = memo(({ task }: TaskRowProps): React.JSX.Element => {
+export const TaskRow = memo(function TaskRow({ task }: TaskRowProps): React.JSX.Element {
   const blockedByIds = task.blockedBy?.filter((id) => id.length > 0) ?? [];
   const blocksIds = task.blocks?.filter((id) => id.length > 0) ?? [];
   const kanbanColumn = getTaskKanbanColumn(task);

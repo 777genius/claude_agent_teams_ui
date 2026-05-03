@@ -946,200 +946,47 @@ export const CompactMarkdownPreview: React.FC<CompactMarkdownPreviewProps> = Rea
   }
 );
 
-export const MarkdownViewer: React.FC<MarkdownViewerProps> = React.memo(
-  ({
-    content,
-    maxHeight = 'max-h-96',
-    className = '',
-    label,
-    itemId,
-    searchQueryOverride,
-    copyable = false,
-    bare = false,
-    baseDir,
-    teamColorByName: providedTeamColorByName,
-    onTeamClick: providedOnTeamClick,
-  }) => {
-    const [showRaw, setShowRaw] = React.useState(false);
-    const [rawLimit, setRawLimit] = React.useState(LARGE_PREVIEW_CHARS);
-    const { isLight } = useTheme();
-    const { teamColorByName, onTeamClick } = useResolvedViewerTeamContext(
-      providedTeamColorByName,
-      providedOnTeamClick
-    );
+export const MarkdownViewer: React.FC<MarkdownViewerProps> = React.memo(function MarkdownViewer({
+  content,
+  maxHeight = 'max-h-96',
+  className = '',
+  label,
+  itemId,
+  searchQueryOverride,
+  copyable = false,
+  bare = false,
+  baseDir,
+  teamColorByName: providedTeamColorByName,
+  onTeamClick: providedOnTeamClick,
+}) {
+  const [showRaw, setShowRaw] = React.useState(false);
+  const [rawLimit, setRawLimit] = React.useState(LARGE_PREVIEW_CHARS);
+  const { isLight } = useTheme();
+  const { teamColorByName, onTeamClick } = useResolvedViewerTeamContext(
+    providedTeamColorByName,
+    providedOnTeamClick
+  );
 
-    const isTooLarge = content.length > MAX_MARKDOWN_CHARS;
-    const disableHighlight = content.length > DISABLE_HIGHLIGHT_CHARS;
+  const isTooLarge = content.length > MAX_MARKDOWN_CHARS;
+  const disableHighlight = content.length > DISABLE_HIGHLIGHT_CHARS;
 
-    // Only re-render if THIS item has search matches
-    const { searchQuery, searchMatches, currentSearchIndex } = useStore(
-      useShallow((s) => {
-        const hasMatch = itemId ? s.searchMatchItemIds.has(itemId) : false;
-        return {
-          searchQuery: hasMatch ? s.searchQuery : '',
-          searchMatches: hasMatch ? s.searchMatches : EMPTY_SEARCH_MATCHES,
-          currentSearchIndex: hasMatch ? s.currentSearchIndex : -1,
-        };
-      })
-    );
+  // Only re-render if THIS item has search matches
+  const { searchQuery, searchMatches, currentSearchIndex } = useStore(
+    useShallow((s) => {
+      const hasMatch = itemId ? s.searchMatchItemIds.has(itemId) : false;
+      return {
+        searchQuery: hasMatch ? s.searchQuery : '',
+        searchMatches: hasMatch ? s.searchMatches : EMPTY_SEARCH_MATCHES,
+        currentSearchIndex: hasMatch ? s.currentSearchIndex : -1,
+      };
+    })
+  );
 
-    // Guard: very large markdown can freeze the renderer (remark/rehype + highlighting).
-    // For large content, default to a lightweight raw preview with manual expansion.
-    if (isTooLarge || showRaw) {
-      const shown = content.slice(0, Math.min(rawLimit, content.length));
-      const isTruncated = shown.length < content.length;
-      return (
-        <div
-          className={`min-w-0 overflow-hidden ${bare ? '' : 'rounded-lg shadow-sm'} ${copyable && !label ? 'group relative' : ''} ${className}`}
-          style={
-            bare
-              ? undefined
-              : {
-                  backgroundColor: CODE_BG,
-                  border: `1px solid ${CODE_BORDER}`,
-                }
-          }
-        >
-          {copyable && !label && (
-            <CopyButton text={content} bgColor={bare ? 'transparent' : undefined} />
-          )}
-
-          {label && (
-            <div
-              className="flex items-center gap-2 px-3 py-2"
-              style={{
-                backgroundColor: CODE_HEADER_BG,
-                borderBottom: `1px solid ${CODE_BORDER}`,
-              }}
-            >
-              <FileText className="size-4 shrink-0" style={{ color: COLOR_TEXT_MUTED }} />
-              <span className="text-sm font-medium" style={{ color: COLOR_TEXT_SECONDARY }}>
-                {label}
-              </span>
-              <span className="ml-2 text-[11px]" style={{ color: COLOR_TEXT_MUTED }}>
-                Raw
-              </span>
-              <span className="flex-1" />
-              <button
-                type="button"
-                className="text-xs underline"
-                style={{ color: PROSE_LINK }}
-                onClick={() => setShowRaw(false)}
-                disabled={isTooLarge}
-                title={
-                  isTooLarge
-                    ? 'Large content is shown as raw to prevent UI freeze'
-                    : 'Render markdown'
-                }
-              >
-                Render markdown
-              </button>
-              {copyable && <CopyButton text={content} inline />}
-            </div>
-          )}
-
-          {!label && (
-            <div
-              className="flex items-center justify-between px-3 py-2 text-xs"
-              style={{ color: COLOR_TEXT_MUTED }}
-            >
-              <span>Raw preview</span>
-              <button
-                type="button"
-                className="underline"
-                style={{ color: PROSE_LINK }}
-                onClick={() => setShowRaw(false)}
-                disabled={isTooLarge}
-                title={
-                  isTooLarge
-                    ? 'Large content is shown as raw to prevent UI freeze'
-                    : 'Render markdown'
-                }
-              >
-                Render markdown
-              </button>
-            </div>
-          )}
-
-          {isTooLarge && (
-            <div className="px-3 pb-2 text-[11px]" style={{ color: COLOR_TEXT_MUTED }}>
-              Content is very large ({content.length.toLocaleString()} chars). Showing raw preview
-              to keep the UI responsive.
-            </div>
-          )}
-
-          <div className={`min-w-0 overflow-auto ${maxHeight}`}>
-            <pre
-              className="min-w-0 whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed"
-              style={{ color: PROSE_BODY }}
-            >
-              {shown}
-            </pre>
-            {isTruncated && (
-              <div className="flex items-center justify-between gap-2 px-4 pb-4 text-xs">
-                <span style={{ color: COLOR_TEXT_MUTED }}>
-                  Showing {shown.length.toLocaleString()} / {content.length.toLocaleString()} chars
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded border px-2 py-1"
-                    style={{ borderColor: CODE_BORDER, color: PROSE_LINK }}
-                    onClick={() => setRawLimit((v) => Math.min(content.length, v * 2))}
-                  >
-                    Show more
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded border px-2 py-1"
-                    style={{ borderColor: CODE_BORDER, color: PROSE_LINK }}
-                    onClick={() => setRawLimit(content.length)}
-                  >
-                    Show all
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Create search context (fresh each render so counter starts at 0)
-    const effectiveQuery = (searchQueryOverride ?? searchQuery).trim();
-    const effectiveMatches = searchQueryOverride ? [] : searchMatches;
-    const effectiveIndex = searchQueryOverride ? -1 : currentSearchIndex;
-    const searchCtx =
-      effectiveQuery && itemId
-        ? createSearchContext(effectiveQuery, itemId, effectiveMatches, effectiveIndex)
-        : null;
-    // Local search (Claude logs): use bright highlight for all matches (no "current result" concept).
-    if (searchCtx && searchQueryOverride) {
-      searchCtx.forceAllActive = true;
-    }
-
-    // Create markdown components with optional search highlighting
-    // When search is active, create fresh each render (match counter is stateful and must start at 0)
-    // useMemo would cache stale closures when parent re-renders without search deps changing
-    const baseComponents = searchCtx
-      ? createViewerMarkdownComponents(searchCtx, isLight, teamColorByName, onTeamClick, copyable)
-      : isLight
-        ? createViewerMarkdownComponents(null, true, teamColorByName, onTeamClick, copyable)
-        : createViewerMarkdownComponents(null, false, teamColorByName, onTeamClick, copyable);
-
-    // When baseDir is set (editor preview), override img to load local files via IPC
-    const components = baseDir
-      ? {
-          ...baseComponents,
-          img: ({ src, alt }: { src?: string; alt?: string }) => {
-            if (src && isRelativeUrl(src)) {
-              return <LocalImage src={src} alt={alt} baseDir={baseDir} />;
-            }
-            return <img src={src} alt={alt || ''} className="my-2 max-w-full rounded" />;
-          },
-        }
-      : baseComponents;
-
+  // Guard: very large markdown can freeze the renderer (remark/rehype + highlighting).
+  // For large content, default to a lightweight raw preview with manual expansion.
+  if (isTooLarge || showRaw) {
+    const shown = content.slice(0, Math.min(rawLimit, content.length));
+    const isTruncated = shown.length < content.length;
     return (
       <div
         className={`min-w-0 overflow-hidden ${bare ? '' : 'rounded-lg shadow-sm'} ${copyable && !label ? 'group relative' : ''} ${className}`}
@@ -1152,12 +999,10 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = React.memo(
               }
         }
       >
-        {/* Copy button overlay (when no label header) */}
         {copyable && !label && (
           <CopyButton text={content} bgColor={bare ? 'transparent' : undefined} />
         )}
 
-        {/* Optional header - matches CodeBlockViewer style */}
         {label && (
           <div
             className="flex items-center gap-2 px-3 py-2"
@@ -1170,31 +1015,184 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = React.memo(
             <span className="text-sm font-medium" style={{ color: COLOR_TEXT_SECONDARY }}>
               {label}
             </span>
-            {copyable && (
-              <>
-                <span className="flex-1" />
-                <CopyButton text={content} inline />
-              </>
-            )}
+            <span className="ml-2 text-[11px]" style={{ color: COLOR_TEXT_MUTED }}>
+              Raw
+            </span>
+            <span className="flex-1" />
+            <button
+              type="button"
+              className="text-xs underline"
+              style={{ color: PROSE_LINK }}
+              onClick={() => setShowRaw(false)}
+              disabled={isTooLarge}
+              title={
+                isTooLarge
+                  ? 'Large content is shown as raw to prevent UI freeze'
+                  : 'Render markdown'
+              }
+            >
+              Render markdown
+            </button>
+            {copyable && <CopyButton text={content} inline />}
           </div>
         )}
 
-        {/* Markdown content with scroll */}
-        <div className={`min-w-0 overflow-auto ${maxHeight}`}>
-          <div className="min-w-0 break-words p-2">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={disableHighlight ? REHYPE_PLUGINS_NO_HIGHLIGHT : REHYPE_PLUGINS}
-              components={components}
-              urlTransform={allowCustomProtocols}
-              allowElement={isAllowedElement}
-              unwrapDisallowed
+        {!label && (
+          <div
+            className="flex items-center justify-between px-3 py-2 text-xs"
+            style={{ color: COLOR_TEXT_MUTED }}
+          >
+            <span>Raw preview</span>
+            <button
+              type="button"
+              className="underline"
+              style={{ color: PROSE_LINK }}
+              onClick={() => setShowRaw(false)}
+              disabled={isTooLarge}
+              title={
+                isTooLarge
+                  ? 'Large content is shown as raw to prevent UI freeze'
+                  : 'Render markdown'
+              }
             >
-              {content}
-            </ReactMarkdown>
+              Render markdown
+            </button>
           </div>
+        )}
+
+        {isTooLarge && (
+          <div className="px-3 pb-2 text-[11px]" style={{ color: COLOR_TEXT_MUTED }}>
+            Content is very large ({content.length.toLocaleString()} chars). Showing raw preview to
+            keep the UI responsive.
+          </div>
+        )}
+
+        <div className={`min-w-0 overflow-auto ${maxHeight}`}>
+          <pre
+            className="min-w-0 whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed"
+            style={{ color: PROSE_BODY }}
+          >
+            {shown}
+          </pre>
+          {isTruncated && (
+            <div className="flex items-center justify-between gap-2 px-4 pb-4 text-xs">
+              <span style={{ color: COLOR_TEXT_MUTED }}>
+                Showing {shown.length.toLocaleString()} / {content.length.toLocaleString()} chars
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded border px-2 py-1"
+                  style={{ borderColor: CODE_BORDER, color: PROSE_LINK }}
+                  onClick={() => setRawLimit((v) => Math.min(content.length, v * 2))}
+                >
+                  Show more
+                </button>
+                <button
+                  type="button"
+                  className="rounded border px-2 py-1"
+                  style={{ borderColor: CODE_BORDER, color: PROSE_LINK }}
+                  onClick={() => setRawLimit(content.length)}
+                >
+                  Show all
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
   }
-);
+
+  // Create search context (fresh each render so counter starts at 0)
+  const effectiveQuery = (searchQueryOverride ?? searchQuery).trim();
+  const effectiveMatches = searchQueryOverride ? [] : searchMatches;
+  const effectiveIndex = searchQueryOverride ? -1 : currentSearchIndex;
+  const searchCtx =
+    effectiveQuery && itemId
+      ? createSearchContext(effectiveQuery, itemId, effectiveMatches, effectiveIndex)
+      : null;
+  // Local search (Claude logs): use bright highlight for all matches (no "current result" concept).
+  if (searchCtx && searchQueryOverride) {
+    searchCtx.forceAllActive = true;
+  }
+
+  // Create markdown components with optional search highlighting
+  // When search is active, create fresh each render (match counter is stateful and must start at 0)
+  // useMemo would cache stale closures when parent re-renders without search deps changing
+  const baseComponents = searchCtx
+    ? createViewerMarkdownComponents(searchCtx, isLight, teamColorByName, onTeamClick, copyable)
+    : isLight
+      ? createViewerMarkdownComponents(null, true, teamColorByName, onTeamClick, copyable)
+      : createViewerMarkdownComponents(null, false, teamColorByName, onTeamClick, copyable);
+
+  // When baseDir is set (editor preview), override img to load local files via IPC
+  const components = baseDir
+    ? {
+        ...baseComponents,
+        img: ({ src, alt }: { src?: string; alt?: string }) => {
+          if (src && isRelativeUrl(src)) {
+            return <LocalImage src={src} alt={alt} baseDir={baseDir} />;
+          }
+          return <img src={src} alt={alt || ''} className="my-2 max-w-full rounded" />;
+        },
+      }
+    : baseComponents;
+
+  return (
+    <div
+      className={`min-w-0 overflow-hidden ${bare ? '' : 'rounded-lg shadow-sm'} ${copyable && !label ? 'group relative' : ''} ${className}`}
+      style={
+        bare
+          ? undefined
+          : {
+              backgroundColor: CODE_BG,
+              border: `1px solid ${CODE_BORDER}`,
+            }
+      }
+    >
+      {/* Copy button overlay (when no label header) */}
+      {copyable && !label && (
+        <CopyButton text={content} bgColor={bare ? 'transparent' : undefined} />
+      )}
+
+      {/* Optional header - matches CodeBlockViewer style */}
+      {label && (
+        <div
+          className="flex items-center gap-2 px-3 py-2"
+          style={{
+            backgroundColor: CODE_HEADER_BG,
+            borderBottom: `1px solid ${CODE_BORDER}`,
+          }}
+        >
+          <FileText className="size-4 shrink-0" style={{ color: COLOR_TEXT_MUTED }} />
+          <span className="text-sm font-medium" style={{ color: COLOR_TEXT_SECONDARY }}>
+            {label}
+          </span>
+          {copyable && (
+            <>
+              <span className="flex-1" />
+              <CopyButton text={content} inline />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Markdown content with scroll */}
+      <div className={`min-w-0 overflow-auto ${maxHeight}`}>
+        <div className="min-w-0 break-words p-2">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={disableHighlight ? REHYPE_PLUGINS_NO_HIGHLIGHT : REHYPE_PLUGINS}
+            components={components}
+            urlTransform={allowCustomProtocols}
+            allowElement={isAllowedElement}
+            unwrapDisallowed
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      </div>
+    </div>
+  );
+});

@@ -155,243 +155,239 @@ const SessionRuntimeBadge = ({
   );
 };
 
-export const SessionItem = memo(
-  ({
-    session,
-    isActive,
-    isPinned,
-    isHidden,
-    multiSelectActive,
-    isSelected,
-  }: Readonly<SessionItemProps>): React.JSX.Element => {
-    const {
-      openTab,
-      activeProjectId,
-      selectSession,
-      paneCount,
-      splitPane,
-      togglePinSession,
-      toggleHideSession,
-      toggleSidebarSessionSelection,
-    } = useStore(
-      useShallow((s) => ({
-        openTab: s.openTab,
-        activeProjectId: s.activeProjectId,
-        selectSession: s.selectSession,
-        paneCount: s.paneLayout.panes.length,
-        splitPane: s.splitPane,
-        togglePinSession: s.togglePinSession,
-        toggleHideSession: s.toggleHideSession,
-        toggleSidebarSessionSelection: s.toggleSidebarSessionSelection,
-      }))
+export const SessionItem = memo(function SessionItem({
+  session,
+  isActive,
+  isPinned,
+  isHidden,
+  multiSelectActive,
+  isSelected,
+}: Readonly<SessionItemProps>): React.JSX.Element {
+  const {
+    openTab,
+    activeProjectId,
+    selectSession,
+    paneCount,
+    splitPane,
+    togglePinSession,
+    toggleHideSession,
+    toggleSidebarSessionSelection,
+  } = useStore(
+    useShallow((s) => ({
+      openTab: s.openTab,
+      activeProjectId: s.activeProjectId,
+      selectSession: s.selectSession,
+      paneCount: s.paneLayout.panes.length,
+      splitPane: s.splitPane,
+      togglePinSession: s.togglePinSession,
+      toggleHideSession: s.toggleHideSession,
+      toggleSidebarSessionSelection: s.toggleSidebarSessionSelection,
+    }))
+  );
+
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const handleClick = (event: React.MouseEvent): void => {
+    if (!activeProjectId) return;
+
+    // In multi-select mode, clicks toggle selection
+    if (multiSelectActive) {
+      toggleSidebarSessionSelection(session.id);
+      return;
+    }
+
+    // Cmd/Ctrl+click: open in new tab; plain click: replace current tab
+    const forceNewTab = event.ctrlKey || event.metaKey;
+
+    openTab(
+      {
+        type: 'session',
+        sessionId: session.id,
+        projectId: activeProjectId,
+        label: formatSessionLabel(session.firstMessage),
+      },
+      forceNewTab ? { forceNewTab } : { replaceActiveTab: true }
     );
 
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+    selectSession(session.id);
+  };
 
-    const handleClick = (event: React.MouseEvent): void => {
-      if (!activeProjectId) return;
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
 
-      // In multi-select mode, clicks toggle selection
-      if (multiSelectActive) {
-        toggleSidebarSessionSelection(session.id);
-        return;
-      }
+  const sessionLabel = formatSessionLabel(session.firstMessage);
 
-      // Cmd/Ctrl+click: open in new tab; plain click: replace current tab
-      const forceNewTab = event.ctrlKey || event.metaKey;
-
-      openTab(
-        {
-          type: 'session',
-          sessionId: session.id,
-          projectId: activeProjectId,
-          label: formatSessionLabel(session.firstMessage),
-        },
-        forceNewTab ? { forceNewTab } : { replaceActiveTab: true }
-      );
-
-      selectSession(session.id);
-    };
-
-    const handleContextMenu = useCallback((e: React.MouseEvent) => {
-      e.preventDefault();
-      setContextMenu({ x: e.clientX, y: e.clientY });
-    }, []);
-
-    const sessionLabel = formatSessionLabel(session.firstMessage);
-
-    const handleOpenInCurrentPane = useCallback(() => {
-      if (!activeProjectId) return;
-      openTab(
-        {
-          type: 'session',
-          sessionId: session.id,
-          projectId: activeProjectId,
-          label: sessionLabel,
-        },
-        { replaceActiveTab: true }
-      );
-      selectSession(session.id);
-    }, [activeProjectId, openTab, selectSession, session.id, sessionLabel]);
-
-    const handleOpenInNewTab = useCallback(() => {
-      if (!activeProjectId) return;
-      openTab(
-        {
-          type: 'session',
-          sessionId: session.id,
-          projectId: activeProjectId,
-          label: sessionLabel,
-        },
-        { forceNewTab: true }
-      );
-      selectSession(session.id);
-    }, [activeProjectId, openTab, selectSession, session.id, sessionLabel]);
-
-    const handleSplitRightAndOpen = useCallback(() => {
-      if (!activeProjectId) return;
-      // First open the tab in the focused pane
-      openTab({
+  const handleOpenInCurrentPane = useCallback(() => {
+    if (!activeProjectId) return;
+    openTab(
+      {
         type: 'session',
         sessionId: session.id,
         projectId: activeProjectId,
         label: sessionLabel,
-      });
-      selectSession(session.id);
-      // Then split it to the right
-      const state = useStore.getState();
-      const focusedPaneId = state.paneLayout.focusedPaneId;
-      const activeTabId = state.activeTabId;
-      if (activeTabId) {
-        splitPane(focusedPaneId, activeTabId, 'right');
-      }
-    }, [activeProjectId, openTab, selectSession, session.id, sessionLabel, splitPane]);
-
-    // Height must match SESSION_HEIGHT (54px) in DateGroupedSessions.tsx for virtual scroll
-    return (
-      <>
-        <button
-          onClick={handleClick}
-          onContextMenu={handleContextMenu}
-          className={`flex h-[54px] w-full flex-col justify-center overflow-hidden border-b px-2 py-1.5 text-left transition-colors ${isActive ? '' : 'bg-transparent hover:bg-surface-raised'}`}
-          style={{
-            borderColor: 'var(--color-border)',
-            ...(isActive ? { backgroundColor: 'var(--color-surface-raised)' } : {}),
-            ...(isHidden ? { opacity: 0.5 } : {}),
-          }}
-        >
-          {(() => {
-            const parsed = parseSessionTitle(session.firstMessage);
-            const isTeam = parsed.kind !== 'regular';
-            return (
-              <>
-                {/* First line: title + ongoing indicator + pin/hidden icons */}
-                <div className="flex items-center gap-1.5">
-                  {multiSelectActive && (
-                    <input
-                      type="checkbox"
-                      checked={isSelected ?? false}
-                      onChange={() => toggleSidebarSessionSelection(session.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="size-3.5 shrink-0 accent-blue-500"
-                    />
-                  )}
-                  {session.isOngoing && <OngoingIndicator />}
-                  {isPinned && <Pin className="size-2.5 shrink-0 text-blue-400" />}
-                  {isHidden && <EyeOff className="size-2.5 shrink-0 text-zinc-500" />}
-                  {isTeam ? (
-                    <span
-                      className="flex items-center gap-1.5 truncate text-[13px] font-medium leading-tight"
-                      style={{ color: isActive ? 'var(--color-text)' : 'var(--color-text-muted)' }}
-                    >
-                      <Users className="size-3 shrink-0 text-blue-400" />
-                      <span className="truncate">{parsed.displayText}</span>
-                    </span>
-                  ) : (
-                    <span
-                      className="line-clamp-2 text-[13px] font-medium leading-tight"
-                      style={{ color: isActive ? 'var(--color-text)' : 'var(--color-text-muted)' }}
-                    >
-                      {parsed.displayText}
-                    </span>
-                  )}
-                </div>
-
-                {/* Second line: metadata */}
-                <div
-                  className="mt-0.5 flex items-center gap-2 text-[10px] leading-tight"
-                  style={{ color: 'var(--color-text-muted)' }}
-                >
-                  {isTeam && parsed.projectName && (
-                    <>
-                      <span className="truncate">{parsed.projectName}</span>
-                      <span style={{ opacity: 0.5 }}>·</span>
-                    </>
-                  )}
-                  {isTeam && (
-                    <>
-                      <span className="flex shrink-0 items-center gap-0.5">
-                        {parsed.kind === 'team-resume' ? (
-                          <RotateCw className="size-2.5" />
-                        ) : (
-                          <Play className="size-2.5" />
-                        )}
-                        {parsed.kind === 'team-resume' ? 'resume' : 'new'}
-                      </span>
-                      <span style={{ opacity: 0.5 }}>·</span>
-                    </>
-                  )}
-                  <span className="flex shrink-0 items-center gap-0.5">
-                    <MessageSquare className="size-2.5" />
-                    {session.messageCount}
-                  </span>
-                  <span style={{ opacity: 0.5 }}>·</span>
-                  <span className="tabular-nums">
-                    {formatShortTime(new Date(session.createdAt))}
-                  </span>
-                  {session.model && (
-                    <>
-                      <span style={{ opacity: 0.5 }}>·</span>
-                      <SessionRuntimeBadge model={session.model} />
-                    </>
-                  )}
-                  {session.contextConsumption != null && session.contextConsumption > 0 && (
-                    <>
-                      <span style={{ opacity: 0.5 }}>·</span>
-                      <ConsumptionBadge
-                        contextConsumption={session.contextConsumption}
-                        phaseBreakdown={session.phaseBreakdown}
-                      />
-                    </>
-                  )}
-                </div>
-              </>
-            );
-          })()}
-        </button>
-
-        {contextMenu &&
-          activeProjectId &&
-          createPortal(
-            <SessionContextMenu
-              x={contextMenu.x}
-              y={contextMenu.y}
-              sessionId={session.id}
-              projectId={activeProjectId}
-              sessionLabel={sessionLabel}
-              paneCount={paneCount}
-              isPinned={isPinned ?? false}
-              isHidden={isHidden ?? false}
-              onClose={() => setContextMenu(null)}
-              onOpenInCurrentPane={handleOpenInCurrentPane}
-              onOpenInNewTab={handleOpenInNewTab}
-              onSplitRightAndOpen={handleSplitRightAndOpen}
-              onTogglePin={() => void togglePinSession(session.id)}
-              onToggleHide={() => void toggleHideSession(session.id)}
-            />,
-            document.body
-          )}
-      </>
+      },
+      { replaceActiveTab: true }
     );
-  }
-);
+    selectSession(session.id);
+  }, [activeProjectId, openTab, selectSession, session.id, sessionLabel]);
+
+  const handleOpenInNewTab = useCallback(() => {
+    if (!activeProjectId) return;
+    openTab(
+      {
+        type: 'session',
+        sessionId: session.id,
+        projectId: activeProjectId,
+        label: sessionLabel,
+      },
+      { forceNewTab: true }
+    );
+    selectSession(session.id);
+  }, [activeProjectId, openTab, selectSession, session.id, sessionLabel]);
+
+  const handleSplitRightAndOpen = useCallback(() => {
+    if (!activeProjectId) return;
+    // First open the tab in the focused pane
+    openTab({
+      type: 'session',
+      sessionId: session.id,
+      projectId: activeProjectId,
+      label: sessionLabel,
+    });
+    selectSession(session.id);
+    // Then split it to the right
+    const state = useStore.getState();
+    const focusedPaneId = state.paneLayout.focusedPaneId;
+    const activeTabId = state.activeTabId;
+    if (activeTabId) {
+      splitPane(focusedPaneId, activeTabId, 'right');
+    }
+  }, [activeProjectId, openTab, selectSession, session.id, sessionLabel, splitPane]);
+
+  // Height must match SESSION_HEIGHT (54px) in DateGroupedSessions.tsx for virtual scroll
+  return (
+    <>
+      <button
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        className={`flex h-[54px] w-full flex-col justify-center overflow-hidden border-b px-2 py-1.5 text-left transition-colors ${isActive ? '' : 'bg-transparent hover:bg-surface-raised'}`}
+        style={{
+          borderColor: 'var(--color-border)',
+          ...(isActive ? { backgroundColor: 'var(--color-surface-raised)' } : {}),
+          ...(isHidden ? { opacity: 0.5 } : {}),
+        }}
+      >
+        {(() => {
+          const parsed = parseSessionTitle(session.firstMessage);
+          const isTeam = parsed.kind !== 'regular';
+          return (
+            <>
+              {/* First line: title + ongoing indicator + pin/hidden icons */}
+              <div className="flex items-center gap-1.5">
+                {multiSelectActive && (
+                  <input
+                    type="checkbox"
+                    checked={isSelected ?? false}
+                    onChange={() => toggleSidebarSessionSelection(session.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="size-3.5 shrink-0 accent-blue-500"
+                  />
+                )}
+                {session.isOngoing && <OngoingIndicator />}
+                {isPinned && <Pin className="size-2.5 shrink-0 text-blue-400" />}
+                {isHidden && <EyeOff className="size-2.5 shrink-0 text-zinc-500" />}
+                {isTeam ? (
+                  <span
+                    className="flex items-center gap-1.5 truncate text-[13px] font-medium leading-tight"
+                    style={{ color: isActive ? 'var(--color-text)' : 'var(--color-text-muted)' }}
+                  >
+                    <Users className="size-3 shrink-0 text-blue-400" />
+                    <span className="truncate">{parsed.displayText}</span>
+                  </span>
+                ) : (
+                  <span
+                    className="line-clamp-2 text-[13px] font-medium leading-tight"
+                    style={{ color: isActive ? 'var(--color-text)' : 'var(--color-text-muted)' }}
+                  >
+                    {parsed.displayText}
+                  </span>
+                )}
+              </div>
+
+              {/* Second line: metadata */}
+              <div
+                className="mt-0.5 flex items-center gap-2 text-[10px] leading-tight"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                {isTeam && parsed.projectName && (
+                  <>
+                    <span className="truncate">{parsed.projectName}</span>
+                    <span style={{ opacity: 0.5 }}>·</span>
+                  </>
+                )}
+                {isTeam && (
+                  <>
+                    <span className="flex shrink-0 items-center gap-0.5">
+                      {parsed.kind === 'team-resume' ? (
+                        <RotateCw className="size-2.5" />
+                      ) : (
+                        <Play className="size-2.5" />
+                      )}
+                      {parsed.kind === 'team-resume' ? 'resume' : 'new'}
+                    </span>
+                    <span style={{ opacity: 0.5 }}>·</span>
+                  </>
+                )}
+                <span className="flex shrink-0 items-center gap-0.5">
+                  <MessageSquare className="size-2.5" />
+                  {session.messageCount}
+                </span>
+                <span style={{ opacity: 0.5 }}>·</span>
+                <span className="tabular-nums">{formatShortTime(new Date(session.createdAt))}</span>
+                {session.model && (
+                  <>
+                    <span style={{ opacity: 0.5 }}>·</span>
+                    <SessionRuntimeBadge model={session.model} />
+                  </>
+                )}
+                {session.contextConsumption != null && session.contextConsumption > 0 && (
+                  <>
+                    <span style={{ opacity: 0.5 }}>·</span>
+                    <ConsumptionBadge
+                      contextConsumption={session.contextConsumption}
+                      phaseBreakdown={session.phaseBreakdown}
+                    />
+                  </>
+                )}
+              </div>
+            </>
+          );
+        })()}
+      </button>
+
+      {contextMenu &&
+        activeProjectId &&
+        createPortal(
+          <SessionContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            sessionId={session.id}
+            projectId={activeProjectId}
+            sessionLabel={sessionLabel}
+            paneCount={paneCount}
+            isPinned={isPinned ?? false}
+            isHidden={isHidden ?? false}
+            onClose={() => setContextMenu(null)}
+            onOpenInCurrentPane={handleOpenInCurrentPane}
+            onOpenInNewTab={handleOpenInNewTab}
+            onSplitRightAndOpen={handleSplitRightAndOpen}
+            onTogglePin={() => void togglePinSession(session.id)}
+            onToggleHide={() => void toggleHideSession(session.id)}
+          />,
+          document.body
+        )}
+    </>
+  );
+});

@@ -25,12 +25,12 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 
 import { ScheduleRunLogDialog } from '../team/schedule/ScheduleRunLogDialog';
+import { ScheduleRunRow } from '../team/schedule/ScheduleRunRow';
+import { ScheduleStatusBadge } from '../team/schedule/ScheduleStatusBadge';
 
 const LaunchTeamDialog = lazy(() =>
   import('../team/dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
 );
-import { ScheduleRunRow } from '../team/schedule/ScheduleRunRow';
-import { ScheduleStatusBadge } from '../team/schedule/ScheduleStatusBadge';
 
 import type { Schedule, ScheduleRun, ScheduleStatus } from '@shared/types';
 

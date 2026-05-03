@@ -45,7 +45,6 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import type { ActiveTeamRef, TeamCopyData } from './dialogs/CreateTeamDialog';
 import { TeamEmptyState } from './TeamEmptyState';
 import { EMPTY_TEAM_FILTER, TeamListFilterPopover } from './TeamListFilterPopover';
 import {
@@ -54,13 +53,7 @@ import {
   teamMatchesProjectSelection,
 } from './teamProjectSelection';
 
-const CreateTeamDialog = lazy(() =>
-  import('./dialogs/CreateTeamDialog').then((m) => ({ default: m.CreateTeamDialog }))
-);
-const LaunchTeamDialog = lazy(() =>
-  import('./dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
-);
-
+import type { ActiveTeamRef, TeamCopyData } from './dialogs/CreateTeamDialog';
 import type { TeamListFilterState } from './TeamListFilterPopover';
 import type { TeamStatus } from '@renderer/utils/teamListStatus';
 import type {
@@ -71,6 +64,13 @@ import type {
   TeamSummary,
   TeamSummaryMember,
 } from '@shared/types';
+
+const CreateTeamDialog = lazy(() =>
+  import('./dialogs/CreateTeamDialog').then((m) => ({ default: m.CreateTeamDialog }))
+);
+const LaunchTeamDialog = lazy(() =>
+  import('./dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
+);
 
 function generateUniqueName(sourceName: string, existingNames: string[]): string {
   const base = sourceName.replace(/-\d+$/, '');
@@ -238,7 +238,7 @@ const StatusBadge = ({ status }: { status: TeamStatus }): React.JSX.Element => {
   }
 };
 
-export const TeamListView = memo((): React.JSX.Element => {
+export const TeamListView = memo(function TeamListView(): React.JSX.Element {
   const { isLight } = useTheme();
   const electronMode = isElectronMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
