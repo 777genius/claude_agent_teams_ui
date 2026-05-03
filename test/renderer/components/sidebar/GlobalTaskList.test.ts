@@ -32,12 +32,29 @@ const taskLocalState = {
   renameTask: vi.fn(),
 };
 
+const storeListeners = new Set<() => void>();
+function notifyStoreUpdate(): void {
+  storeListeners.forEach((l) => l());
+}
+
 vi.mock('../../../../src/renderer/store', () => ({
-  useStore: (selector: (state: StoreState) => unknown) => selector(storeState),
+  useStore: (selector: (state: StoreState) => unknown) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { useState, useEffect } = require('react') as typeof import('react');
+    const [, setVersion] = useState(0);
+    useEffect(() => {
+      const listener = () => setVersion((v) => v + 1);
+      storeListeners.add(listener);
+      return () => {
+        storeListeners.delete(listener);
+      };
+    }, []);
+    return selector(storeState);
+  },
 }));
 
 vi.mock('zustand/react/shallow', () => ({
-  useShallow: <T,>(selector: T) => selector,
+  useShallow: <T>(selector: T) => selector,
 }));
 
 vi.mock('../../../../src/renderer/components/common/ConfirmDialog', () => ({
@@ -75,7 +92,8 @@ vi.mock('../../../../src/renderer/components/sidebar/TaskFiltersPopover', () => 
 }));
 
 vi.mock('../../../../src/renderer/components/ui/popover', () => ({
-  Popover: ({ children }: React.PropsWithChildren) => React.createElement(React.Fragment, null, children),
+  Popover: ({ children }: React.PropsWithChildren) =>
+    React.createElement(React.Fragment, null, children),
   PopoverTrigger: ({ children }: React.PropsWithChildren) =>
     React.createElement(React.Fragment, null, children),
   PopoverContent: ({ children }: React.PropsWithChildren) =>
@@ -83,7 +101,8 @@ vi.mock('../../../../src/renderer/components/ui/popover', () => ({
 }));
 
 vi.mock('../../../../src/renderer/components/ui/tooltip', () => ({
-  Tooltip: ({ children }: React.PropsWithChildren) => React.createElement(React.Fragment, null, children),
+  Tooltip: ({ children }: React.PropsWithChildren) =>
+    React.createElement(React.Fragment, null, children),
   TooltipTrigger: ({ children }: React.PropsWithChildren) =>
     React.createElement(React.Fragment, null, children),
   TooltipContent: ({ children }: React.PropsWithChildren) =>
@@ -113,9 +132,11 @@ function flushMicrotasks(): Promise<void> {
 }
 
 function findButton(host: HTMLElement, label: string): HTMLButtonElement | null {
-  return Array.from(host.querySelectorAll('button')).find(
-    (button) => button.textContent?.trim() === label
-  ) ?? null;
+  return (
+    Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label
+    ) ?? null
+  );
 }
 
 function visibleSubjects(host: HTMLElement): string[] {
@@ -175,6 +196,7 @@ describe('GlobalTaskList project grouping', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
+    storeListeners.clear();
   });
 
   it('shows five tasks first, then expands and collapses with Show more and Show less', async () => {
@@ -199,7 +221,14 @@ describe('GlobalTaskList project grouping', () => {
       await flushMicrotasks();
     });
 
-    expect(visibleSubjects(host)).toEqual(['Task 1', 'Task 2', 'Task 3', 'Task 4', 'Task 5', 'Task 6']);
+    expect(visibleSubjects(host)).toEqual([
+      'Task 1',
+      'Task 2',
+      'Task 3',
+      'Task 4',
+      'Task 5',
+      'Task 6',
+    ]);
     expect(findButton(host, 'Show less')).not.toBeNull();
 
     await act(async () => {
@@ -249,7 +278,7 @@ describe('GlobalTaskList project grouping', () => {
     ];
 
     await act(async () => {
-      root.render(React.createElement(GlobalTaskList));
+      notifyStoreUpdate();
       await flushMicrotasks();
     });
 
