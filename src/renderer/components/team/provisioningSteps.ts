@@ -65,7 +65,11 @@ function isFailedSpawnEntry(entry: MemberSpawnStatusEntry | undefined): boolean 
 }
 
 function isStrongRuntimeProcessSpawnEntry(entry: MemberSpawnStatusEntry): boolean {
-  return entry.runtimeAlive === true && entry.livenessKind === 'runtime_process';
+  return (
+    entry.runtimeAlive === true &&
+    entry.livenessKind === 'runtime_process' &&
+    entry.bootstrapStalled !== true
+  );
 }
 
 function shouldPreferSnapshotEntryOverLive(

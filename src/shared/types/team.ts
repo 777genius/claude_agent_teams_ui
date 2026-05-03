@@ -1022,6 +1022,8 @@ export interface PersistedTeamLaunchMemberState {
   pidSource?: TeamAgentRuntimePidSource;
   runtimeDiagnostic?: string;
   runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  /** True when a live runtime process missed the bounded bootstrap check-in window. */
+  bootstrapStalled?: boolean;
   runtimeLastSeenAt?: string;
   firstSpawnAcceptedAt?: string;
   lastHeartbeatAt?: string;
@@ -1199,6 +1201,8 @@ export interface MemberSpawnStatusEntry {
   runtimeDiagnostic?: string;
   /** Visual severity for runtimeDiagnostic. */
   runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  /** Process is alive, but bootstrap did not confirm before the bounded OpenCode deadline. */
+  bootstrapStalled?: boolean;
   /** ISO timestamp of the last liveness evaluation. */
   livenessLastCheckedAt?: string;
   /** ISO timestamp of the last status change. */

@@ -303,6 +303,26 @@ describe('memberHelpers spawn-aware presence', () => {
     expect(permissionPending.cardClass).toContain('member-waiting-shimmer');
   });
 
+  it('surfaces bootstrap-stalled OpenCode teammates as actionable pending state', () => {
+    const bootstrapStalled = buildMemberLaunchPresentation({
+      member: { ...member, providerId: 'opencode' },
+      spawnStatus: 'waiting',
+      spawnLaunchState: 'runtime_pending_bootstrap',
+      spawnLivenessSource: undefined,
+      spawnRuntimeAlive: true,
+      spawnBootstrapStalled: true,
+      runtimeAdvisory: undefined,
+      isLaunchSettling: false,
+      isTeamAlive: true,
+      isTeamProvisioning: false,
+    });
+
+    expect(bootstrapStalled.presenceLabel).toBe('bootstrap stalled');
+    expect(bootstrapStalled.launchVisualState).toBe('bootstrap_stalled');
+    expect(bootstrapStalled.launchStatusLabel).toBe('bootstrap stalled');
+    expect(bootstrapStalled.dotClass).toContain('bg-amber-400');
+  });
+
   it('surfaces strict runtime liveness diagnostics as launch labels', () => {
     expect(
       buildMemberLaunchPresentation({

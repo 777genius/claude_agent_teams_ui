@@ -42,6 +42,7 @@ interface SkippedSpawnDetail {
 }
 
 type PendingDiagnosticBucket =
+  | 'bootstrapStalled'
   | 'shellOnly'
   | 'runtimeProcess'
   | 'runtimeCandidate'
@@ -182,6 +183,7 @@ function getPendingDiagnosticNameGroups(params: {
   memberSpawnSnapshotUpdatedAt?: string;
 }): PendingDiagnosticNameGroups {
   const groups: PendingDiagnosticNameGroups = {
+    bootstrapStalled: [],
     shellOnly: [],
     runtimeProcess: [],
     runtimeCandidate: [],
@@ -213,6 +215,10 @@ function getPendingDiagnosticNameGroups(params: {
       (entry.pendingPermissionRequestIds?.length ?? 0) > 0
     ) {
       groups.permission.push(name);
+      continue;
+    }
+    if (entry.bootstrapStalled === true) {
+      groups.bootstrapStalled.push(name);
       continue;
     }
     if (entry.livenessKind === 'shell_only') {
@@ -288,9 +294,24 @@ function buildOpenCodeSecondaryWaitPhrase(params: {
   const pendingOnlyOpenCodeSecondary = pendingNames.every((name) =>
     isOpenCodeSecondaryMember(memberByName.get(name))
   );
-  return pendingOnlyOpenCodeSecondary
-    ? `Waiting for OpenCode: ${formatMemberNameList(pendingNames)}`
-    : null;
+  if (!pendingOnlyOpenCodeSecondary) {
+    return null;
+  }
+
+  const groups = getPendingDiagnosticNameGroups({
+    memberSpawnStatuses: params.memberSpawnStatuses,
+    memberSpawnSnapshotStatuses: params.memberSpawnSnapshotStatuses,
+    memberSpawnSnapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+  });
+  if (groups.bootstrapStalled.length === 0) {
+    return `Waiting for OpenCode: ${formatMemberNameList(pendingNames)}`;
+  }
+
+  const stalled = `Bootstrap stalled: ${formatMemberNameList(groups.bootstrapStalled)}`;
+  const waitingNames = pendingNames.filter((name) => !groups.bootstrapStalled.includes(name));
+  return waitingNames.length > 0
+    ? `${stalled}; Waiting for OpenCode: ${formatMemberNameList(waitingNames)}`
+    : stalled;
 }
 
 function formatNamedPendingDiagnostic(label: string, names: readonly string[]): string | null {
@@ -323,6 +344,7 @@ function buildPendingDiagnosticPhrase({
     memberSpawnSnapshotUpdatedAt,
   });
   const namedParts = [
+    formatNamedPendingDiagnostic('Bootstrap stalled', groups.bootstrapStalled),
     formatNamedPendingDiagnostic('Shell-only', groups.shellOnly),
     formatNamedPendingDiagnostic('Waiting for bootstrap', groups.runtimeProcess),
     formatNamedPendingDiagnostic('Bootstrap unconfirmed', groups.runtimeCandidate),

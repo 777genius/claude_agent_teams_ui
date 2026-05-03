@@ -431,6 +431,7 @@ function createMemberSpawnRun(params?: {
   expectedMembers?: string[];
   memberSpawnStatuses?: Map<string, Record<string, unknown>>;
   memberSpawnLeadInboxCursorByMember?: Map<string, { timestamp: string; messageId: string }>;
+  mixedSecondaryLanes?: Array<{ providerId: string; member: { name: string } }>;
 }) {
   const teamName = params?.teamName ?? 'member-spawn-team';
   const expectedMembers = params?.expectedMembers ?? ['alice'];
@@ -452,6 +453,7 @@ function createMemberSpawnRun(params?: {
     request: {
       members: [],
     },
+    mixedSecondaryLanes: params?.mixedSecondaryLanes ?? [],
     expectedMembers,
     memberSpawnStatuses,
     memberSpawnToolUseIds: new Map(),
@@ -9202,6 +9204,7 @@ describe('TeamProvisioningService', () => {
       const run = createMemberSpawnRun({
         teamName: 'codex-team',
         expectedMembers: ['bob'],
+        mixedSecondaryLanes: [{ providerId: 'opencode', member: { name: 'bob' } }],
         memberSpawnStatuses: new Map([
           [
             'bob',
@@ -9235,14 +9238,67 @@ describe('TeamProvisioningService', () => {
       await (svc as any).reevaluateMemberLaunchStatus(run, 'bob');
 
       expect(run.memberSpawnStatuses.get('bob')).toMatchObject({
-        status: 'online',
+        status: 'waiting',
         launchState: 'runtime_pending_bootstrap',
         runtimeAlive: true,
         bootstrapConfirmed: false,
-        livenessSource: 'process',
+        livenessSource: undefined,
         livenessKind: 'runtime_process',
         runtimeDiagnostic: 'Runtime process is alive, but no bootstrap check-in after 5 min.',
         runtimeDiagnosticSeverity: 'warning',
+        bootstrapStalled: true,
+        hardFailure: false,
+      });
+    });
+
+    it('keeps OpenCode runtime process pending before the bootstrap stall window', async () => {
+      const svc = new TeamProvisioningService();
+      const run = createMemberSpawnRun({
+        teamName: 'codex-team',
+        expectedMembers: ['bob'],
+        mixedSecondaryLanes: [{ providerId: 'opencode', member: { name: 'bob' } }],
+        memberSpawnStatuses: new Map([
+          [
+            'bob',
+            createMemberSpawnStatusEntry({
+              status: 'waiting',
+              launchState: 'runtime_pending_bootstrap',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              firstSpawnAcceptedAt: new Date(Date.now() - 60_000).toISOString(),
+            }),
+          ],
+        ]),
+      });
+      (svc as any).refreshMemberSpawnStatusesFromLeadInbox = vi.fn(async () => {});
+      (svc as any).maybeAuditMemberSpawnStatuses = vi.fn(async () => {});
+      (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(
+        async () =>
+          new Map([
+            [
+              'bob',
+              {
+                alive: true,
+                livenessKind: 'runtime_process',
+                runtimeDiagnostic: 'OpenCode runtime process detected',
+              },
+            ],
+          ])
+      );
+
+      await (svc as any).reevaluateMemberLaunchStatus(run, 'bob');
+
+      expect(run.memberSpawnStatuses.get('bob')).toMatchObject({
+        status: 'waiting',
+        launchState: 'runtime_pending_bootstrap',
+        runtimeAlive: true,
+        bootstrapConfirmed: false,
+        livenessSource: undefined,
+        livenessKind: 'runtime_process',
+        runtimeDiagnostic: 'OpenCode runtime process detected',
+        runtimeDiagnosticSeverity: 'info',
+        bootstrapStalled: undefined,
         hardFailure: false,
       });
     });
@@ -12890,6 +12946,101 @@ describe('TeamProvisioningService', () => {
       livenessSource: undefined,
       livenessKind: 'runtime_process_candidate',
       runtimeDiagnostic: 'OpenCode runtime pid is alive, but process identity is unverified',
+      runtimeDiagnosticSeverity: 'warning',
+    });
+  });
+
+  it('keeps OpenCode secondary pending-bootstrap status waiting when live runtime process is attached', async () => {
+    const svc = new TeamProvisioningService();
+    (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(
+      async () =>
+        new Map([
+          [
+            'tom',
+            {
+              alive: true,
+              model: 'openrouter/minimax/minimax-m2.5',
+              livenessKind: 'runtime_process',
+              providerId: 'opencode',
+              runtimeDiagnostic: 'OpenCode runtime process detected',
+              runtimeDiagnosticSeverity: 'info',
+            },
+          ],
+        ])
+    );
+
+    const result = await (svc as any).attachLiveRuntimeMetadataToStatuses(
+      'beacon-desk-4',
+      {
+        tom: createMemberSpawnStatusEntry({
+          status: 'waiting',
+          launchState: 'runtime_pending_bootstrap',
+          agentToolAccepted: true,
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+        }),
+      },
+      { openCodeSecondaryBootstrapPendingMembers: new Set(['tom']) }
+    );
+
+    expect(result.tom).toMatchObject({
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: true,
+      bootstrapConfirmed: false,
+      livenessSource: undefined,
+      livenessKind: 'runtime_process',
+      runtimeModel: 'openrouter/minimax/minimax-m2.5',
+      runtimeDiagnostic: 'OpenCode runtime process detected',
+      runtimeDiagnosticSeverity: 'info',
+    });
+  });
+
+  it('marks stale OpenCode secondary pending-bootstrap status stalled when live runtime is attached after restart', async () => {
+    const svc = new TeamProvisioningService();
+    (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(
+      async () =>
+        new Map([
+          [
+            'tom',
+            {
+              alive: true,
+              model: 'openrouter/minimax/minimax-m2.5',
+              livenessKind: 'runtime_process',
+              providerId: 'opencode',
+              runtimeDiagnostic: 'OpenCode runtime process detected',
+              runtimeDiagnosticSeverity: 'info',
+            },
+          ],
+        ])
+    );
+
+    const result = await (svc as any).attachLiveRuntimeMetadataToStatuses(
+      'beacon-desk-4',
+      {
+        tom: createMemberSpawnStatusEntry({
+          status: 'waiting',
+          launchState: 'runtime_pending_bootstrap',
+          agentToolAccepted: true,
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          firstSpawnAcceptedAt: new Date(Date.now() - 6 * 60_000).toISOString(),
+        }),
+      },
+      { openCodeSecondaryBootstrapPendingMembers: new Set(['tom']) }
+    );
+
+    expect(result.tom).toMatchObject({
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: true,
+      bootstrapConfirmed: false,
+      livenessSource: undefined,
+      livenessKind: 'runtime_process',
+      bootstrapStalled: true,
+      runtimeDiagnostic: 'Runtime process is alive, but no bootstrap check-in after 5 min.',
       runtimeDiagnosticSeverity: 'warning',
     });
   });

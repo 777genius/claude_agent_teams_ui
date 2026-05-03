@@ -140,6 +140,7 @@ export const MemberCard = ({
     spawnLaunchState,
     spawnLivenessSource,
     spawnRuntimeAlive,
+    spawnBootstrapStalled: spawnEntry?.bootstrapStalled,
     runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,
     isLaunchSettling,
@@ -157,6 +158,7 @@ export const MemberCard = ({
   const launchStatusLabel = launchPresentation.launchStatusLabel;
   const displayPresenceLabel =
     launchVisualState === 'queued' ||
+    launchVisualState === 'bootstrap_stalled' ||
     launchVisualState === 'runtime_pending' ||
     launchVisualState === 'permission_pending' ||
     launchVisualState === 'shell_only' ||

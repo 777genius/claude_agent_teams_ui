@@ -550,6 +550,7 @@ export type MemberLaunchVisualState =
   | 'waiting'
   | 'spawning'
   | 'permission_pending'
+  | 'bootstrap_stalled'
   | 'runtime_pending'
   | 'shell_only'
   | 'runtime_candidate'
@@ -582,6 +583,8 @@ export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState)
       return 'starting';
     case 'permission_pending':
       return 'awaiting permission';
+    case 'bootstrap_stalled':
+      return 'bootstrap stalled';
     case 'runtime_pending':
       return 'waiting for bootstrap';
     case 'shell_only':
@@ -608,6 +611,7 @@ function getLaunchVisualStateDotClass(visualState: MemberLaunchVisualState): str
     case 'queued':
       return SPAWN_DOT_COLORS.waiting;
     case 'permission_pending':
+    case 'bootstrap_stalled':
     case 'runtime_pending':
     case 'runtime_candidate':
       return 'bg-amber-400 animate-pulse';
@@ -710,6 +714,7 @@ export function isOpenCodeRelaunchActionable({
     nowMs
   );
   const hasExplicitBootstrapStall =
+    spawnEntry?.bootstrapStalled === true ||
     hasBootstrapStallDiagnostic(spawnEntry?.runtimeDiagnostic) ||
     hasBootstrapStallDiagnostic(runtimeEntry?.runtimeDiagnostic);
   const launchIsNoLongerFresh =
@@ -725,6 +730,9 @@ export function isOpenCodeRelaunchActionable({
   ) {
     return launchIsNoLongerFresh;
   }
+  if (livenessKind === 'runtime_process') {
+    return hasExplicitBootstrapStall;
+  }
   if (livenessKind !== 'runtime_process_candidate') {
     return false;
   }
@@ -738,6 +746,7 @@ export function buildMemberLaunchPresentation({
   spawnLaunchState,
   spawnLivenessSource,
   spawnRuntimeAlive,
+  spawnBootstrapStalled,
   runtimeAdvisory,
   runtimeEntry,
   isLaunchSettling = false,
@@ -750,6 +759,7 @@ export function buildMemberLaunchPresentation({
   spawnLaunchState: MemberLaunchState | undefined;
   spawnLivenessSource: MemberSpawnLivenessSource | undefined;
   spawnRuntimeAlive: boolean | undefined;
+  spawnBootstrapStalled?: boolean;
   runtimeAdvisory: MemberRuntimeAdvisory | undefined;
   runtimeEntry?: TeamAgentRuntimeEntry;
   isLaunchSettling?: boolean;
@@ -800,6 +810,8 @@ export function buildMemberLaunchPresentation({
       launchVisualState = 'skipped';
     } else if (spawnLaunchState === 'runtime_pending_permission') {
       launchVisualState = 'permission_pending';
+    } else if (spawnBootstrapStalled === true) {
+      launchVisualState = 'bootstrap_stalled';
     } else if (runtimeEntry?.livenessKind === 'shell_only') {
       launchVisualState = 'shell_only';
     } else if (runtimeEntry?.livenessKind === 'runtime_process_candidate') {
@@ -851,6 +863,7 @@ export function buildMemberLaunchPresentation({
   const shouldShowLaunchStatusAsPresence =
     launchVisualState === 'queued' ||
     launchVisualState === 'permission_pending' ||
+    launchVisualState === 'bootstrap_stalled' ||
     launchVisualState === 'runtime_pending' ||
     launchVisualState === 'shell_only' ||
     launchVisualState === 'runtime_candidate' ||

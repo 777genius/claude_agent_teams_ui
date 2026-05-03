@@ -50,6 +50,8 @@ import type {
 
 const OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE =
   'No OpenCode runtime session was recorded. Relaunch this teammate to start a fresh OpenCode session.';
+const OPENCODE_BOOTSTRAP_STALLED_MESSAGE =
+  'OpenCode process is alive, but bootstrap did not confirm. Relaunch this teammate to start a fresh OpenCode session.';
 
 function hasOpenCodeRuntimeEvidence(runtimeEntry: TeamAgentRuntimeEntry | undefined): boolean {
   const hasPid =
@@ -202,12 +204,17 @@ export const MemberDetailDialog = ({
   const launchErrorMessage = launchDiagnosticsPayload
     ? getMemberLaunchDiagnosticsErrorMessage(launchDiagnosticsPayload)
     : undefined;
+  const openCodeBootstrapStalled =
+    member?.providerId === 'opencode' && spawnEntry?.bootstrapStalled === true;
   const openCodeNoRuntimeEvidence = member
     ? isOpenCodeNoRuntimeEvidenceFailure(member, spawnEntry, runtimeEntry)
     : false;
   const effectiveLaunchErrorMessage = openCodeNoRuntimeEvidence
     ? OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE
     : launchErrorMessage;
+  const effectiveLaunchInfoMessage = openCodeBootstrapStalled
+    ? OPENCODE_BOOTSTRAP_STALLED_MESSAGE
+    : undefined;
   const restartButtonLabel =
     openCodeNoRuntimeEvidence || openCodeRelaunchActionable ? 'Relaunch OpenCode' : 'Restart';
 
@@ -245,6 +252,7 @@ export const MemberDetailDialog = ({
               spawnLaunchState={spawnEntry?.launchState}
               spawnLivenessSource={spawnEntry?.livenessSource}
               spawnRuntimeAlive={spawnEntry?.runtimeAlive}
+              spawnBootstrapStalled={spawnEntry?.bootstrapStalled}
               runtimeEntry={runtimeEntry}
               isLaunchSettling={isLaunchSettling}
               onUpdateRole={
@@ -350,6 +358,12 @@ export const MemberDetailDialog = ({
                   className="h-auto shrink-0 gap-1.5 px-2 py-1 text-red-300 hover:bg-red-500/10 hover:text-red-200"
                 />
               ) : null}
+            </div>
+          ) : effectiveLaunchInfoMessage ? (
+            <div className="mr-auto flex min-w-0 items-center gap-2 text-xs text-amber-300">
+              <span className="min-w-0 truncate" title={effectiveLaunchInfoMessage}>
+                {effectiveLaunchInfoMessage}
+              </span>
             </div>
           ) : runtimeEntry?.pid ? (
             <div className="mr-auto text-xs text-[var(--color-text-muted)]">

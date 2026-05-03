@@ -14796,7 +14796,7 @@ describe('Team agent launch matrix safe e2e', () => {
     expect(adapter.launchInputs).toHaveLength(0);
     expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
       'launching',
-      'launching',
+      'queued',
     ]);
     expect(run.mixedSecondaryLanes.map((lane: { runId: string | null }) => lane.runId)).toEqual(
       firstLaneRunIds
@@ -14847,7 +14847,7 @@ describe('Team agent launch matrix safe e2e', () => {
     expect(adapter.launchInputs).toHaveLength(0);
     expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
       'launching',
-      'launching',
+      'queued',
     ]);
     expect(run.mixedSecondaryLanes.map((lane: { runId: string | null }) => lane.runId)).toEqual(
       firstLaneRunIds

@@ -4075,6 +4075,18 @@ function buildLaunchDiagnosticsFromRun(
       });
       continue;
     }
+    if (entry.bootstrapStalled === true) {
+      items.push({
+        id: `${memberName}:bootstrap_stalled`,
+        memberName,
+        severity: 'warning',
+        code: 'bootstrap_stalled',
+        label: `${memberName} - bootstrap stalled`,
+        detail: entry.runtimeDiagnostic,
+        observedAt,
+      });
+      continue;
+    }
     if (mentionsProcessTableUnavailable(entry.runtimeDiagnostic)) {
       items.push({
         id: `${memberName}:process_table_unavailable`,
@@ -9283,6 +9295,7 @@ export class TeamProvisioningService {
       runtimeAlive: true,
       bootstrapConfirmed: true,
       hardFailure: false,
+      bootstrapStalled: undefined,
       runtimePid,
       runtimeRunId: input.runId,
       runtimeSessionId: input.runtimeSessionId,
@@ -9432,6 +9445,7 @@ export class TeamProvisioningService {
       runtimeAlive: true,
       bootstrapConfirmed: true,
       hardFailure: false,
+      bootstrapStalled: undefined,
       pendingPermissionRequestIds: undefined,
       firstSpawnAcceptedAt: previousStatus.firstSpawnAcceptedAt ?? input.observedAt,
       lastHeartbeatAt: input.observedAt,
@@ -10247,6 +10261,7 @@ export class TeamProvisioningService {
       next.runtimeAlive = false;
       next.bootstrapConfirmed = false;
       next.hardFailure = false;
+      next.bootstrapStalled = undefined;
       next.error = undefined;
       next.hardFailureReason = undefined;
       next.livenessSource = undefined;
@@ -10265,6 +10280,7 @@ export class TeamProvisioningService {
       next.runtimeAlive = false;
       next.bootstrapConfirmed = false;
       next.hardFailure = false;
+      next.bootstrapStalled = undefined;
       next.error = undefined;
       next.hardFailureReason = undefined;
       next.livenessSource = undefined;
@@ -10294,6 +10310,7 @@ export class TeamProvisioningService {
           : prev.lastHeartbeatAt;
       }
       next.hardFailure = false;
+      next.bootstrapStalled = undefined;
       next.error = undefined;
       next.hardFailureReason = undefined;
       next.launchState = deriveMemberLaunchState(next);
@@ -10303,6 +10320,7 @@ export class TeamProvisioningService {
       next.skippedAt = undefined;
       next.error = error;
       next.hardFailure = true;
+      next.bootstrapStalled = undefined;
       next.hardFailureReason = error;
       next.launchState = 'failed_to_start';
     } else if (status === 'skipped') {
@@ -10314,6 +10332,7 @@ export class TeamProvisioningService {
       next.runtimeAlive = false;
       next.bootstrapConfirmed = false;
       next.hardFailure = false;
+      next.bootstrapStalled = undefined;
       next.error = undefined;
       next.hardFailureReason = undefined;
       next.livenessSource = undefined;
@@ -10357,6 +10376,7 @@ export class TeamProvisioningService {
       prev.livenessKind === next.livenessKind &&
       prev.runtimeDiagnostic === next.runtimeDiagnostic &&
       prev.runtimeDiagnosticSeverity === next.runtimeDiagnosticSeverity &&
+      prev.bootstrapStalled === next.bootstrapStalled &&
       prev.firstSpawnAcceptedAt === next.firstSpawnAcceptedAt &&
       prev.lastHeartbeatAt === next.lastHeartbeatAt
     ) {
@@ -10440,6 +10460,7 @@ export class TeamProvisioningService {
       runtimeAlive: prev.runtimeAlive === true,
       bootstrapConfirmed: true,
       hardFailure: false,
+      bootstrapStalled: undefined,
       error: undefined,
       hardFailureReason: undefined,
       livenessSource: prev.livenessSource ?? 'process',
@@ -10460,6 +10481,7 @@ export class TeamProvisioningService {
       prev.runtimeAlive === next.runtimeAlive &&
       prev.bootstrapConfirmed === next.bootstrapConfirmed &&
       prev.hardFailure === next.hardFailure &&
+      prev.bootstrapStalled === next.bootstrapStalled &&
       prev.firstSpawnAcceptedAt === next.firstSpawnAcceptedAt &&
       prev.lastHeartbeatAt === next.lastHeartbeatAt
     ) {
@@ -10493,7 +10515,10 @@ export class TeamProvisioningService {
   }> {
     const readPersistedStatuses = async (resolvedRunId: string | null) => {
       const { snapshot, statuses } = await this.reconcilePersistedLaunchState(teamName);
-      const nextStatuses = await this.attachLiveRuntimeMetadataToStatuses(teamName, statuses);
+      const nextStatuses = await this.attachLiveRuntimeMetadataToStatuses(teamName, statuses, {
+        openCodeSecondaryBootstrapPendingMembers:
+          this.getOpenCodeSecondaryBootstrapPendingMemberNames(snapshot),
+      });
       const expectedMembers = snapshot ? this.getPersistedLaunchMemberNames(snapshot) : undefined;
       const summary = expectedMembers
         ? summarizeMemberSpawnStatusRecord(expectedMembers, nextStatuses)
@@ -10605,7 +10630,11 @@ export class TeamProvisioningService {
     const launchSnapshot = this.filterRemovedMembersFromLaunchSnapshot(rawSnapshot, metaMembers);
     const statuses = await this.attachLiveRuntimeMetadataToStatuses(
       teamName,
-      snapshotToMemberSpawnStatuses(launchSnapshot)
+      snapshotToMemberSpawnStatuses(launchSnapshot),
+      {
+        openCodeSecondaryBootstrapPendingMembers:
+          this.getOpenCodeSecondaryBootstrapPendingMemberNames(launchSnapshot),
+      }
     );
     const expectedMembers = this.getPersistedLaunchMemberNames(launchSnapshot);
     const summary = summarizeMemberSpawnStatusRecord(expectedMembers, statuses);
@@ -11910,14 +11939,27 @@ export class TeamProvisioningService {
     const elapsedMs = Number.isFinite(acceptedAtMs) ? Date.now() - acceptedAtMs : Infinity;
     const runtimeDiagnostic = metadata?.runtimeDiagnostic;
     if (metadata?.livenessKind === 'runtime_process') {
-      if (elapsedMs >= MEMBER_BOOTSTRAP_STALL_MS) {
-        run.memberSpawnStatuses.set(memberName, {
-          ...refreshed,
-          livenessKind: metadata.livenessKind,
-          runtimeDiagnostic: 'Runtime process is alive, but no bootstrap check-in after 5 min.',
-          runtimeDiagnosticSeverity: 'warning',
-          livenessLastCheckedAt: nowIso(),
+      if (this.isOpenCodeSecondaryLaneMemberInRun(run, memberName)) {
+        this.setOpenCodeRuntimePendingBootstrapStatus(run, memberName, refreshed, {
+          bootstrapStalled: elapsedMs >= MEMBER_BOOTSTRAP_STALL_MS,
+          runtimeDiagnostic:
+            elapsedMs >= MEMBER_BOOTSTRAP_STALL_MS
+              ? 'Runtime process is alive, but no bootstrap check-in after 5 min.'
+              : (runtimeDiagnostic ??
+                'OpenCode runtime process is alive, waiting for bootstrap check-in.'),
+          runtimeDiagnosticSeverity:
+            elapsedMs >= MEMBER_BOOTSTRAP_STALL_MS
+              ? 'warning'
+              : (metadata.runtimeDiagnosticSeverity ?? 'info'),
         });
+        if (elapsedMs < MEMBER_BOOTSTRAP_STALL_MS) {
+          this.scheduleOpenCodeBootstrapStallReevaluation(
+            run,
+            memberName,
+            refreshedFirstSpawnAcceptedAt
+          );
+        }
+        return;
       }
       this.setMemberSpawnStatus(run, memberName, 'online', undefined, 'process');
       return;
@@ -11986,6 +12028,98 @@ export class TeamProvisioningService {
       livenessLastCheckedAt: nowIso(),
     });
     this.setMemberSpawnStatus(run, memberName, 'error', strictReason);
+  }
+
+  private setOpenCodeRuntimePendingBootstrapStatus(
+    run: ProvisioningRun,
+    memberName: string,
+    current: MemberSpawnStatusEntry,
+    options: {
+      bootstrapStalled: boolean;
+      runtimeDiagnostic: string;
+      runtimeDiagnosticSeverity: TeamAgentRuntimeDiagnosticSeverity;
+    }
+  ): void {
+    const observedAt = nowIso();
+    const wasBootstrapStalled = current.bootstrapStalled === true;
+    const next: MemberSpawnStatusEntry = {
+      ...current,
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      agentToolAccepted: true,
+      runtimeAlive: true,
+      bootstrapConfirmed: false,
+      hardFailure: false,
+      error: undefined,
+      hardFailureReason: undefined,
+      livenessSource: undefined,
+      livenessKind: 'runtime_process',
+      runtimeDiagnostic: options.runtimeDiagnostic,
+      runtimeDiagnosticSeverity: options.runtimeDiagnosticSeverity,
+      bootstrapStalled: options.bootstrapStalled ? true : undefined,
+      livenessLastCheckedAt: observedAt,
+      firstSpawnAcceptedAt: current.firstSpawnAcceptedAt ?? observedAt,
+      updatedAt: observedAt,
+    };
+
+    run.memberSpawnStatuses.set(memberName, next);
+    const launchDiagnostics = boundLaunchDiagnostics(buildLaunchDiagnosticsFromRun(run));
+    if (launchDiagnostics) {
+      run.progress = {
+        ...run.progress,
+        updatedAt: observedAt,
+        launchDiagnostics,
+      };
+      run.onProgress(run.progress);
+    }
+
+    if (options.bootstrapStalled && !wasBootstrapStalled) {
+      this.appendMemberBootstrapDiagnostic(run, memberName, 'opencode_bootstrap_stalled');
+    } else if (
+      !options.bootstrapStalled &&
+      (current.status !== 'waiting' || current.livenessKind !== 'runtime_process')
+    ) {
+      this.appendMemberBootstrapDiagnostic(
+        run,
+        memberName,
+        'runtime process is alive, teammate check-in not yet received'
+      );
+    }
+    if (!this.isCurrentTrackedRun(run)) return;
+    this.emitMemberSpawnChange(run, memberName);
+    if (run.isLaunch) {
+      void this.persistLaunchStateSnapshot(run, run.provisioningComplete ? 'finished' : 'active');
+    }
+  }
+
+  private scheduleOpenCodeBootstrapStallReevaluation(
+    run: ProvisioningRun,
+    memberName: string,
+    firstSpawnAcceptedAt: string
+  ): void {
+    const acceptedAtMs = Date.parse(firstSpawnAcceptedAt);
+    if (!Number.isFinite(acceptedAtMs)) {
+      return;
+    }
+    const stallDelayMs = Math.max(1_000, acceptedAtMs + MEMBER_BOOTSTRAP_STALL_MS - Date.now());
+    const stallKey = `${this.getMemberLaunchGraceKey(run, memberName)}:bootstrap-stall`;
+    if (this.pendingTimeouts.has(stallKey)) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.pendingTimeouts.delete(stallKey);
+      void this.reevaluateMemberLaunchStatus(run, memberName);
+    }, stallDelayMs);
+    timer.unref?.();
+    this.pendingTimeouts.set(stallKey, timer);
+  }
+
+  private isOpenCodeBootstrapStallWindowElapsed(firstSpawnAcceptedAt: string | undefined): boolean {
+    if (!firstSpawnAcceptedAt) {
+      return false;
+    }
+    const acceptedAtMs = Date.parse(firstSpawnAcceptedAt);
+    return Number.isFinite(acceptedAtMs) && Date.now() - acceptedAtMs >= MEMBER_BOOTSTRAP_STALL_MS;
   }
 
   private shouldSkipMemberSpawnAudit(run: ProvisioningRun): boolean {
@@ -17343,6 +17477,23 @@ export class TeamProvisioningService {
       // registered the runtime and the OS process is still alive, treat it as
       // process-confirmed running. Keep this distinct from heartbeat-confirmed online.
       if (runtimeAlive) {
+        if (this.isOpenCodeSecondaryLaneMemberInRun(run, expected)) {
+          const base = current ?? createInitialMemberSpawnStatusEntry();
+          const bootstrapStalled =
+            base.bootstrapStalled === true ||
+            this.isOpenCodeBootstrapStallWindowElapsed(base.firstSpawnAcceptedAt);
+          this.setOpenCodeRuntimePendingBootstrapStatus(run, expected, base, {
+            bootstrapStalled,
+            runtimeDiagnostic: bootstrapStalled
+              ? 'Runtime process is alive, but no bootstrap check-in after 5 min.'
+              : (base.runtimeDiagnostic ??
+                'OpenCode runtime process is alive, waiting for bootstrap check-in.'),
+            runtimeDiagnosticSeverity: bootstrapStalled
+              ? 'warning'
+              : (base.runtimeDiagnosticSeverity ?? 'info'),
+          });
+          continue;
+        }
         this.setMemberSpawnStatus(run, expected, 'online', undefined, 'process');
         continue;
       }
@@ -17431,7 +17582,10 @@ export class TeamProvisioningService {
 
   private async attachLiveRuntimeMetadataToStatuses(
     teamName: string,
-    statuses: Record<string, MemberSpawnStatusEntry>
+    statuses: Record<string, MemberSpawnStatusEntry>,
+    options?: {
+      openCodeSecondaryBootstrapPendingMembers?: ReadonlySet<string>;
+    }
   ): Promise<Record<string, MemberSpawnStatusEntry>> {
     const runtimeByMember = await this.getLiveTeamAgentRuntimeMetadata(teamName);
     const nextStatuses = { ...statuses };
@@ -17452,6 +17606,15 @@ export class TeamProvisioningService {
       if (!current) {
         continue;
       }
+      const openCodeSecondaryBootstrapPending =
+        options?.openCodeSecondaryBootstrapPendingMembers?.has(resolvedStatusKey) === true &&
+        current.launchState === 'runtime_pending_bootstrap' &&
+        current.bootstrapConfirmed !== true &&
+        current.hardFailure !== true;
+      const openCodeBootstrapStalled =
+        openCodeSecondaryBootstrapPending &&
+        (current.bootstrapStalled === true ||
+          this.isOpenCodeBootstrapStallWindowElapsed(current.firstSpawnAcceptedAt));
       if (current.launchState === 'skipped_for_launch' || current.skippedForLaunch === true) {
         nextStatuses[resolvedStatusKey] = {
           ...current,
@@ -17487,6 +17650,8 @@ export class TeamProvisioningService {
         current.bootstrapConfirmed !== true;
       if (
         hasStrongEvidence &&
+        !openCodeSecondaryBootstrapPending &&
+        current.bootstrapStalled !== true &&
         current.hardFailure !== true &&
         current.launchState !== 'failed_to_start'
       ) {
@@ -17497,6 +17662,27 @@ export class TeamProvisioningService {
         nextEntry.hardFailureReason = undefined;
         nextEntry.error = undefined;
         nextEntry.livenessSource = current.bootstrapConfirmed ? current.livenessSource : 'process';
+        nextEntry.launchState = deriveMemberLaunchState(nextEntry);
+      }
+      if (
+        (current.bootstrapStalled === true || openCodeSecondaryBootstrapPending) &&
+        hasStrongEvidence &&
+        current.bootstrapConfirmed !== true &&
+        current.launchState !== 'failed_to_start'
+      ) {
+        nextEntry.status = 'waiting';
+        nextEntry.agentToolAccepted = true;
+        nextEntry.runtimeAlive = true;
+        nextEntry.hardFailure = false;
+        nextEntry.hardFailureReason = undefined;
+        nextEntry.error = undefined;
+        nextEntry.livenessSource = undefined;
+        nextEntry.bootstrapStalled = openCodeBootstrapStalled ? true : undefined;
+        if (openCodeBootstrapStalled) {
+          nextEntry.runtimeDiagnostic =
+            'Runtime process is alive, but no bootstrap check-in after 5 min.';
+          nextEntry.runtimeDiagnosticSeverity = 'warning';
+        }
         nextEntry.launchState = deriveMemberLaunchState(nextEntry);
       }
       if (
@@ -17536,6 +17722,27 @@ export class TeamProvisioningService {
       nextStatuses[resolvedStatusKey] = nextEntry;
     }
     return nextStatuses;
+  }
+
+  private getOpenCodeSecondaryBootstrapPendingMemberNames(
+    snapshot: PersistedTeamLaunchSnapshot | null | undefined
+  ): ReadonlySet<string> {
+    if (!snapshot) {
+      return new Set();
+    }
+    const names = Object.entries(snapshot.members)
+      .filter(([, member]) => {
+        return (
+          member.providerId === 'opencode' &&
+          member.laneKind === 'secondary' &&
+          member.laneOwnerProviderId === 'opencode' &&
+          member.launchState === 'runtime_pending_bootstrap' &&
+          member.bootstrapConfirmed !== true &&
+          member.hardFailure !== true
+        );
+      })
+      .map(([name]) => name);
+    return new Set(names);
   }
 
   private async getLiveTeamAgentNames(teamName: string): Promise<Set<string>> {

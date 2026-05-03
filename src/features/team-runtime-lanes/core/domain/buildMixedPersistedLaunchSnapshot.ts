@@ -47,6 +47,7 @@ export interface MixedSecondaryLaneMemberStateInput {
     pidSource?: TeamAgentRuntimePidSource;
     runtimeDiagnostic?: string;
     runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+    bootstrapStalled?: boolean;
     diagnostics?: string[];
   } | null;
   pendingReason?: string;
@@ -96,6 +97,7 @@ function buildDiagnostics(
     | 'hardFailureReason'
     | 'sources'
     | 'pendingPermissionRequestIds'
+    | 'bootstrapStalled'
   >
 ): string[] {
   const diagnostics: string[] = [];
@@ -104,6 +106,8 @@ function buildDiagnostics(
   if (member.bootstrapConfirmed) diagnostics.push('late heartbeat received');
   if ((member.pendingPermissionRequestIds?.length ?? 0) > 0) {
     diagnostics.push('waiting for permission approval');
+  } else if (member.bootstrapStalled) {
+    diagnostics.push('opencode_bootstrap_stalled');
   } else if (member.runtimeAlive && !member.bootstrapConfirmed) {
     diagnostics.push('waiting for teammate check-in');
   }
@@ -268,6 +272,15 @@ function createSecondaryLaneMemberState(
     pidSource: evidence?.pidSource,
     runtimeDiagnostic: evidence?.runtimeDiagnostic,
     runtimeDiagnosticSeverity: evidence?.runtimeDiagnosticSeverity,
+    bootstrapStalled:
+      providerId === 'opencode' &&
+      evidence?.bootstrapStalled === true &&
+      launchState === 'runtime_pending_bootstrap' &&
+      strongRuntimeAlive &&
+      evidence.bootstrapConfirmed !== true &&
+      hardFailure !== true
+        ? true
+        : undefined,
     firstSpawnAcceptedAt: evidence?.agentToolAccepted ? params.updatedAt : undefined,
     lastHeartbeatAt: evidence?.bootstrapConfirmed ? params.updatedAt : undefined,
     runtimeLastSeenAt: strongRuntimeAlive ? params.updatedAt : undefined,

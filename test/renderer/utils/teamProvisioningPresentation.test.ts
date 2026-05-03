@@ -667,6 +667,84 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.currentStepIndex).toBe(2);
   });
 
+  it('shows stalled OpenCode secondaries separately from normal bootstrap waiting', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-opencode-secondary-stalled',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:05:08.000Z',
+        message: 'Team provisioned - waiting for secondary runtime lane: tom',
+        messageSeverity: undefined,
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          providerId: 'codex',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'alice',
+          providerId: 'codex',
+          laneKind: 'primary',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'tom',
+          providerId: 'opencode',
+          laneId: 'secondary:opencode:tom',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+        tom: {
+          status: 'waiting',
+          launchState: 'runtime_pending_bootstrap',
+          updatedAt: '2026-04-13T10:05:07.000Z',
+          runtimeAlive: true,
+          livenessKind: 'runtime_process',
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+          bootstrapStalled: true,
+        },
+      },
+    });
+
+    expect(presentation?.successMessage).toBe('Core team ready');
+    expect(presentation?.panelMessage).toBe('Bootstrap stalled: tom');
+    expect(presentation?.compactDetail).toBe('Bootstrap stalled: tom');
+    expect(presentation?.currentStepIndex).toBe(2);
+  });
+
   it('does not show core team ready while a primary member is still joining', () => {
     const presentation = buildTeamProvisioningPresentation({
       progress: {

@@ -223,6 +223,86 @@ describe('TeamLaunchStateEvaluator', () => {
     });
   });
 
+  it('keeps bootstrap-stalled runtime processes pending instead of online', () => {
+    const snapshot = normalizePersistedLaunchSnapshot('my-team', {
+      version: 2,
+      teamName: 'my-team',
+      updatedAt: '2026-04-23T00:00:00.000Z',
+      launchPhase: 'active',
+      expectedMembers: ['alice'],
+      members: {
+        alice: {
+          name: 'alice',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+          laneId: 'secondary:opencode:alice',
+          launchState: 'runtime_pending_bootstrap',
+          agentToolAccepted: true,
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          livenessKind: 'runtime_process',
+          bootstrapStalled: true,
+          runtimeDiagnostic: 'Runtime process is alive, but no bootstrap check-in after 5 min.',
+          runtimeDiagnosticSeverity: 'warning',
+          lastEvaluatedAt: '2026-04-23T00:00:00.000Z',
+        },
+      },
+    });
+
+    expect(snapshot?.members.alice.bootstrapStalled).toBe(true);
+    expect(snapshot?.teamLaunchState).toBe('partial_pending');
+
+    const statuses = snapshotToMemberSpawnStatuses(snapshot);
+    expect(statuses.alice).toMatchObject({
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: true,
+      livenessSource: undefined,
+      livenessKind: 'runtime_process',
+      bootstrapStalled: true,
+    });
+  });
+
+  it('keeps OpenCode secondary runtime processes pending before bootstrap stalls', () => {
+    const snapshot = normalizePersistedLaunchSnapshot('my-team', {
+      version: 2,
+      teamName: 'my-team',
+      updatedAt: '2026-04-23T00:00:00.000Z',
+      launchPhase: 'active',
+      expectedMembers: ['alice'],
+      members: {
+        alice: {
+          name: 'alice',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+          laneId: 'secondary:opencode:alice',
+          launchState: 'runtime_pending_bootstrap',
+          agentToolAccepted: true,
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          livenessKind: 'runtime_process',
+          runtimeDiagnostic: 'OpenCode runtime process detected',
+          runtimeDiagnosticSeverity: 'info',
+          lastEvaluatedAt: '2026-04-23T00:00:00.000Z',
+        },
+      },
+    });
+
+    const statuses = snapshotToMemberSpawnStatuses(snapshot);
+    expect(statuses.alice).toMatchObject({
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: true,
+      livenessSource: undefined,
+      livenessKind: 'runtime_process',
+      bootstrapStalled: false,
+    });
+  });
+
   it('normalizes stale persisted runtimeAlive to false without strong liveness evidence', () => {
     const snapshot = normalizePersistedLaunchSnapshot('demo', {
       version: 2,

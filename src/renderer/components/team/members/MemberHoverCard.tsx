@@ -130,6 +130,7 @@ export const MemberHoverCard = ({
     spawnLaunchState: spawnEntry?.launchState,
     spawnLivenessSource: spawnEntry?.livenessSource,
     spawnRuntimeAlive: spawnEntry?.runtimeAlive,
+    spawnBootstrapStalled: spawnEntry?.bootstrapStalled,
     runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,
     isLaunchSettling,
@@ -147,7 +148,8 @@ export const MemberHoverCard = ({
   const badgeLabel =
     runtimeAdvisoryTone === 'error' && runtimeAdvisoryLabel
       ? runtimeAdvisoryLabel
-      : launchVisualState === 'runtime_pending' ||
+      : launchVisualState === 'bootstrap_stalled' ||
+          launchVisualState === 'runtime_pending' ||
           launchVisualState === 'permission_pending' ||
           launchVisualState === 'shell_only' ||
           launchVisualState === 'runtime_candidate' ||
