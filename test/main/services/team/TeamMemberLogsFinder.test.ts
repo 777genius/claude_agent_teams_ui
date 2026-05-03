@@ -1,6 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as fs from 'fs/promises';
 
@@ -16,6 +16,82 @@ describe('TeamMemberLogsFinder', () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
       tmpDir = null;
     }
+  });
+
+  it('builds live log source context without broad transcript discovery', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-logs-live-context-'));
+    setClaudeBasePathOverride(tmpDir);
+
+    const teamName = 'live-context-team';
+    const projectPath = '/Users/test/live-context';
+    const projectRoot = path.join(tmpDir, 'projects', '-Users-test-live-context');
+    const config = {
+      name: teamName,
+      projectPath,
+      leadSessionId: 'lead-session',
+      sessionHistory: ['old-session', 'recent-session'],
+      members: [],
+    };
+    await fs.mkdir(projectRoot, { recursive: true });
+
+    const projectResolver = {
+      getLiveBaseContext: vi.fn(async () => ({
+        projectDir: projectRoot,
+        projectId: '-Users-test-live-context',
+        config,
+      })),
+      getContext: vi.fn(async () => {
+        throw new Error('broad context must not be used for live tracking');
+      }),
+    };
+    const launchStateStore = {
+      read: vi.fn(async () => ({
+        version: 2,
+        teamName,
+        updatedAt: '2026-05-03T12:00:00.000Z',
+        leadSessionId: 'lead-session',
+        launchPhase: 'active',
+        expectedMembers: ['bob'],
+        members: {
+          bob: {
+            name: 'bob',
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            runtimeSessionId: 'runtime-bob',
+            updatedAt: '2026-05-03T12:00:00.000Z',
+          },
+        },
+        summary: {},
+        teamLaunchState: 'partial_pending',
+      })),
+    };
+
+    const finder = new TeamMemberLogsFinder(
+      undefined,
+      undefined,
+      undefined,
+      projectResolver as never,
+      launchStateStore as never
+    );
+
+    const context = await finder.getLiveLogSourceWatchContext(teamName, { forceRefresh: true });
+
+    expect(projectResolver.getLiveBaseContext).toHaveBeenCalledWith(
+      teamName,
+      expect.objectContaining({ forceRefresh: true })
+    );
+    expect(projectResolver.getContext).not.toHaveBeenCalled();
+    expect(context?.projectDir).toBe(projectRoot);
+    expect(context?.watchSessionIds).toEqual([
+      'lead-session',
+      'runtime-bob',
+      'recent-session',
+      'old-session',
+    ]);
+    expect(context?.sessionIds).toEqual(context?.watchSessionIds);
   });
 
   it('returns subagent logs for a member and lead session for team-lead', async () => {

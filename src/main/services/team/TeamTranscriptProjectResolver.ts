@@ -185,6 +185,12 @@ export interface TeamTranscriptProjectContext {
   sessionIds: string[];
 }
 
+export interface TeamTranscriptProjectLiveBaseContext {
+  projectDir: string;
+  projectId: string;
+  config: TeamConfig;
+}
+
 export class TeamTranscriptProjectResolver {
   private readonly contextCache = new Map<
     string,
@@ -199,6 +205,41 @@ export class TeamTranscriptProjectResolver {
     return typeof this.configReader.getConfigSnapshot === 'function'
       ? this.configReader.getConfigSnapshot(teamName)
       : this.configReader.getConfig(teamName);
+  }
+
+  async getLiveBaseContext(
+    teamName: string,
+    options?: { forceRefresh?: boolean; extraProjectPathCandidates?: readonly unknown[] }
+  ): Promise<TeamTranscriptProjectLiveBaseContext | null> {
+    if (options?.forceRefresh) {
+      this.contextCache.delete(teamName);
+    }
+
+    const config = await this.readConfigForObservation(teamName);
+    if (!config) {
+      return null;
+    }
+
+    const projectPathCandidates = this.collectLiveProjectPathCandidates(
+      config,
+      options?.extraProjectPathCandidates ?? []
+    );
+    const resolution = await this.resolveLiveProjectDirectoryFromCandidates(projectPathCandidates);
+    if (!resolution) {
+      return null;
+    }
+
+    const resolvedConfig =
+      trimTrailingSlashes(config.projectPath ?? '') !==
+      trimTrailingSlashes(resolution.effectiveProjectPath)
+        ? { ...config, projectPath: resolution.effectiveProjectPath }
+        : config;
+
+    return {
+      projectDir: resolution.projectDir,
+      projectId: resolution.projectId,
+      config: resolvedConfig,
+    };
   }
 
   async getContext(
@@ -438,6 +479,46 @@ export class TeamTranscriptProjectResolver {
     return candidates;
   }
 
+  private collectLiveProjectPathCandidates(
+    config: TeamConfig,
+    extraCandidates: readonly unknown[]
+  ): string[] {
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: unknown): void => {
+      const normalized = normalizeProjectPathCandidate(value);
+      if (!normalized || seen.has(normalized)) {
+        return;
+      }
+      seen.add(normalized);
+      candidates.push(normalized);
+    };
+
+    push(config.projectPath);
+
+    const history = Array.isArray(config.projectPathHistory) ? config.projectPathHistory : [];
+    for (let index = history.length - 1; index >= Math.max(0, history.length - 5); index -= 1) {
+      push(history[index]);
+    }
+
+    push((config.members ?? []).find((member) => isLeadMember(member))?.cwd);
+
+    const distinctMemberCwds = new Set(
+      (config.members ?? [])
+        .map((member) => normalizeProjectPathCandidate(member.cwd))
+        .filter((cwd): cwd is string => Boolean(cwd))
+    );
+    if (distinctMemberCwds.size === 1) {
+      push([...distinctMemberCwds][0]);
+    }
+
+    for (const candidate of extraCandidates.slice(0, 64)) {
+      push(candidate);
+    }
+
+    return candidates;
+  }
+
   private buildProjectDirCandidates(projectPath: string): ProjectDirCandidate[] {
     const normalizedProjectPath = trimTrailingSlashes(projectPath);
     const projectId = extractBaseDir(encodePath(normalizedProjectPath));
@@ -468,6 +549,32 @@ export class TeamTranscriptProjectResolver {
         projectId: candidate.projectId,
         source: 'projectPath' as const,
       }));
+  }
+
+  private async resolveLiveProjectDirectoryFromCandidates(
+    candidates: readonly string[]
+  ): Promise<{ projectDir: string; projectId: string; effectiveProjectPath: string } | null> {
+    let firstResolution: {
+      projectDir: string;
+      projectId: string;
+      effectiveProjectPath: string;
+    } | null = null;
+
+    for (const projectPath of candidates) {
+      for (const dirCandidate of this.buildProjectDirCandidates(projectPath)) {
+        const resolution = {
+          projectDir: dirCandidate.projectDir,
+          projectId: dirCandidate.projectId,
+          effectiveProjectPath: projectPath,
+        };
+        firstResolution ??= resolution;
+        if (await this.projectDirExists(dirCandidate.projectDir)) {
+          return resolution;
+        }
+      }
+    }
+
+    return null;
   }
 
   private async findMatchInProjectPathCandidate(

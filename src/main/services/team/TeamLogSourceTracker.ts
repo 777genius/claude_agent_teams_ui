@@ -8,16 +8,27 @@ import {
   computeTaskChangePresenceProjectFingerprint,
   normalizeTaskChangePresenceFilePath,
 } from './taskChangePresenceUtils';
+import {
+  BOARD_TASK_CHANGE_FRESHNESS_DIRNAME,
+  BOARD_TASK_CHANGES_DIRNAME,
+  BOARD_TASK_LOG_FRESHNESS_DIRNAME,
+  BOARD_TASK_LOG_FRESHNESS_FILE_SUFFIX,
+  MAX_PENDING_UNKNOWN_ROOT_REFRESH_ATTEMPTS,
+  MAX_PENDING_UNKNOWN_ROOT_SESSIONS,
+  PENDING_UNKNOWN_ROOT_SESSION_TTL_MS,
+  classifyLogSourceWatcherEvent,
+  getRelativeLogSourceParts,
+  isAgentTranscriptFileName,
+  normalizeLogSourceSessionId,
+} from './teamLogSourceWatchScope';
 
-import type { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
+import type { TeamLogSourceLiveContext, TeamMemberLogsFinder } from './TeamMemberLogsFinder';
 import type { TeamChangeEvent } from '@shared/types';
 import type { FSWatcher } from 'chokidar';
 
 const logger = createLogger('Service:TeamLogSourceTracker');
-const BOARD_TASK_LOG_FRESHNESS_DIRNAME = '.board-task-log-freshness';
-const BOARD_TASK_CHANGE_FRESHNESS_DIRNAME = '.board-task-change-freshness';
-const BOARD_TASK_CHANGES_DIRNAME = '.board-task-changes';
-const BOARD_TASK_LOG_FRESHNESS_FILE_SUFFIX = '.json';
+const CONTEXT_REFRESH_DEBOUNCE_MS = 300;
+const PENDING_CONTEXT_REFRESH_RETRY_MS = 1_000;
 
 interface TeamLogSourceSnapshot {
   projectFingerprint: string | null;
@@ -33,7 +44,11 @@ export type TeamLogSourceTrackingConsumer =
 interface TrackingState {
   watcher: FSWatcher | null;
   projectDir: string | null;
+  activeContext: TeamLogSourceLiveContext | null;
+  scopedSessionIds: Set<string>;
+  pendingUnknownSessionIds: Map<string, PendingUnknownSessionCandidate>;
   refreshTimer: ReturnType<typeof setTimeout> | null;
+  contextRefreshTimer: ReturnType<typeof setTimeout> | null;
   initializePromise: Promise<TeamLogSourceSnapshot> | null;
   initializeVersion: number | null;
   recomputePromise: Promise<TeamLogSourceSnapshot> | null;
@@ -41,6 +56,12 @@ interface TrackingState {
   snapshot: TeamLogSourceSnapshot;
   consumerCounts: Map<TeamLogSourceTrackingConsumer, number>;
   lifecycleVersion: number;
+}
+
+interface PendingUnknownSessionCandidate {
+  sessionId: string;
+  expiresAt: number;
+  refreshAttempts: number;
 }
 
 type DecodedFreshnessTaskId =
@@ -52,14 +73,30 @@ function isOpaqueSafeTaskIdSegment(segment: string): boolean {
   return /^task-id-[0-9a-f]{32}$/.test(segment);
 }
 
-export function shouldIgnoreLogSourceWatcherPath(projectDir: string, watchedPath: string): boolean {
-  const relativePath = path.relative(projectDir, watchedPath);
-  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+export function shouldIgnoreLogSourceWatcherPath(
+  projectDir: string,
+  watchedPath: string,
+  _scope?: { scopedSessionIds?: ReadonlySet<string> }
+): boolean {
+  const parts = getRelativeLogSourceParts(projectDir, watchedPath);
+  if (!parts) {
     return false;
   }
 
-  const parts = relativePath.split(/[/\\]+/).filter(Boolean);
-  return parts[0] === BOARD_TASK_CHANGES_DIRNAME;
+  const first = parts[0];
+  if (first === BOARD_TASK_CHANGES_DIRNAME) return true;
+  if (parts.includes('tool-results')) return true;
+  if (parts.includes('memory')) return true;
+  if (first === BOARD_TASK_LOG_FRESHNESS_DIRNAME) return false;
+  if (first === BOARD_TASK_CHANGE_FRESHNESS_DIRNAME) return false;
+
+  if (parts.length >= 2 && parts[1] === 'subagents') {
+    if (parts.length === 2) return false;
+    if (parts.length === 3) return !isAgentTranscriptFileName(parts[2]);
+    return true;
+  }
+
+  return false;
 }
 
 export class TeamLogSourceTracker {
@@ -149,7 +186,11 @@ export class TeamLogSourceTracker {
     const created: TrackingState = {
       watcher: null,
       projectDir: null,
+      activeContext: null,
+      scopedSessionIds: new Set(),
+      pendingUnknownSessionIds: new Map(),
       refreshTimer: null,
+      contextRefreshTimer: null,
       initializePromise: null,
       initializeVersion: null,
       recomputePromise: null,
@@ -205,6 +246,10 @@ export class TeamLogSourceTracker {
       clearTimeout(state.refreshTimer);
       state.refreshTimer = null;
     }
+    if (state.contextRefreshTimer) {
+      clearTimeout(state.contextRefreshTimer);
+      state.contextRefreshTimer = null;
+    }
 
     if (state.watcher) {
       await state.watcher.close().catch(() => undefined);
@@ -212,6 +257,9 @@ export class TeamLogSourceTracker {
     }
 
     state.projectDir = null;
+    state.activeContext = null;
+    state.scopedSessionIds.clear();
+    state.pendingUnknownSessionIds.clear();
     state.snapshot = { projectFingerprint: null, logSourceGeneration: null };
     return { ...state.snapshot };
   }
@@ -231,24 +279,27 @@ export class TeamLogSourceTracker {
   ): Promise<TeamLogSourceSnapshot> {
     const state = this.getOrCreateState(teamName);
     const previousGeneration = state.snapshot.logSourceGeneration;
-    const context = await this.logsFinder.getLogSourceWatchContext(teamName, {
+    const context = await this.logsFinder.getLiveLogSourceWatchContext(teamName, {
       forceRefresh: true,
     });
     if (!this.isTrackingCurrent(teamName, expectedVersion)) {
       return this.getOrCreateState(teamName).snapshot;
     }
     if (!context) {
+      state.activeContext = null;
+      state.scopedSessionIds.clear();
       state.snapshot = { projectFingerprint: null, logSourceGeneration: null };
       await this.rebuildWatcher(teamName, null, expectedVersion);
       return state.snapshot;
     }
 
+    state.activeContext = context;
     const snapshot = await this.computeSnapshot(context);
     if (!this.isTrackingCurrent(teamName, expectedVersion)) {
       return this.getOrCreateState(teamName).snapshot;
     }
     state.snapshot = snapshot;
-    await this.rebuildWatcher(teamName, context.projectDir, expectedVersion);
+    await this.rebuildWatcher(teamName, context, expectedVersion);
     if (
       this.isTrackingCurrent(teamName, expectedVersion) &&
       state.snapshot.logSourceGeneration &&
@@ -261,7 +312,7 @@ export class TeamLogSourceTracker {
 
   private async rebuildWatcher(
     teamName: string,
-    projectDir: string | null,
+    context: TeamLogSourceLiveContext | null,
     expectedVersion: number
   ): Promise<void> {
     const state = this.stateByTeam.get(teamName);
@@ -272,17 +323,15 @@ export class TeamLogSourceTracker {
     ) {
       return;
     }
-    if (state.projectDir === projectDir && state.watcher) {
-      return;
-    }
 
     if (state.watcher) {
       await state.watcher.close().catch(() => undefined);
       state.watcher = null;
     }
 
-    state.projectDir = projectDir;
-    if (!projectDir) {
+    state.projectDir = context?.projectDir ?? null;
+    state.scopedSessionIds.clear();
+    if (!context?.projectDir) {
       return;
     }
 
@@ -291,26 +340,56 @@ export class TeamLogSourceTracker {
       return;
     }
 
-    state.watcher = watch(projectDir, {
+    await this.ensureLogSourceFreshnessDirs(context.projectDir).catch((error) => {
+      logger.debug(`Failed to ensure log-source freshness dirs for ${teamName}: ${String(error)}`);
+    });
+
+    const { targets, scopedSessionIds } = await this.buildScopedWatchTargets(
+      context.projectDir,
+      context.watchSessionIds,
+      this.getPendingUnknownSessionIds(state)
+    );
+    if (!this.isTrackingCurrent(teamName, expectedVersion)) {
+      return;
+    }
+    state.scopedSessionIds = scopedSessionIds;
+
+    state.watcher = watch(targets, {
       ignoreInitial: true,
       ignorePermissionErrors: true,
       followSymlinks: false,
-      depth: 3,
-      ignored: (watchedPath) => shouldIgnoreLogSourceWatcherPath(projectDir, watchedPath),
+      depth: 0,
+      ignored: (watchedPath) =>
+        shouldIgnoreLogSourceWatcherPath(context.projectDir, watchedPath, { scopedSessionIds }),
       awaitWriteFinish: {
         stabilityThreshold: 250,
         pollInterval: 50,
       },
     });
 
-    const scheduleRecompute = (changedPath?: string): void => {
+    const handleWatcherEvent = (
+      eventName: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir',
+      changedPath?: string
+    ): void => {
       const current = this.stateByTeam.get(teamName);
-      if (!current || this.getActiveConsumerCount(current) === 0 || !current.projectDir) {
+      if (
+        !changedPath ||
+        !current ||
+        this.getActiveConsumerCount(current) === 0 ||
+        !current.projectDir
+      ) {
         return;
       }
-      if (
-        changedPath &&
-        (this.handleTaskFreshnessSignalChange(
+      const action = classifyLogSourceWatcherEvent({
+        projectDir: current.projectDir,
+        changedPath,
+        eventName,
+        scopedSessionIds: current.scopedSessionIds,
+        pendingUnknownSessionIds: new Set(current.pendingUnknownSessionIds.keys()),
+      });
+
+      if (action.kind === 'task-freshness') {
+        this.handleTaskFreshnessSignalChange(
           teamName,
           current.projectDir,
           changedPath,
@@ -321,27 +400,232 @@ export class TeamLogSourceTracker {
             current.projectDir,
             changedPath,
             BOARD_TASK_CHANGE_FRESHNESS_DIRNAME
-          ))
-      ) {
+          );
         return;
       }
-      if (current.refreshTimer) {
-        clearTimeout(current.refreshTimer);
+
+      if (action.kind === 'context-refresh') {
+        this.scheduleContextRefresh(teamName, action.candidateSessionId);
+        return;
       }
-      current.refreshTimer = setTimeout(() => {
-        current.refreshTimer = null;
-        void this.recompute(teamName);
-      }, 300);
+
+      if (action.kind === 'scoped-recompute') {
+        this.scheduleScopedRecompute(teamName);
+      }
     };
 
-    state.watcher.on('add', scheduleRecompute);
-    state.watcher.on('change', scheduleRecompute);
-    state.watcher.on('unlink', scheduleRecompute);
-    state.watcher.on('addDir', scheduleRecompute);
-    state.watcher.on('unlinkDir', scheduleRecompute);
+    state.watcher.on('add', (changedPath) => handleWatcherEvent('add', changedPath));
+    state.watcher.on('change', (changedPath) => handleWatcherEvent('change', changedPath));
+    state.watcher.on('unlink', (changedPath) => handleWatcherEvent('unlink', changedPath));
+    state.watcher.on('addDir', (changedPath) => handleWatcherEvent('addDir', changedPath));
+    state.watcher.on('unlinkDir', (changedPath) => handleWatcherEvent('unlinkDir', changedPath));
     state.watcher.on('error', (error) => {
       logger.warn(`Log-source watcher error for ${teamName}: ${String(error)}`);
     });
+  }
+
+  private async ensureLogSourceFreshnessDirs(projectDir: string): Promise<void> {
+    await Promise.all([
+      fs.mkdir(path.join(projectDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME), { recursive: true }),
+      fs.mkdir(path.join(projectDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME), { recursive: true }),
+    ]);
+  }
+
+  private async buildScopedWatchTargets(
+    projectDir: string,
+    confirmedSessionIds: readonly string[],
+    pendingRootSessionIds: readonly string[]
+  ): Promise<{ targets: string[]; scopedSessionIds: Set<string> }> {
+    const targets = new Set<string>();
+    const scopedSessionIds = new Set<string>();
+
+    targets.add(projectDir);
+    targets.add(path.join(projectDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME));
+    targets.add(path.join(projectDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME));
+
+    for (const rawSessionId of confirmedSessionIds) {
+      const sessionId = normalizeLogSourceSessionId(rawSessionId);
+      if (!sessionId) {
+        continue;
+      }
+      scopedSessionIds.add(sessionId);
+
+      const rootTranscript = path.join(projectDir, `${sessionId}.jsonl`);
+      const sessionDir = path.join(projectDir, sessionId);
+      const subagentsDir = path.join(sessionDir, 'subagents');
+
+      if (await this.isFile(rootTranscript)) targets.add(rootTranscript);
+      if (await this.isDirectory(sessionDir)) targets.add(sessionDir);
+      if (await this.isDirectory(subagentsDir)) targets.add(subagentsDir);
+    }
+
+    for (const rawSessionId of pendingRootSessionIds) {
+      const sessionId = normalizeLogSourceSessionId(rawSessionId);
+      if (!sessionId || scopedSessionIds.has(sessionId)) {
+        continue;
+      }
+      const rootTranscript = path.join(projectDir, `${sessionId}.jsonl`);
+      if (await this.isFile(rootTranscript)) targets.add(rootTranscript);
+    }
+
+    return { targets: [...targets], scopedSessionIds };
+  }
+
+  private async isFile(targetPath: string): Promise<boolean> {
+    try {
+      return (await fs.stat(targetPath)).isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  private async isDirectory(targetPath: string): Promise<boolean> {
+    try {
+      return (await fs.stat(targetPath)).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private getPendingUnknownSessionIds(state: TrackingState): string[] {
+    this.prunePendingUnknownSessions(state);
+    return [...state.pendingUnknownSessionIds.keys()];
+  }
+
+  private rememberPendingUnknownSession(
+    state: TrackingState,
+    rawSessionId: string | undefined
+  ): void {
+    const sessionId = normalizeLogSourceSessionId(rawSessionId);
+    if (!sessionId || state.scopedSessionIds.has(sessionId)) {
+      return;
+    }
+
+    const now = Date.now();
+    state.pendingUnknownSessionIds.set(sessionId, {
+      sessionId,
+      expiresAt: now + PENDING_UNKNOWN_ROOT_SESSION_TTL_MS,
+      refreshAttempts: state.pendingUnknownSessionIds.get(sessionId)?.refreshAttempts ?? 0,
+    });
+
+    while (state.pendingUnknownSessionIds.size > MAX_PENDING_UNKNOWN_ROOT_SESSIONS) {
+      const oldest = [...state.pendingUnknownSessionIds.values()].sort(
+        (left, right) => left.expiresAt - right.expiresAt
+      )[0];
+      if (!oldest) break;
+      state.pendingUnknownSessionIds.delete(oldest.sessionId);
+    }
+  }
+
+  private prunePendingUnknownSessions(state: TrackingState): void {
+    const now = Date.now();
+    for (const [sessionId, candidate] of state.pendingUnknownSessionIds.entries()) {
+      if (
+        candidate.expiresAt <= now ||
+        candidate.refreshAttempts >= MAX_PENDING_UNKNOWN_ROOT_REFRESH_ATTEMPTS
+      ) {
+        state.pendingUnknownSessionIds.delete(sessionId);
+      }
+    }
+  }
+
+  private markPendingRefreshAttempt(state: TrackingState): void {
+    for (const candidate of state.pendingUnknownSessionIds.values()) {
+      candidate.refreshAttempts += 1;
+    }
+    this.prunePendingUnknownSessions(state);
+  }
+
+  private removeConfirmedPendingSessions(
+    state: TrackingState,
+    confirmedSessionIds: readonly string[]
+  ): void {
+    for (const rawSessionId of confirmedSessionIds) {
+      const sessionId = normalizeLogSourceSessionId(rawSessionId);
+      if (sessionId) {
+        state.pendingUnknownSessionIds.delete(sessionId);
+      }
+    }
+  }
+
+  private scheduleScopedRecompute(teamName: string): void {
+    const current = this.stateByTeam.get(teamName);
+    if (!current || this.getActiveConsumerCount(current) === 0) {
+      return;
+    }
+    if (current.refreshTimer) {
+      clearTimeout(current.refreshTimer);
+    }
+    current.refreshTimer = setTimeout(() => {
+      current.refreshTimer = null;
+      void this.recompute(teamName);
+    }, 300);
+  }
+
+  private scheduleContextRefresh(
+    teamName: string,
+    candidateSessionId?: string,
+    delayMs: number = CONTEXT_REFRESH_DEBOUNCE_MS
+  ): void {
+    const state = this.stateByTeam.get(teamName);
+    if (!state || this.getActiveConsumerCount(state) === 0) {
+      return;
+    }
+    this.rememberPendingUnknownSession(state, candidateSessionId);
+    if (state.contextRefreshTimer) {
+      return;
+    }
+    state.contextRefreshTimer = setTimeout(() => {
+      const current = this.stateByTeam.get(teamName);
+      if (!current) return;
+      current.contextRefreshTimer = null;
+      if (this.getActiveConsumerCount(current) === 0) return;
+      void this.refreshContextAndWatcher(teamName, current.lifecycleVersion);
+    }, delayMs);
+  }
+
+  private async refreshContextAndWatcher(teamName: string, expectedVersion: number): Promise<void> {
+    const state = this.stateByTeam.get(teamName);
+    if (!state || !this.isTrackingCurrent(teamName, expectedVersion)) {
+      return;
+    }
+    this.markPendingRefreshAttempt(state);
+
+    const previousGeneration = state.snapshot.logSourceGeneration;
+    const context = await this.logsFinder.getLiveLogSourceWatchContext(teamName, {
+      forceRefresh: true,
+    });
+    if (!this.isTrackingCurrent(teamName, expectedVersion)) {
+      return;
+    }
+
+    state.activeContext = context;
+    if (!context) {
+      state.scopedSessionIds.clear();
+      state.snapshot = { projectFingerprint: null, logSourceGeneration: null };
+      await this.rebuildWatcher(teamName, null, expectedVersion);
+      return;
+    }
+
+    this.removeConfirmedPendingSessions(state, context.watchSessionIds);
+    state.snapshot = await this.computeSnapshot(context);
+    if (!this.isTrackingCurrent(teamName, expectedVersion)) {
+      return;
+    }
+    await this.rebuildWatcher(teamName, context, expectedVersion);
+
+    if (
+      state.snapshot.logSourceGeneration &&
+      previousGeneration !== state.snapshot.logSourceGeneration
+    ) {
+      this.emitLogSourceChange(teamName);
+    }
+    if (
+      this.isTrackingCurrent(teamName, expectedVersion) &&
+      state.pendingUnknownSessionIds.size > 0
+    ) {
+      this.scheduleContextRefresh(teamName, undefined, PENDING_CONTEXT_REFRESH_RETRY_MS);
+    }
   }
 
   private handleTaskFreshnessSignalChange(
@@ -440,22 +724,15 @@ export class TeamLogSourceTracker {
     const recomputeVersion = state.lifecycleVersion;
     const recomputePromise = (async () => {
       const previousGeneration = state.snapshot.logSourceGeneration;
-      const context = await this.logsFinder.getLogSourceWatchContext(teamName, {
-        forceRefresh: true,
-      });
-      if (!this.isTrackingCurrent(teamName, recomputeVersion)) {
-        return this.getOrCreateState(teamName).snapshot;
-      }
+      const context = state.activeContext;
 
       if (!context) {
         state.snapshot = { projectFingerprint: null, logSourceGeneration: null };
-        await this.rebuildWatcher(teamName, null, recomputeVersion);
       } else {
         state.snapshot = await this.computeSnapshot(context);
         if (!this.isTrackingCurrent(teamName, recomputeVersion)) {
           return this.getOrCreateState(teamName).snapshot;
         }
-        await this.rebuildWatcher(teamName, context.projectDir, recomputeVersion);
       }
 
       if (
@@ -495,23 +772,21 @@ export class TeamLogSourceTracker {
     });
   }
 
-  private async computeSnapshot(context: {
-    projectDir: string;
-    projectPath?: string;
-    leadSessionId?: string;
-    sessionIds: string[];
-  }): Promise<TeamLogSourceSnapshot> {
+  private async computeSnapshot(context: TeamLogSourceLiveContext): Promise<TeamLogSourceSnapshot> {
     const projectFingerprint = computeTaskChangePresenceProjectFingerprint(context.projectPath);
     const parts: string[] = [];
+    const sessionIds =
+      context.watchSessionIds.length > 0 ? context.watchSessionIds : context.sessionIds;
 
-    if (context.leadSessionId) {
-      const leadLogPath = path.join(context.projectDir, `${context.leadSessionId}.jsonl`);
-      parts.push(await this.describePath('lead', leadLogPath));
-    }
-
-    for (const sessionId of [...context.sessionIds].sort((a, b) => a.localeCompare(b))) {
+    for (const rawSessionId of [...sessionIds].sort((a, b) => a.localeCompare(b))) {
+      const sessionId = normalizeLogSourceSessionId(rawSessionId);
+      if (!sessionId) {
+        continue;
+      }
+      const rootLogPath = path.join(context.projectDir, `${sessionId}.jsonl`);
       const sessionDir = path.join(context.projectDir, sessionId);
       const subagentsDir = path.join(sessionDir, 'subagents');
+      parts.push(await this.describePath('root', rootLogPath));
       parts.push(await this.describePath('session', sessionDir));
       parts.push(await this.describePath('subagents', subagentsDir));
 
@@ -523,25 +798,19 @@ export class TeamLogSourceTracker {
       }
 
       for (const fileName of entries
-        .filter(
-          (entry) =>
-            entry.startsWith('agent-') &&
-            entry.endsWith('.jsonl') &&
-            !entry.startsWith('agent-acompact')
-        )
+        .filter((entry) => isAgentTranscriptFileName(entry))
         .sort((a, b) => a.localeCompare(b))) {
         parts.push(await this.describePath('subagent-log', path.join(subagentsDir, fileName)));
       }
     }
 
-    const sourceMaterial =
-      parts.length > 0
-        ? parts.join('|')
-        : `empty:${normalizeTaskChangePresenceFilePath(context.projectDir)}`;
+    if (parts.length === 0) {
+      return { projectFingerprint, logSourceGeneration: null };
+    }
 
     return {
       projectFingerprint,
-      logSourceGeneration: createHash('sha256').update(sourceMaterial).digest('hex'),
+      logSourceGeneration: createHash('sha256').update(parts.join('|')).digest('hex'),
     };
   }
 

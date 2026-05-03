@@ -30,10 +30,11 @@ describe('TeamLogSourceTracker', () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-'));
 
     const logsFinder = {
-      getLogSourceWatchContext: vi.fn(async () => ({
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
         projectDir: tempDir!,
         sessionIds: [],
-      })),
+        watchSessionIds: [],
+})),
     } as unknown as TeamMemberLogsFinder;
 
     const tracker = new TeamLogSourceTracker(logsFinder);
@@ -66,10 +67,11 @@ describe('TeamLogSourceTracker', () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-refcount-'));
 
     const logsFinder = {
-      getLogSourceWatchContext: vi.fn(async () => ({
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
         projectDir: tempDir!,
         sessionIds: [],
-      })),
+        watchSessionIds: [],
+})),
     } as unknown as TeamMemberLogsFinder;
 
     const tracker = new TeamLogSourceTracker(logsFinder);
@@ -104,14 +106,109 @@ describe('TeamLogSourceTracker', () => {
     expect(emitter).not.toHaveBeenCalled();
   });
 
+  it('emits log-source-change for scoped root transcripts', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-scoped-root-'));
+    await writeFile(path.join(tempDir, 'lead-session.jsonl'), '{"seq":1}\n');
+
+    const logsFinder = {
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
+        projectDir: tempDir!,
+        sessionIds: ['lead-session'],
+        watchSessionIds: ['lead-session'],
+      })),
+    } as unknown as TeamMemberLogsFinder;
+
+    const tracker = new TeamLogSourceTracker(logsFinder);
+    const emitter = vi.fn<(event: TeamChangeEvent) => void>();
+    tracker.setEmitter(emitter);
+
+    await tracker.enableTracking('demo', 'change_presence');
+    emitter.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await writeFile(path.join(tempDir, 'lead-session.jsonl'), '{"seq":2}\n');
+
+    await vi.waitFor(() => {
+      expect(emitter).toHaveBeenCalledWith({
+        type: 'log-source-change',
+        teamName: 'demo',
+      });
+    });
+
+    await tracker.disableTracking('demo', 'change_presence');
+  });
+
+  it('ignores old unscoped root transcript changes', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-unscoped-root-'));
+    await writeFile(path.join(tempDir, 'lead-session.jsonl'), '{"seq":1}\n');
+    await writeFile(path.join(tempDir, 'old-session.jsonl'), '{"seq":1}\n');
+
+    const logsFinder = {
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
+        projectDir: tempDir!,
+        sessionIds: ['lead-session'],
+        watchSessionIds: ['lead-session'],
+      })),
+    } as unknown as TeamMemberLogsFinder;
+
+    const tracker = new TeamLogSourceTracker(logsFinder);
+    const emitter = vi.fn<(event: TeamChangeEvent) => void>();
+    tracker.setEmitter(emitter);
+
+    await tracker.enableTracking('demo', 'change_presence');
+    emitter.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await writeFile(path.join(tempDir, 'old-session.jsonl'), '{"seq":2}\n');
+    await new Promise((resolve) => setTimeout(resolve, 450));
+
+    expect(emitter.mock.calls.map(([event]) => event.type)).not.toContain('log-source-change');
+
+    await tracker.disableTracking('demo', 'change_presence');
+  });
+
+  it('emits log-source-change when a pending root transcript becomes confirmed', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-pending-root-'));
+    let confirmed = false;
+
+    const logsFinder = {
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
+        projectDir: tempDir!,
+        sessionIds: confirmed ? ['new-runtime'] : [],
+        watchSessionIds: confirmed ? ['new-runtime'] : [],
+      })),
+    } as unknown as TeamMemberLogsFinder;
+
+    const tracker = new TeamLogSourceTracker(logsFinder);
+    const emitter = vi.fn<(event: TeamChangeEvent) => void>();
+    tracker.setEmitter(emitter);
+
+    await tracker.enableTracking('demo', 'change_presence');
+    emitter.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    confirmed = true;
+    await writeFile(path.join(tempDir, 'new-runtime.jsonl'), '{"seq":1}\n');
+
+    await vi.waitFor(() => {
+      expect(emitter).toHaveBeenCalledWith({
+        type: 'log-source-change',
+        teamName: 'demo',
+      });
+    });
+
+    await tracker.disableTracking('demo', 'change_presence');
+  });
+
   it('does not reinitialize when another consumer joins an already tracked team', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-init-'));
 
     const logsFinder = {
-      getLogSourceWatchContext: vi.fn(async () => ({
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
         projectDir: tempDir!,
         sessionIds: [],
-      })),
+        watchSessionIds: [],
+})),
     } as unknown as TeamMemberLogsFinder;
 
     const tracker = new TeamLogSourceTracker(logsFinder);
@@ -119,7 +216,7 @@ describe('TeamLogSourceTracker', () => {
     await tracker.enableTracking('demo', 'tool_activity');
     await tracker.enableTracking('demo', 'task_log_stream');
 
-    expect(logsFinder.getLogSourceWatchContext).toHaveBeenCalledTimes(1);
+    expect(logsFinder.getLiveLogSourceWatchContext).toHaveBeenCalledTimes(1);
 
     await tracker.disableTracking('demo', 'task_log_stream');
     await tracker.disableTracking('demo', 'tool_activity');
@@ -127,10 +224,11 @@ describe('TeamLogSourceTracker', () => {
 
   it('notifies log-source listeners before forwarding the external team change event', () => {
     const logsFinder = {
-      getLogSourceWatchContext: vi.fn(async () => ({
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
         projectDir: '/tmp/demo',
         sessionIds: [],
-      })),
+        watchSessionIds: [],
+})),
     } as unknown as TeamMemberLogsFinder;
     const tracker = new TeamLogSourceTracker(logsFinder);
     const events: string[] = [];
@@ -154,10 +252,11 @@ describe('TeamLogSourceTracker', () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-stall-monitor-'));
 
     const logsFinder = {
-      getLogSourceWatchContext: vi.fn(async () => ({
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
         projectDir: tempDir!,
         sessionIds: [],
-      })),
+        watchSessionIds: [],
+})),
     } as unknown as TeamMemberLogsFinder;
 
     const tracker = new TeamLogSourceTracker(logsFinder);
@@ -188,10 +287,11 @@ describe('TeamLogSourceTracker', () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-safe-task-'));
 
     const logsFinder = {
-      getLogSourceWatchContext: vi.fn(async () => ({
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
         projectDir: tempDir!,
         sessionIds: [],
-      })),
+        watchSessionIds: [],
+})),
     } as unknown as TeamMemberLogsFinder;
 
     const tracker = new TeamLogSourceTracker(logsFinder);
