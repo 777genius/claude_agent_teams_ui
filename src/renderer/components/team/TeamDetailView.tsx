@@ -120,11 +120,9 @@ import { CollapsibleTeamSection } from './CollapsibleTeamSection';
 import { ProcessesSection } from './ProcessesSection';
 import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from './provisioningSteps';
 import { TeamProvisioningBanner } from './TeamProvisioningBanner';
-import {
-  loadTeamSessionMetadata,
-  isLeadSessionMissing,
-  shouldSuppressMissingLeadSessionFetch,
-} from './teamSessionFetchGuards';
+import { deriveLeadContextButtonLabel } from './leadContextLoadGuards';
+import { LeadSessionDetailGate } from './LeadSessionDetailGate';
+import { loadTeamSessionMetadata } from './teamSessionFetchGuards';
 import { TeamSessionsSection } from './TeamSessionsSection';
 
 import type { KanbanFilterState } from './kanban/KanbanFilterPopover';
@@ -324,17 +322,6 @@ type TeamSidebarRailBridgeProps = Omit<
 > & {
   messagesPanelProps: SharedTeamMessagesPanelProps;
 };
-interface LeadContextWatcherProps {
-  teamName: string;
-  tabId: string | null;
-  projectId: string | null;
-  leadSessionId: string | null;
-  sessionHistoryKey: string;
-  isThisTabActive: boolean;
-  isTeamAlive?: boolean;
-  sessions: readonly Session[];
-  sessionsLoading: boolean;
-}
 interface LeadContextBridgeProps {
   teamName: string;
   tabId: string | null;
@@ -342,6 +329,7 @@ interface LeadContextBridgeProps {
   leadSessionId: string | null;
   leadProviderId?: TeamProviderId;
   fallbackProjectRoot?: string;
+  isThisTabActive: boolean;
 }
 
 // Codex/OpenCode lead sessions do not expose the Claude-style context data this panel expects yet.
@@ -477,81 +465,6 @@ const TeamAgentRuntimeWatcher = memo(function TeamAgentRuntimeWatcher({
   return null;
 });
 
-const LeadContextWatcher = memo(function LeadContextWatcher({
-  teamName,
-  tabId,
-  projectId,
-  leadSessionId,
-  sessionHistoryKey,
-  isThisTabActive,
-  isTeamAlive,
-  sessions,
-  sessionsLoading,
-}: LeadContextWatcherProps): null {
-  const fetchSessionDetail = useStore((s) => s.fetchSessionDetail);
-  const missingLeadSessionFetchKeyRef = useRef<string | null>(null);
-  const missingLeadSessionFetchKey = useMemo(
-    () => `${teamName}:${projectId ?? ''}:${leadSessionId ?? ''}:${sessionHistoryKey}`,
-    [teamName, projectId, leadSessionId, sessionHistoryKey]
-  );
-
-  useEffect(() => {
-    missingLeadSessionFetchKeyRef.current = null;
-  }, [missingLeadSessionFetchKey]);
-
-  useEffect(() => {
-    if (!isThisTabActive) return;
-    if (!tabId || !projectId || !leadSessionId) return;
-
-    const leadSessionMissing = isLeadSessionMissing({
-      leadSessionId,
-      projectId,
-      sessionsLoading,
-      knownSessions: sessions,
-    });
-    if (leadSessionMissing) {
-      missingLeadSessionFetchKeyRef.current = missingLeadSessionFetchKey;
-      return;
-    }
-
-    const fetchLeadSessionDetail = () => {
-      const suppressRepeatedFetch = shouldSuppressMissingLeadSessionFetch({
-        leadSessionId,
-        projectId,
-        sessionsLoading,
-        knownSessions: sessions,
-        suppressionKey: missingLeadSessionFetchKeyRef.current,
-        currentKey: missingLeadSessionFetchKey,
-      });
-      if (suppressRepeatedFetch) {
-        return;
-      }
-      void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
-    };
-
-    fetchLeadSessionDetail();
-
-    if (!isTeamAlive) return;
-
-    const id = window.setInterval(() => {
-      fetchLeadSessionDetail();
-    }, 10_000);
-    return () => window.clearInterval(id);
-  }, [
-    fetchSessionDetail,
-    isTeamAlive,
-    isThisTabActive,
-    leadSessionId,
-    missingLeadSessionFetchKey,
-    projectId,
-    sessions,
-    sessionsLoading,
-    tabId,
-  ]);
-
-  return null;
-});
-
 const LeadContextBridge = memo(function LeadContextBridge({
   teamName,
   tabId,
@@ -559,6 +472,7 @@ const LeadContextBridge = memo(function LeadContextBridge({
   leadSessionId,
   leadProviderId,
   fallbackProjectRoot,
+  isThisTabActive,
 }: LeadContextBridgeProps): React.JSX.Element | null {
   const {
     leadTabData,
@@ -567,7 +481,6 @@ const LeadContextBridge = memo(function LeadContextBridge({
     selectedContextPhase,
     setContextPanelVisibleForTab,
     setSelectedContextPhaseForTab,
-    fetchSessionDetail,
   } = useStore(
     useShallow((s) => ({
       leadTabData: tabId ? (s.tabSessionData[tabId] ?? null) : null,
@@ -576,7 +489,6 @@ const LeadContextBridge = memo(function LeadContextBridge({
       selectedContextPhase: tabId ? (s.tabUIStates.get(tabId)?.selectedContextPhase ?? null) : null,
       setContextPanelVisibleForTab: s.setContextPanelVisibleForTab,
       setSelectedContextPhaseForTab: s.setSelectedContextPhaseForTab,
-      fetchSessionDetail: s.fetchSessionDetail,
     }))
   );
   const [isContextButtonHovered, setIsContextButtonHovered] = useState(false);
@@ -692,12 +604,23 @@ const LeadContextBridge = memo(function LeadContextBridge({
       visibleContextTokens,
     ]
   );
-  const contextUsedPercentLabel = useMemo(() => {
-    const percent =
-      contextMetrics.contextUsedPercentOfContextWindow ?? leadContextSnapshot?.contextUsedPercent;
-    return percent === null || percent === undefined ? null : `${percent.toFixed(1)}%`;
-  }, [contextMetrics.contextUsedPercentOfContextWindow, leadContextSnapshot?.contextUsedPercent]);
+  const contextUsedPercentLabel = useMemo(
+    () =>
+      deriveLeadContextButtonLabel({
+        liveContextUsedPercent: leadContextSnapshot?.contextUsedPercent,
+        fullContextUsedPercent: contextMetrics.contextUsedPercentOfContextWindow,
+        contextPanelOpen: isContextPanelVisible,
+      }),
+    [
+      contextMetrics.contextUsedPercentOfContextWindow,
+      isContextPanelVisible,
+      leadContextSnapshot?.contextUsedPercent,
+    ]
+  );
   const shouldShowLeadContextUi = canShowLeadContextUi(leadProviderId);
+  const shouldLoadFullLeadDetail = Boolean(
+    leadSessionId && shouldShowLeadContextUi && isThisTabActive && isContextPanelVisible
+  );
 
   useEffect(() => {
     if (!shouldShowLeadContextUi && isContextPanelVisible) {
@@ -711,6 +634,13 @@ const LeadContextBridge = memo(function LeadContextBridge({
 
   return (
     <>
+      <LeadSessionDetailGate
+        tabId={tabId}
+        projectId={projectId}
+        leadSessionId={leadSessionId}
+        enabled={shouldLoadFullLeadDetail}
+      />
+
       {isContextPanelVisible && (
         <div className="w-80 shrink-0">
           {leadSessionLoaded ? (
@@ -765,11 +695,7 @@ const LeadContextBridge = memo(function LeadContextBridge({
       >
         <button
           onClick={() => {
-            const next = !isContextPanelVisible;
-            setContextPanelVisible(next);
-            if (tabId && projectId) {
-              void fetchSessionDetail(projectId, leadSessionId, tabId, { silent: true });
-            }
+            setContextPanelVisible(!isContextPanelVisible);
           }}
           onMouseEnter={() => setIsContextButtonHovered(true)}
           onMouseLeave={() => setIsContextButtonHovered(false)}
@@ -792,7 +718,7 @@ const LeadContextBridge = memo(function LeadContextBridge({
                 : leadSessionId
           }
         >
-          {contextUsedPercentLabel ?? 'Context'}
+          {contextUsedPercentLabel}
         </button>
       </div>
     </>
@@ -1705,8 +1631,6 @@ export const TeamDetailView = ({
     if (configuredLeadProviderId) return configuredLeadProviderId;
     return launchParams?.providerId;
   }, [activeMembers, data?.config.members, launchParams?.providerId]);
-  const shouldShowLeadContextUi = canShowLeadContextUi(leadProviderId);
-
   const taskMap = useMemo(() => new Map((data?.tasks ?? []).map((t) => [t.id, t])), [data?.tasks]);
   const taskMapRef = useRef(taskMap);
   taskMapRef.current = taskMap;
@@ -2097,20 +2021,6 @@ export const TeamDetailView = ({
       isThisTabActive={isThisTabActive}
     />
   );
-  const leadContextWatcher = shouldShowLeadContextUi ? (
-    <LeadContextWatcher
-      teamName={teamName}
-      tabId={tabId}
-      projectId={projectId}
-      leadSessionId={leadSessionId}
-      sessionHistoryKey={sessionHistoryKey}
-      isThisTabActive={isThisTabActive}
-      isTeamAlive={data?.isAlive}
-      sessions={sessions}
-      sessionsLoading={sessionsLoading}
-    />
-  ) : null;
-
   const renderBody = (): React.JSX.Element => {
     if ((loading && !data) || (data && data.teamName !== teamName)) {
       return (
@@ -2221,6 +2131,7 @@ export const TeamDetailView = ({
             leadSessionId={leadSessionId}
             leadProviderId={leadProviderId}
             fallbackProjectRoot={data.config.projectPath}
+            isThisTabActive={isThisTabActive}
           />
 
           {/* Messages sidebar (left, after context panel) */}
@@ -3163,7 +3074,6 @@ export const TeamDetailView = ({
     <>
       {spawnStatusWatcher}
       {teamAgentRuntimeWatcher}
-      {leadContextWatcher}
       {renderBody()}
     </>
   );
