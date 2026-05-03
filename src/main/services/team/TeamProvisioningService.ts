@@ -1820,6 +1820,123 @@ function isDefinitiveOpenCodePreLaunchFailure(
   );
 }
 
+const OPENCODE_BOOTSTRAP_PENDING_DIAGNOSTIC =
+  'opencode_bootstrap_pending_after_materialized_session';
+
+function isMaterializedOpenCodeSessionId(sessionId: unknown): boolean {
+  if (typeof sessionId !== 'string') {
+    return false;
+  }
+  const trimmed = sessionId.trim();
+  return trimmed.length > 0 && !trimmed.startsWith('failed:');
+}
+
+function hasMaterializedOpenCodeRuntimeForBootstrap(
+  member: TeamRuntimeMemberLaunchEvidence | undefined
+): member is TeamRuntimeMemberLaunchEvidence {
+  if (!member) {
+    return false;
+  }
+  if (isMaterializedOpenCodeSessionId(member.sessionId)) {
+    return true;
+  }
+  return (
+    hasOpenCodeRuntimeLivenessMarker(member) &&
+    typeof member.runtimePid === 'number' &&
+    Number.isFinite(member.runtimePid) &&
+    member.runtimePid > 0
+  );
+}
+
+function hasRecoverableOpenCodeBootstrapDiagnostic(diagnostics: readonly string[]): boolean {
+  const text = diagnostics.join('\n').toLowerCase();
+  if (!text) {
+    return false;
+  }
+  if (hasRealOpenCodeFailureDiagnostic(text)) {
+    return false;
+  }
+  return (
+    text.includes('runtime_bootstrap_checkin') ||
+    text.includes('member_briefing') ||
+    text.includes('bootstrap mcp') ||
+    text.includes('member_session_recorded') ||
+    text.includes('not connected') ||
+    text.includes('mcp not connected') ||
+    text.includes('member_launch_reconcile_pending') ||
+    text.includes('member_launch_preview_timeout')
+  );
+}
+
+function isRecoverableOpenCodeBootstrapPendingLaunchResult(
+  result: TeamRuntimeLaunchResult,
+  memberName: string
+): boolean {
+  const member = result.members[memberName];
+  if (!hasMaterializedOpenCodeRuntimeForBootstrap(member)) {
+    return false;
+  }
+  if (member.bootstrapConfirmed || member.launchState === 'confirmed_alive') {
+    return false;
+  }
+  if ((member.pendingPermissionRequestIds?.length ?? 0) > 0) {
+    return false;
+  }
+  return hasRecoverableOpenCodeBootstrapDiagnostic(
+    collectRuntimeLaunchFailureDiagnostics(result, memberName)
+  );
+}
+
+function normalizeRecoverableOpenCodeBootstrapPendingLaunchResult(
+  result: TeamRuntimeLaunchResult,
+  memberName: string,
+  diagnostics: readonly string[]
+): TeamRuntimeLaunchResult {
+  const member = result.members[memberName];
+  if (!member) {
+    return result;
+  }
+  const memberDiagnostics = Array.from(
+    new Set([
+      ...(member.diagnostics ?? []),
+      OPENCODE_BOOTSTRAP_PENDING_DIAGNOSTIC,
+      'OpenCode runtime session materialized; waiting for runtime_bootstrap_checkin.',
+      ...diagnostics,
+    ])
+  );
+  const normalizedMember: TeamRuntimeMemberLaunchEvidence = {
+    ...member,
+    launchState: 'runtime_pending_bootstrap',
+    agentToolAccepted: true,
+    runtimeAlive: true,
+    bootstrapConfirmed: false,
+    hardFailure: false,
+    hardFailureReason: undefined,
+    pendingPermissionRequestIds: undefined,
+    livenessKind:
+      member.livenessKind === 'confirmed_bootstrap'
+        ? 'runtime_process'
+        : (member.livenessKind ?? 'runtime_process'),
+    runtimeDiagnostic:
+      member.runtimeDiagnostic ??
+      'OpenCode runtime process detected; waiting for bootstrap check-in.',
+    runtimeDiagnosticSeverity: member.runtimeDiagnosticSeverity ?? 'info',
+    diagnostics: memberDiagnostics,
+  };
+  const members = {
+    ...result.members,
+    [memberName]: normalizedMember,
+  };
+  const teamLaunchState = summarizeRuntimeLaunchResultMembers(members);
+  return {
+    ...result,
+    launchPhase: teamLaunchState === 'clean_success' ? result.launchPhase : 'active',
+    teamLaunchState,
+    members,
+    diagnostics: Array.from(new Set([...result.diagnostics, ...memberDiagnostics])),
+  };
+}
+
 const OPENCODE_UNCOMMITTED_BOOTSTRAP_DIAGNOSTIC =
   'OpenCode bridge reported bootstrap confirmation, but no lane runtime evidence was committed.';
 
@@ -2064,7 +2181,7 @@ function promoteOpenCodeSecondaryMemberFromCommittedBootstrapEvidence(input: {
       'opencode_bootstrap_evidence_committed',
     ]),
   ];
-  const runtimeAlive = input.current.runtimeAlive === true;
+  const runtimeAlive = true;
   return {
     ...input.previous,
     ...input.current,
@@ -6574,6 +6691,7 @@ export class TeamProvisioningService {
     let liveSecondaryLaneRunId: string | null = null;
     let trackedSecondaryLanePresent = false;
     let trackedSecondaryLaneSnapshotKnown = false;
+    let trackedSecondaryLaneBootstrapConfirmed: boolean | null = null;
     if (
       trackedRun &&
       laneIdentity.laneKind === 'secondary' &&
@@ -6588,6 +6706,15 @@ export class TeamProvisioningService {
       );
       trackedSecondaryLanePresent = liveLane != null;
       liveSecondaryLaneRunId = liveLane ? trackedRunId : null;
+      const liveLaneMember = liveLane
+        ? (liveLane.result?.members?.[canonicalMemberName] ??
+          liveLane.result?.members?.[liveLane.member.name])
+        : null;
+      if (liveLaneMember) {
+        trackedSecondaryLaneBootstrapConfirmed =
+          liveLaneMember.bootstrapConfirmed === true ||
+          liveLaneMember.launchState === 'confirmed_alive';
+      }
       if (!liveLane && trackedSecondaryLaneSnapshotKnown) {
         return { delivered: false, reason: 'opencode_runtime_not_active' };
       }
@@ -6679,6 +6806,26 @@ export class TeamProvisioningService {
     if (!runtimeActive) {
       this.cleanupStoppedTeamOpenCodeRuntimeLanesInBackground(teamName);
       return { delivered: false, reason: 'opencode_runtime_not_active' };
+    }
+
+    if (laneIdentity.laneKind === 'secondary' && laneIdentity.laneOwnerProviderId === 'opencode') {
+      const bootstrapReady =
+        trackedSecondaryLaneBootstrapConfirmed === true ||
+        (await this.hasDeliverableOpenCodeRuntimeBootstrapSessionEvidence({
+          teamName,
+          runId: runtimeRunId,
+          laneId: laneIdentity.laneId,
+          memberName: canonicalMemberName,
+        }));
+      if (!bootstrapReady) {
+        return {
+          delivered: false,
+          reason: 'opencode_runtime_not_active',
+          diagnostics: [
+            `OpenCode runtime bootstrap is not confirmed for ${canonicalMemberName}. Message was saved and will be retried after runtime check-in.`,
+          ],
+        };
+      }
     }
 
     if (!this.isOpenCodePromptDeliveryWatchdogEnabled()) {
@@ -8923,6 +9070,31 @@ export class TeamProvisioningService {
     return evidence.sessions.some(
       (session) =>
         session.id === input.runtimeSessionId &&
+        session.runId === input.runId &&
+        namesMatchCaseInsensitive(session.memberName, input.memberName)
+    );
+  }
+
+  private async hasDeliverableOpenCodeRuntimeBootstrapSessionEvidence(input: {
+    teamName: string;
+    runId: string | null;
+    laneId: string;
+    memberName: string;
+  }): Promise<boolean> {
+    const evidence = await readCommittedOpenCodeBootstrapSessionEvidence({
+      teamsBasePath: getTeamsBasePath(),
+      teamName: input.teamName,
+      laneId: input.laneId,
+    }).catch(() => null);
+    if (!evidence?.committed) {
+      return false;
+    }
+    const activeRunId = evidence.activeRunId?.trim() || null;
+    if (activeRunId !== input.runId) {
+      return false;
+    }
+    return evidence.sessions.some(
+      (session) =>
         session.runId === input.runId &&
         namesMatchCaseInsensitive(session.memberName, input.memberName)
     );
@@ -19656,25 +19828,49 @@ export class TeamProvisioningService {
             },
           }
         : result;
-      lane.result = resultWithTiming;
-      lane.warnings = [...resultWithTiming.warnings];
+      const baseFailureDiagnostics = appendDiagnosticOnce(
+        [...requestedDiagnostics, ...migration.diagnostics],
+        timingDiagnostic
+      );
+      const recoverableBootstrapPending = isRecoverableOpenCodeBootstrapPendingLaunchResult(
+        resultWithTiming,
+        lane.member.name
+      );
+      const normalizedResult = recoverableBootstrapPending
+        ? normalizeRecoverableOpenCodeBootstrapPendingLaunchResult(
+            resultWithTiming,
+            lane.member.name,
+            baseFailureDiagnostics
+          )
+        : resultWithTiming;
+      lane.result = normalizedResult;
+      lane.warnings = [...normalizedResult.warnings];
       const launchDiagnostics = appendDiagnosticOnce(
-        [...requestedDiagnostics, ...migration.diagnostics, ...resultWithTiming.diagnostics],
+        [...requestedDiagnostics, ...migration.diagnostics, ...normalizedResult.diagnostics],
         timingDiagnostic
       );
       lane.diagnostics = launchDiagnostics;
 
-      if (
-        isDefinitiveOpenCodePreLaunchFailure(resultWithTiming, lane.member.name) ||
-        resultWithTiming.teamLaunchState === 'partial_failure'
+      if (recoverableBootstrapPending) {
+        await upsertOpenCodeRuntimeLaneIndexEntry({
+          teamsBasePath: getTeamsBasePath(),
+          teamName: run.teamName,
+          laneId: lane.laneId,
+          state: 'active',
+          diagnostics: collectOpenCodeSecondaryLaneFailureDiagnostics(
+            normalizedResult,
+            lane.member.name,
+            baseFailureDiagnostics
+          ),
+        }).catch(() => undefined);
+      } else if (
+        isDefinitiveOpenCodePreLaunchFailure(normalizedResult, lane.member.name) ||
+        normalizedResult.teamLaunchState === 'partial_failure'
       ) {
         const diagnostics = collectOpenCodeSecondaryLaneFailureDiagnostics(
-          resultWithTiming,
+          normalizedResult,
           lane.member.name,
-          appendDiagnosticOnce(
-            [...requestedDiagnostics, ...migration.diagnostics],
-            timingDiagnostic
-          )
+          baseFailureDiagnostics
         );
         await upsertOpenCodeRuntimeLaneIndexEntry({
           teamsBasePath: getTeamsBasePath(),
@@ -24078,6 +24274,7 @@ export class TeamProvisioningService {
         summary: run.isLaunch ? 'Team launched' : 'Team provisioned',
         body,
         dedupeKey: `team_launched:${run.teamName}:${run.runId}`,
+        target: { kind: 'team', teamName: run.teamName, section: 'overview' },
         projectPath: run.request.cwd,
         suppressToast,
       });

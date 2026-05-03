@@ -267,17 +267,24 @@ export function resolveTeamMemberRuntimeLiveness(
       });
     }
     return result({
-      alive: false,
-      livenessKind: 'runtime_process_candidate',
-      pidSource: 'opencode_bridge',
-      pid: runtimePidRow.pid,
+      alive: hasConfirmedBootstrap,
+      livenessKind: hasConfirmedBootstrap ? 'confirmed_bootstrap' : 'runtime_process_candidate',
+      pidSource: hasConfirmedBootstrap ? 'runtime_bootstrap' : 'opencode_bridge',
+      pid: hasConfirmedBootstrap ? undefined : runtimePidRow.pid,
       runtimeSessionId,
-      processCommand,
-      runtimeDiagnostic: 'OpenCode runtime pid is alive, but process identity is unverified',
-      runtimeDiagnosticSeverity: 'warning',
+      processCommand: hasConfirmedBootstrap ? undefined : processCommand,
+      runtimeLastSeenAt: hasConfirmedBootstrap
+        ? (tracked?.lastHeartbeatAt ?? tracked?.updatedAt)
+        : undefined,
+      runtimeDiagnostic: hasConfirmedBootstrap
+        ? 'bootstrap confirmed; runtime pid currently points to a different process'
+        : 'OpenCode runtime pid is alive, but process identity is unverified',
+      runtimeDiagnosticSeverity: hasConfirmedBootstrap ? 'info' : 'warning',
       diagnostics: [
         ...diagnostics,
-        'matched OpenCode runtime pid without OpenCode process identity',
+        hasConfirmedBootstrap
+          ? 'bootstrap confirmed despite runtime pid identity mismatch'
+          : 'matched OpenCode runtime pid without OpenCode process identity',
       ],
     });
   }

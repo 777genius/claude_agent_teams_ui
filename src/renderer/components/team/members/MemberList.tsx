@@ -420,6 +420,17 @@ export const MemberList = memo(function MemberList({
   );
   const removedMembers = useMemo(() => members.filter((m) => m.removedAt), [members]);
   const colorMap = useMemo(() => buildMemberColorMap(members), [members]);
+  // Pre-compute reviewer->task map to avoid O(n*n) scan per member.
+  const reviewTaskByMember = useMemo(() => {
+    const result = new Map<string, TeamTaskWithKanban>();
+    if (!taskMap) return result;
+    for (const task of taskMap.values()) {
+      if (task.reviewer && (task.reviewState === 'review' || task.kanbanColumn === 'review')) {
+        result.set(task.reviewer, task);
+      }
+    }
+    return result;
+  }, [taskMap]);
 
   const buildRuntimeSummary = useCallback(
     (
@@ -439,18 +450,6 @@ export const MemberList = memo(function MemberList({
       </div>
     );
   }
-
-  // Pre-compute reviewer→task map to avoid O(n×m) scan per member
-  const reviewTaskByMember = useMemo(() => {
-    const result = new Map<string, TeamTaskWithKanban>();
-    if (!taskMap) return result;
-    for (const task of taskMap.values()) {
-      if (task.reviewer && (task.reviewState === 'review' || task.kanbanColumn === 'review')) {
-        result.set(task.reviewer, task);
-      }
-    }
-    return result;
-  }, [taskMap]);
 
   return (
     <div ref={containerRef} className="flex flex-col gap-1">

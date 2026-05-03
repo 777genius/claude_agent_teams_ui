@@ -42,11 +42,18 @@ import { createTabUISlice } from './slices/tabUISlice';
 import {
   createTeamSlice,
   getActiveTeamPendingReplyWaits,
+  getCurrentProvisioningProgressForTeam,
   getLastResolvedTeamDataRefreshAt,
   hasActiveTeamPendingReplyWait,
   isTeamDataRefreshPending,
   selectTeamDataForName,
 } from './slices/teamSlice';
+import {
+  decideProcessFanoutDryRun,
+  decideProcessFanoutMode,
+  type TeamProcessFanoutDecision,
+} from './teamProcessFanoutDryRun';
+import { installTeamRefreshFanoutDebugBridge } from './teamRefreshFanoutDebugBridge';
 import {
   noteTeamRefreshFanout,
   type TeamRefreshFanoutOperation,
@@ -63,6 +70,7 @@ import type {
   LeadContextUsage,
   ScheduleChangeEvent,
   TeamChangeEvent,
+  TeamProvisioningProgress,
   ToolActivityEventPayload,
   ToolApprovalEvent,
   ToolApprovalRequest,
@@ -79,6 +87,9 @@ const TEAM_CHANGE_EVENT_WARN_THROTTLE_MS = 2_000;
 const TEAM_VISIBLE_IDLE_WATCHDOG_POLL_MS = 10_000;
 const TEAM_VISIBLE_IDLE_WATCHDOG_STALE_MS = 30_000;
 const TEAM_MESSAGE_FALLBACK_POLL_MS = 10_000;
+const ACTIVE_PROVISIONING_STATES_FOR_PROCESS_LITE: ReadonlySet<TeamProvisioningProgress['state']> =
+  new Set(['validating', 'spawning', 'configuring', 'assembling', 'finalizing', 'verifying']);
+export const TEAM_PROCESS_LITE_FANOUT_STORAGE_KEY = 'team:processLiteFanout';
 const CURRENT_APP_VERSION =
   typeof __APP_VERSION__ === 'string' ? normalizeVersion(__APP_VERSION__) : '0.0.0';
 const logger = createLogger('Store:index');
@@ -101,6 +112,17 @@ const teamChangeEventDiagnostics = new Map<
     countsByType: Record<string, number>;
   }
 >();
+
+export function isTeamProcessLiteFanoutEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+  try {
+    return window.localStorage.getItem(TEAM_PROCESS_LITE_FANOUT_STORAGE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 
 function noteTeamChangeEventBurst(teamName: string, eventType: string, visible: boolean): void {
   if (!visible) return;
@@ -176,6 +198,7 @@ export const useStore = create<AppState>()((...args) => ({
 export function initializeNotificationListeners(): () => void {
   void cleanupCommentReadState();
   const cleanupFns: (() => void)[] = [];
+  cleanupFns.push(installTeamRefreshFanoutDebugBridge());
   let cliStatusTimer: ReturnType<typeof setTimeout> | null = null;
   useStore.getState().subscribeProvisioningProgress();
   cleanupFns.push(() => {
@@ -248,6 +271,10 @@ export function initializeNotificationListeners(): () => void {
   let memberSpawnRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let teamAgentRuntimeRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let toolActivityTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let processLiteStructuralReconcileTimers = new Map<
+    string,
+    { firstScheduledAt: number; timer: ReturnType<typeof setTimeout> }
+  >();
   let inProgressChangePresencePollInFlight = false;
   let teamMessageFallbackPollInFlight = false;
   const inProgressChangePresenceCursorByTeam = new Map<string, number>();
@@ -263,7 +290,12 @@ export function initializeNotificationListeners(): () => void {
   const TEAM_MEMBER_SPAWN_REFRESH_THROTTLE_MS = 500;
   const TEAM_LIST_REFRESH_THROTTLE_MS = 2000;
   const GLOBAL_TASKS_REFRESH_THROTTLE_MS = 500;
+  const PROCESS_LITE_STRUCTURAL_RECONCILE_IDLE_MS = 2_500;
+  const PROCESS_LITE_STRUCTURAL_RECONCILE_MAX_WAIT_MS = 15_000;
   const buildTeamChangeFanoutReason = (eventType: string): string => `event:${eventType}`;
+  const isProvisioningProgressActiveForProcessLite = (
+    progress: Pick<TeamProvisioningProgress, 'state'> | null
+  ): boolean => progress != null && ACTIVE_PROVISIONING_STATES_FOR_PROCESS_LITE.has(progress.state);
   const addPendingGlobalRefreshDiagnostic = (
     pending: Map<string, Set<string>>,
     teamName: string,
@@ -327,61 +359,110 @@ export function initializeNotificationListeners(): () => void {
       // Best-effort refresh for message-driven events and fallback polling only.
     }
   };
-  const scheduleMemberSpawnStatusesRefresh = (teamName: string | null | undefined): void => {
+  type RuntimeRefreshReason = 'event:member-spawn' | 'event:process-lite';
+  interface RuntimeRefreshScheduleOptions {
+    reason?: RuntimeRefreshReason;
+    skipIfHiddenAtExecution?: boolean;
+  }
+  const buildRuntimeRefreshTimerKey = (teamName: string, reason: RuntimeRefreshReason): string =>
+    `${teamName}:${reason}`;
+  const scheduleMemberSpawnStatusesRefresh = (
+    teamName: string | null | undefined,
+    options: RuntimeRefreshScheduleOptions = {}
+  ): void => {
     if (!teamName || !isTeamVisibleInAnyPane(teamName)) {
       return;
     }
-    const existingTimer = memberSpawnRefreshTimers.get(teamName);
+    const reason = options.reason ?? 'event:member-spawn';
+    const timerKey = buildRuntimeRefreshTimerKey(teamName, reason);
+    const existingTimer = memberSpawnRefreshTimers.get(timerKey);
     noteTeamRefreshFanout({
       teamName,
       surface: 'team-change-listener',
       phase: existingTimer ? 'coalesced' : 'scheduled',
-      reason: 'event:member-spawn',
+      reason,
       operation: 'fetchMemberSpawnStatuses',
     });
-    if (memberSpawnRefreshTimers.has(teamName)) {
+    if (memberSpawnRefreshTimers.has(timerKey)) {
       return;
     }
     const timer = setTimeout(() => {
-      memberSpawnRefreshTimers.delete(teamName);
+      memberSpawnRefreshTimers.delete(timerKey);
+      if (options.skipIfHiddenAtExecution === true && !isTeamVisibleInAnyPane(teamName)) {
+        noteTeamRefreshFanout({
+          teamName,
+          surface: 'team-change-listener',
+          phase: 'skipped',
+          reason,
+          operation: 'fetchMemberSpawnStatuses',
+          visible: false,
+        });
+        return;
+      }
       noteTeamRefreshFanout({
         teamName,
         surface: 'team-change-listener',
         phase: 'executed',
-        reason: 'event:member-spawn',
+        reason,
         operation: 'fetchMemberSpawnStatuses',
       });
       void useStore.getState().fetchMemberSpawnStatuses(teamName);
     }, TEAM_MEMBER_SPAWN_REFRESH_THROTTLE_MS);
-    memberSpawnRefreshTimers.set(teamName, timer);
+    memberSpawnRefreshTimers.set(timerKey, timer);
   };
-  const scheduleTeamAgentRuntimeRefresh = (teamName: string | null | undefined): void => {
+  const scheduleTeamAgentRuntimeRefresh = (
+    teamName: string | null | undefined,
+    options: RuntimeRefreshScheduleOptions = {}
+  ): void => {
     if (!teamName || !isTeamVisibleInAnyPane(teamName)) {
       return;
     }
-    const existingTimer = teamAgentRuntimeRefreshTimers.get(teamName);
+    const reason = options.reason ?? 'event:member-spawn';
+    const timerKey = buildRuntimeRefreshTimerKey(teamName, reason);
+    const existingTimer = teamAgentRuntimeRefreshTimers.get(timerKey);
     noteTeamRefreshFanout({
       teamName,
       surface: 'team-change-listener',
       phase: existingTimer ? 'coalesced' : 'scheduled',
-      reason: 'event:member-spawn',
+      reason,
       operation: 'fetchTeamAgentRuntime',
     });
-    if (teamAgentRuntimeRefreshTimers.has(teamName)) {
+    if (teamAgentRuntimeRefreshTimers.has(timerKey)) {
       return;
     }
     const timer = setTimeout(() => {
-      teamAgentRuntimeRefreshTimers.delete(teamName);
+      teamAgentRuntimeRefreshTimers.delete(timerKey);
+      if (options.skipIfHiddenAtExecution === true && !isTeamVisibleInAnyPane(teamName)) {
+        noteTeamRefreshFanout({
+          teamName,
+          surface: 'team-change-listener',
+          phase: 'skipped',
+          reason,
+          operation: 'fetchTeamAgentRuntime',
+          visible: false,
+        });
+        return;
+      }
       noteTeamRefreshFanout({
         teamName,
         surface: 'team-change-listener',
         phase: 'executed',
-        reason: 'event:member-spawn',
+        reason,
         operation: 'fetchTeamAgentRuntime',
       });
       void useStore.getState().fetchTeamAgentRuntime(teamName);
     }, TEAM_MEMBER_SPAWN_REFRESH_THROTTLE_MS);
-    teamAgentRuntimeRefreshTimers.set(teamName, timer);
+    teamAgentRuntimeRefreshTimers.set(timerKey, timer);
+  };
+  const scheduleProcessLiteRuntimeRefresh = (teamName: string): void => {
+    scheduleMemberSpawnStatusesRefresh(teamName, {
+      reason: 'event:process-lite',
+      skipIfHiddenAtExecution: true,
+    });
+    scheduleTeamAgentRuntimeRefresh(teamName, {
+      reason: 'event:process-lite',
+      skipIfHiddenAtExecution: true,
+    });
   };
   const scheduleTrackedTeamMessageRefresh = (
     teamName: string | null | undefined,
@@ -786,6 +867,128 @@ export function initializeNotificationListeners(): () => void {
     }
 
     return activeTab.teamName;
+  };
+  const buildProcessFanoutDecision = (
+    event: TeamChangeEvent,
+    isStaleRuntimeEvent: boolean
+  ): TeamProcessFanoutDecision => {
+    const state = useStore.getState();
+    const teamName = event.teamName;
+    return decideProcessFanoutMode({
+      teamName,
+      eventType: event.type,
+      detail: event.detail,
+      hasRunId: Boolean(event.runId),
+      isStaleRuntimeEvent,
+      isVisible: isTeamVisibleInAnyPane(teamName),
+      hasVisibleTeamData: selectTeamDataForName(state, teamName) != null,
+      hasActiveProvisioningRun: isProvisioningProgressActiveForProcessLite(
+        getCurrentProvisioningProgressForTeam(state, teamName)
+      ),
+      hasCurrentRuntimeRun: state.currentRuntimeRunIdByTeam[teamName] != null,
+    });
+  };
+  const recordProcessFanoutDecision = (
+    event: TeamChangeEvent,
+    decision: TeamProcessFanoutDecision
+  ): void => {
+    const dryRun = decideProcessFanoutDryRun({
+      teamName: event.teamName,
+      eventType: event.type,
+      detail: event.detail,
+      hasRunId: Boolean(event.runId),
+      isStaleRuntimeEvent: decision.reason === 'stale-runtime-event',
+      isVisible: decision.reason !== 'hidden-team',
+      hasVisibleTeamData: decision.reason !== 'missing-visible-team-data',
+      hasActiveProvisioningRun: decision.reason !== 'no-active-runtime-context',
+      hasCurrentRuntimeRun: decision.reason !== 'no-active-runtime-context',
+    });
+    const state = useStore.getState();
+
+    noteTeamRefreshFanout({
+      teamName: event.teamName,
+      surface: 'team-change-listener',
+      phase: 'skipped',
+      reason: `dry-run:process-lite:${dryRun.reason}`,
+      operation: dryRun.wouldUseProcessLite ? 'wouldUseProcessLite' : 'wouldKeepStructuralProcess',
+      eventType: event.type,
+      visible: isTeamVisibleInAnyPane(event.teamName),
+      selected: state.selectedTeamName === event.teamName,
+      activeTab: getFocusedVisibleTeamName() === event.teamName,
+    });
+  };
+  const cancelProcessLiteStructuralReconcile = (teamName: string): void => {
+    const existing = processLiteStructuralReconcileTimers.get(teamName);
+    if (!existing) {
+      return;
+    }
+    clearTimeout(existing.timer);
+    processLiteStructuralReconcileTimers.delete(teamName);
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: 'skipped',
+      reason: 'event:process-lite:structural-reconcile:cancelled-by-structural',
+      operation: 'refreshTeamData',
+    });
+  };
+  const runProcessLiteStructuralReconcile = (teamName: string): void => {
+    const current = useStore.getState();
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: 'executed',
+      reason: 'event:process-lite:structural-reconcile',
+      operation: 'fetchTeams',
+    });
+    void current.fetchTeams();
+
+    if (!isTeamVisibleInAnyPane(teamName) || selectTeamDataForName(current, teamName) == null) {
+      noteTeamRefreshFanout({
+        teamName,
+        surface: 'team-change-listener',
+        phase: 'skipped',
+        reason: 'event:process-lite:structural-reconcile:hidden-or-missing-data',
+        operation: 'refreshTeamData',
+        visible: isTeamVisibleInAnyPane(teamName),
+      });
+      return;
+    }
+
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: 'executed',
+      reason: 'event:process-lite:structural-reconcile',
+      operation: 'refreshTeamData',
+      selected: current.selectedTeamName === teamName,
+      visible: true,
+      activeTab: getFocusedVisibleTeamName() === teamName,
+    });
+    void current.refreshTeamData(teamName, { withDedup: true });
+  };
+  const scheduleProcessLiteStructuralReconcile = (teamName: string): void => {
+    const now = Date.now();
+    const existing = processLiteStructuralReconcileTimers.get(teamName);
+    const firstScheduledAt = existing?.firstScheduledAt ?? now;
+    if (existing) {
+      clearTimeout(existing.timer);
+    }
+    const elapsed = now - firstScheduledAt;
+    const remainingMaxWait = Math.max(0, PROCESS_LITE_STRUCTURAL_RECONCILE_MAX_WAIT_MS - elapsed);
+    const delay = Math.min(PROCESS_LITE_STRUCTURAL_RECONCILE_IDLE_MS, remainingMaxWait);
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: existing ? 'coalesced' : 'scheduled',
+      reason: 'event:process-lite:structural-reconcile',
+      operation: 'refreshTeamData',
+    });
+    const timer = setTimeout(() => {
+      processLiteStructuralReconcileTimers.delete(teamName);
+      runProcessLiteStructuralReconcile(teamName);
+    }, delay);
+    processLiteStructuralReconcileTimers.set(teamName, { firstScheduledAt, timer });
   };
 
   const pollTrackedTeamMessageFallback = async (): Promise<void> => {
@@ -1369,6 +1572,48 @@ export function initializeNotificationListeners(): () => void {
         return;
       }
 
+      if (event.type === 'process') {
+        const processDecision = buildProcessFanoutDecision(event, isStaleRuntimeEvent);
+        recordProcessFanoutDecision(event, processDecision);
+        if (processDecision.mode === 'process-lite' && isTeamProcessLiteFanoutEnabled()) {
+          noteTeamRefreshFanout({
+            teamName: event.teamName,
+            surface: 'team-change-listener',
+            phase: 'skipped',
+            reason: 'event:process-lite:structural-suppressed',
+            operation: 'fetchTeams',
+            eventType: event.type,
+            selected: useStore.getState().selectedTeamName === event.teamName,
+            visible: true,
+            activeTab: getFocusedVisibleTeamName() === event.teamName,
+          });
+          noteTeamRefreshFanout({
+            teamName: event.teamName,
+            surface: 'team-change-listener',
+            phase: 'skipped',
+            reason: 'event:process-lite:structural-suppressed',
+            operation: 'refreshTeamData',
+            eventType: event.type,
+            selected: useStore.getState().selectedTeamName === event.teamName,
+            visible: true,
+            activeTab: getFocusedVisibleTeamName() === event.teamName,
+          });
+          scheduleProcessLiteRuntimeRefresh(event.teamName);
+          scheduleProcessLiteStructuralReconcile(event.teamName);
+          return;
+        }
+        if (processDecision.mode === 'process-lite') {
+          noteTeamRefreshFanout({
+            teamName: event.teamName,
+            surface: 'team-change-listener',
+            phase: 'skipped',
+            reason: 'event:process-lite:disabled',
+            operation: 'wouldKeepStructuralProcess',
+            eventType: event.type,
+          });
+        }
+      }
+
       const eventReason = buildTeamChangeFanoutReason(event.type);
 
       // Throttled refresh of summary list (keeps TeamListView current without flooding).
@@ -1416,6 +1661,7 @@ export function initializeNotificationListeners(): () => void {
 
       // Per-team throttle (not debounce): keep at most one pending detail refresh per team.
       // Debounce would delay indefinitely while inbox messages keep arriving.
+      cancelProcessLiteStructuralReconcile(event.teamName);
       const selectedForRefresh = useStore.getState().selectedTeamName === event.teamName;
       const activeTabForRefresh = getFocusedVisibleTeamName() === event.teamName;
       const existingDetailTimer = teamRefreshTimers.get(event.teamName);
@@ -1468,6 +1714,10 @@ export function initializeNotificationListeners(): () => void {
         teamAgentRuntimeRefreshTimers = new Map();
         for (const t of toolActivityTimers.values()) clearTimeout(t);
         toolActivityTimers = new Map();
+        for (const state of processLiteStructuralReconcileTimers.values()) {
+          clearTimeout(state.timer);
+        }
+        processLiteStructuralReconcileTimers = new Map();
         teamLastRelevantActivityAt.clear();
         teamLastIdleWatchdogRefreshAt.clear();
         if (teamListRefreshTimer) {

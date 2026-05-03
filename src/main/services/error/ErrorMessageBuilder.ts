@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 import { type ExtractedToolResult } from '../analysis/ToolResultExtractor';
 
 import type { TriggerColor } from '@shared/constants/triggerColors';
-import type { TeamEventType } from '@shared/types/notifications';
+import type { NotificationTarget, TeamEventType } from '@shared/types/notifications';
 
 // =============================================================================
 // Types
@@ -54,6 +54,8 @@ export interface DetectedError {
   category?: 'error' | 'team';
   /** For team notifications: specific event sub-type */
   teamEventType?: TeamEventType;
+  /** Structured destination for notification clicks. */
+  target?: NotificationTarget;
   /** Explicit key for storage deduplication. Two notifications with the same dedupeKey won't be stored twice. */
   dedupeKey?: string;
   /** Additional context about the error */

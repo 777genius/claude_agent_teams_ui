@@ -1,4 +1,5 @@
 import type { EnhancedChunk } from '@main/types';
+import type { NotificationTarget, TeamEventType } from './notifications';
 
 export interface TeamMember {
   name: string;
@@ -1503,12 +1504,9 @@ export interface TeamMessageNotificationData {
   /** Optional sender color for visual context. */
   color?: string;
   /** Team event sub-type for notification categorization. */
-  teamEventType?:
-    | 'task_clarification'
-    | 'task_status_change'
-    | 'task_comment'
-    | 'task_created'
-    | 'all_tasks_completed';
+  teamEventType?: TeamEventType;
+  /** Structured destination used when clicking the OS or in-app notification. */
+  target?: NotificationTarget;
   /** Stable key for storage deduplication. Required — no fallback to Date.now(). */
   dedupeKey?: string;
   /**

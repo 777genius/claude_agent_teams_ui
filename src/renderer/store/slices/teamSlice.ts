@@ -1103,6 +1103,13 @@ function fireClarificationNotification(task: GlobalTask, suppressToast: boolean)
       body,
       teamEventType: 'task_clarification',
       dedupeKey: `clarification:${task.teamName}:${task.id}:${task.updatedAt ?? Date.now()}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        commentId: latestComment?.id,
+        focus: 'comments',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1199,6 +1206,12 @@ function fireStatusChangeNotification(
       body: task.subject,
       teamEventType: 'task_status_change',
       dedupeKey: `status:${task.teamName}:${task.id}:${fromStatus}:${toStatus}:${task.updatedAt ?? Date.now()}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        focus: 'status',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1256,6 +1269,13 @@ function fireTaskCommentNotification(
       body: preview,
       teamEventType: 'task_comment',
       dedupeKey: `comment:${task.teamName}:${task.id}:${comment.id}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        commentId: comment.id,
+        focus: 'comments',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1289,6 +1309,12 @@ function fireTaskCreatedNotification(task: GlobalTask, suppressToast: boolean): 
       body: stripAgentBlocks(task.description || task.subject).trim(),
       teamEventType: 'task_created',
       dedupeKey: `created:${task.teamName}:${task.id}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        focus: 'detail',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1347,6 +1373,11 @@ function fireAllTasksCompletedNotification(
       body: `All tasks in team "${sampleTask.teamDisplayName}" are done`,
       teamEventType: 'all_tasks_completed',
       dedupeKey: `all-done:${sampleTask.teamName}:${Date.now()}`,
+      target: {
+        kind: 'team',
+        teamName: sampleTask.teamName,
+        section: 'tasks',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1448,6 +1479,13 @@ function mapReviewError(error: unknown): string {
 export interface GlobalTaskDetailState {
   teamName: string;
   taskId: string;
+  commentId?: string;
+}
+
+export interface PendingMemberProfileState {
+  teamName?: string;
+  memberName: string;
+  focus?: 'profile' | 'messages' | 'logs';
 }
 
 /** Per-team launch parameters shown in the header badge. */
@@ -1583,6 +1621,9 @@ export function selectTeamDataForName(
 ): TeamViewSnapshot | null {
   if (!teamName) {
     return null;
+  }
+  if (state.selectedTeamName === teamName && state.selectedTeamData) {
+    return state.selectedTeamData;
   }
   return (
     state.teamDataCacheByName[teamName] ??
@@ -1931,11 +1972,15 @@ export interface TeamSlice {
   globalTasksInitialized: boolean;
   globalTasksError: string | null;
   globalTaskDetail: GlobalTaskDetailState | null;
-  openGlobalTaskDetail: (teamName: string, taskId: string) => void;
+  openGlobalTaskDetail: (teamName: string, taskId: string, commentId?: string) => void;
   closeGlobalTaskDetail: () => void;
   /** Set by MemberHoverCard to signal TeamDetailView to open MemberDetailDialog */
-  pendingMemberProfile: string | null;
-  openMemberProfile: (memberName: string) => void;
+  pendingMemberProfile: PendingMemberProfileState | null;
+  openMemberProfile: (
+    memberName: string,
+    teamName?: string,
+    focus?: PendingMemberProfileState['focus']
+  ) => void;
   closeMemberProfile: () => void;
   /** Set by GlobalTaskDetailDialog to signal TeamDetailView to open ChangeReviewDialog */
   pendingReviewRequest: {
@@ -2457,12 +2502,13 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   kanbanFilterQuery: null,
   globalTaskDetail: null,
   pendingMemberProfile: null,
-  openMemberProfile: (memberName: string) => set({ pendingMemberProfile: memberName }),
+  openMemberProfile: (memberName: string, teamName?: string, focus?: PendingMemberProfileState['focus']) =>
+    set({ pendingMemberProfile: { memberName, teamName, focus } }),
   closeMemberProfile: () => set({ pendingMemberProfile: null }),
   pendingReviewRequest: null,
   setPendingReviewRequest: (req) => set({ pendingReviewRequest: req }),
-  openGlobalTaskDetail: (teamName: string, taskId: string) => {
-    set({ globalTaskDetail: { teamName, taskId } });
+  openGlobalTaskDetail: (teamName: string, taskId: string, commentId?: string) => {
+    set({ globalTaskDetail: { teamName, taskId, commentId } });
   },
   closeGlobalTaskDetail: () => set({ globalTaskDetail: null }),
   addingComment: false,

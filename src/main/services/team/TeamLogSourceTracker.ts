@@ -76,7 +76,10 @@ function isOpaqueSafeTaskIdSegment(segment: string): boolean {
 export function shouldIgnoreLogSourceWatcherPath(
   projectDir: string,
   watchedPath: string,
-  _scope?: { scopedSessionIds?: ReadonlySet<string> }
+  scope?: {
+    scopedSessionIds?: ReadonlySet<string>;
+    pendingRootSessionIds?: ReadonlySet<string>;
+  }
 ): boolean {
   const parts = getRelativeLogSourceParts(projectDir, watchedPath);
   if (!parts) {
@@ -89,6 +92,31 @@ export function shouldIgnoreLogSourceWatcherPath(
   if (parts.includes('memory')) return true;
   if (first === BOARD_TASK_LOG_FRESHNESS_DIRNAME) return false;
   if (first === BOARD_TASK_CHANGE_FRESHNESS_DIRNAME) return false;
+
+  const scopedSessionIds = scope?.scopedSessionIds;
+  if (scopedSessionIds) {
+    if (parts.length === 1) {
+      if (first.endsWith('.jsonl')) {
+        const sessionId = normalizeLogSourceSessionId(first.slice(0, -'.jsonl'.length));
+        return (
+          !sessionId ||
+          (!scopedSessionIds.has(sessionId) && !scope?.pendingRootSessionIds?.has(sessionId))
+        );
+      }
+      return !scopedSessionIds.has(first);
+    }
+
+    if (!scopedSessionIds.has(first)) {
+      return true;
+    }
+
+    if (parts[1] === 'subagents') {
+      if (parts.length === 2) return false;
+      if (parts.length === 3) return !isAgentTranscriptFileName(parts[2]);
+    }
+
+    return true;
+  }
 
   if (parts.length >= 2 && parts[1] === 'subagents') {
     if (parts.length === 2) return false;
@@ -360,7 +388,10 @@ export class TeamLogSourceTracker {
       followSymlinks: false,
       depth: 0,
       ignored: (watchedPath) =>
-        shouldIgnoreLogSourceWatcherPath(context.projectDir, watchedPath, { scopedSessionIds }),
+        shouldIgnoreLogSourceWatcherPath(context.projectDir, watchedPath, {
+          scopedSessionIds,
+          pendingRootSessionIds: new Set(this.getPendingUnknownSessionIds(state)),
+        }),
       awaitWriteFinish: {
         stabilityThreshold: 250,
         pollInterval: 50,

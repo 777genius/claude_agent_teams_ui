@@ -405,6 +405,24 @@ async function writeCommittedOpenCodeSessionStore(input: {
   });
 }
 
+async function writeDefaultBobOpenCodeBootstrapEvidence(): Promise<void> {
+  await writeCommittedOpenCodeSessionStore({
+    teamName: 'team-a',
+    laneId: 'secondary:opencode:bob',
+    runId: 'opencode-run-bob',
+    sessions: [
+      {
+        id: 'oc-session-bob',
+        teamName: 'team-a',
+        memberName: 'bob',
+        laneId: 'secondary:opencode:bob',
+        runId: 'opencode-run-bob',
+        source: 'runtime_bootstrap_checkin',
+      },
+    ],
+  });
+}
+
 function createMemberSpawnStatusEntry(
   overrides: Record<string, unknown> = {}
 ): Record<string, unknown> {
@@ -3944,6 +3962,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -4043,6 +4062,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
 
       await expect(
         svc.deliverOpenCodeMemberMessage('team-a', {
@@ -4127,6 +4147,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo/.agent-team-worktrees/bob',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).resolveCurrentOpenCodeRuntimeRunId = vi.fn(async () => 'opencode-run-bob');
       (svc as any).isOpenCodeRuntimeLaneIndexActive = vi.fn(async () => true);
       (svc as any).configReader = {
@@ -4236,6 +4257,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -4373,6 +4395,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -4502,6 +4525,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -4590,6 +4614,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -4698,6 +4723,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -4781,6 +4807,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -4893,6 +4920,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -5348,6 +5376,7 @@ describe('TeamProvisioningService', () => {
           memberName: 'bob',
           cwd: '/repo',
         });
+        await writeDefaultBobOpenCodeBootstrapEvidence();
         (svc as any).configReader = {
           getConfig: vi.fn(async () => ({
             projectPath: '/repo',
@@ -5464,6 +5493,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -5589,6 +5619,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -5694,6 +5725,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -5841,6 +5873,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -5964,6 +5997,7 @@ describe('TeamProvisioningService', () => {
         memberName: 'bob',
         cwd: '/repo',
       });
+      await writeDefaultBobOpenCodeBootstrapEvidence();
       (svc as any).configReader = {
         getConfig: vi.fn(async () => ({
           projectPath: '/repo',
@@ -6102,25 +6136,21 @@ describe('TeamProvisioningService', () => {
         laneId,
         state: 'active',
       });
-      const manifestPath = getOpenCodeRuntimeManifestPath(tempTeamsBase, teamName, laneId);
-      await fsPromises.mkdir(path.dirname(manifestPath), { recursive: true });
-      await fsPromises.writeFile(
-        manifestPath,
-        `${JSON.stringify(
+      await writeCommittedOpenCodeSessionStore({
+        teamName,
+        laneId,
+        runId: 'opencode-run-durable',
+        sessions: [
           {
-            ...createDefaultRuntimeStoreManifest(teamName, '2026-04-22T12:00:00.000Z'),
-            activeRunId: 'opencode-run-durable',
+            id: 'oc-session-bob',
+            teamName,
+            memberName: 'bob',
+            laneId,
+            runId: 'opencode-run-durable',
+            source: 'runtime_bootstrap_checkin',
           },
-          null,
-          2
-        )}\n`,
-        'utf8'
-      );
-      await fsPromises.writeFile(
-        path.join(path.dirname(manifestPath), 'opencode-sessions.json'),
-        `${JSON.stringify({ sessions: [{ id: 'oc-session-bob' }] })}\n`,
-        'utf8'
-      );
+        ],
+      });
 
       await expect(
         svc.deliverOpenCodeMemberMessage(teamName, {
@@ -6143,6 +6173,85 @@ describe('TeamProvisioningService', () => {
           messageId: 'msg-after-restart',
         })
       );
+    });
+
+    it('blocks OpenCode secondary delivery when runtime session exists but bootstrap did not check in', async () => {
+      const svc = new TeamProvisioningService();
+      const teamName = 'team-a';
+      const laneId = 'secondary:opencode:bob';
+      const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
+        ok: true,
+        providerId: 'opencode',
+        memberName: String(input.memberName),
+        sessionId: 'oc-session-bob',
+        diagnostics: [],
+      }));
+      svc.setRuntimeAdapterRegistry(
+        new TeamRuntimeAdapterRegistry([
+          {
+            providerId: 'opencode',
+            prepare: vi.fn(),
+            launch: vi.fn(),
+            reconcile: vi.fn(),
+            stop: vi.fn(),
+            sendMessageToMember,
+          } as any,
+        ])
+      );
+      (svc as any).configReader = {
+        getConfig: vi.fn(async () => ({
+          projectPath: '/repo',
+          members: [
+            { name: 'team-lead', providerId: 'codex', model: 'gpt-5.4' },
+            { name: 'bob', providerId: 'opencode', model: 'minimax-m2.5-free' },
+          ],
+        })),
+      };
+      (svc as any).teamMetaStore = {
+        getMeta: vi.fn(async () => ({
+          launchIdentity: { providerId: 'codex' },
+          providerId: 'codex',
+        })),
+      };
+      (svc as any).membersMetaStore = {
+        getMembers: vi.fn(async () => [
+          { name: 'bob', providerId: 'opencode', model: 'opencode/minimax-m2.5-free' },
+        ]),
+      };
+      await upsertOpenCodeRuntimeLaneIndexEntry({
+        teamsBasePath: tempTeamsBase,
+        teamName,
+        laneId,
+        state: 'active',
+      });
+      await writeCommittedOpenCodeSessionStore({
+        teamName,
+        laneId,
+        runId: 'opencode-run-pending-bootstrap',
+        sessions: [],
+      });
+
+      await expect(
+        svc.deliverOpenCodeMemberMessage(teamName, {
+          memberName: 'bob',
+          text: 'must wait for bootstrap',
+          messageId: 'msg-before-bootstrap-checkin',
+        })
+      ).resolves.toMatchObject({
+        delivered: false,
+        reason: 'opencode_runtime_not_active',
+        diagnostics: [
+          expect.stringContaining('OpenCode runtime bootstrap is not confirmed for bob'),
+        ],
+      });
+      expect(sendMessageToMember).not.toHaveBeenCalled();
+      await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
+        lanes: {
+          [laneId]: {
+            state: 'active',
+          },
+        },
+      });
     });
 
     it('rejects stale active lane manifest without runtime evidence before delivery', async () => {
@@ -6385,25 +6494,21 @@ describe('TeamProvisioningService', () => {
         laneId,
         state: 'active',
       });
-      const manifestPath = getOpenCodeRuntimeManifestPath(tempTeamsBase, teamName, laneId);
-      await fsPromises.mkdir(path.dirname(manifestPath), { recursive: true });
-      await fsPromises.writeFile(
-        manifestPath,
-        `${JSON.stringify(
+      await writeCommittedOpenCodeSessionStore({
+        teamName,
+        laneId,
+        runId: 'opencode-run-from-manifest',
+        sessions: [
           {
-            ...createDefaultRuntimeStoreManifest(teamName, '2026-04-22T12:00:00.000Z'),
-            activeRunId: 'opencode-run-from-manifest',
+            id: 'oc-session-bob',
+            teamName,
+            memberName: 'bob',
+            laneId,
+            runId: 'opencode-run-from-manifest',
+            source: 'runtime_bootstrap_checkin',
           },
-          null,
-          2
-        )}\n`,
-        'utf8'
-      );
-      await fsPromises.writeFile(
-        path.join(path.dirname(manifestPath), 'opencode-sessions.json'),
-        `${JSON.stringify({ sessions: [{ id: 'oc-session-bob' }] })}\n`,
-        'utf8'
-      );
+        ],
+      });
 
       await expect(
         svc.deliverOpenCodeMemberMessage(teamName, {
@@ -6568,7 +6673,111 @@ describe('TeamProvisioningService', () => {
       );
     });
 
-    it('marks an OpenCode secondary lane degraded when launch fails after runtime materializes', async () => {
+    it('does not keep an OpenCode secondary lane active from prompt acceptance without runtime evidence', async () => {
+      const teamName = 'mixed-accepted-without-runtime-evidence';
+      const svc = new TeamProvisioningService();
+      const adapterLaunch = vi.fn(async (input: Record<string, unknown>) => ({
+        runId: String(input.runId),
+        teamName: String(input.teamName),
+        launchPhase: 'finished',
+        teamLaunchState: 'partial_failure',
+        members: {
+          tom: {
+            memberName: 'tom',
+            providerId: 'opencode',
+            launchState: 'failed_to_start',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: true,
+            hardFailureReason: 'OpenCode bridge reported member launch failure',
+            diagnostics: ['runtime_bootstrap_checkin failed: MCP Not connected'],
+          },
+        },
+        warnings: [],
+        diagnostics: ['OpenCode bridge reported member launch failure'],
+      }));
+      svc.setRuntimeAdapterRegistry(
+        new TeamRuntimeAdapterRegistry([
+          {
+            providerId: 'opencode',
+            prepare: vi.fn(),
+            launch: adapterLaunch,
+            reconcile: vi.fn(),
+            stop: vi.fn(),
+          } as any,
+        ])
+      );
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => null),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['bob'],
+      });
+      run.isLaunch = true;
+      run.request = {
+        teamName,
+        cwd: '/tmp/mixed-accepted-without-runtime-evidence',
+        providerId: 'codex',
+        model: 'gpt-5.4',
+        effort: 'high',
+        skipPermissions: true,
+      };
+      run.effectiveMembers = [
+        {
+          name: 'bob',
+          role: 'Developer',
+          providerId: 'codex',
+          model: 'gpt-5.4',
+          effort: 'high',
+        },
+      ];
+      run.mixedSecondaryLanes = [
+        {
+          laneId: 'secondary:opencode:tom',
+          providerId: 'opencode',
+          member: {
+            name: 'tom',
+            role: 'Developer',
+            providerId: 'opencode',
+            model: 'minimax-m2.5-free',
+            effort: 'medium',
+          },
+          runId: null,
+          state: 'queued',
+          result: null,
+          warnings: [],
+          diagnostics: [],
+        },
+      ];
+
+      await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
+      await vi.waitFor(
+        async () => {
+          await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
+            lanes: {
+              'secondary:opencode:tom': {
+                state: 'degraded',
+                diagnostics: expect.not.arrayContaining([
+                  'opencode_bootstrap_pending_after_materialized_session',
+                ]),
+              },
+            },
+          });
+          expect(run.mixedSecondaryLanes?.[0]?.result?.members.tom).toMatchObject({
+            launchState: 'failed_to_start',
+            hardFailure: true,
+          });
+        },
+        { timeout: 5000 }
+      );
+    });
+
+    it('keeps an OpenCode secondary lane active when bootstrap is pending after runtime materializes', async () => {
       const teamName = 'mixed-runtime-materialized-failure';
       const svc = new TeamProvisioningService();
       const adapterLaunch = vi.fn(async (input: Record<string, unknown>) => ({
@@ -6660,17 +6869,36 @@ describe('TeamProvisioningService', () => {
       await vi.waitFor(
         async () => {
           expect(adapterLaunch).toHaveBeenCalledTimes(1);
+          const launchInput = adapterLaunch.mock.calls[0]?.[0] as { runId?: string } | undefined;
+          await expect(
+            new OpenCodeRuntimeManifestEvidenceReader({ teamsBasePath: tempTeamsBase }).read(
+              teamName,
+              'secondary:opencode:tom'
+            )
+          ).resolves.toMatchObject({
+            activeRunId: launchInput?.runId,
+          });
           await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
             lanes: {
               'secondary:opencode:tom': {
-                state: 'degraded',
+                state: 'active',
                 diagnostics: expect.arrayContaining([
                   'OpenCode bridge reported member launch failure',
                   'OpenCode bootstrap MCP did not complete required tools before assistant response: runtime_bootstrap_checkin, member_briefing',
+                  'opencode_bootstrap_pending_after_materialized_session',
                 ]),
               },
             },
           });
+          expect(run.mixedSecondaryLanes?.[0]?.result?.members.tom).toMatchObject({
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: true,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            livenessKind: 'runtime_process',
+          });
+          expect(run.mixedSecondaryLanes?.[0]?.result?.teamLaunchState).toBe('partial_pending');
         },
         { timeout: 5000 }
       );
@@ -11960,7 +12188,7 @@ describe('TeamProvisioningService', () => {
       launchState: 'confirmed_alive',
       agentToolAccepted: true,
       bootstrapConfirmed: true,
-      runtimeAlive: false,
+      runtimeAlive: true,
     });
     const persisted = JSON.parse(
       await fsPromises.readFile(getTeamLaunchStatePath(teamName), 'utf8')
@@ -11968,7 +12196,7 @@ describe('TeamProvisioningService', () => {
     expect(persisted.members.tom).toMatchObject({
       launchState: 'confirmed_alive',
       bootstrapConfirmed: true,
-      runtimeAlive: false,
+      runtimeAlive: true,
       runtimeSessionId: 'ses-tom',
     });
   });
@@ -12051,7 +12279,7 @@ describe('TeamProvisioningService', () => {
     expect(persisted.members.tom).toMatchObject({
       launchState: 'confirmed_alive',
       bootstrapConfirmed: true,
-      runtimeAlive: false,
+      runtimeAlive: true,
       runtimeSessionId: 'ses-tom',
     });
     expect(persisted.teamLaunchState).toBe('clean_success');
@@ -12072,7 +12300,7 @@ describe('TeamProvisioningService', () => {
     expect(persistedAfterMissingWrite.members.tom).toMatchObject({
       launchState: 'confirmed_alive',
       bootstrapConfirmed: true,
-      runtimeAlive: false,
+      runtimeAlive: true,
       runtimeSessionId: 'ses-tom',
     });
     expect(persistedAfterMissingWrite.teamLaunchState).toBe('clean_success');

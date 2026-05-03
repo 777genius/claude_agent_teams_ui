@@ -498,6 +498,9 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
           summary,
           body: extracted.body,
           dedupeKey: `inbox:${teamName}:${memberName}:${msgId}`,
+          target: isCrossTeam
+            ? { kind: 'team', teamName, section: 'messages' }
+            : { kind: 'member', teamName, memberName: fromLabel, focus: 'messages' },
           suppressToast: effectiveSuppressToast,
         })
         .catch(() => undefined);
@@ -557,6 +560,7 @@ async function notifyNewSentMessages(teamName: string): Promise<void> {
           summary,
           body: extracted.body,
           dedupeKey: `sent:${teamName}:${msg.timestamp ?? String(prevCount + i)}`,
+          target: { kind: 'member', teamName, memberName: fromLabel, focus: 'messages' },
           suppressToast,
         })
         .catch(() => undefined);

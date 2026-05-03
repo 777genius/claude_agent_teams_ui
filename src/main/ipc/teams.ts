@@ -415,6 +415,7 @@ function checkRateLimitMessages(
           summary: `Rate limit: ${msg.from}`,
           body: msg.text.slice(0, 200),
           dedupeKey,
+          target: { kind: 'member', teamName, memberName: msg.from, focus: 'logs' },
           projectPath,
         })
         .catch(() => undefined);
@@ -489,6 +490,7 @@ function checkApiErrorMessages(
         summary: `API Error ${statusCode}: ${msg.from}`,
         body: msg.text.slice(0, 400),
         dedupeKey,
+        target: { kind: 'member', teamName, memberName: msg.from, focus: 'logs' },
         projectPath,
       })
       .catch(() => undefined);
@@ -4444,6 +4446,7 @@ async function handleShowMessageNotification(
       summary: d.summary ?? `${d.from} → ${d.to ?? 'team'}`,
       body: d.body,
       dedupeKey,
+      target: d.target,
       suppressToast: d.suppressToast,
     })
     .catch(() => undefined);

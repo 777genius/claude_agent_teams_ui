@@ -133,6 +133,7 @@ import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from './provis
 import { TeamProvisioningBanner } from './TeamProvisioningBanner';
 import { deriveLeadContextButtonLabel } from './leadContextLoadGuards';
 import { LeadSessionDetailGate } from './LeadSessionDetailGate';
+import { LiveRuntimeStatusBridge } from './LiveRuntimeStatusBridge';
 import { loadTeamSessionMetadata } from './teamSessionFetchGuards';
 import { TeamSessionsSection } from './TeamSessionsSection';
 
@@ -1847,13 +1848,22 @@ export const TeamDetailView = memo(function TeamDetailView({
   const pendingMemberProfile = useStore((s) => s.pendingMemberProfile);
   useEffect(() => {
     if (!pendingMemberProfile || !data) return;
-    const member = membersWithLiveBranches.find((m) => m.name === pendingMemberProfile);
+    if (pendingMemberProfile.teamName && pendingMemberProfile.teamName !== teamName) return;
+
+    const member = membersWithLiveBranches.find((m) => m.name === pendingMemberProfile.memberName);
     if (member) {
       setSelectedMember(member);
-      setSelectedMemberView(null);
+      setSelectedMemberView({
+        initialTab:
+          pendingMemberProfile.focus === 'logs'
+            ? 'logs'
+            : pendingMemberProfile.focus === 'messages'
+              ? 'activity'
+              : undefined,
+      });
     }
     useStore.getState().closeMemberProfile();
-  }, [pendingMemberProfile, membersWithLiveBranches]);
+  }, [pendingMemberProfile, membersWithLiveBranches, teamName, data]);
 
   const handleDeleteTask = useCallback(
     (taskId: string) => {
@@ -2637,6 +2647,8 @@ export const TeamDetailView = memo(function TeamDetailView({
               >
                 <ScheduleSection teamName={teamName} />
               </CollapsibleTeamSection>
+
+              <LiveRuntimeStatusBridge teamName={teamName} members={membersWithLiveBranches} />
 
               {(data.processes?.length ?? 0) > 0 && (
                 <CollapsibleTeamSection

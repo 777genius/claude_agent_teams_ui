@@ -119,6 +119,7 @@ interface TaskDetailDialogProps {
   onViewChanges?: (taskId: string, filePath?: string) => void;
   onOpenInEditor?: (filePath: string) => void;
   onDeleteTask?: (taskId: string) => void;
+  focusCommentId?: string;
   /** Extra content rendered in the dialog header (e.g. "Open team" button). */
   headerExtra?: React.ReactNode;
 }
@@ -138,6 +139,7 @@ export const TaskDetailDialog = ({
   onViewChanges,
   onOpenInEditor,
   onDeleteTask,
+  focusCommentId,
   headerExtra,
 }: TaskDetailDialogProps): React.JSX.Element => {
   const colorMap = useMemo(() => buildMemberColorMap(members), [members]);
@@ -1392,6 +1394,7 @@ export const TaskDetailDialog = ({
                 }
                 containerClassName="-mx-6"
                 unreadCommentIds={unreadSnapshotRef.current}
+                focusCommentId={focusCommentId}
                 registerCommentForViewport={registerComment}
               />
             </CollapsibleTeamSection>

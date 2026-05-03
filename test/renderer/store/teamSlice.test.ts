@@ -11,6 +11,7 @@ import {
   selectMemberMessagesForTeamMember,
   selectResolvedMemberForTeamName,
   selectResolvedMembersForTeamName,
+  selectTeamDataForName,
 } from '../../../src/renderer/store/slices/teamSlice';
 import {
   __resetTeamRefreshFanoutDiagnosticsForTests,
@@ -1701,6 +1702,35 @@ describe('teamSlice actions', () => {
     expect(nextMeta?.feedRevision).toBe('rev-2');
     expect(nextMeta?.members).toBe(initialMetaMembers);
     expect(nextResolvedMembers).toBe(initialResolvedMembers);
+  });
+
+  it('prefers selected team data over stale cached data for the active team', () => {
+    const store = createSliceStore();
+    const staleCachedData = createTeamSnapshot({
+      members: [],
+    });
+    const freshSelectedData = createTeamSnapshot({
+      members: [
+        {
+          name: 'alice',
+          currentTaskId: null,
+          taskCount: 0,
+          color: 'blue',
+        },
+      ],
+    });
+
+    store.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: freshSelectedData,
+      teamDataCacheByName: {
+        'my-team': staleCachedData,
+      },
+      memberActivityMetaByTeam: {},
+    });
+
+    expect(selectTeamDataForName(store.getState(), 'my-team')).toBe(freshSelectedData);
+    expect(selectResolvedMembersForTeamName(store.getState(), 'my-team')).toHaveLength(1);
   });
 
   it('memoizes team-scoped member messages selectors over the merged message feed', () => {

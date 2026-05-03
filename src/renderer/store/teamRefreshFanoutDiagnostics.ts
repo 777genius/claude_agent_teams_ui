@@ -14,7 +14,9 @@ export type TeamRefreshFanoutOperation =
   | 'fetchTeamMessageHead'
   | 'fetchMemberSpawnStatuses'
   | 'fetchTeamAgentRuntime'
-  | 'refreshTaskChangePresence';
+  | 'refreshTaskChangePresence'
+  | 'wouldUseProcessLite'
+  | 'wouldKeepStructuralProcess';
 
 export interface TeamRefreshFanoutNote {
   teamName: string;
@@ -44,12 +46,32 @@ export interface TeamRefreshFanoutRecentNote {
 
 export interface TeamRefreshFanoutSnapshot {
   counts: Record<string, number>;
+  structuredCounts: Record<string, TeamRefreshFanoutStructuredCount>;
   recent: TeamRefreshFanoutRecentNote[];
   lastAt: number;
 }
 
+export interface TeamRefreshFanoutStructuredCount {
+  key: string;
+  count: number;
+  surface: TeamRefreshFanoutSurface;
+  reason: string;
+  operation: TeamRefreshFanoutOperation;
+  phase: TeamRefreshFanoutPhase;
+}
+
+export interface TeamRefreshFanoutSummaryRow extends TeamRefreshFanoutStructuredCount {}
+
+export interface TeamRefreshFanoutSummary {
+  generatedAt: number;
+  teamName?: string;
+  total: number;
+  rows: TeamRefreshFanoutSummaryRow[];
+}
+
 interface TeamRefreshFanoutBucket {
   counts: Record<string, number>;
+  structuredCounts: Record<string, TeamRefreshFanoutStructuredCount>;
   recent: TeamRefreshFanoutRecentNote[];
   lastAt: number;
 }
@@ -62,6 +84,7 @@ const buckets = new Map<string, TeamRefreshFanoutBucket>();
 function createEmptyBucket(): TeamRefreshFanoutBucket {
   return {
     counts: {},
+    structuredCounts: {},
     recent: [],
     lastAt: 0,
   };
@@ -93,6 +116,9 @@ function cloneBucket(
 
   return {
     counts: { ...bucket.counts },
+    structuredCounts: Object.fromEntries(
+      Object.entries(bucket.structuredCounts).map(([key, value]) => [key, { ...value }])
+    ),
     recent: bucket.recent.map((note) => ({ ...note })),
     lastAt: bucket.lastAt,
   };
@@ -112,6 +138,15 @@ export function noteTeamRefreshFanout(note: TeamRefreshFanoutNote): void {
   const now = Date.now();
 
   bucket.counts[key] = (bucket.counts[key] ?? 0) + 1;
+  const existingStructured = bucket.structuredCounts[key];
+  bucket.structuredCounts[key] = {
+    key,
+    count: (existingStructured?.count ?? 0) + 1,
+    surface: note.surface,
+    reason: note.reason,
+    operation: note.operation,
+    phase: note.phase,
+  };
   bucket.lastAt = now;
   bucket.recent.push({
     at: now,
@@ -131,7 +166,18 @@ export function noteTeamRefreshFanout(note: TeamRefreshFanoutNote): void {
   }
 }
 
-export function getTeamRefreshFanoutSnapshotForTests(
+function collectStructuredCounts(teamName?: string): TeamRefreshFanoutStructuredCount[] {
+  if (teamName) {
+    const bucket = buckets.get(teamName);
+    return bucket ? Object.values(bucket.structuredCounts).map((row) => ({ ...row })) : [];
+  }
+
+  return Array.from(buckets.values()).flatMap((bucket) =>
+    Object.values(bucket.structuredCounts).map((row) => ({ ...row }))
+  );
+}
+
+export function getTeamRefreshFanoutSnapshot(
   teamName?: string
 ): TeamRefreshFanoutSnapshot | Record<string, TeamRefreshFanoutSnapshot> | null {
   if (teamName) {
@@ -143,6 +189,36 @@ export function getTeamRefreshFanoutSnapshotForTests(
   ) as Record<string, TeamRefreshFanoutSnapshot>;
 }
 
-export function __resetTeamRefreshFanoutDiagnosticsForTests(): void {
+export function resetTeamRefreshFanoutDiagnostics(): void {
   buckets.clear();
 }
+
+export function summarizeTeamRefreshFanout(teamName?: string): TeamRefreshFanoutSummary {
+  const aggregate = new Map<string, TeamRefreshFanoutSummaryRow>();
+
+  for (const row of collectStructuredCounts(teamName)) {
+    const existing = aggregate.get(row.key);
+    aggregate.set(row.key, {
+      ...row,
+      count: (existing?.count ?? 0) + row.count,
+    });
+  }
+
+  const rows = Array.from(aggregate.values()).sort(
+    (a, b) =>
+      b.count - a.count ||
+      a.operation.localeCompare(b.operation) ||
+      a.reason.localeCompare(b.reason) ||
+      a.phase.localeCompare(b.phase)
+  );
+
+  return {
+    generatedAt: Date.now(),
+    ...(teamName ? { teamName } : {}),
+    total: rows.reduce((sum, row) => sum + row.count, 0),
+    rows,
+  };
+}
+
+export const getTeamRefreshFanoutSnapshotForTests = getTeamRefreshFanoutSnapshot;
+export const __resetTeamRefreshFanoutDiagnosticsForTests = resetTeamRefreshFanoutDiagnostics;

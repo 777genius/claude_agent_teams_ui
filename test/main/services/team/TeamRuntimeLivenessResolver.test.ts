@@ -172,6 +172,36 @@ describe('resolveTeamMemberRuntimeLiveness', () => {
     );
   });
 
+  it('does not let a reused OpenCode runtime pid downgrade committed bootstrap evidence', () => {
+    const result = resolveTeamMemberRuntimeLiveness({
+      teamName: 'demo',
+      memberName: 'bob',
+      providerId: 'opencode',
+      persistedRuntimePid: 404,
+      persistedRuntimeSessionId: 'session-bob',
+      trackedSpawnStatus: {
+        status: 'online',
+        launchState: 'confirmed_alive',
+        agentToolAccepted: true,
+        runtimeAlive: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        updatedAt: NOW,
+      },
+      processRows: [{ pid: 404, ppid: 1, command: 'node unrelated-worker.js' }],
+      processTableAvailable: true,
+      nowIso: NOW,
+    });
+
+    expect(result.alive).toBe(true);
+    expect(result.livenessKind).toBe('confirmed_bootstrap');
+    expect(result.pidSource).toBe('runtime_bootstrap');
+    expect(result.pid).toBeUndefined();
+    expect(result.diagnostics).toContain(
+      'bootstrap confirmed despite runtime pid identity mismatch'
+    );
+  });
+
   it('does not trust a stale persisted pid without current process identity', () => {
     const result = resolveTeamMemberRuntimeLiveness({
       teamName: 'demo',

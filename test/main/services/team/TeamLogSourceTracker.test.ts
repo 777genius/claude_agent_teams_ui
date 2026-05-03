@@ -167,15 +167,14 @@ describe('TeamLogSourceTracker', () => {
     await tracker.disableTracking('demo', 'change_presence');
   });
 
-  it('emits log-source-change when a pending root transcript becomes confirmed', async () => {
+  it('emits log-source-change when a scoped root transcript appears', async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-pending-root-'));
-    let confirmed = false;
 
     const logsFinder = {
       getLiveLogSourceWatchContext: vi.fn(async () => ({
         projectDir: tempDir!,
-        sessionIds: confirmed ? ['new-runtime'] : [],
-        watchSessionIds: confirmed ? ['new-runtime'] : [],
+        sessionIds: ['new-runtime'],
+        watchSessionIds: ['new-runtime'],
       })),
     } as unknown as TeamMemberLogsFinder;
 
@@ -187,7 +186,6 @@ describe('TeamLogSourceTracker', () => {
     emitter.mockClear();
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    confirmed = true;
     await writeFile(path.join(tempDir, 'new-runtime.jsonl'), '{"seq":1}\n');
 
     await vi.waitFor(() => {
@@ -327,6 +325,7 @@ describe('TeamLogSourceTracker', () => {
 
   it('ignores internal ledger artifact paths but keeps freshness signals visible', () => {
     const projectDir = '/tmp/demo-project';
+    const scopedSessionIds = new Set(['lead-session']);
 
     expect(
       shouldIgnoreLogSourceWatcherPath(
@@ -346,5 +345,71 @@ describe('TeamLogSourceTracker', () => {
         path.join(projectDir, '.board-task-change-freshness', 'task.json')
       )
     ).toBe(false);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(
+        projectDir,
+        path.join(projectDir, '.board-task-log-freshness', 'task.json'),
+        { scopedSessionIds }
+      )
+    ).toBe(false);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(
+        projectDir,
+        path.join(projectDir, 'lead-session.jsonl'),
+        { scopedSessionIds }
+      )
+    ).toBe(false);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(projectDir, path.join(projectDir, 'old-session.jsonl'), {
+        scopedSessionIds,
+      })
+    ).toBe(true);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(
+        projectDir,
+        path.join(projectDir, 'pending-session.jsonl'),
+        {
+          scopedSessionIds,
+          pendingRootSessionIds: new Set(['pending-session']),
+        }
+      )
+    ).toBe(false);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(projectDir, path.join(projectDir, 'lead-session'), {
+        scopedSessionIds,
+      })
+    ).toBe(false);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(projectDir, path.join(projectDir, 'pending-session'), {
+        scopedSessionIds,
+        pendingRootSessionIds: new Set(['pending-session']),
+      })
+    ).toBe(true);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(projectDir, path.join(projectDir, 'old-session'), {
+        scopedSessionIds,
+      })
+    ).toBe(true);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(
+        projectDir,
+        path.join(projectDir, 'lead-session', 'subagents', 'agent-worker.jsonl'),
+        { scopedSessionIds }
+      )
+    ).toBe(false);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(
+        projectDir,
+        path.join(projectDir, 'lead-session', 'subagents', 'agent-acompact-worker.jsonl'),
+        { scopedSessionIds }
+      )
+    ).toBe(true);
+    expect(
+      shouldIgnoreLogSourceWatcherPath(
+        projectDir,
+        path.join(projectDir, 'old-session', 'subagents', 'agent-worker.jsonl'),
+        { scopedSessionIds }
+      )
+    ).toBe(true);
   });
 });

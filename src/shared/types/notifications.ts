@@ -33,6 +33,26 @@ export type TeamEventType =
   | 'schedule_failed'
   | 'team_launched';
 
+export type NotificationTarget =
+  | {
+      kind: 'team';
+      teamName: string;
+      section?: 'overview' | 'tasks' | 'members' | 'messages' | 'schedules';
+    }
+  | {
+      kind: 'task';
+      teamName: string;
+      taskId: string;
+      commentId?: string;
+      focus?: 'detail' | 'comments' | 'status' | 'review';
+    }
+  | {
+      kind: 'member';
+      teamName: string;
+      memberName: string;
+      focus?: 'profile' | 'messages' | 'logs';
+    };
+
 /**
  * Detected error from session JSONL files.
  * Used for notification display and deep linking to error locations.
@@ -72,6 +92,8 @@ export interface DetectedError {
   category?: 'error' | 'team';
   /** For team notifications: specific event sub-type */
   teamEventType?: TeamEventType;
+  /** Structured destination for notification clicks. */
+  target?: NotificationTarget;
   /** Explicit key for storage deduplication. Two notifications with the same dedupeKey won't be stored twice. */
   dedupeKey?: string;
   /** Additional context */
