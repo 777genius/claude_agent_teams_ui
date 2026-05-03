@@ -25041,7 +25041,9 @@ export class TeamProvisioningService {
       }
     }
     // Remove from runs Map to free memory (stdoutBuffer, stderrBuffer, claudeLogLines)
-    this.retainProvisioningProgress(run.runId, run.progress);
+    if (run.progress) {
+      this.retainProvisioningProgress(run.runId, run.progress);
+    }
     this.runs.delete(run.runId);
   }
 
