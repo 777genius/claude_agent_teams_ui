@@ -343,7 +343,8 @@ describe('team-fs-worker integration', () => {
       JSON.stringify({
         version: 1,
         teamName,
-        updatedAt: '2026-05-02T12:00:00.000Z',
+        updatedAt: new Date().toISOString(),
+        launchPhase: 'active',
         teamLaunchState: 'partial_pending',
         expectedMemberCount: 1,
         pendingCount: 1,
@@ -371,6 +372,118 @@ describe('team-fs-worker integration', () => {
       expect(second.diag?.cacheHits).toBe(0);
       expect(second.diag?.cacheMisses).toBe(1);
       expect(second.diag?.cacheWriteSkips).toBe(1);
+    } finally {
+      await worker.terminate();
+    }
+  });
+
+  it('ignores stale pending launch-summary fallbacks so offline teams do not stay reconciling', async () => {
+    const workerPath = await getWorkerPath();
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'team-fs-worker-'));
+    const teamName = 'stale-pending-summary-team';
+    const teamDir = path.join(tempDir, teamName);
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Stale Pending Summary Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(teamDir, 'launch-summary.json'),
+      JSON.stringify({
+        version: 1,
+        teamName,
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchUpdatedAt: '2026-04-09T20:35:57.962Z',
+        teamLaunchState: 'partial_pending',
+        expectedMemberCount: 1,
+        pendingCount: 1,
+        permissionPendingCount: 0,
+      }),
+      'utf8'
+    );
+
+    const worker = createWorker(workerPath);
+    try {
+      const first = await callListTeams(worker, tempDir);
+      expect(first.teams[0]).toMatchObject({ teamName });
+      expect(first.teams[0]).not.toMatchObject({
+        teamLaunchState: 'partial_pending',
+      });
+      expect(first.diag?.cacheMisses).toBe(1);
+      expect(first.diag?.cacheWriteSkips).toBe(0);
+    } finally {
+      await worker.terminate();
+    }
+  });
+
+  it('rereads launch-summary after caching a stale pending fallback as settled', async () => {
+    const workerPath = await getWorkerPath();
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'team-fs-worker-'));
+    const teamName = 'stale-pending-cache-invalidation-team';
+    const teamDir = path.join(tempDir, teamName);
+    const launchSummaryPath = path.join(teamDir, 'launch-summary.json');
+    await fs.mkdir(teamDir, { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'Stale Pending Cache Invalidation Team',
+        members: [{ name: 'team-lead', agentType: 'team-lead' }],
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      launchSummaryPath,
+      JSON.stringify({
+        version: 1,
+        teamName,
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchUpdatedAt: '2026-04-09T20:35:57.962Z',
+        teamLaunchState: 'partial_pending',
+        expectedMemberCount: 1,
+        pendingCount: 1,
+        permissionPendingCount: 0,
+      }),
+      'utf8'
+    );
+
+    const worker = createWorker(workerPath);
+    try {
+      const stale = await callListTeams(worker, tempDir);
+      expect(stale.teams[0]).toMatchObject({ teamName });
+      expect(stale.teams[0]).not.toMatchObject({
+        teamLaunchState: 'partial_pending',
+      });
+      expect(stale.diag?.cacheMisses).toBe(1);
+      expect(stale.diag?.cacheWriteSkips).toBe(0);
+
+      await fs.writeFile(
+        launchSummaryPath,
+        JSON.stringify({
+          version: 1,
+          teamName,
+          updatedAt: new Date().toISOString(),
+          launchPhase: 'active',
+          teamLaunchState: 'partial_pending',
+          expectedMemberCount: 1,
+          pendingCount: 1,
+          permissionPendingCount: 0,
+        }),
+        'utf8'
+      );
+
+      const fresh = await callListTeams(worker, tempDir);
+      expect(fresh.teams[0]).toMatchObject({
+        teamName,
+        teamLaunchState: 'partial_pending',
+        pendingCount: 1,
+      });
+      expect(fresh.diag?.cacheHits).toBe(0);
+      expect(fresh.diag?.cacheMisses).toBe(1);
+      expect(fresh.diag?.cacheWriteSkips).toBe(1);
     } finally {
       await worker.terminate();
     }

@@ -68,6 +68,7 @@ const PROVIDER_API_KEY_ENV_VARS: Partial<Record<CliProviderId, string>> = {
 const CODEX_NATIVE_API_KEY_ENV_VAR = 'CODEX_API_KEY';
 const CODEX_CLI_PATH_ENV_VAR = 'CODEX_CLI_PATH';
 const CODEX_HOME_ENV_VAR = 'CODEX_HOME';
+const CODEX_FORCED_LOGIN_METHOD_ENV_VAR = 'CLAUDE_CODE_CODEX_FORCED_LOGIN_METHOD';
 const CODEX_NATIVE_BACKEND_ID = 'codex-native';
 
 function isCodexExecBinary(binaryPath?: string | null): boolean {
@@ -104,6 +105,18 @@ function applyCodexRuntimeContextEnv(
   if (codexHome) {
     env[CODEX_HOME_ENV_VAR] = codexHome;
   }
+}
+
+function applyCodexForcedLoginMethodEnv(
+  env: NodeJS.ProcessEnv,
+  loginMethod: 'chatgpt' | 'api' | null
+): void {
+  if (loginMethod) {
+    env[CODEX_FORCED_LOGIN_METHOD_ENV_VAR] = loginMethod;
+    return;
+  }
+
+  delete env[CODEX_FORCED_LOGIN_METHOD_ENV_VAR];
 }
 
 export class ProviderConnectionService {
@@ -213,6 +226,7 @@ export class ProviderConnectionService {
     if (readiness.effectiveAuthMode === 'chatgpt') {
       delete env.OPENAI_API_KEY;
       delete env[CODEX_NATIVE_API_KEY_ENV_VAR];
+      applyCodexForcedLoginMethodEnv(env, 'chatgpt');
       return env;
     }
 
@@ -220,6 +234,7 @@ export class ProviderConnectionService {
     if (readiness.effectiveAuthMode === 'api_key' && resolvedApiKey) {
       env.OPENAI_API_KEY = resolvedApiKey;
       env[CODEX_NATIVE_API_KEY_ENV_VAR] = resolvedApiKey;
+      applyCodexForcedLoginMethodEnv(env, 'api');
       return env;
     }
 
@@ -227,6 +242,7 @@ export class ProviderConnectionService {
       delete env.OPENAI_API_KEY;
     }
     delete env[CODEX_NATIVE_API_KEY_ENV_VAR];
+    applyCodexForcedLoginMethodEnv(env, null);
 
     return env;
   }
@@ -274,6 +290,7 @@ export class ProviderConnectionService {
     if (readiness.effectiveAuthMode === 'chatgpt') {
       delete env.OPENAI_API_KEY;
       delete env[CODEX_NATIVE_API_KEY_ENV_VAR];
+      applyCodexForcedLoginMethodEnv(env, 'chatgpt');
       return env;
     }
 
@@ -281,8 +298,11 @@ export class ProviderConnectionService {
     if (readiness.effectiveAuthMode === 'api_key' && resolvedApiKey) {
       env.OPENAI_API_KEY = resolvedApiKey;
       env[CODEX_NATIVE_API_KEY_ENV_VAR] = resolvedApiKey;
+      applyCodexForcedLoginMethodEnv(env, 'api');
+      return env;
     }
 
+    applyCodexForcedLoginMethodEnv(env, null);
     return env;
   }
 

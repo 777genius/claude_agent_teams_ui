@@ -2113,6 +2113,8 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
 
+  notificationManager.closeActiveNativeNotifications('app-before-quit');
+
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.hide();

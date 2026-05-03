@@ -1111,12 +1111,47 @@ export class NotificationManager extends EventEmitter {
    * Shared click handler for native notifications — focuses window and emits deep-link.
    */
   private handleNativeNotificationClick(stored: StoredNotification): void {
+    const isDevRuntime =
+      process.env.NODE_ENV !== 'production' ||
+      Boolean((process as typeof process & { defaultApp?: boolean }).defaultApp);
+    if (isDevRuntime) {
+      const notificationType = stored.teamEventType ?? stored.category ?? 'error';
+      const notificationTitle = stored.triggerName ?? stored.message;
+      logger.info(
+        `[notification-click] delivered in-process id=${stored.id} type=${notificationType} title="${notificationTitle}"`
+      );
+    }
+
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.show();
       this.mainWindow.focus();
       safeSendToRenderer(this.mainWindow, 'notification:clicked', stored);
     }
     this.emit('notification-clicked', stored);
+  }
+
+  /**
+   * Closes active OS notifications so macOS does not keep stale dev toasts that
+   * can relaunch raw Electron without the app path.
+   */
+  closeActiveNativeNotifications(reason: string = 'manual'): number {
+    const notifications = Array.from(this.activeNotifications);
+    for (const notification of notifications) {
+      try {
+        (notification as NotificationInstance & { close?: () => void }).close?.();
+      } catch (error) {
+        logger.debug(
+          `[notification] failed to close active notification during ${reason}: ${String(error)}`
+        );
+      }
+    }
+    this.activeNotifications.clear();
+    if (notifications.length > 0) {
+      logger.debug(
+        `[notification] closed ${notifications.length} active notification(s): ${reason}`
+      );
+    }
+    return notifications.length;
   }
 
   /**

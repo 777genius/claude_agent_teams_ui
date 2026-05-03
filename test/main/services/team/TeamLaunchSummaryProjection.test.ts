@@ -49,6 +49,192 @@ describe('TeamLaunchSummaryProjection', () => {
     expect(summary).toBeNull();
   });
 
+  it('ignores stale terminal launch-state pending summaries before projecting renderer copy', () => {
+    const summary = choosePreferredLaunchStateSummary({
+      launchSnapshot: {
+        version: 2,
+        teamName: 'atlas-hq-2',
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchPhase: 'finished',
+        expectedMembers: ['alice', 'jack'],
+        members: {
+          alice: {
+            name: 'alice',
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            lastEvaluatedAt: '2026-04-09T20:35:57.962Z',
+          },
+          jack: {
+            name: 'jack',
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            lastEvaluatedAt: '2026-04-09T20:35:57.962Z',
+          },
+        },
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 2,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+        },
+        teamLaunchState: 'partial_pending',
+      } as never,
+      bootstrapSnapshot: null,
+      launchSummaryProjection: null,
+    });
+
+    expect(summary).toBeNull();
+  });
+
+  it('ignores stale active launch-state pending summaries without outstanding permissions', () => {
+    const summary = choosePreferredLaunchStateSummary({
+      launchSnapshot: {
+        version: 2,
+        teamName: 'vector-room-13',
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchPhase: 'active',
+        expectedMembers: ['alice', 'bob'],
+        members: {
+          alice: {
+            name: 'alice',
+            launchState: 'starting',
+            agentToolAccepted: false,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            lastEvaluatedAt: '2026-04-09T20:35:57.962Z',
+          },
+          bob: {
+            name: 'bob',
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            lastEvaluatedAt: '2026-04-09T20:35:57.962Z',
+          },
+        },
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 2,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+          permissionPendingCount: 0,
+        },
+        teamLaunchState: 'partial_pending',
+      } as never,
+      launchSummaryProjection: null,
+    });
+
+    expect(summary).toBeNull();
+  });
+
+  it('keeps stale launch-state pending summaries when permission approval is outstanding', () => {
+    const summary = choosePreferredLaunchStateSummary({
+      launchSnapshot: {
+        version: 2,
+        teamName: 'permission-team',
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchPhase: 'active',
+        expectedMembers: ['alice'],
+        members: {
+          alice: {
+            name: 'alice',
+            launchState: 'permission_pending',
+            agentToolAccepted: false,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            lastEvaluatedAt: '2026-04-09T20:35:57.962Z',
+          },
+        },
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 1,
+          failedCount: 0,
+          runtimeAlivePendingCount: 0,
+          permissionPendingCount: 1,
+        },
+        teamLaunchState: 'partial_pending',
+      } as never,
+      launchSummaryProjection: null,
+    });
+
+    expect(summary).toMatchObject({
+      teamLaunchState: 'partial_pending',
+      permissionPendingCount: 1,
+    });
+  });
+
+  it('ignores stale pending launch-summary projections when canonical launch truth is missing', () => {
+    const summary = choosePreferredLaunchStateSummary({
+      launchSummaryProjection: {
+        version: 1,
+        teamName: 'atlas-hq-2',
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchUpdatedAt: '2026-04-09T20:35:57.962Z',
+        teamLaunchState: 'partial_pending',
+        expectedMemberCount: 2,
+        confirmedCount: 0,
+        pendingCount: 2,
+        failedCount: 0,
+        runtimeProcessPendingCount: 0,
+        permissionPendingCount: 0,
+      },
+    });
+
+    expect(summary).toBeNull();
+  });
+
+  it('ignores stale active pending launch-summary projections without outstanding permissions', () => {
+    const summary = choosePreferredLaunchStateSummary({
+      launchSummaryProjection: {
+        version: 1,
+        teamName: 'vector-room-13',
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchUpdatedAt: '2026-04-09T20:35:57.962Z',
+        launchPhase: 'active',
+        teamLaunchState: 'partial_pending',
+        expectedMemberCount: 2,
+        confirmedCount: 0,
+        pendingCount: 2,
+        failedCount: 0,
+        runtimeProcessPendingCount: 0,
+        permissionPendingCount: 0,
+      },
+    });
+
+    expect(summary).toBeNull();
+  });
+
+  it('keeps stale pending launch-summary projections when permission approval is outstanding', () => {
+    const summary = choosePreferredLaunchStateSummary({
+      launchSummaryProjection: {
+        version: 1,
+        teamName: 'permission-team',
+        updatedAt: '2026-04-09T20:35:57.962Z',
+        launchUpdatedAt: '2026-04-09T20:35:57.962Z',
+        teamLaunchState: 'partial_pending',
+        expectedMemberCount: 1,
+        confirmedCount: 0,
+        pendingCount: 1,
+        failedCount: 0,
+        permissionPendingCount: 1,
+      },
+    });
+
+    expect(summary).toMatchObject({
+      teamLaunchState: 'partial_pending',
+      permissionPendingCount: 1,
+    });
+  });
+
   it('prefers a mixed-aware persisted summary projection over a newer but poorer bootstrap snapshot', () => {
     const bootstrapSnapshot = {
       version: 2,
@@ -219,6 +405,7 @@ describe('TeamLaunchSummaryProjection', () => {
       confirmedMemberCount: 1,
       missingMembers: ['bob'],
       failedCount: 1,
+      launchPhase: 'finished',
       teamLaunchState: 'partial_failure',
     });
   });

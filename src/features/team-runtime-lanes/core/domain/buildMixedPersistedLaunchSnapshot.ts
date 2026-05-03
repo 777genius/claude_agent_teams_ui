@@ -94,6 +94,7 @@ function buildDiagnostics(
     | 'agentToolAccepted'
     | 'runtimeAlive'
     | 'bootstrapConfirmed'
+    | 'hardFailure'
     | 'hardFailureReason'
     | 'sources'
     | 'pendingPermissionRequestIds'
@@ -108,6 +109,8 @@ function buildDiagnostics(
     diagnostics.push('waiting for permission approval');
   } else if (member.bootstrapStalled) {
     diagnostics.push('opencode_bootstrap_stalled');
+  } else if (member.hardFailure && member.runtimeAlive && !member.bootstrapConfirmed) {
+    diagnostics.push('bootstrap failed while runtime process was still alive');
   } else if (member.runtimeAlive && !member.bootstrapConfirmed) {
     diagnostics.push('waiting for teammate check-in');
   }
