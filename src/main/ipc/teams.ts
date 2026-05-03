@@ -375,7 +375,7 @@ function formatNotificationClockTime(date: Date): string {
 
 function buildRateLimitNotificationBody(plan: ReturnType<typeof planRateLimitAutoResume>): string {
   if (plan.kind === 'scheduled') {
-    return `Auto-resume scheduled at ${formatNotificationClockTime(plan.resetTime)}`;
+    return `Auto-resume scheduled at ${formatNotificationClockTime(new Date(plan.fireAtMs))}`;
   }
   return 'Manual restart needed';
 }

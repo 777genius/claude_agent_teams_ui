@@ -1326,17 +1326,25 @@ function detectBlockedTaskNotifications(
 
   for (const task of newTasks) {
     const oldTask = oldTaskMap.get(`${task.teamName}:${task.id}`);
-    const oldBlockedBy = oldTask?.blockedBy?.filter(Boolean) ?? [];
-    const newBlockedBy = task.blockedBy?.filter(Boolean) ?? [];
-    const key = `${task.teamName}:${task.id}:${newBlockedBy.join(',')}`;
+    const oldBlockedBy = new Set(oldTask?.blockedBy?.filter(Boolean) ?? []);
+    const newBlockedBy = Array.from(new Set(task.blockedBy?.filter(Boolean) ?? []));
+    const taskKeyPrefix = `${task.teamName}:${task.id}:`;
+    const key = `${taskKeyPrefix}${[...newBlockedBy].sort().join(',')}`;
+    const addedBlockedBy = newBlockedBy.filter((id) => !oldBlockedBy.has(id));
 
-    if (newBlockedBy.length > 0 && oldBlockedBy.length === 0) {
+    for (const existingKey of Array.from(notifiedBlockedTaskKeys)) {
+      if (existingKey.startsWith(taskKeyPrefix) && existingKey !== key) {
+        notifiedBlockedTaskKeys.delete(existingKey);
+      }
+    }
+
+    if (newBlockedBy.length > 0 && addedBlockedBy.length > 0) {
       if (notifiedBlockedTaskKeys.has(key)) continue;
       notifiedBlockedTaskKeys.add(key);
       fireTaskBlockedNotification(task, newBlockedBy, !notifyEnabled);
     } else if (newBlockedBy.length === 0) {
       for (const existingKey of Array.from(notifiedBlockedTaskKeys)) {
-        if (existingKey.startsWith(`${task.teamName}:${task.id}:`)) {
+        if (existingKey.startsWith(taskKeyPrefix)) {
           notifiedBlockedTaskKeys.delete(existingKey);
         }
       }

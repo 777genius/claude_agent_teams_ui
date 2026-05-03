@@ -24390,10 +24390,11 @@ export class TeamProvisioningService {
         missingNames.length > 0
           ? missingNames.length
           : Math.max(0, launchSummary.pendingCount + launchSummary.failedCount);
-      const joinedCount = Math.max(
-        0,
-        Math.min(expectedCount, launchSummary.confirmedCount || expectedCount - missingCount)
-      );
+      const rawJoinedCount =
+        typeof launchSummary.confirmedCount === 'number'
+          ? launchSummary.confirmedCount
+          : expectedCount - missingCount;
+      const joinedCount = Math.max(0, Math.min(expectedCount, rawJoinedCount));
       const missingLabel =
         missingNames.length > 0
           ? `${missingNames.map((name) => `@${name}`).join(', ')} did not join`

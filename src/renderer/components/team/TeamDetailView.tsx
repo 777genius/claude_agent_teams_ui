@@ -1862,7 +1862,9 @@ export const TeamDetailView = memo(function TeamDetailView({
       return;
     }
 
-    const section = document.querySelector<HTMLElement>(`[data-section-id="${sectionId}"]`);
+    const section = contentRef.current?.querySelector<HTMLElement>(
+      `[data-section-id="${sectionId}"]`
+    );
     if (!section) return;
     section.dispatchEvent(new CustomEvent('team-section-navigate'));
     clearTeamSectionFocus();
