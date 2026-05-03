@@ -63,6 +63,11 @@ vi.mock('@renderer/api', () => ({
 
 import { initializeNotificationListeners, useStore } from '../../../src/renderer/store';
 import { __resetTeamSliceModuleStateForTests } from '../../../src/renderer/store/slices/teamSlice';
+import {
+  __resetTeamRefreshFanoutDiagnosticsForTests,
+  getTeamRefreshFanoutSnapshotForTests,
+  type TeamRefreshFanoutSnapshot,
+} from '../../../src/renderer/store/teamRefreshFanoutDiagnostics';
 import { api } from '@renderer/api';
 
 describe('team change throttling', () => {
@@ -71,6 +76,7 @@ describe('team change throttling', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     __resetTeamSliceModuleStateForTests();
+    __resetTeamRefreshFanoutDiagnosticsForTests();
     const fetchTeams = vi.fn(async () => undefined);
     const fetchMemberSpawnStatuses = vi.fn(async () => undefined);
     const refreshTeamData = vi.fn(async () => undefined);
@@ -117,6 +123,7 @@ describe('team change throttling', () => {
     cleanup?.();
     cleanup = null;
     __resetTeamSliceModuleStateForTests();
+    __resetTeamRefreshFanoutDiagnosticsForTests();
     vi.mocked(console.warn).mockClear();
     vi.useRealTimers();
   });
@@ -161,6 +168,48 @@ describe('team change throttling', () => {
     hoisted.onTeamChangeCb?.({}, { teamName: 'my-team' });
     await vi.advanceTimersByTimeAsync(800);
     expect(refreshTeamDataSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps process events on the existing structural refresh path and records fanout', async () => {
+    const state = useStore.getState();
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.({}, { type: 'process', teamName: 'my-team' });
+
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+
+    const snapshot = getTeamRefreshFanoutSnapshotForTests(
+      'my-team'
+    ) as TeamRefreshFanoutSnapshot | null;
+    expect(
+      snapshot?.counts['team-change-listener:event:process:refreshTeamData:scheduled']
+    ).toBe(1);
+    expect(snapshot?.counts['team-change-listener:event:process:refreshTeamData:executed']).toBe(
+      1
+    );
+  });
+
+  it('keeps task and config events on the existing global task refresh path', async () => {
+    const fetchAllTasksSpy = vi.fn(async () => undefined);
+    useStore.setState({ fetchAllTasks: fetchAllTasksSpy } as never);
+
+    hoisted.onTeamChangeCb?.({}, { type: 'task', teamName: 'my-team' });
+    hoisted.onTeamChangeCb?.({}, { type: 'config', teamName: 'my-team' });
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(fetchAllTasksSpy).toHaveBeenCalledTimes(1);
+
+    const snapshot = getTeamRefreshFanoutSnapshotForTests(
+      'my-team'
+    ) as TeamRefreshFanoutSnapshot | null;
+    expect(snapshot?.counts['team-change-listener:event:task:fetchAllTasks:scheduled']).toBe(1);
+    expect(snapshot?.counts['team-change-listener:event:config:fetchAllTasks:coalesced']).toBe(1);
+    expect(snapshot?.counts['team-change-listener:event:task:fetchAllTasks:executed']).toBe(1);
+    expect(snapshot?.counts['team-change-listener:event:config:fetchAllTasks:executed']).toBe(1);
   });
 
   it('lead-message refreshes message head only, not team list, tasks, or structural detail', async () => {

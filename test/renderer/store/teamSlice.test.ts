@@ -12,6 +12,11 @@ import {
   selectResolvedMemberForTeamName,
   selectResolvedMembersForTeamName,
 } from '../../../src/renderer/store/slices/teamSlice';
+import {
+  __resetTeamRefreshFanoutDiagnosticsForTests,
+  getTeamRefreshFanoutSnapshotForTests,
+  type TeamRefreshFanoutSnapshot,
+} from '../../../src/renderer/store/teamRefreshFanoutDiagnostics';
 
 const hoisted = vi.hoisted(() => ({
   list: vi.fn(),
@@ -198,6 +203,7 @@ describe('teamSlice actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetTeamSliceModuleStateForTests();
+    __resetTeamRefreshFanoutDiagnosticsForTests();
     hoisted.list.mockResolvedValue([]);
     hoisted.getData.mockResolvedValue(createTeamSnapshot());
     hoisted.getMessagesPage.mockResolvedValue({
@@ -236,6 +242,57 @@ describe('teamSlice actions', () => {
     hoisted.permanentlyDeleteTeam.mockResolvedValue(undefined);
     hoisted.restartMember.mockResolvedValue(undefined);
     hoisted.skipMemberForLaunch.mockResolvedValue(undefined);
+  });
+
+  it('records terminal provisioning fanout diagnostics without changing visible graph hydrate behavior', () => {
+    const store = createSliceStore();
+    const fetchTeams = vi.fn(async () => undefined);
+    const refreshTeamData = vi.fn(async () => undefined);
+    store.setState({
+      fetchTeams,
+      refreshTeamData,
+      selectedTeamName: 'other-team',
+      selectedTeamData: createTeamSnapshot({
+        teamName: 'other-team',
+        config: { name: 'Other Team' },
+      }),
+      paneLayout: {
+        focusedPaneId: 'pane-default',
+        panes: [
+          {
+            id: 'pane-default',
+            widthFraction: 1,
+            tabs: [{ id: 'graph-my-team', type: 'graph', teamName: 'my-team', label: 'Graph' }],
+            activeTabId: 'graph-my-team',
+          },
+        ],
+      },
+    });
+
+    store.getState().onProvisioningProgress({
+      runId: 'run-ready',
+      teamName: 'my-team',
+      state: 'ready',
+      message: 'Ready',
+      startedAt: '2026-03-12T10:00:00.000Z',
+      updatedAt: '2026-03-12T10:00:01.000Z',
+    } as never);
+
+    expect(fetchTeams).toHaveBeenCalledTimes(1);
+    expect(refreshTeamData).toHaveBeenCalledTimes(1);
+    expect(refreshTeamData).toHaveBeenCalledWith('my-team', { withDedup: true });
+
+    const snapshot = getTeamRefreshFanoutSnapshotForTests(
+      'my-team'
+    ) as TeamRefreshFanoutSnapshot | null;
+    expect(
+      snapshot?.counts['provisioning-progress:provisioning:terminal-ready:fetchTeams:scheduled']
+    ).toBe(1);
+    expect(
+      snapshot?.counts[
+        'provisioning-progress:provisioning:terminal-ready:refreshTeamData:scheduled'
+      ]
+    ).toBe(1);
   });
 
   it('maps inbox verify failure to user-friendly text', async () => {

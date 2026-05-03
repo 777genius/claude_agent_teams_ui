@@ -47,6 +47,10 @@ import {
   isTeamDataRefreshPending,
   selectTeamDataForName,
 } from './slices/teamSlice';
+import {
+  noteTeamRefreshFanout,
+  type TeamRefreshFanoutOperation,
+} from './teamRefreshFanoutDiagnostics';
 import { createUISlice } from './slices/uiSlice';
 import { createUpdateSlice } from './slices/updateSlice';
 
@@ -250,6 +254,8 @@ export function initializeNotificationListeners(): () => void {
 
   let teamListRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   let globalTasksRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  const pendingTeamListRefreshDiagnostics = new Map<string, Set<string>>();
+  const pendingGlobalTasksRefreshDiagnostics = new Map<string, Set<string>>();
   const SESSION_REFRESH_DEBOUNCE_MS = 150;
   const PROJECT_REFRESH_DEBOUNCE_MS = 300;
   const TEAM_REFRESH_THROTTLE_MS = 800;
@@ -257,6 +263,53 @@ export function initializeNotificationListeners(): () => void {
   const TEAM_MEMBER_SPAWN_REFRESH_THROTTLE_MS = 500;
   const TEAM_LIST_REFRESH_THROTTLE_MS = 2000;
   const GLOBAL_TASKS_REFRESH_THROTTLE_MS = 500;
+  const buildTeamChangeFanoutReason = (eventType: string): string => `event:${eventType}`;
+  const addPendingGlobalRefreshDiagnostic = (
+    pending: Map<string, Set<string>>,
+    teamName: string,
+    reason: string
+  ): void => {
+    const reasons = pending.get(teamName) ?? new Set<string>();
+    reasons.add(reason);
+    pending.set(teamName, reasons);
+  };
+  const drainPendingGlobalRefreshDiagnostics = (
+    pending: Map<string, Set<string>>,
+    operation: TeamRefreshFanoutOperation
+  ): void => {
+    const entries = Array.from(pending.entries());
+    pending.clear();
+    for (const [teamName, reasons] of entries) {
+      for (const reason of reasons) {
+        noteTeamRefreshFanout({
+          teamName,
+          surface: 'team-change-listener',
+          phase: 'executed',
+          reason,
+          operation,
+        });
+      }
+    }
+  };
+  const noteGlobalRefreshScheduled = (
+    pending: Map<string, Set<string>>,
+    teamName: string | null | undefined,
+    reason: string,
+    operation: TeamRefreshFanoutOperation,
+    coalesced: boolean
+  ): void => {
+    if (!teamName) {
+      return;
+    }
+    addPendingGlobalRefreshDiagnostic(pending, teamName, reason);
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: coalesced ? 'coalesced' : 'scheduled',
+      reason,
+      operation,
+    });
+  };
   const refreshTrackedTeamMessages = async (teamName: string): Promise<void> => {
     if (!teamName || !shouldRefreshTeamMessages(teamName)) {
       return;
@@ -278,11 +331,26 @@ export function initializeNotificationListeners(): () => void {
     if (!teamName || !isTeamVisibleInAnyPane(teamName)) {
       return;
     }
+    const existingTimer = memberSpawnRefreshTimers.get(teamName);
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: existingTimer ? 'coalesced' : 'scheduled',
+      reason: 'event:member-spawn',
+      operation: 'fetchMemberSpawnStatuses',
+    });
     if (memberSpawnRefreshTimers.has(teamName)) {
       return;
     }
     const timer = setTimeout(() => {
       memberSpawnRefreshTimers.delete(teamName);
+      noteTeamRefreshFanout({
+        teamName,
+        surface: 'team-change-listener',
+        phase: 'executed',
+        reason: 'event:member-spawn',
+        operation: 'fetchMemberSpawnStatuses',
+      });
       void useStore.getState().fetchMemberSpawnStatuses(teamName);
     }, TEAM_MEMBER_SPAWN_REFRESH_THROTTLE_MS);
     memberSpawnRefreshTimers.set(teamName, timer);
@@ -291,24 +359,57 @@ export function initializeNotificationListeners(): () => void {
     if (!teamName || !isTeamVisibleInAnyPane(teamName)) {
       return;
     }
+    const existingTimer = teamAgentRuntimeRefreshTimers.get(teamName);
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: existingTimer ? 'coalesced' : 'scheduled',
+      reason: 'event:member-spawn',
+      operation: 'fetchTeamAgentRuntime',
+    });
     if (teamAgentRuntimeRefreshTimers.has(teamName)) {
       return;
     }
     const timer = setTimeout(() => {
       teamAgentRuntimeRefreshTimers.delete(teamName);
+      noteTeamRefreshFanout({
+        teamName,
+        surface: 'team-change-listener',
+        phase: 'executed',
+        reason: 'event:member-spawn',
+        operation: 'fetchTeamAgentRuntime',
+      });
       void useStore.getState().fetchTeamAgentRuntime(teamName);
     }, TEAM_MEMBER_SPAWN_REFRESH_THROTTLE_MS);
     teamAgentRuntimeRefreshTimers.set(teamName, timer);
   };
-  const scheduleTrackedTeamMessageRefresh = (teamName: string | null | undefined): void => {
+  const scheduleTrackedTeamMessageRefresh = (
+    teamName: string | null | undefined,
+    reason: 'event:inbox' | 'event:lead-message'
+  ): void => {
     if (!teamName || !shouldRefreshTeamMessages(teamName)) {
       return;
     }
+    const existingTimer = teamMessageRefreshTimers.get(teamName);
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: existingTimer ? 'coalesced' : 'scheduled',
+      reason,
+      operation: 'fetchTeamMessageHead',
+    });
     if (teamMessageRefreshTimers.has(teamName)) {
       return;
     }
     const timer = setTimeout(() => {
       teamMessageRefreshTimers.delete(teamName);
+      noteTeamRefreshFanout({
+        teamName,
+        surface: 'team-change-listener',
+        phase: 'executed',
+        reason,
+        operation: 'fetchTeamMessageHead',
+      });
       void refreshTrackedTeamMessages(teamName);
     }, TEAM_REFRESH_THROTTLE_MS);
     teamMessageRefreshTimers.set(teamName, timer);
@@ -700,7 +801,16 @@ export function initializeNotificationListeners(): () => void {
     teamMessageFallbackPollInFlight = true;
     try {
       await Promise.allSettled(
-        Array.from(teamNames, (teamName) => refreshTrackedTeamMessages(teamName))
+        Array.from(teamNames, (teamName) => {
+          noteTeamRefreshFanout({
+            teamName,
+            surface: 'pending-reply-fallback',
+            phase: 'executed',
+            reason: 'pending-reply:fallback-poll',
+            operation: 'fetchTeamMessageHead',
+          });
+          return refreshTrackedTeamMessages(teamName);
+        })
       );
     } finally {
       teamMessageFallbackPollInFlight = false;
@@ -1213,7 +1323,7 @@ export function initializeNotificationListeners(): () => void {
       }
 
       if (event.type === 'inbox') {
-        scheduleTrackedTeamMessageRefresh(event.teamName);
+        scheduleTrackedTeamMessageRefresh(event.teamName, 'event:inbox');
         return;
       }
 
@@ -1224,7 +1334,7 @@ export function initializeNotificationListeners(): () => void {
           return;
         }
         seedCurrentRunIdIfMissing();
-        scheduleTrackedTeamMessageRefresh(event.teamName);
+        scheduleTrackedTeamMessageRefresh(event.teamName, 'event:lead-message');
         return;
       }
 
@@ -1232,22 +1342,47 @@ export function initializeNotificationListeners(): () => void {
         if (!event?.teamName || !isTeamVisibleInAnyPane(event.teamName)) {
           return;
         }
-        if (teamPresenceRefreshTimers.has(event.teamName)) {
+        const existingTimer = teamPresenceRefreshTimers.get(event.teamName);
+        noteTeamRefreshFanout({
+          teamName: event.teamName,
+          surface: 'team-change-listener',
+          phase: existingTimer ? 'coalesced' : 'scheduled',
+          reason: 'event:log-source-change',
+          operation: 'refreshTaskChangePresence',
+        });
+        if (existingTimer) {
           return;
         }
         const timer = setTimeout(() => {
           teamPresenceRefreshTimers.delete(event.teamName);
           const current = useStore.getState();
+          noteTeamRefreshFanout({
+            teamName: event.teamName,
+            surface: 'team-change-listener',
+            phase: 'executed',
+            reason: 'event:log-source-change',
+            operation: 'refreshTaskChangePresence',
+          });
           void current.refreshTeamChangePresence(event.teamName);
         }, TEAM_PRESENCE_REFRESH_THROTTLE_MS);
         teamPresenceRefreshTimers.set(event.teamName, timer);
         return;
       }
 
+      const eventReason = buildTeamChangeFanoutReason(event.type);
+
       // Throttled refresh of summary list (keeps TeamListView current without flooding).
+      noteGlobalRefreshScheduled(
+        pendingTeamListRefreshDiagnostics,
+        event.teamName,
+        eventReason,
+        'fetchTeams',
+        teamListRefreshTimer != null
+      );
       if (!teamListRefreshTimer) {
         teamListRefreshTimer = setTimeout(() => {
           teamListRefreshTimer = null;
+          drainPendingGlobalRefreshDiagnostics(pendingTeamListRefreshDiagnostics, 'fetchTeams');
           void useStore.getState().fetchTeams();
         }, TEAM_LIST_REFRESH_THROTTLE_MS);
       }
@@ -1255,11 +1390,24 @@ export function initializeNotificationListeners(): () => void {
       const shouldRefreshGlobalTasks = event.type === 'task' || event.type === 'config';
 
       // Throttled refresh of global tasks list for sidebar.
-      if (shouldRefreshGlobalTasks && !globalTasksRefreshTimer) {
-        globalTasksRefreshTimer = setTimeout(() => {
-          globalTasksRefreshTimer = null;
-          void useStore.getState().fetchAllTasks();
-        }, GLOBAL_TASKS_REFRESH_THROTTLE_MS);
+      if (shouldRefreshGlobalTasks) {
+        noteGlobalRefreshScheduled(
+          pendingGlobalTasksRefreshDiagnostics,
+          event.teamName,
+          eventReason,
+          'fetchAllTasks',
+          globalTasksRefreshTimer != null
+        );
+        if (!globalTasksRefreshTimer) {
+          globalTasksRefreshTimer = setTimeout(() => {
+            globalTasksRefreshTimer = null;
+            drainPendingGlobalRefreshDiagnostics(
+              pendingGlobalTasksRefreshDiagnostics,
+              'fetchAllTasks'
+            );
+            void useStore.getState().fetchAllTasks();
+          }, GLOBAL_TASKS_REFRESH_THROTTLE_MS);
+        }
       }
 
       if (!event?.teamName || !isTeamVisibleInAnyPane(event.teamName)) {
@@ -1268,13 +1416,38 @@ export function initializeNotificationListeners(): () => void {
 
       // Per-team throttle (not debounce): keep at most one pending detail refresh per team.
       // Debounce would delay indefinitely while inbox messages keep arriving.
-      if (teamRefreshTimers.has(event.teamName)) {
+      const selectedForRefresh = useStore.getState().selectedTeamName === event.teamName;
+      const activeTabForRefresh = getFocusedVisibleTeamName() === event.teamName;
+      const existingDetailTimer = teamRefreshTimers.get(event.teamName);
+      noteTeamRefreshFanout({
+        teamName: event.teamName,
+        surface: 'team-change-listener',
+        phase: existingDetailTimer ? 'coalesced' : 'scheduled',
+        reason: eventReason,
+        operation: 'refreshTeamData',
+        eventType: event.type,
+        selected: selectedForRefresh,
+        visible: true,
+        activeTab: activeTabForRefresh,
+      });
+      if (existingDetailTimer) {
         return;
       }
 
       const timer = setTimeout(() => {
         teamRefreshTimers.delete(event.teamName);
         const current = useStore.getState();
+        noteTeamRefreshFanout({
+          teamName: event.teamName,
+          surface: 'team-change-listener',
+          phase: 'executed',
+          reason: eventReason,
+          operation: 'refreshTeamData',
+          eventType: event.type,
+          selected: current.selectedTeamName === event.teamName,
+          visible: isTeamVisibleInAnyPane(event.teamName),
+          activeTab: getFocusedVisibleTeamName() === event.teamName,
+        });
         void current.refreshTeamData(event.teamName, { withDedup: true });
       }, TEAM_REFRESH_THROTTLE_MS);
       teamRefreshTimers.set(event.teamName, timer);
@@ -1301,10 +1474,12 @@ export function initializeNotificationListeners(): () => void {
           clearTimeout(teamListRefreshTimer);
           teamListRefreshTimer = null;
         }
+        pendingTeamListRefreshDiagnostics.clear();
         if (globalTasksRefreshTimer) {
           clearTimeout(globalTasksRefreshTimer);
           globalTasksRefreshTimer = null;
         }
+        pendingGlobalTasksRefreshDiagnostics.clear();
       });
     }
   }

@@ -20,6 +20,7 @@ import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import { buildTeamGraphDefaultLayoutSeed } from '@shared/utils/teamGraphDefaultLayout';
 import { getStableTeamOwnerId } from '@shared/utils/teamStableOwnerId';
 
+import { noteTeamRefreshFanout } from '../teamRefreshFanoutDiagnostics';
 import { getWorktreeNavigationState } from '../utils/stateResetHelpers';
 
 import type { AppState } from '../types';
@@ -4887,6 +4888,17 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     if (isCanonicalRun && becameConfigReady) {
       const state = get();
       if (isVisibleInActiveTeamSurface(state, progress.teamName)) {
+        const willSelectTeam =
+          state.selectedTeamName === progress.teamName && state.selectedTeamData == null;
+        noteTeamRefreshFanout({
+          teamName: progress.teamName,
+          surface: 'provisioning-progress',
+          phase: 'scheduled',
+          reason: 'provisioning:config-ready',
+          operation: willSelectTeam ? 'selectTeam' : 'refreshTeamData',
+          selected: state.selectedTeamName === progress.teamName,
+          visible: true,
+        });
         if (state.selectedTeamName === progress.teamName && state.selectedTeamData == null) {
           void state.selectTeam(progress.teamName, { allowReloadWhileProvisioning: true });
         } else {
@@ -4939,8 +4951,27 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     }
 
     if (isCanonicalRun && (progress.state === 'ready' || progress.state === 'disconnected')) {
+      const terminalReason =
+        progress.state === 'ready'
+          ? 'provisioning:terminal-ready'
+          : 'provisioning:terminal-disconnected';
+      noteTeamRefreshFanout({
+        teamName: progress.teamName,
+        surface: 'provisioning-progress',
+        phase: 'scheduled',
+        reason: terminalReason,
+        operation: 'fetchTeams',
+      });
       void get().fetchTeams();
       if (hydratedVisibleTeam) {
+        noteTeamRefreshFanout({
+          teamName: progress.teamName,
+          surface: 'provisioning-progress',
+          phase: 'skipped',
+          reason: 'provisioning:already-hydrated-visible-team',
+          operation: 'refreshTeamData',
+          visible: true,
+        });
         return;
       }
 
@@ -4951,6 +4982,15 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
 
       // If the user already opened the team tab, reload team data now that
       // config.json is guaranteed to exist.
+      noteTeamRefreshFanout({
+        teamName: progress.teamName,
+        surface: 'provisioning-progress',
+        phase: 'scheduled',
+        reason: terminalReason,
+        operation: state.selectedTeamName === progress.teamName ? 'selectTeam' : 'refreshTeamData',
+        selected: state.selectedTeamName === progress.teamName,
+        visible: true,
+      });
       if (state.selectedTeamName === progress.teamName) {
         void state.selectTeam(progress.teamName);
       } else {
