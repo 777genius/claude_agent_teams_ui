@@ -1183,8 +1183,8 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = React.memo(function
         </div>
       )}
 
-      {/* Show raw toggle for no-label path */}
-      {!label && (
+      {/* Show raw toggle for no-label path (skip in bare mode) */}
+      {!label && !bare && (
         <div
           className="flex items-center justify-between px-3 py-1 text-xs"
           style={{ color: COLOR_TEXT_MUTED }}
