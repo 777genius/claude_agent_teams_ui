@@ -46,7 +46,10 @@ vi.mock('@main/utils/pathDecoder', async (importOriginal) => {
 });
 
 import { setAppDataBasePath, setClaudeBasePathOverride } from '@main/utils/pathDecoder';
-import { TeamMcpConfigBuilder } from '@main/services/team/TeamMcpConfigBuilder';
+import {
+  TeamMcpConfigBuilder,
+  clearResolvedNodePathForTests,
+} from '@main/services/team/TeamMcpConfigBuilder';
 
 describe('TeamMcpConfigBuilder', () => {
   const createdPaths: string[] = [];
@@ -93,7 +96,7 @@ describe('TeamMcpConfigBuilder', () => {
     entry: string
   ): void {
     expect(server?.args).toEqual([entry]);
-    expect(server?.command).toMatch(/(^node$|[\\/]node(?:\.exe)?$)/);
+    expect(server?.command).toMatch(/(^node(?:-\d+)?$|[\\/]node(?:-\d+)?(?:\.exe)?$)/);
   }
 
   function expectNodeTsxSourceEntry(
@@ -102,7 +105,7 @@ describe('TeamMcpConfigBuilder', () => {
     sourceEntry: string
   ): void {
     expect(server?.args).toEqual([tsxCli, sourceEntry]);
-    expect(server?.command).toMatch(/(^node$|[\\/]node(?:\.exe)?$)/);
+    expect(server?.command).toMatch(/(^node(?:-\d+)?$|[\\/]node(?:-\d+)?(?:\.exe)?$)/);
   }
 
   function getBuiltWorkspaceEntry(): string {
@@ -165,6 +168,7 @@ describe('TeamMcpConfigBuilder', () => {
   }
 
   beforeEach(() => {
+    clearResolvedNodePathForTests();
     originalResourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
     tempAppData = fs.mkdtempSync(path.join(os.tmpdir(), 'team-mcp-appdata-'));
     createdDirs.push(tempAppData);

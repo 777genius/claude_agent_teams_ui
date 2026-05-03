@@ -4,7 +4,7 @@
  * Renders the Edit tool with DiffViewer.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 
 import { DiffViewer } from '@renderer/components/chat/viewers';
 
@@ -20,7 +20,10 @@ interface EditToolViewerProps {
   status: ItemStatus;
 }
 
-export const EditToolViewer: React.FC<EditToolViewerProps> = ({ linkedTool, status }) => {
+export const EditToolViewer = memo(function EditToolViewer({
+  linkedTool,
+  status,
+}: EditToolViewerProps) {
   const toolUseResult = linkedTool.result?.toolUseResult as Record<string, unknown> | undefined;
 
   const filePath = (toolUseResult?.filePath as string) || (linkedTool.input.file_path as string);
@@ -71,4 +74,4 @@ export const EditToolViewer: React.FC<EditToolViewerProps> = ({ linkedTool, stat
       )}
     </div>
   );
-};
+});

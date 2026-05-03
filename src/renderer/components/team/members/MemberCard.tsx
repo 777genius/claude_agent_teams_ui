@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 
 import { Badge } from '@renderer/components/ui/badge';
 import { SyncedLoader2 } from '@renderer/components/ui/SyncedLoader2';
@@ -91,7 +91,7 @@ function splitRuntimeSummaryMemory(runtimeSummary: string | undefined): {
   };
 }
 
-export const MemberCard = ({
+export const MemberCard = memo(function MemberCard({
   member,
   memberColor,
   runtimeSummary,
@@ -119,7 +119,7 @@ export const MemberCard = ({
   onAssignTask,
   onRestartMember,
   onSkipMemberForLaunch,
-}: MemberCardProps): React.JSX.Element => {
+}: MemberCardProps): React.JSX.Element {
   // NOTE: lead context display disabled — usage formula is inaccurate
   // const teamName = useStore((s) => s.selectedTeamName);
   // const leadContext = useStore((s) =>
@@ -711,4 +711,4 @@ export const MemberCard = ({
       </div>
     </div>
   );
-};
+});

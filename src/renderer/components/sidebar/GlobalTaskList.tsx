@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { confirm } from '@renderer/components/common/ConfirmDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
@@ -173,13 +173,13 @@ function applyProjectFilter(tasks: GlobalTask[], projectPath: string | null): Gl
   return tasks.filter((t) => t.projectPath && normalizePath(t.projectPath) === normalized);
 }
 
-export const GlobalTaskList = ({
+export const GlobalTaskList = memo(function GlobalTaskList({
   hideHeader = false,
   filters: externalFilters,
   onFiltersChange: externalOnFiltersChange,
   filtersPopoverOpen: externalFiltersPopoverOpen,
   onFiltersPopoverOpenChange: externalOnFiltersPopoverOpenChange,
-}: GlobalTaskListProps = {}): React.JSX.Element => {
+}: GlobalTaskListProps = {}): React.JSX.Element {
   const {
     globalTasks,
     globalTasksLoading,
@@ -271,37 +271,43 @@ export const GlobalTaskList = ({
     saveSortMode(mode);
   };
 
-  const handleRenameComplete = (teamName: string, taskId: string, newSubject: string): void => {
-    taskLocalState.renameTask(teamName, taskId, newSubject);
-    setRenamingTaskKey(null);
-  };
+  const handleRenameComplete = useCallback(
+    (teamName: string, taskId: string, newSubject: string): void => {
+      taskLocalState.renameTask(teamName, taskId, newSubject);
+      setRenamingTaskKey(null);
+    },
+    [taskLocalState]
+  );
 
-  const handleRenameCancel = (): void => {
+  const handleRenameCancel = useCallback((): void => {
     setRenamingTaskKey(null);
-  };
+  }, []);
 
-  const handleDeleteTask = async (teamName: string, taskId: string): Promise<void> => {
-    const confirmed = await confirm({
-      title: 'Delete task',
-      message: `Move task #${deriveTaskDisplayId(taskId)} to trash?`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
-      variant: 'danger',
-    });
-    if (confirmed) {
-      try {
-        await softDeleteTask(teamName, taskId);
-        await fetchAllTasks();
-      } catch (err) {
-        void confirm({
-          title: 'Failed to delete task',
-          message: err instanceof Error ? err.message : 'An unexpected error occurred',
-          confirmLabel: 'OK',
-          variant: 'danger',
-        });
+  const handleDeleteTask = useCallback(
+    async (teamName: string, taskId: string): Promise<void> => {
+      const confirmed = await confirm({
+        title: 'Delete task',
+        message: `Move task #${deriveTaskDisplayId(taskId)} to trash?`,
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+        variant: 'danger',
+      });
+      if (confirmed) {
+        try {
+          await softDeleteTask(teamName, taskId);
+          await fetchAllTasks();
+        } catch (err) {
+          void confirm({
+            title: 'Failed to delete task',
+            message: err instanceof Error ? err.message : 'An unexpected error occurred',
+            confirmLabel: 'OK',
+            variant: 'danger',
+          });
+        }
       }
-    }
-  };
+    },
+    [fetchAllTasks, softDeleteTask]
+  );
 
   // Fetch tasks on mount — loading guard in the store action prevents
   // duplicate IPC calls when the centralized init chain is already fetching.
@@ -850,4 +856,4 @@ export const GlobalTaskList = ({
       </div>
     </div>
   );
-};
+});

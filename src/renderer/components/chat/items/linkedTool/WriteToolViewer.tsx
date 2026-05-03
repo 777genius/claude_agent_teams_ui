@@ -4,7 +4,7 @@
  * Renders the Write tool result.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 
 import { CodeBlockViewer, MarkdownViewer } from '@renderer/components/chat/viewers';
 
@@ -14,7 +14,7 @@ interface WriteToolViewerProps {
   linkedTool: LinkedToolItem;
 }
 
-export const WriteToolViewer: React.FC<WriteToolViewerProps> = ({ linkedTool }) => {
+export const WriteToolViewer = memo(function WriteToolViewer({ linkedTool }: WriteToolViewerProps) {
   const toolUseResult = linkedTool.result?.toolUseResult as Record<string, unknown> | undefined;
 
   const filePath =
@@ -74,4 +74,4 @@ export const WriteToolViewer: React.FC<WriteToolViewerProps> = ({ linkedTool }) 
       )}
     </div>
   );
-};
+});

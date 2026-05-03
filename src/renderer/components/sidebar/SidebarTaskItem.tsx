@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
@@ -69,7 +69,7 @@ interface SidebarTaskItemProps {
   getDisplaySubject?: (task: GlobalTask) => string | undefined;
 }
 
-export const SidebarTaskItem = ({
+export const SidebarTaskItem = memo(function SidebarTaskItem({
   task,
   hideTeamName,
   showTeamName,
@@ -77,7 +77,7 @@ export const SidebarTaskItem = ({
   onRenameComplete,
   onRenameCancel,
   getDisplaySubject,
-}: SidebarTaskItemProps): React.JSX.Element => {
+}: SidebarTaskItemProps): React.JSX.Element {
   const openGlobalTaskDetail = useStore((s) => s.openGlobalTaskDetail);
   const teamMembers = useStore(useShallow((s) => s.teamByName[task.teamName]?.members));
   const unreadCount = useUnreadCommentCount(task.teamName, task.id, task.comments);
@@ -283,4 +283,4 @@ export const SidebarTaskItem = ({
       )}
     </button>
   );
-};
+});

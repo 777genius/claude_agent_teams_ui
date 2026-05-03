@@ -154,6 +154,10 @@ async function hasValidServerCopy(dir: string): Promise<boolean> {
 
 let _resolvedNodePath: string | undefined;
 
+export function clearResolvedNodePathForTests(): void {
+  _resolvedNodePath = undefined;
+}
+
 /**
  * Find the real `node` binary path. In Electron, process.execPath is the
  * Electron binary — NOT node — so we must resolve node separately.
