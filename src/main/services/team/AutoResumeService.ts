@@ -20,6 +20,64 @@ interface PendingAutoResumeEntry {
   sourceRunId: string | null;
 }
 
+export type RateLimitAutoResumePlan =
+  | {
+      kind: 'scheduled';
+      resetTime: Date;
+      delayMs: number;
+      fireAtMs: number;
+      rawDelayMs: number;
+    }
+  | {
+      kind: 'manual';
+      reason: 'disabled' | 'not_resumable' | 'reset_unparseable' | 'stale' | 'too_far';
+    };
+
+export function planRateLimitAutoResume(input: {
+  enabled: boolean;
+  canAutoResume: boolean;
+  messageText: string;
+  observedAt: Date;
+  messageTimestamp?: Date;
+}): RateLimitAutoResumePlan {
+  if (!input.enabled) return { kind: 'manual', reason: 'disabled' };
+  if (!input.canAutoResume) return { kind: 'manual', reason: 'not_resumable' };
+
+  const observedAtMs = input.observedAt.getTime();
+  const messageTimestamp = input.messageTimestamp ?? input.observedAt;
+  const messageAtMs = Number.isFinite(messageTimestamp.getTime())
+    ? messageTimestamp.getTime()
+    : observedAtMs;
+  const parseReferenceTime = Number.isFinite(messageTimestamp.getTime())
+    ? messageTimestamp
+    : input.observedAt;
+
+  const resetTime = parseRateLimitResetTime(input.messageText, parseReferenceTime);
+  if (!resetTime) return { kind: 'manual', reason: 'reset_unparseable' };
+
+  const resetAtMs = resetTime.getTime();
+  const rawDelayMs = resetAtMs - observedAtMs;
+  const targetFireAtMs = resetAtMs + AUTO_RESUME_BUFFER_MS;
+  const messageAgeMs = Math.max(0, observedAtMs - messageAtMs);
+
+  if (targetFireAtMs <= observedAtMs && messageAgeMs > AUTO_RESUME_HISTORY_FRESH_MS) {
+    return { kind: 'manual', reason: 'stale' };
+  }
+
+  const delayMs = Math.max(0, targetFireAtMs - observedAtMs);
+  if (delayMs > AUTO_RESUME_MAX_DELAY_MS) {
+    return { kind: 'manual', reason: 'too_far' };
+  }
+
+  return {
+    kind: 'scheduled',
+    resetTime,
+    delayMs,
+    fireAtMs: observedAtMs + delayMs,
+    rawDelayMs,
+  };
+}
+
 type AutoResumeProvisioning = Pick<
   TeamProvisioningService,
   'getCurrentRunId' | 'isTeamAlive' | 'sendMessageToTeam'
@@ -40,31 +98,13 @@ export class AutoResumeService {
     observedAt: Date = new Date(),
     messageTimestamp: Date = observedAt
   ): void {
-    const cfg = this.configManager.getConfig();
-    if (!cfg.notifications.autoResumeOnRateLimit) return;
-
     const observedAtMs = observedAt.getTime();
     const messageAtMs = Number.isFinite(messageTimestamp.getTime())
       ? messageTimestamp.getTime()
       : observedAtMs;
-    const parseReferenceTime = Number.isFinite(messageTimestamp.getTime())
-      ? messageTimestamp
-      : observedAt;
-
-    const resetTime = parseRateLimitResetTime(messageText, parseReferenceTime);
-    if (!resetTime) {
-      logger.info(
-        `[auto-resume] Rate limit detected for "${teamName}" but reset time was not parseable - skipping auto-resume`
-      );
-      return;
-    }
-
-    const resetAtMs = resetTime.getTime();
-    const rawDelayMs = resetAtMs - observedAtMs;
-    const targetFireAtMs = resetAtMs + AUTO_RESUME_BUFFER_MS;
-    const messageAgeMs = Math.max(0, observedAtMs - messageAtMs);
     const existing = this.pendingTimers.get(teamName);
     const sourceRunId = this.provisioningService.getCurrentRunId(teamName);
+    const cfg = this.configManager.getConfig();
 
     if (existing && messageAtMs < existing.sourceMessageAtMs) {
       logger.info(
@@ -73,35 +113,37 @@ export class AutoResumeService {
       return;
     }
 
-    if (targetFireAtMs <= observedAtMs && messageAgeMs > AUTO_RESUME_HISTORY_FRESH_MS) {
-      logger.info(
-        `[auto-resume] Parsed reset time for "${teamName}" passed its buffered fire deadline ${Math.round((observedAtMs - targetFireAtMs) / 1000)}s ago - skipping stale history replay`
-      );
-      return;
-    }
+    const plan = planRateLimitAutoResume({
+      enabled: cfg.notifications.autoResumeOnRateLimit,
+      canAutoResume: true,
+      messageText,
+      observedAt,
+      messageTimestamp,
+    });
 
-    if (rawDelayMs < 0) {
-      logger.warn(
-        `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(-rawDelayMs / 1000)}s in the past - using remaining buffered delay`
-      );
-    }
-
-    const delayMs = Math.max(0, targetFireAtMs - observedAtMs);
-    const fireAtMs = observedAtMs + delayMs;
-
-    if (delayMs > AUTO_RESUME_MAX_DELAY_MS) {
-      if (existing) {
+    if (plan.kind === 'manual') {
+      if (plan.reason === 'too_far' && existing) {
         clearTimeout(existing.timer);
         this.pendingTimers.delete(teamName);
       }
-      logger.warn(
-        `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(delayMs / 60000)}m away - exceeds ceiling, skipping`
+      if (plan.reason === 'too_far') {
+        logger.warn(`[auto-resume] Parsed reset time for "${teamName}" exceeds ceiling - skipping`);
+        return;
+      }
+      logger.info(
+        `[auto-resume] Rate limit detected for "${teamName}" but auto-resume is manual (${plan.reason})`
       );
       return;
     }
 
+    if (plan.rawDelayMs < 0) {
+      logger.warn(
+        `[auto-resume] Parsed reset time for "${teamName}" is ${Math.round(-plan.rawDelayMs / 1000)}s in the past - using remaining buffered delay`
+      );
+    }
+
     if (
-      existing?.fireAtMs === fireAtMs &&
+      existing?.fireAtMs === plan.fireAtMs &&
       existing.sourceMessageAtMs === messageAtMs &&
       existing.sourceRunId === sourceRunId
     ) {
@@ -112,22 +154,22 @@ export class AutoResumeService {
       clearTimeout(existing.timer);
       this.pendingTimers.delete(teamName);
       logger.info(
-        `[auto-resume] Rescheduling resume for "${teamName}" to ${resetTime.toISOString()}`
+        `[auto-resume] Rescheduling resume for "${teamName}" to ${plan.resetTime.toISOString()}`
       );
     } else {
       logger.info(
-        `[auto-resume] Scheduling resume for "${teamName}" at ${resetTime.toISOString()} (in ${Math.round(delayMs / 1000)}s)`
+        `[auto-resume] Scheduling resume for "${teamName}" at ${plan.resetTime.toISOString()} (in ${Math.round(plan.delayMs / 1000)}s)`
       );
     }
 
     const timer = setTimeout(() => {
       this.pendingTimers.delete(teamName);
       void this.fireResumeNudge(teamName, sourceRunId);
-    }, delayMs);
+    }, plan.delayMs);
 
     this.pendingTimers.set(teamName, {
       timer,
-      fireAtMs,
+      fireAtMs: plan.fireAtMs,
       sourceMessageAtMs: messageAtMs,
       sourceRunId,
     });

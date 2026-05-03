@@ -90,7 +90,9 @@ function navigateToTeamNotification(state: AppState, error: DetectedError): void
 
   state.openTeamTab(teamName, error.context.cwd);
 
-  if (target?.kind === 'task') {
+  if (target?.kind === 'team' && target.section) {
+    state.focusTeamSection(target.teamName, target.section);
+  } else if (target?.kind === 'task') {
     state.openGlobalTaskDetail(target.teamName, target.taskId, target.commentId);
   } else if (target?.kind === 'member') {
     state.openMemberProfile(target.memberName, target.teamName, target.focus);

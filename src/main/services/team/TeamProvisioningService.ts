@@ -4693,11 +4693,17 @@ export class TeamProvisioningService {
   private static readonly AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS = 2_000;
   private static readonly MEMBER_SPAWN_STATUS_SNAPSHOT_CACHE_TTL_MS = 500;
   private static readonly LAUNCH_STATE_NOOP_REFRESH_MS = 15_000;
+  private static readonly RETAINED_PROVISIONING_PROGRESS_TTL_MS = 5 * 60_000;
 
   private readonly runs = new Map<string, ProvisioningRun>();
   private readonly provisioningRunByTeam = new Map<string, string>();
   private readonly aliveRunByTeam = new Map<string, string>();
   private readonly runtimeAdapterProgressByRunId = new Map<string, TeamProvisioningProgress>();
+  private retainedProvisioningProgressByRunId: Map<string, TeamProvisioningProgress> | undefined =
+    new Map<string, TeamProvisioningProgress>();
+  private retainedProvisioningProgressTimersByRunId:
+    | Map<string, ReturnType<typeof setTimeout>>
+    | undefined = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly runtimeAdapterTraceLinesByRunId = new Map<string, string[]>();
   private readonly runtimeAdapterTraceKeyByRunId = new Map<string, string>();
   private readonly runtimeAdapterRunByTeam = new Map<
@@ -15908,7 +15914,46 @@ export class TeamProvisioningService {
     if (runtimeProgress) {
       return runtimeProgress;
     }
+    const retainedProgress = this.getRetainedProvisioningProgressMap().get(runId);
+    if (retainedProgress) {
+      return retainedProgress;
+    }
     throw new Error('Unknown runId');
+  }
+
+  private getRetainedProvisioningProgressMap(): Map<string, TeamProvisioningProgress> {
+    this.retainedProvisioningProgressByRunId ??= new Map<string, TeamProvisioningProgress>();
+    return this.retainedProvisioningProgressByRunId;
+  }
+
+  private getRetainedProvisioningProgressTimersMap(): Map<string, ReturnType<typeof setTimeout>> {
+    this.retainedProvisioningProgressTimersByRunId ??= new Map<
+      string,
+      ReturnType<typeof setTimeout>
+    >();
+    return this.retainedProvisioningProgressTimersByRunId;
+  }
+
+  private retainProvisioningProgress(runId: string, progress: TeamProvisioningProgress): void {
+    const retainedProgress = this.getRetainedProvisioningProgressMap();
+    const retainedTimers = this.getRetainedProvisioningProgressTimersMap();
+    const previousTimer = retainedTimers.get(runId);
+    if (previousTimer) {
+      clearTimeout(previousTimer);
+    }
+
+    retainedProgress.set(runId, {
+      ...progress,
+      warnings: progress.warnings ? [...progress.warnings] : undefined,
+      launchDiagnostics: progress.launchDiagnostics ? [...progress.launchDiagnostics] : undefined,
+    });
+
+    const timer = setTimeout(() => {
+      retainedProgress.delete(runId);
+      retainedTimers.delete(runId);
+    }, TeamProvisioningService.RETAINED_PROVISIONING_PROGRESS_TTL_MS);
+    timer.unref?.();
+    retainedTimers.set(runId, timer);
   }
 
   async cancelProvisioning(runId: string): Promise<void> {
@@ -22578,15 +22623,7 @@ export class TeamProvisioningService {
           void this.injectGeminiPostLaunchHydration(run);
         }
 
-        if (!run.provisioningComplete && !run.cancelRequested) {
-          void this.handleProvisioningTurnComplete(run).catch((err: unknown) => {
-            logger.error(
-              `[${run.teamName}] handleProvisioningTurnComplete threw unexpectedly: ${
-                err instanceof Error ? err.message : String(err)
-              }`
-            );
-          });
-        }
+        this.completeProvisioningFromSuccessfulResult(run);
       } else if (subtype === 'error') {
         const errorMsg =
           typeof msg.error === 'string' ? msg.error : JSON.stringify(msg.error ?? 'unknown');
@@ -22781,6 +22818,20 @@ export class TeamProvisioningService {
         this.emitApiErrorWarning(run, raw);
       }
     }
+  }
+
+  private completeProvisioningFromSuccessfulResult(run: ProvisioningRun): void {
+    if (run.provisioningComplete || run.cancelRequested) {
+      return;
+    }
+
+    void this.handleProvisioningTurnComplete(run).catch((err: unknown) => {
+      logger.error(
+        `[${run.teamName}] handleProvisioningTurnComplete threw unexpectedly: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    });
   }
 
   /**
@@ -24041,6 +24092,13 @@ export class TeamProvisioningService {
       if (!hasSpawnFailures && !hasPendingBootstrap) {
         // Fire "Team Launched" notification only for clean launches.
         void this.fireTeamLaunchedNotification(run);
+      } else {
+        void this.fireTeamLaunchIncompleteNotification(
+          run,
+          failedSpawnMembers,
+          launchSummary,
+          persistedLaunchSnapshot
+        );
       }
 
       if (hasSpawnFailures) {
@@ -24219,6 +24277,13 @@ export class TeamProvisioningService {
     if (!hasSpawnFailures && !hasPendingBootstrap) {
       // Fire "Team Launched" notification only for clean launches.
       void this.fireTeamLaunchedNotification(run);
+    } else {
+      void this.fireTeamLaunchIncompleteNotification(
+        run,
+        failedSpawnMembers,
+        launchSummary,
+        persistedLaunchSnapshot
+      );
     }
 
     if (hasSpawnFailures) {
@@ -24281,6 +24346,74 @@ export class TeamProvisioningService {
     } catch (error) {
       logger.warn(
         `[${run.teamName}] Failed to fire team_launched notification: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  private async fireTeamLaunchIncompleteNotification(
+    run: ProvisioningRun,
+    failedMembers: readonly { name: string }[],
+    launchSummary: {
+      confirmedCount: number;
+      pendingCount: number;
+      failedCount: number;
+      runtimeAlivePendingCount: number;
+      runtimeProcessPendingCount?: number;
+    },
+    snapshot?: PersistedTeamLaunchSnapshot | null
+  ): Promise<void> {
+    try {
+      const config = ConfigManager.getInstance().getConfig();
+      const suppressToast = !config.notifications.notifyOnTeamLaunched;
+      const displayName = run.request.displayName || run.teamName;
+      const expectedMembers =
+        snapshot?.expectedMembers ??
+        run.expectedMembers ??
+        run.allEffectiveMembers.map((member) => member.name).filter(Boolean);
+      const expectedCount = expectedMembers.length;
+      if (expectedCount === 0) return;
+
+      const failedNames = failedMembers.map((member) => member.name).filter(Boolean);
+      const pendingNames =
+        snapshot?.expectedMembers.filter((memberName) => {
+          if (failedNames.includes(memberName)) return false;
+          const member = snapshot.members[memberName];
+          if (!member) return false;
+          return (
+            member.launchState !== 'confirmed_alive' && member.launchState !== 'skipped_for_launch'
+          );
+        }) ?? [];
+      const missingNames = failedNames.length > 0 ? failedNames : pendingNames;
+      const missingCount =
+        missingNames.length > 0
+          ? missingNames.length
+          : Math.max(0, launchSummary.pendingCount + launchSummary.failedCount);
+      const joinedCount = Math.max(
+        0,
+        Math.min(expectedCount, launchSummary.confirmedCount || expectedCount - missingCount)
+      );
+      const missingLabel =
+        missingNames.length > 0
+          ? `${missingNames.map((name) => `@${name}`).join(', ')} did not join`
+          : `${missingCount} teammate${missingCount === 1 ? '' : 's'} did not join`;
+
+      await NotificationManager.getInstance().addTeamNotification({
+        teamEventType: 'team_launch_incomplete',
+        teamName: run.teamName,
+        teamDisplayName: displayName,
+        from: 'system',
+        summary: 'Team launch incomplete',
+        body: `${joinedCount}/${expectedCount} joined · ${missingLabel}`,
+        dedupeKey: `team_launch_incomplete:${run.teamName}:${run.runId}`,
+        target: { kind: 'team', teamName: run.teamName, section: 'members' },
+        projectPath: run.request.cwd,
+        suppressToast,
+      });
+    } catch (error) {
+      logger.warn(
+        `[${run.teamName}] Failed to fire team_launch_incomplete notification: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
@@ -24675,6 +24808,7 @@ export class TeamProvisioningService {
       }
     }
     // Remove from runs Map to free memory (stdoutBuffer, stderrBuffer, claudeLogLines)
+    this.retainProvisioningProgress(run.runId, run.progress);
     this.runs.delete(run.runId);
   }
 

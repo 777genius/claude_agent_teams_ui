@@ -651,6 +651,66 @@ describe('TeamProvisioningService', () => {
     });
   });
 
+  describe('provisioning status', () => {
+    it('retains final progress after cleanupRun removes the live run', async () => {
+      const svc = new TeamProvisioningService();
+      const run = createClaudeLogsRun({
+        runId: 'run-retained-progress',
+        teamName: 'retained-progress-team',
+        provisioningComplete: false,
+        progress: {
+          runId: 'run-retained-progress',
+          teamName: 'retained-progress-team',
+          state: 'failed',
+          message: 'CLI exited quickly',
+          startedAt: '2026-04-19T10:00:00.000Z',
+          updatedAt: '2026-04-19T10:00:01.000Z',
+          error: 'bootstrap failed',
+          warnings: ['retry is safe'],
+        },
+      });
+
+      (svc as any).runs.set(run.runId, run);
+      (svc as any).provisioningRunByTeam.set(run.teamName, run.runId);
+
+      (svc as any).cleanupRun(run);
+
+      expect((svc as any).runs.has(run.runId)).toBe(false);
+      await expect(svc.getProvisioningStatus(run.runId)).resolves.toMatchObject({
+        runId: run.runId,
+        teamName: run.teamName,
+        state: 'failed',
+        message: 'CLI exited quickly',
+        error: 'bootstrap failed',
+        warnings: ['retry is safe'],
+      });
+    });
+
+    it('treats result.success as a fallback provisioning completion signal', () => {
+      const svc = new TeamProvisioningService();
+      const run = createClaudeLogsRun({
+        runId: 'run-success-fallback',
+        teamName: 'success-fallback-team',
+        provisioningComplete: false,
+        progress: {
+          runId: 'run-success-fallback',
+          teamName: 'success-fallback-team',
+          state: 'configuring',
+          message: 'Waiting for CLI result',
+          startedAt: '2026-04-19T10:00:00.000Z',
+          updatedAt: '2026-04-19T10:00:01.000Z',
+        },
+      });
+      const complete = vi
+        .spyOn(svc as any, 'handleProvisioningTurnComplete')
+        .mockResolvedValue(undefined);
+
+      (svc as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+      expect(complete).toHaveBeenCalledWith(run);
+    });
+  });
+
   describe('member spawn status launch reads', () => {
     it('coalesces concurrent active launch status reads and serves a short cached follow-up', async () => {
       const svc = new TeamProvisioningService();

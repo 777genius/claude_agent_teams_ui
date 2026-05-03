@@ -67,6 +67,14 @@ vi.mock('@main/utils/textFormatting', () => ({
 
 import { ConfigManager } from '@main/services/infrastructure/ConfigManager';
 import { NotificationManager } from '@main/services/infrastructure/NotificationManager';
+import { Notification as ElectronNotification } from 'electron';
+
+function getLastNotificationOptions(): Record<string, unknown> {
+  const mock = ElectronNotification as unknown as {
+    mock: { calls: [Record<string, unknown>][] };
+  };
+  return mock.mock.calls.at(-1)?.[0] ?? {};
+}
 
 function makeTeamPayload(
   overrides: Partial<TeamNotificationPayload> = {}
@@ -257,5 +265,95 @@ describe('NotificationManager.addTeamNotification', () => {
 
     const result = await manager.getNotifications({ limit: 10 });
     expect(result.notifications).toHaveLength(0);
+  });
+
+  it('formats clarification as a reply-needed notification', async () => {
+    await manager.addTeamNotification(
+      makeTeamPayload({
+        teamEventType: 'task_clarification',
+        from: 'jack',
+        summary: 'Clarification needed - Task #55c51f15',
+        body: 'Can you confirm the reviewer?',
+        dedupeKey: 'presentation-reply',
+      })
+    );
+
+    expect(getLastNotificationOptions().title).toBe('@jack needs your reply on #55c51f15');
+  });
+
+  it('formats review requests as action-needed notifications', async () => {
+    await manager.addTeamNotification(
+      makeTeamPayload({
+        teamEventType: 'task_review_requested',
+        from: 'alice',
+        summary: 'Review requested #46cceca0: Landing page',
+        body: 'Please review the implementation.',
+        dedupeKey: 'presentation-review',
+      })
+    );
+
+    expect(getLastNotificationOptions().title).toBe('@alice requested review on #46cceca0');
+  });
+
+  it('formats blocked tasks as action-needed notifications', async () => {
+    await manager.addTeamNotification(
+      makeTeamPayload({
+        teamEventType: 'task_blocked',
+        from: 'bob',
+        summary: 'Blocked #6002830d: API contract',
+        body: 'Blocked by #11111111',
+        dedupeKey: 'presentation-blocked',
+      })
+    );
+
+    expect(getLastNotificationOptions().title).toBe('@bob is blocked on #6002830d');
+  });
+
+  it('formats rate limits with human restart guidance', async () => {
+    await manager.addTeamNotification(
+      makeTeamPayload({
+        teamEventType: 'rate_limit',
+        from: 'tom',
+        summary: 'Rate limit',
+        body: 'Auto-resume scheduled at 14:30',
+        dedupeKey: 'presentation-rate',
+      })
+    );
+
+    const options = getLastNotificationOptions();
+    expect(options.title).toBe('@tom paused: rate limit');
+    expect(options.body).toContain('Auto-resume scheduled at 14:30');
+  });
+
+  it('formats API errors with manual restart guidance', async () => {
+    await manager.addTeamNotification(
+      makeTeamPayload({
+        teamEventType: 'api_error',
+        from: 'tom',
+        summary: 'API Error 500',
+        body: 'Manual restart needed',
+        dedupeKey: 'presentation-api',
+      })
+    );
+
+    const options = getLastNotificationOptions();
+    expect(options.title).toBe('@tom paused: API error');
+    expect(options.body).toContain('Manual restart needed');
+  });
+
+  it('formats incomplete launches without a System prefix', async () => {
+    await manager.addTeamNotification(
+      makeTeamPayload({
+        teamEventType: 'team_launch_incomplete',
+        from: 'system',
+        summary: 'Team launch incomplete',
+        body: '3/4 joined · @tom did not join',
+        dedupeKey: 'presentation-launch-incomplete',
+      })
+    );
+
+    const options = getLastNotificationOptions();
+    expect(options.title).toBe('Team launch incomplete');
+    expect(options.body).toContain('3/4 joined · @tom did not join');
   });
 });

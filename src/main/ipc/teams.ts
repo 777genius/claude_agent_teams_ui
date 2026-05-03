@@ -123,6 +123,7 @@ import {
 import {
   getAutoResumeService,
   initializeAutoResumeService,
+  planRateLimitAutoResume,
 } from '../services/team/AutoResumeService';
 import {
   buildReplaceMembersDiff,
@@ -364,6 +365,21 @@ function buildLeadDirectDelegateAckBlock(actionMode?: AgentActionMode): string |
 const seenApiErrorKeys = new Set<string>();
 const SEEN_API_ERROR_KEYS_MAX = 500;
 
+function formatNotificationClockTime(date: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function buildRateLimitNotificationBody(plan: ReturnType<typeof planRateLimitAutoResume>): string {
+  if (plan.kind === 'scheduled') {
+    return `Auto-resume scheduled at ${formatNotificationClockTime(plan.resetTime)}`;
+  }
+  return 'Manual restart needed';
+}
+
 /**
  * Check messages for rate limit indicators and fire notifications for new ones.
  * Uses both in-memory seenRateLimitKeys (to prevent resurrection after deletion)
@@ -395,6 +411,18 @@ function checkRateLimitMessages(
 
     const rawKey = msg.messageId ?? `${msg.from}:${msg.timestamp}`;
     const dedupeKey = `rate-limit:${teamName}:${rawKey}`;
+    const isLeadAutoResumeCandidate =
+      !msg.to && (msg.source === 'lead_process' || msg.source === 'lead_session');
+    const autoResumeSessionMatches =
+      msg.source !== 'lead_session' ||
+      (Boolean(currentLeadSessionId) && msg.leadSessionId === currentLeadSessionId);
+    const autoResumePlan = planRateLimitAutoResume({
+      enabled: autoResumeEnabled,
+      canAutoResume: teamIsAlive && isLeadAutoResumeCandidate && autoResumeSessionMatches,
+      messageText: msg.text,
+      observedAt,
+      messageTimestamp: new Date(msg.timestamp),
+    });
 
     // In-memory guard: prevents resurrection after user deletes the notification.
     if (!seenRateLimitKeys.has(dedupeKey)) {
@@ -412,8 +440,8 @@ function checkRateLimitMessages(
           teamName,
           teamDisplayName,
           from: msg.from,
-          summary: `Rate limit: ${msg.from}`,
-          body: msg.text.slice(0, 200),
+          summary: 'Rate limit',
+          body: buildRateLimitNotificationBody(autoResumePlan),
           dedupeKey,
           target: { kind: 'member', teamName, memberName: msg.from, focus: 'logs' },
           projectPath,
@@ -425,18 +453,10 @@ function checkRateLimitMessages(
     // Persisted history for an offline/stopped team may still contain the old
     // rate-limit message, but arming a new timer from that stale history would
     // resurrect the nudge into a later manual restart.
-    const isLeadAutoResumeCandidate =
-      !msg.to && (msg.source === 'lead_process' || msg.source === 'lead_session');
-
-    if (autoResumeEnabled && teamIsAlive && isLeadAutoResumeCandidate) {
+    if (autoResumePlan.kind === 'scheduled') {
       // Only let persisted lead_session history rebuild auto-resume when it
       // clearly belongs to the currently running lead session. Otherwise an old
       // rate-limit from a previous manual run can resurrect into a newer restart.
-      if (msg.source === 'lead_session') {
-        if (!currentLeadSessionId) continue;
-        if (msg.leadSessionId !== currentLeadSessionId) continue;
-      }
-
       // Pass the original message timestamp so relative reset windows survive restarts
       // and old history does not rebuild a fresh auto-resume timer from "now".
       getAutoResumeService().handleRateLimitMessage(
@@ -483,12 +503,12 @@ function checkApiErrorMessages(
 
     void NotificationManager.getInstance()
       .addTeamNotification({
-        teamEventType: 'rate_limit', // reuse rate_limit type — closest fit
+        teamEventType: 'api_error',
         teamName,
         teamDisplayName,
         from: msg.from,
-        summary: `API Error ${statusCode}: ${msg.from}`,
-        body: msg.text.slice(0, 400),
+        summary: `API Error ${statusCode}`,
+        body: 'Manual restart needed',
         dedupeKey,
         target: { kind: 'member', teamName, memberName: msg.from, focus: 'logs' },
         projectPath,

@@ -21,17 +21,21 @@ import type { TriggerColor } from '@shared/constants/triggerColors';
  */
 export type TeamEventType =
   | 'rate_limit'
+  | 'api_error'
   | 'lead_inbox'
   | 'user_inbox'
   | 'task_clarification'
   | 'task_status_change'
   | 'task_comment'
+  | 'task_review_requested'
+  | 'task_blocked'
   | 'task_created'
   | 'all_tasks_completed'
   | 'cross_team_message'
   | 'schedule_completed'
   | 'schedule_failed'
-  | 'team_launched';
+  | 'team_launched'
+  | 'team_launch_incomplete';
 
 export type NotificationTarget =
   | {

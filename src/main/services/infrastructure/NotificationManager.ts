@@ -287,8 +287,12 @@ function extractTaskSubject(summary: string): string {
   return summary
     .replace(/^Comment on\s+#[^:]+:\s*/i, '')
     .replace(/^Comment on\s+#[^\s]+/i, '')
-    .replace(/^Clarification needed\s+-\s+Task\s+#[^:]+:\s*/i, '')
-    .replace(/^Clarification needed\s+-\s+Task\s+#[^\s]+/i, '')
+    .replace(/^Clarification needed\s+[-–—]\s+Task\s+#[^:]+:\s*/i, '')
+    .replace(/^Clarification needed\s+[-–—]\s+Task\s+#[^\s]+/i, '')
+    .replace(/^Review requested\s+#[^:]+:\s*/i, '')
+    .replace(/^Review requested\s+#[^\s]+/i, '')
+    .replace(/^Blocked\s+#[^:]+:\s*/i, '')
+    .replace(/^Blocked\s+#[^\s]+/i, '')
     .replace(/^New task\s+#[^:]+:\s*/i, '')
     .replace(/^New task\s+#[^\s]+/i, '')
     .replace(/^Task\s+#[^:]+:\s*/i, '')
@@ -303,7 +307,14 @@ function getTeamNotificationAction(
     case 'task_comment':
       return taskRef ? `commented on ${taskRef}` : 'commented on a task';
     case 'task_clarification':
-      return taskRef ? `needs clarification on ${taskRef}` : 'needs clarification';
+      return taskRef ? `needs your reply on ${taskRef}` : 'needs your reply';
+    case 'task_review_requested':
+      return taskRef ? `requested review on ${taskRef}` : 'requested review';
+    case 'task_blocked': {
+      const sender = payload.from.trim().toLowerCase();
+      if (sender === 'system') return taskRef ? `Task is blocked on ${taskRef}` : 'Task is blocked';
+      return taskRef ? `is blocked on ${taskRef}` : 'is blocked';
+    }
     case 'task_status_change':
       return taskRef ? `changed ${taskRef}` : 'changed task status';
     case 'task_created':
@@ -316,9 +327,9 @@ function getTeamNotificationAction(
     case 'cross_team_message':
       return 'sent a cross-team message';
     case 'rate_limit':
-      return /api error/i.test(`${payload.summary} ${payload.body}`)
-        ? 'hit an API error'
-        : 'hit rate limit';
+      return 'paused: rate limit';
+    case 'api_error':
+      return 'paused: API error';
     case 'schedule_completed':
       return 'completed a schedule';
     case 'schedule_failed':
@@ -356,6 +367,22 @@ function buildTeamNotificationPresentation(
   const action = getTeamNotificationAction(payload, taskRef);
   const where = getTeamNotificationWhere(payload, taskRef);
   const normalizedBody = cleanNotificationText(body);
+
+  if (payload.teamEventType === 'team_launch_incomplete') {
+    return {
+      title: 'Team launch incomplete',
+      where: truncateNotificationText(where, 120),
+      body: truncateNotificationText(normalizedBody || summary, 300),
+    };
+  }
+
+  if (payload.teamEventType === 'task_blocked' && payload.from.trim().toLowerCase() === 'system') {
+    return {
+      title: truncateNotificationText(action, 96),
+      where: truncateNotificationText(where, 120),
+      body: truncateNotificationText(normalizedBody || summary, 300),
+    };
+  }
 
   return {
     title: truncateNotificationText(`${who} ${action}`.trim(), 96),

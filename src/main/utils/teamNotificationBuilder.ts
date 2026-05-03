@@ -61,17 +61,21 @@ interface TeamNotificationConfig {
 
 const TEAM_NOTIFICATION_CONFIG: Record<TeamEventType, TeamNotificationConfig> = {
   rate_limit: { triggerName: 'Rate Limit', triggerColor: 'red' },
+  api_error: { triggerName: 'API Error', triggerColor: 'red' },
   lead_inbox: { triggerName: 'Team Inbox', triggerColor: 'blue' },
   user_inbox: { triggerName: 'User Inbox', triggerColor: 'green' },
   task_clarification: { triggerName: 'Clarification', triggerColor: 'orange' },
   task_status_change: { triggerName: 'Status Change', triggerColor: 'purple' },
   task_comment: { triggerName: 'Task Comment', triggerColor: 'cyan' },
+  task_review_requested: { triggerName: 'Review Requested', triggerColor: 'orange' },
+  task_blocked: { triggerName: 'Task Blocked', triggerColor: 'red' },
   task_created: { triggerName: 'Task Created', triggerColor: 'green' },
   all_tasks_completed: { triggerName: 'All Done', triggerColor: 'green' },
   cross_team_message: { triggerName: 'Cross-Team', triggerColor: 'cyan' },
   schedule_completed: { triggerName: 'Schedule Done', triggerColor: 'green' },
   schedule_failed: { triggerName: 'Schedule Failed', triggerColor: 'red' },
   team_launched: { triggerName: 'Team Launched', triggerColor: 'green' },
+  team_launch_incomplete: { triggerName: 'Launch Incomplete', triggerColor: 'orange' },
 };
 
 // =============================================================================

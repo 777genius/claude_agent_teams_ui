@@ -43,6 +43,7 @@ import type {
   MemberActivityMetaEntry,
   MemberSpawnStatusEntry,
   MemberSpawnStatusesSnapshot,
+  NotificationTarget,
   PersistedTeamLaunchSummary,
   ResolvedTeamMember,
   SendMessageRequest,
@@ -1063,6 +1064,7 @@ const notifiedStatusChangeKeys = new Set<string>();
 const notifiedCommentKeys = new Set<string>();
 const notifiedCreatedTaskKeys = new Set<string>();
 const notifiedAllCompletedTeams = new Set<string>();
+const notifiedBlockedTaskKeys = new Set<string>();
 
 let isFirstFetchAllTasks = true;
 
@@ -1236,12 +1238,16 @@ function detectTaskCommentNotifications(
     for (const comment of newComments) {
       // Don't notify about user's own comments
       if (comment.author === 'user') continue;
-      // Skip review-related comment types (already covered by status change notifications)
-      if (comment.type === 'review_request' || comment.type === 'review_approved') continue;
 
       const key = `${task.teamName}:${task.id}:${comment.id}`;
       if (notifiedCommentKeys.has(key)) continue;
       notifiedCommentKeys.add(key);
+
+      if (comment.type === 'review_request') {
+        fireTaskReviewRequestedNotification(task, comment, !notifyEnabled);
+        continue;
+      }
+      if (comment.type === 'review_approved') continue;
 
       fireTaskCommentNotification(task, comment, !notifyEnabled);
     }
@@ -1250,7 +1256,7 @@ function detectTaskCommentNotifications(
 
 function fireTaskCommentNotification(
   task: GlobalTask,
-  comment: { author: string; text: string; id: string },
+  comment: Pick<TaskComment, 'author' | 'text' | 'id'>,
   suppressToast: boolean
 ): void {
   // Double-check: never notify about user's own comments
@@ -1275,6 +1281,91 @@ function fireTaskCommentNotification(
         taskId: task.id,
         commentId: comment.id,
         focus: 'comments',
+      },
+      suppressToast,
+    })
+    .catch(() => undefined);
+}
+
+function fireTaskReviewRequestedNotification(
+  task: GlobalTask,
+  comment: Pick<TaskComment, 'author' | 'text' | 'id'>,
+  suppressToast: boolean
+): void {
+  const stripped = stripAgentBlocks(comment.text).trim();
+  const preview = stripped.length > 100 ? stripped.slice(0, 100) + '...' : stripped;
+
+  void api.teams
+    ?.showMessageNotification({
+      teamName: task.teamName,
+      teamDisplayName: task.teamDisplayName,
+      from: comment.author,
+      to: 'user',
+      summary: `Review requested ${formatTaskDisplayLabel(task)}: ${task.subject}`,
+      body: preview || task.subject,
+      teamEventType: 'task_review_requested',
+      dedupeKey: `review-request:${task.teamName}:${task.id}:${comment.id}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        commentId: comment.id,
+        focus: 'review',
+      },
+      suppressToast,
+    })
+    .catch(() => undefined);
+}
+
+function detectBlockedTaskNotifications(
+  oldTasks: GlobalTask[],
+  newTasks: GlobalTask[],
+  notifyEnabled: boolean
+): void {
+  const oldTaskMap = new Map(oldTasks.map((task) => [`${task.teamName}:${task.id}`, task]));
+
+  for (const task of newTasks) {
+    const oldTask = oldTaskMap.get(`${task.teamName}:${task.id}`);
+    const oldBlockedBy = oldTask?.blockedBy?.filter(Boolean) ?? [];
+    const newBlockedBy = task.blockedBy?.filter(Boolean) ?? [];
+    const key = `${task.teamName}:${task.id}:${newBlockedBy.join(',')}`;
+
+    if (newBlockedBy.length > 0 && oldBlockedBy.length === 0) {
+      if (notifiedBlockedTaskKeys.has(key)) continue;
+      notifiedBlockedTaskKeys.add(key);
+      fireTaskBlockedNotification(task, newBlockedBy, !notifyEnabled);
+    } else if (newBlockedBy.length === 0) {
+      for (const existingKey of Array.from(notifiedBlockedTaskKeys)) {
+        if (existingKey.startsWith(`${task.teamName}:${task.id}:`)) {
+          notifiedBlockedTaskKeys.delete(existingKey);
+        }
+      }
+    }
+  }
+}
+
+function fireTaskBlockedNotification(
+  task: GlobalTask,
+  blockedBy: readonly string[],
+  suppressToast: boolean
+): void {
+  const blockerRefs = blockedBy.map((id) => formatTaskDisplayLabel({ id })).join(', ');
+
+  void api.teams
+    ?.showMessageNotification({
+      teamName: task.teamName,
+      teamDisplayName: task.teamDisplayName,
+      from: task.owner ?? 'system',
+      to: 'user',
+      summary: `Blocked ${formatTaskDisplayLabel(task)}: ${task.subject}`,
+      body: blockerRefs ? `Blocked by ${blockerRefs}` : task.subject,
+      teamEventType: 'task_blocked',
+      dedupeKey: `blocked:${task.teamName}:${task.id}:${blockedBy.join(',')}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        focus: 'detail',
       },
       suppressToast,
     })
@@ -1486,6 +1577,13 @@ export interface PendingMemberProfileState {
   teamName?: string;
   memberName: string;
   focus?: 'profile' | 'messages' | 'logs';
+}
+
+type TeamSectionTarget = NonNullable<Extract<NotificationTarget, { kind: 'team' }>['section']>;
+
+export interface PendingTeamSectionFocusState {
+  teamName: string;
+  section: TeamSectionTarget;
 }
 
 /** Per-team launch parameters shown in the header badge. */
@@ -1982,6 +2080,9 @@ export interface TeamSlice {
     focus?: PendingMemberProfileState['focus']
   ) => void;
   closeMemberProfile: () => void;
+  pendingTeamSectionFocus: PendingTeamSectionFocusState | null;
+  focusTeamSection: (teamName: string, section: TeamSectionTarget) => void;
+  clearTeamSectionFocus: () => void;
   /** Set by GlobalTaskDetailDialog to signal TeamDetailView to open ChangeReviewDialog */
   pendingReviewRequest: {
     taskId: string;
@@ -2502,9 +2603,16 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   kanbanFilterQuery: null,
   globalTaskDetail: null,
   pendingMemberProfile: null,
-  openMemberProfile: (memberName: string, teamName?: string, focus?: PendingMemberProfileState['focus']) =>
-    set({ pendingMemberProfile: { memberName, teamName, focus } }),
+  pendingTeamSectionFocus: null,
+  openMemberProfile: (
+    memberName: string,
+    teamName?: string,
+    focus?: PendingMemberProfileState['focus']
+  ) => set({ pendingMemberProfile: { memberName, teamName, focus } }),
   closeMemberProfile: () => set({ pendingMemberProfile: null }),
+  focusTeamSection: (teamName: string, section: TeamSectionTarget) =>
+    set({ pendingTeamSectionFocus: { teamName, section } }),
+  clearTeamSectionFocus: () => set({ pendingTeamSectionFocus: null }),
   pendingReviewRequest: null,
   setPendingReviewRequest: (req) => set({ pendingReviewRequest: req }),
   openGlobalTaskDetail: (teamName: string, taskId: string, commentId?: string) => {
@@ -2649,6 +2757,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
             const notifyOnClarifications =
               get().appConfig?.notifications?.notifyOnClarifications ?? true;
             detectClarificationNotifications(oldTasks, tasks, notifyOnClarifications);
+            detectBlockedTaskNotifications(oldTasks, tasks, notifyOnClarifications);
             detectStatusChangeNotifications(oldTasks, tasks, get().appConfig, get().teamByName);
             const notifyOnTaskComments =
               get().appConfig?.notifications?.notifyOnTaskComments ?? true;
@@ -2663,6 +2772,11 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
             for (const task of tasks) {
               if (task.needsClarification === 'user') {
                 notifiedClarificationTaskKeys.add(`${task.teamName}:${task.id}`);
+              }
+              if ((task.blockedBy?.length ?? 0) > 0) {
+                notifiedBlockedTaskKeys.add(
+                  `${task.teamName}:${task.id}:${(task.blockedBy ?? []).join(',')}`
+                );
               }
               notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:${task.status}`);
               if (task.reviewState === 'needsFix') {

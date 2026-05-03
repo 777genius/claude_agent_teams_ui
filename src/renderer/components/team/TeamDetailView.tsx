@@ -1844,6 +1844,30 @@ export const TeamDetailView = memo(function TeamDetailView({
     setPendingReviewRequest(null);
   }, [pendingReviewRequest, selectReviewFile, setPendingReviewRequest]);
 
+  const pendingTeamSectionFocus = useStore((s) => s.pendingTeamSectionFocus);
+  const clearTeamSectionFocus = useStore((s) => s.clearTeamSectionFocus);
+  useEffect(() => {
+    if (!pendingTeamSectionFocus || pendingTeamSectionFocus.teamName !== teamName) return;
+
+    const sectionId =
+      pendingTeamSectionFocus.section === 'members'
+        ? 'team'
+        : pendingTeamSectionFocus.section === 'tasks'
+          ? 'kanban'
+          : pendingTeamSectionFocus.section;
+
+    if (sectionId === 'overview') {
+      contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      clearTeamSectionFocus();
+      return;
+    }
+
+    const section = document.querySelector<HTMLElement>(`[data-section-id="${sectionId}"]`);
+    if (!section) return;
+    section.dispatchEvent(new CustomEvent('team-section-navigate'));
+    clearTeamSectionFocus();
+  }, [pendingTeamSectionFocus, clearTeamSectionFocus, teamName, data]);
+
   // Pick up pending member profile request from MemberHoverCard
   const pendingMemberProfile = useStore((s) => s.pendingMemberProfile);
   useEffect(() => {
