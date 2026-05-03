@@ -109,7 +109,20 @@ import * as path from 'path';
 import pidusage from 'pidusage';
 import * as readline from 'readline';
 
-import { mergeJsonSettingsArgs } from '../runtime/cliSettingsArgs';
+import { mergeJsonSettingsArgs, parseJsonSettingsObject } from '../runtime/cliSettingsArgs';
+import {
+  ANTHROPIC_HELPER_MODE_COMPETING_AUTH_ENV_KEYS,
+  CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH_ENV,
+  CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_API_KEY_HELPER,
+  CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_ENV,
+  DISABLE_ANTHROPIC_TEAM_API_KEY_HELPER_ENV,
+  cleanupAnthropicTeamApiKeyHelperForTeam,
+  cleanupAnthropicTeamApiKeyHelperMaterial,
+  cleanupStaleAnthropicTeamApiKeyHelpers,
+  materializeAnthropicTeamApiKeyHelper,
+  verifyAnthropicTeamApiKeyHelperMaterial,
+  type AnthropicTeamApiKeyHelperMaterial,
+} from '../runtime/anthropicTeamApiKeyHelper';
 import {
   type GeminiRuntimeAuthState,
   resolveGeminiRuntimeAuth,
@@ -123,6 +136,11 @@ import {
   normalizeProviderModelProbeFailureReason,
 } from '../runtime/providerModelProbe';
 import { resolveTeamProviderId } from '../runtime/providerRuntimeEnv';
+import {
+  materializeTeamRuntimeSettingsBundle,
+  splitSettingsJsonArgs,
+  type TeamRuntimeSettingsJson,
+} from '../runtime/teamRuntimeSettingsBundle';
 
 import {
   createOpenCodePromptDeliveryLedgerStore,
@@ -678,6 +696,9 @@ const DIRECT_TMUX_RESTART_ENV_KEYS = [
   'CLAUDE_CODE_ENTRY_PROVIDER',
   'CLAUDE_CODE_GEMINI_BACKEND',
   'CLAUDE_CODE_CODEX_BACKEND',
+  'CODEX_HOME',
+  CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_ENV,
+  CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH_ENV,
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
@@ -809,7 +830,7 @@ function getDirectRestartEntryProvider(providerId: TeamProviderId): string {
   return providerId === 'codex' || providerId === 'gemini' ? providerId : 'anthropic';
 }
 
-function buildDirectTmuxRestartEnvAssignments(
+export function buildDirectTmuxRestartEnvAssignments(
   env: NodeJS.ProcessEnv,
   providerId: TeamProviderId
 ): string {
@@ -829,6 +850,22 @@ function buildDirectTmuxRestartEnvAssignments(
   }
   assignments.set('CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST', '1');
   assignments.set('CLAUDE_CODE_ENTRY_PROVIDER', getDirectRestartEntryProvider(providerId));
+  if (
+    providerId === 'anthropic' &&
+    env[CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_ENV] === CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_API_KEY_HELPER
+  ) {
+    assignments.set(
+      CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_ENV,
+      CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_API_KEY_HELPER
+    );
+    const settingsPath = env[CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH_ENV];
+    if (typeof settingsPath === 'string') {
+      assignments.set(CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH_ENV, settingsPath);
+    }
+    for (const key of ANTHROPIC_HELPER_MODE_COMPETING_AUTH_ENV_KEYS) {
+      assignments.set(key, '');
+    }
+  }
 
   return [...assignments.entries()].map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ');
 }
@@ -1012,15 +1049,15 @@ function resolveCodexSelectionFromFacts(params: {
   });
 }
 
-function buildAnthropicSettingsArgs(
+function buildAnthropicSettingsObject(
   providerId: TeamProviderId,
   launchIdentity?: ProviderModelLaunchIdentity | null
-): string[] {
+): TeamRuntimeSettingsJson | null {
   if (providerId !== 'anthropic' || typeof launchIdentity?.resolvedFastMode !== 'boolean') {
-    return [];
+    return null;
   }
 
-  const settings = launchIdentity.resolvedFastMode
+  return launchIdentity.resolvedFastMode
     ? {
         fastMode: true,
         fastModePerSessionOptIn: false,
@@ -1028,6 +1065,16 @@ function buildAnthropicSettingsArgs(
     : {
         fastMode: false,
       };
+}
+
+function buildAnthropicSettingsArgs(
+  providerId: TeamProviderId,
+  launchIdentity?: ProviderModelLaunchIdentity | null
+): string[] {
+  const settings = buildAnthropicSettingsObject(providerId, launchIdentity);
+  if (!settings) {
+    return [];
+  }
 
   return ['--settings', JSON.stringify(settings)];
 }
@@ -1043,6 +1090,52 @@ function buildProviderFastModeArgs(
     return buildCodexFastModeArgs(launchIdentity?.resolvedFastMode);
   }
   return [];
+}
+
+function filterOutSettingsPathArgs(
+  args: string[],
+  settingsPath: string | null | undefined
+): string[] {
+  if (!settingsPath) {
+    return [...args];
+  }
+  const filtered: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--settings' && args[index + 1] === settingsPath) {
+      index += 1;
+      continue;
+    }
+    if (arg === `--settings=${settingsPath}`) {
+      continue;
+    }
+    filtered.push(arg);
+  }
+  return filtered;
+}
+
+function hasPathBasedSettingsArgs(args: string[]): boolean {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--settings') {
+      const value = args[index + 1];
+      if (typeof value === 'string') {
+        if (!parseJsonSettingsObject(value)) {
+          return true;
+        }
+        index += 1;
+      }
+      if (typeof value !== 'string') {
+        return true;
+      }
+      continue;
+    }
+    const prefix = '--settings=';
+    if (arg.startsWith(prefix) && !parseJsonSettingsObject(arg.slice(prefix.length))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isProbeTimeoutMessage(message: string): boolean {
@@ -1543,6 +1636,8 @@ interface ProvisioningRun {
     env: NodeJS.ProcessEnv;
     prompt: string;
   } | null;
+  /** Run-scoped helper material used by Anthropic API-key team runtimes. */
+  anthropicApiKeyHelper: AnthropicTeamApiKeyHelperMaterial | null;
   /** Pending tool approval requests awaiting user response (control_request protocol). */
   pendingApprovals: Map<string, ToolApprovalRequest>;
   /** Teammate permission_request IDs already intercepted (prevents re-processing read messages). */
@@ -1661,6 +1756,7 @@ function createUnexpectedMixedSecondaryLaneFailureResult(input: {
 type LeadActivityState = 'active' | 'idle' | 'offline';
 
 type ProvisioningAuthSource =
+  | 'anthropic_api_key_helper'
   | 'anthropic_api_key'
   | 'anthropic_auth_token'
   | 'configured_api_key_missing'
@@ -1668,12 +1764,34 @@ type ProvisioningAuthSource =
   | 'gemini_runtime'
   | 'none';
 
+interface TeamRuntimeAuthContext {
+  teamName?: string;
+  authMaterialId?: string;
+  allowAnthropicApiKeyHelper?: boolean;
+}
+
 interface ProvisioningEnvResolution {
   env: NodeJS.ProcessEnv;
   authSource: ProvisioningAuthSource;
   geminiRuntimeAuth: GeminiRuntimeAuthState | null;
   providerArgs?: string[];
+  anthropicApiKeyHelper?: AnthropicTeamApiKeyHelperMaterial | null;
   warning?: string;
+}
+
+interface TeamRuntimeLaunchArgsPlan {
+  settingsArgs: string[];
+  fastModeArgs: string[];
+  runtimeTurnSettledHookArgs: string[];
+  providerArgs: string[];
+  extraArgs: string[];
+}
+
+interface CrossProviderMemberArgsResult {
+  args: string[];
+  providerArgsByProvider: Map<TeamProviderId, string[]>;
+  envPatch: NodeJS.ProcessEnv;
+  usesAnthropicApiKeyHelper: boolean;
 }
 
 interface PromptSizeSummary {
@@ -4871,6 +4989,16 @@ export class TeamProvisioningService {
     this.transcriptProjectResolver = new TeamTranscriptProjectResolver({
       getConfig: (teamName) => this.configReader.getConfigSnapshot(teamName),
     });
+    void cleanupStaleAnthropicTeamApiKeyHelpers({
+      baseClaudeDir: getClaudeBasePath(),
+      maxAgeMs: 14 * 24 * 60 * 60 * 1000,
+    }).catch((error: unknown) => {
+      logger.warn(
+        `Failed to cleanup stale Anthropic team API-key helper material: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    });
   }
 
   private async readConfigSnapshot(teamName: string): Promise<TeamConfig | null> {
@@ -5094,21 +5222,92 @@ export class TeamProvisioningService {
   private async buildRuntimeTurnSettledHookSettingsArgs(
     providerId: TeamProviderId
   ): Promise<string[]> {
+    const settings = await this.buildRuntimeTurnSettledHookSettingsObject(providerId);
+    return settings ? ['--settings', JSON.stringify(settings)] : [];
+  }
+
+  private async buildRuntimeTurnSettledHookSettingsObject(
+    providerId: TeamProviderId
+  ): Promise<TeamRuntimeSettingsJson | null> {
     if (providerId !== 'anthropic' || !this.runtimeTurnSettledHookSettingsProvider) {
-      return [];
+      return null;
     }
 
     try {
       const settings = await this.runtimeTurnSettledHookSettingsProvider({ provider: 'claude' });
-      return settings ? ['--settings', JSON.stringify(settings)] : [];
+      return settings ?? null;
     } catch (error) {
       logger.warn(
         `Failed to build member work sync Stop hook settings: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
-      return [];
+      return null;
     }
+  }
+
+  private async buildTeamRuntimeLaunchArgsPlan(input: {
+    teamName: string;
+    providerId: TeamProviderId;
+    launchIdentity?: ProviderModelLaunchIdentity | null;
+    envResolution: ProvisioningEnvResolution;
+    extraArgs?: string[];
+    includeAnthropicHelper: boolean;
+    contextLabel: string;
+  }): Promise<TeamRuntimeLaunchArgsPlan> {
+    const resolvedProviderId = resolveTeamProviderId(input.providerId);
+    const helper =
+      input.includeAnthropicHelper && resolvedProviderId === 'anthropic'
+        ? (input.envResolution.anthropicApiKeyHelper ?? null)
+        : null;
+    const rawProviderArgs = input.envResolution.providerArgs ?? [];
+    const rawExtraArgs = input.extraArgs ?? [];
+
+    if (!helper) {
+      return {
+        settingsArgs: [],
+        fastModeArgs: buildProviderFastModeArgs(resolvedProviderId, input.launchIdentity),
+        runtimeTurnSettledHookArgs:
+          await this.buildRuntimeTurnSettledHookSettingsArgs(resolvedProviderId),
+        providerArgs: rawProviderArgs,
+        extraArgs: rawExtraArgs,
+      };
+    }
+
+    const providerArgsWithoutHelper = filterOutSettingsPathArgs(
+      rawProviderArgs,
+      helper.settingsPath
+    );
+    const splitProviderArgs = splitSettingsJsonArgs(providerArgsWithoutHelper);
+    const splitExtraArgs = splitSettingsJsonArgs(rawExtraArgs);
+    if (
+      hasPathBasedSettingsArgs(splitProviderArgs.passthroughArgs) ||
+      hasPathBasedSettingsArgs(splitExtraArgs.passthroughArgs)
+    ) {
+      throw new Error(
+        `${input.contextLabel}: app-managed Anthropic API-key helper cannot be combined with path-based --settings. Use inline JSON settings or remove the custom --settings path.`
+      );
+    }
+
+    const settingsBundle = await materializeTeamRuntimeSettingsBundle({
+      teamName: input.teamName,
+      providerId: resolvedProviderId,
+      baseSettings: [
+        buildAnthropicSettingsObject(resolvedProviderId, input.launchIdentity),
+        await this.buildRuntimeTurnSettledHookSettingsObject(resolvedProviderId),
+        ...splitProviderArgs.settingsFragments,
+        ...splitExtraArgs.settingsFragments,
+      ],
+      anthropicHelper: helper,
+    });
+
+    return {
+      settingsArgs: settingsBundle?.args ?? [],
+      fastModeArgs: [],
+      runtimeTurnSettledHookArgs: [],
+      providerArgs: splitProviderArgs.passthroughArgs,
+      extraArgs: splitExtraArgs.passthroughArgs,
+    };
   }
 
   private async buildRuntimeTurnSettledEnvironment(
@@ -5499,6 +5698,7 @@ export class TeamProvisioningService {
       'providerId' | 'providerBackendId' | 'model' | 'effort' | 'fastMode' | 'limitContext'
     >;
     effectiveMembers: TeamCreateRequest['members'];
+    providerArgsByProvider?: Map<TeamProviderId, string[]>;
   }): Promise<ProviderModelLaunchIdentity> {
     const leadProviderId = resolveTeamProviderId(params.request.providerId);
     const factsByProvider = new Map<TeamProviderId, RuntimeProviderLaunchFacts>();
@@ -5512,6 +5712,7 @@ export class TeamProvisioningService {
         cwd: params.cwd,
         providerId,
         env: params.env,
+        providerArgs: params.providerArgsByProvider?.get(providerId),
         limitContext: params.request.limitContext,
       });
       factsByProvider.set(providerId, facts);
@@ -11444,7 +11645,14 @@ export class TeamProvisioningService {
 
     const provisioningEnv = await this.buildProvisioningEnv(
       providerId,
-      input.configuredMember.providerBackendId
+      input.configuredMember.providerBackendId,
+      {
+        teamRuntimeAuth: {
+          teamName: input.teamName,
+          authMaterialId: `${input.run.runId}-direct-${input.configuredMember.name}-${randomUUID()}`,
+          allowAnthropicApiKeyHelper: true,
+        },
+      }
     );
     if (provisioningEnv.warning) {
       throw new Error(provisioningEnv.warning);
@@ -11474,8 +11682,15 @@ export class TeamProvisioningService {
       input.leadName
     );
     const bootstrapExpectedAfter = nowIso();
-    const runtimeTurnSettledHookArgs =
-      await this.buildRuntimeTurnSettledHookSettingsArgs(providerId);
+    const runtimeArgsPlan = await this.buildTeamRuntimeLaunchArgsPlan({
+      teamName: input.teamName,
+      providerId,
+      launchIdentity: null,
+      envResolution: provisioningEnv,
+      extraArgs: [],
+      includeAnthropicHelper: providerId === 'anthropic',
+      contextLabel: `Direct teammate restart (${input.configuredMember.name})`,
+    });
 
     const runtimeArgs = mergeJsonSettingsArgs([
       '--agent-id',
@@ -11501,8 +11716,10 @@ export class TeamProvisioningService {
         : ['--permission-prompt-tool', 'stdio', '--permission-mode', 'default']),
       ...(input.configuredMember.model ? ['--model', input.configuredMember.model] : []),
       ...(input.configuredMember.effort ? ['--effort', input.configuredMember.effort] : []),
-      ...runtimeTurnSettledHookArgs,
-      ...(provisioningEnv.providerArgs ?? []),
+      ...runtimeArgsPlan.fastModeArgs,
+      ...runtimeArgsPlan.runtimeTurnSettledHookArgs,
+      ...runtimeArgsPlan.providerArgs,
+      ...runtimeArgsPlan.settingsArgs,
     ]);
     const command = buildDirectTmuxRestartCommand({
       cwd,
@@ -13438,6 +13655,7 @@ export class TeamProvisioningService {
     };
     primaryProviderId?: TeamProviderId;
     primaryEnv?: ProvisioningEnvResolution;
+    teamRuntimeAuth?: TeamRuntimeAuthContext;
     limitContext?: boolean;
   }): Promise<TeamCreateRequest['members']> {
     const envByProvider = new Map<TeamProviderId, Promise<ProvisioningEnvResolution>>();
@@ -13454,7 +13672,9 @@ export class TeamProvisioningService {
         return cached;
       }
 
-      const created = this.buildProvisioningEnv(providerId);
+      const created = this.buildProvisioningEnv(providerId, undefined, {
+        teamRuntimeAuth: params.teamRuntimeAuth,
+      });
       envByProvider.set(providerId, created);
       return created;
     };
@@ -14481,10 +14701,16 @@ export class TeamProvisioningService {
         throw new Error('Claude CLI not found; install it or provide a valid path');
       }
 
+      const runtimeAuthMaterialId = randomUUID();
+      const teamRuntimeAuth: TeamRuntimeAuthContext = {
+        teamName: request.teamName,
+        authMaterialId: runtimeAuthMaterialId,
+        allowAnthropicApiKeyHelper: true,
+      };
       const provisioningEnv = await this.buildProvisioningEnv(
         request.providerId,
         request.providerBackendId,
-        { includeCodexTeammateAuth: teamRequestIncludesCodexMember(request) }
+        { includeCodexTeammateAuth: teamRequestIncludesCodexMember(request), teamRuntimeAuth }
       );
       const {
         env: shellEnv,
@@ -14506,6 +14732,7 @@ export class TeamProvisioningService {
         },
         primaryProviderId: request.providerId,
         primaryEnv: provisioningEnv,
+        teamRuntimeAuth,
         limitContext: request.limitContext,
       });
       const allEffectiveMemberSpecs = await this.resolveOpenCodeMemberWorkspacesForRuntime({
@@ -14526,12 +14753,29 @@ export class TeamProvisioningService {
       const effectiveMemberSpecs = allEffectiveMemberSpecs.filter((member) =>
         primaryMemberNames.has(member.name)
       );
+      const resolvedProviderId = resolveTeamProviderId(request.providerId);
+      const crossProviderMemberArgs = await this.buildCrossProviderMemberArgs(
+        resolvedProviderId,
+        effectiveMemberSpecs,
+        { teamRuntimeAuth }
+      );
+      Object.assign(shellEnv, crossProviderMemberArgs.envPatch);
+      if (crossProviderMemberArgs.usesAnthropicApiKeyHelper) {
+        for (const key of ANTHROPIC_HELPER_MODE_COMPETING_AUTH_ENV_KEYS) {
+          delete shellEnv[key];
+        }
+      }
+      const providerArgsByProvider = new Map<TeamProviderId, string[]>([
+        [resolvedProviderId, providerArgs],
+        ...crossProviderMemberArgs.providerArgsByProvider,
+      ]);
       const launchIdentity = await this.resolveAndValidateLaunchIdentity({
         claudePath,
         cwd: request.cwd,
         env: shellEnv,
         request,
         effectiveMembers: effectiveMemberSpecs,
+        providerArgsByProvider,
       });
       const runId = randomUUID();
       const startedAt = nowIso();
@@ -14600,6 +14844,7 @@ export class TeamProvisioningService {
         authFailureRetried: false,
         authRetryInProgress: false,
         spawnContext: null,
+        anthropicApiKeyHelper: provisioningEnv.anthropicApiKeyHelper ?? null,
         pendingApprovals: new Map(),
         processedPermissionRequestIds: new Set(),
         pendingPostCompactReminder: false,
@@ -14684,6 +14929,11 @@ export class TeamProvisioningService {
       } catch (error) {
         this.runs.delete(runId);
         this.provisioningRunByTeam.delete(request.teamName);
+        if (provisioningEnv.anthropicApiKeyHelper) {
+          await cleanupAnthropicTeamApiKeyHelperMaterial({
+            directory: provisioningEnv.anthropicApiKeyHelper.directory,
+          }).catch(() => undefined);
+        }
         await removeDeterministicBootstrapSpecFile(run.bootstrapSpecPath).catch(() => {});
         run.bootstrapSpecPath = null;
         await removeDeterministicBootstrapUserPromptFile(run.bootstrapUserPromptPath).catch(
@@ -14697,10 +14947,16 @@ export class TeamProvisioningService {
         request.model,
         launchIdentity
       );
-      const resolvedProviderId = resolveTeamProviderId(request.providerId);
-      const providerFastModeArgs = buildProviderFastModeArgs(resolvedProviderId, launchIdentity);
-      const runtimeTurnSettledHookArgs =
-        await this.buildRuntimeTurnSettledHookSettingsArgs(resolvedProviderId);
+      const extraCliArgs = parseCliArgs(request.extraCliArgs);
+      const runtimeArgsPlan = await this.buildTeamRuntimeLaunchArgsPlan({
+        teamName: request.teamName,
+        providerId: resolvedProviderId,
+        launchIdentity,
+        envResolution: provisioningEnv,
+        extraArgs: extraCliArgs,
+        includeAnthropicHelper: resolvedProviderId === 'anthropic',
+        contextLabel: 'Team create launch',
+      });
       const spawnArgs = mergeJsonSettingsArgs([
         '--input-format',
         'stream-json',
@@ -14725,12 +14981,14 @@ export class TeamProvisioningService {
           : ['--permission-prompt-tool', 'stdio', '--permission-mode', 'default']),
         ...(launchModelArg ? ['--model', launchModelArg] : []),
         ...(launchIdentity.resolvedEffort ? ['--effort', launchIdentity.resolvedEffort] : []),
-        ...providerFastModeArgs,
-        ...runtimeTurnSettledHookArgs,
+        ...runtimeArgsPlan.fastModeArgs,
+        ...runtimeArgsPlan.runtimeTurnSettledHookArgs,
         ...(request.worktree ? ['--worktree', request.worktree] : []),
         ...buildDesktopTeammateModeCliArgs(teammateModeDecision),
-        ...parseCliArgs(request.extraCliArgs),
-        ...providerArgs,
+        ...runtimeArgsPlan.extraArgs,
+        ...runtimeArgsPlan.providerArgs,
+        ...runtimeArgsPlan.settingsArgs,
+        ...crossProviderMemberArgs.args,
       ]);
       const runtimeWarning = buildRuntimeLaunchWarning(request, shellEnv, {
         geminiRuntimeAuth,
@@ -14811,6 +15069,11 @@ export class TeamProvisioningService {
         if (run.mcpConfigPath) {
           await this.mcpConfigBuilder.removeConfigFile(run.mcpConfigPath).catch(() => {});
           run.mcpConfigPath = null;
+        }
+        if (provisioningEnv.anthropicApiKeyHelper) {
+          await cleanupAnthropicTeamApiKeyHelperMaterial({
+            directory: provisioningEnv.anthropicApiKeyHelper.directory,
+          }).catch(() => undefined);
         }
         this.runs.delete(runId);
         this.provisioningRunByTeam.delete(request.teamName);
@@ -15587,11 +15850,16 @@ export class TeamProvisioningService {
       const teamsBasePathsToProbe = getTeamsBasePathsToProbe();
       const runId = randomUUID();
       const startedAt = nowIso();
+      const teamRuntimeAuth: TeamRuntimeAuthContext = {
+        teamName: request.teamName,
+        authMaterialId: runId,
+        allowAnthropicApiKeyHelper: true,
+      };
 
       const provisioningEnv = await this.buildProvisioningEnv(
         request.providerId,
         request.providerBackendId,
-        { includeCodexTeammateAuth: teamRequestIncludesCodexMember(request) }
+        { includeCodexTeammateAuth: teamRequestIncludesCodexMember(request), teamRuntimeAuth }
       );
       const {
         env: shellEnv,
@@ -15614,6 +15882,7 @@ export class TeamProvisioningService {
         },
         primaryProviderId: request.providerId,
         primaryEnv: provisioningEnv,
+        teamRuntimeAuth,
         limitContext: request.limitContext,
       });
       const allEffectiveMemberSpecs = await this.resolveOpenCodeMemberWorkspacesForRuntime({
@@ -15635,12 +15904,29 @@ export class TeamProvisioningService {
         primaryMemberNames.has(member.name)
       );
       const expectedMembers = effectiveMemberSpecs.map((member) => member.name);
+      const resolvedProviderId = resolveTeamProviderId(request.providerId);
+      const crossProviderMemberArgs = await this.buildCrossProviderMemberArgs(
+        resolvedProviderId,
+        effectiveMemberSpecs,
+        { teamRuntimeAuth }
+      );
+      Object.assign(shellEnv, crossProviderMemberArgs.envPatch);
+      if (crossProviderMemberArgs.usesAnthropicApiKeyHelper) {
+        for (const key of ANTHROPIC_HELPER_MODE_COMPETING_AUTH_ENV_KEYS) {
+          delete shellEnv[key];
+        }
+      }
+      const providerArgsByProvider = new Map<TeamProviderId, string[]>([
+        [resolvedProviderId, providerArgs],
+        ...crossProviderMemberArgs.providerArgsByProvider,
+      ]);
       const launchIdentity = await this.resolveAndValidateLaunchIdentity({
         claudePath,
         cwd: request.cwd,
         env: shellEnv,
         request,
         effectiveMembers: effectiveMemberSpecs,
+        providerArgsByProvider,
       });
 
       // Build a synthetic TeamCreateRequest for reuse by shared infrastructure
@@ -15734,6 +16020,7 @@ export class TeamProvisioningService {
         authFailureRetried: false,
         authRetryInProgress: false,
         spawnContext: null,
+        anthropicApiKeyHelper: provisioningEnv.anthropicApiKeyHelper ?? null,
         pendingApprovals: new Map(),
         processedPermissionRequestIds: new Set(),
         pendingPostCompactReminder: false,
@@ -15842,6 +16129,11 @@ export class TeamProvisioningService {
       } catch (error) {
         this.runs.delete(runId);
         this.provisioningRunByTeam.delete(request.teamName);
+        if (provisioningEnv.anthropicApiKeyHelper) {
+          await cleanupAnthropicTeamApiKeyHelperMaterial({
+            directory: provisioningEnv.anthropicApiKeyHelper.directory,
+          }).catch(() => undefined);
+        }
         await removeDeterministicBootstrapSpecFile(run.bootstrapSpecPath).catch(() => {});
         run.bootstrapSpecPath = null;
         await removeDeterministicBootstrapUserPromptFile(run.bootstrapUserPromptPath).catch(
@@ -15885,35 +16177,38 @@ export class TeamProvisioningService {
         request.model,
         launchIdentity
       );
-      const resolvedProviderId = resolveTeamProviderId(request.providerId);
-      const providerFastModeArgs = buildProviderFastModeArgs(resolvedProviderId, launchIdentity);
-      const runtimeTurnSettledHookArgs =
-        await this.buildRuntimeTurnSettledHookSettingsArgs(resolvedProviderId);
+      const extraCliArgs = parseCliArgs(request.extraCliArgs);
+      const runtimeArgsPlan = await this.buildTeamRuntimeLaunchArgsPlan({
+        teamName: request.teamName,
+        providerId: resolvedProviderId,
+        launchIdentity,
+        envResolution: provisioningEnv,
+        extraArgs: extraCliArgs,
+        includeAnthropicHelper: resolvedProviderId === 'anthropic',
+        contextLabel: 'Team launch',
+      });
       if (launchModelArg) {
         launchArgs.push('--model', launchModelArg);
       }
       if (launchIdentity.resolvedEffort) {
         launchArgs.push('--effort', launchIdentity.resolvedEffort);
       }
-      launchArgs.push(...providerFastModeArgs);
-      launchArgs.push(...runtimeTurnSettledHookArgs);
+      launchArgs.push(...runtimeArgsPlan.fastModeArgs);
+      launchArgs.push(...runtimeArgsPlan.runtimeTurnSettledHookArgs);
       if (request.worktree) {
         launchArgs.push('--worktree', request.worktree);
       }
       launchArgs.push(...buildDesktopTeammateModeCliArgs(teammateModeDecision));
-      launchArgs.push(...parseCliArgs(request.extraCliArgs));
-      launchArgs.push(...providerArgs);
+      launchArgs.push(...runtimeArgsPlan.extraArgs);
+      launchArgs.push(...runtimeArgsPlan.providerArgs);
+      launchArgs.push(...runtimeArgsPlan.settingsArgs);
       // When the lead uses a different provider than some teammates (e.g., anthropic lead
       // with codex teammates), the lead needs the teammate provider's launch args so they
       // can be inherited by the teammate subprocess via buildInheritedCliFlags.
       // Without this, a codex teammate spawned from an anthropic lead has no way to learn
       // about the required forced_login_method (chatgpt/api) and fails to start.
       emitProvisioningCheckpoint(run, 'Resolving cross-provider member launch args');
-      const crossProviderMemberArgs = await this.buildCrossProviderMemberArgs(
-        resolvedProviderId,
-        effectiveMemberSpecs
-      );
-      launchArgs.push(...crossProviderMemberArgs);
+      launchArgs.push(...crossProviderMemberArgs.args);
       const finalLaunchArgs = mergeJsonSettingsArgs(launchArgs);
       const runtimeWarning = buildRuntimeLaunchWarning(request, shellEnv, {
         geminiRuntimeAuth,
@@ -15988,6 +16283,11 @@ export class TeamProvisioningService {
           () => {}
         );
         run.bootstrapUserPromptPath = null;
+        if (provisioningEnv.anthropicApiKeyHelper) {
+          await cleanupAnthropicTeamApiKeyHelperMaterial({
+            directory: provisioningEnv.anthropicApiKeyHelper.directory,
+          }).catch(() => undefined);
+        }
         this.runs.delete(runId);
         this.provisioningRunByTeam.delete(request.teamName);
         await this.restorePrelaunchConfig(request.teamName);
@@ -21863,6 +22163,7 @@ export class TeamProvisioningService {
       if (this.hasSecondaryRuntimeRuns(teamName)) {
         await this.stopMixedSecondaryRuntimeLanes(teamName);
       }
+      await this.cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(teamName);
       return;
     }
     const run = this.runs.get(runId);
@@ -21870,6 +22171,7 @@ export class TeamProvisioningService {
       const runtimeProgress = this.runtimeAdapterProgressByRunId.get(runId);
       if (runtimeProgress && this.isCancellableRuntimeAdapterProgress(runtimeProgress)) {
         await this.cancelRuntimeAdapterProvisioning(runId, runtimeProgress);
+        await this.cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(teamName);
         return;
       }
       const runtimeRun = this.runtimeAdapterRunByTeam.get(teamName);
@@ -21880,6 +22182,7 @@ export class TeamProvisioningService {
             await this.stopOpenCodeRuntimeAdapterTeam(teamName, runId);
           }
         });
+        await this.cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(teamName);
         return;
       }
       if (this.hasSecondaryRuntimeRuns(teamName)) {
@@ -21887,12 +22190,14 @@ export class TeamProvisioningService {
       }
       this.provisioningRunByTeam.delete(teamName);
       this.aliveRunByTeam.delete(teamName);
+      await this.cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(teamName);
       return;
     }
     if (run.processKilled || run.cancelRequested) {
       if (this.hasSecondaryRuntimeRuns(teamName)) {
         await this.stopMixedSecondaryRuntimeLanes(teamName);
       }
+      await this.cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(teamName);
       return;
     }
     run.processKilled = true;
@@ -21906,6 +22211,7 @@ export class TeamProvisioningService {
     this.cleanupRun(run);
     logger.info(`[${teamName}] Process stopped (SIGKILL)`);
     await stopSecondaryRuntimeLanes;
+    await this.cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(teamName);
   }
 
   private getShutdownTrackedTeamNames(): string[] {
@@ -22179,6 +22485,23 @@ export class TeamProvisioningService {
     this.killOrphanedTeamAgentProcesses(teamName);
   }
 
+  private async cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(
+    teamName: string
+  ): Promise<void> {
+    try {
+      await cleanupAnthropicTeamApiKeyHelperForTeam({
+        teamName,
+        baseClaudeDir: getClaudeBasePath(),
+      });
+    } catch (error) {
+      logger.warn(
+        `[${teamName}] Failed to cleanup Anthropic team API-key helper material: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
   private readPersistedTeamProjectPath(teamName: string): string | null {
     const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
     try {
@@ -22329,6 +22652,7 @@ export class TeamProvisioningService {
       logger.info(`Cleaning up persisted teammate runtimes on shutdown: ${orphanOnly.join(', ')}`);
       for (const teamName of orphanOnly) {
         this.stopPersistentTeamMembers(teamName);
+        await this.cleanupAnthropicApiKeyHelperMaterialForStoppedTeam(teamName);
       }
     }
   }
@@ -22512,6 +22836,18 @@ export class TeamProvisioningService {
       });
       if (shouldCleanupUnconfirmedLaunchRuntimes) {
         this.stopPersistentTeamMembers(run.teamName);
+        if (run.anthropicApiKeyHelper) {
+          void cleanupAnthropicTeamApiKeyHelperMaterial({
+            directory: run.anthropicApiKeyHelper.directory,
+            skipIfLiveProcessReferences: true,
+          }).catch((error: unknown) => {
+            logger.warn(
+              `[${run.teamName}] Failed to cleanup failed-run Anthropic API-key helper material: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          });
+        }
       }
       run.processKilled = true;
       killTeamProcess(run.child);
@@ -25496,7 +25832,10 @@ export class TeamProvisioningService {
   private async buildProvisioningEnv(
     providerId: TeamProviderId | undefined = 'anthropic',
     providerBackendId?: string | null,
-    options?: { includeCodexTeammateAuth?: boolean }
+    options?: {
+      includeCodexTeammateAuth?: boolean;
+      teamRuntimeAuth?: TeamRuntimeAuthContext;
+    }
   ): Promise<ProvisioningEnvResolution> {
     const shellEnv = await resolveInteractiveShellEnv();
     // getHomeDir() uses Electron's app.getPath('home') which handles Unicode
@@ -25610,6 +25949,54 @@ export class TeamProvisioningService {
       };
     }
 
+    const teamRuntimeAuth = options?.teamRuntimeAuth;
+    const helperAllowed =
+      resolvedProviderId === 'anthropic' &&
+      teamRuntimeAuth?.allowAnthropicApiKeyHelper === true &&
+      typeof teamRuntimeAuth.teamName === 'string' &&
+      teamRuntimeAuth.teamName.trim().length > 0 &&
+      typeof teamRuntimeAuth.authMaterialId === 'string' &&
+      teamRuntimeAuth.authMaterialId.trim().length > 0 &&
+      !isWindows &&
+      process.env[DISABLE_ANTHROPIC_TEAM_API_KEY_HELPER_ENV] !== '1';
+
+    if (helperAllowed) {
+      const apiKey =
+        await this.providerConnectionService.getConfiguredAnthropicApiKeyForTeamRuntime(
+          providerEnv
+        );
+      if (apiKey) {
+        const helper = await materializeAnthropicTeamApiKeyHelper({
+          teamName: teamRuntimeAuth.teamName!,
+          authMaterialId: teamRuntimeAuth.authMaterialId!,
+          apiKey,
+          baseClaudeDir: getClaudeBasePath(),
+        });
+        try {
+          await verifyAnthropicTeamApiKeyHelperMaterial({
+            helperPath: helper.helperPath,
+            expectedApiKey: apiKey,
+          });
+        } catch (error) {
+          await cleanupAnthropicTeamApiKeyHelperMaterial({ directory: helper.directory });
+          throw error;
+        }
+
+        for (const key of ANTHROPIC_HELPER_MODE_COMPETING_AUTH_ENV_KEYS) {
+          delete providerEnv[key];
+        }
+        Object.assign(providerEnv, helper.envPatch);
+
+        return {
+          env: providerEnv,
+          authSource: 'anthropic_api_key_helper',
+          geminiRuntimeAuth: null,
+          providerArgs: [...(providerEnvResult.providerArgs ?? []), ...helper.settingsArgs],
+          anthropicApiKeyHelper: helper,
+        };
+      }
+    }
+
     // 1. Explicit ANTHROPIC_API_KEY — works with `-p` mode directly
     if (
       typeof providerEnv.ANTHROPIC_API_KEY === 'string' &&
@@ -25653,8 +26040,9 @@ export class TeamProvisioningService {
 
   private async buildCrossProviderMemberArgs(
     primaryProviderId: TeamProviderId,
-    memberSpecs: TeamCreateRequest['members']
-  ): Promise<string[]> {
+    memberSpecs: TeamCreateRequest['members'],
+    options?: { teamRuntimeAuth?: TeamRuntimeAuthContext }
+  ): Promise<CrossProviderMemberArgsResult> {
     const crossProviderIds = new Set<TeamProviderId>();
     for (const member of memberSpecs) {
       const memberId = resolveTeamProviderId(
@@ -25665,12 +26053,27 @@ export class TeamProvisioningService {
       }
     }
     const args: string[] = [];
+    const providerArgsByProvider = new Map<TeamProviderId, string[]>();
+    const envPatch: NodeJS.ProcessEnv = {};
+    let usesAnthropicApiKeyHelper = false;
     for (const providerId of crossProviderIds) {
       try {
-        const env = await this.buildProvisioningEnv(providerId);
+        const env = await this.buildProvisioningEnv(providerId, undefined, {
+          teamRuntimeAuth: options?.teamRuntimeAuth,
+        });
         args.push(...(await this.buildRuntimeTurnSettledHookSettingsArgs(providerId)));
-        if (env.providerArgs) {
-          args.push(...env.providerArgs);
+        const providerArgs = env.providerArgs ?? [];
+        providerArgsByProvider.set(providerId, providerArgs);
+        if (env.anthropicApiKeyHelper) {
+          usesAnthropicApiKeyHelper = true;
+          Object.assign(envPatch, env.anthropicApiKeyHelper.envPatch);
+        }
+        const flattenedArgs =
+          providerId === 'anthropic' && env.anthropicApiKeyHelper
+            ? filterOutSettingsPathArgs(providerArgs, env.anthropicApiKeyHelper.settingsPath)
+            : providerArgs;
+        if (flattenedArgs.length > 0) {
+          args.push(...flattenedArgs);
         }
       } catch (error) {
         console.error(
@@ -25680,7 +26083,7 @@ export class TeamProvisioningService {
         // Best-effort: don't block launch if cross-provider env resolution fails
       }
     }
-    return args;
+    return { args, providerArgsByProvider, envPatch, usesAnthropicApiKeyHelper };
   }
 
   private async resolveControlApiBaseUrl(): Promise<string | null> {

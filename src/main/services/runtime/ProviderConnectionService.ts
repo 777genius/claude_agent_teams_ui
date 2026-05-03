@@ -175,6 +175,20 @@ export class ProviderConnectionService {
     return null;
   }
 
+  async getConfiguredAnthropicApiKeyForTeamRuntime(env: NodeJS.ProcessEnv): Promise<string | null> {
+    if (this.getConfiguredAuthMode('anthropic') !== 'api_key') {
+      return null;
+    }
+
+    const storedKey = await this.apiKeyService.lookupPreferred('ANTHROPIC_API_KEY');
+    if (storedKey?.value.trim()) {
+      return storedKey.value.trim();
+    }
+
+    const envKey = env.ANTHROPIC_API_KEY?.trim();
+    return envKey || null;
+  }
+
   async applyConfiguredConnectionEnv(
     env: NodeJS.ProcessEnv,
     providerId: CliProviderId,

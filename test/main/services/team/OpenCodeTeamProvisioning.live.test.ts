@@ -67,6 +67,7 @@ liveDescribe('OpenCode team provisioning live e2e', () => {
       ...createStableBridgeEnv(),
       PATH: withBunOnPath(process.env.PATH ?? ''),
       XDG_DATA_HOME: path.join(tempDir, 'xdg-data'),
+      AGENT_TEAMS_MCP_CLAUDE_DIR: tempClaudeRoot,
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON: JSON.stringify(mcpLaunchSpec.args),

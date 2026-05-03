@@ -1,4 +1,4 @@
-type JsonObject = Record<string, unknown>;
+export type JsonObject = Record<string, unknown>;
 
 type JsonArray = unknown[];
 
@@ -6,7 +6,7 @@ function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function parseJsonSettingsObject(raw: string): JsonObject | null {
+export function parseJsonSettingsObject(raw: string): JsonObject | null {
   try {
     const parsed = JSON.parse(raw) as unknown;
     return isJsonObject(parsed) ? parsed : null;
@@ -73,7 +73,7 @@ function mergeHooksObject(target: JsonObject, source: JsonObject): JsonObject {
       continue;
     }
     if (isJsonObject(currentValue) && isJsonObject(sourceValue)) {
-      merged[hookName] = deepMergeJsonObjects(currentValue, sourceValue);
+      merged[hookName] = mergeJsonSettingsObjects(currentValue, sourceValue);
       continue;
     }
     merged[hookName] = sourceValue;
@@ -81,7 +81,7 @@ function mergeHooksObject(target: JsonObject, source: JsonObject): JsonObject {
   return merged;
 }
 
-function deepMergeJsonObjects(target: JsonObject, source: JsonObject): JsonObject {
+export function mergeJsonSettingsObjects(target: JsonObject, source: JsonObject): JsonObject {
   const merged: JsonObject = { ...target };
   for (const [key, value] of Object.entries(source)) {
     const current = merged[key];
@@ -90,7 +90,7 @@ function deepMergeJsonObjects(target: JsonObject, source: JsonObject): JsonObjec
       continue;
     }
     if (isJsonObject(current) && isJsonObject(value)) {
-      merged[key] = deepMergeJsonObjects(current, value);
+      merged[key] = mergeJsonSettingsObjects(current, value);
       continue;
     }
     merged[key] = value;
@@ -120,7 +120,7 @@ export function mergeJsonSettingsArgs(args: string[]): string[] {
           if (firstSettingsIndex === null) {
             firstSettingsIndex = output.length;
           }
-          mergedSettings = deepMergeJsonObjects(mergedSettings ?? {}, parsed);
+          mergedSettings = mergeJsonSettingsObjects(mergedSettings ?? {}, parsed);
           i += 2;
           continue;
         }
@@ -137,7 +137,7 @@ export function mergeJsonSettingsArgs(args: string[]): string[] {
         if (firstSettingsIndex === null) {
           firstSettingsIndex = output.length;
         }
-        mergedSettings = deepMergeJsonObjects(mergedSettings ?? {}, parsed);
+        mergedSettings = mergeJsonSettingsObjects(mergedSettings ?? {}, parsed);
         i += 1;
         continue;
       }

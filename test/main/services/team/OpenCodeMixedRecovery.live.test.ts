@@ -77,6 +77,7 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
       ...createStableBridgeEnv(),
       PATH: withBunOnPath(process.env.PATH ?? ''),
       XDG_DATA_HOME: path.join(tempDir, 'xdg-data-single'),
+      AGENT_TEAMS_MCP_CLAUDE_DIR: tempClaudeRoot,
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
       CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON: JSON.stringify(mcpLaunchSpec.args),
@@ -119,7 +120,7 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
       });
       launchedLanes.push(launchInput);
       const launchResult = await adapter.launch(launchInput);
-      expect(launchResult.teamLaunchState).toBe('clean_success');
+      expectCleanOpenCodeLaunch(launchResult);
       expect(launchResult.members.bob).toMatchObject({
         launchState: 'confirmed_alive',
         runtimeAlive: true,
@@ -181,6 +182,7 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
         ...createStableBridgeEnv(),
         PATH: withBunOnPath(process.env.PATH ?? ''),
         XDG_DATA_HOME: path.join(tempDir, 'xdg-data-multi'),
+        AGENT_TEAMS_MCP_CLAUDE_DIR: tempClaudeRoot,
         CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_COMMAND: mcpLaunchSpec.command,
         CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
         CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON: JSON.stringify(mcpLaunchSpec.args),
@@ -225,7 +227,7 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
           });
           launchedLanes.push(launchInput);
           const launchResult = await adapter.launch(launchInput);
-          expect(launchResult.teamLaunchState).toBe('clean_success');
+          expectCleanOpenCodeLaunch(launchResult);
           expect(launchResult.members[memberName]).toMatchObject({
             launchState: 'confirmed_alive',
             runtimeAlive: true,
@@ -308,6 +310,21 @@ function createSecondaryLaneLaunchInput(input: {
     ],
     previousLaunchState: null,
   };
+}
+
+function expectCleanOpenCodeLaunch(
+  launchResult: Awaited<ReturnType<OpenCodeTeamRuntimeAdapter['launch']>>
+): void {
+  if (launchResult.teamLaunchState !== 'clean_success') {
+    throw new Error(
+      `Expected OpenCode launch to be clean_success, received ${launchResult.teamLaunchState}:\n${JSON.stringify(
+        launchResult,
+        null,
+        2
+      )}`
+    );
+  }
+  expect(launchResult.teamLaunchState).toBe('clean_success');
 }
 
 async function writeMixedRecoveryFixtures(input: {

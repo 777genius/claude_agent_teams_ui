@@ -2,7 +2,7 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
 import { setClaudeBasePathOverride } from '../../../../src/main/utils/pathDecoder';
@@ -11,6 +11,14 @@ import type {
   TeamAgentRuntimeSnapshot,
   TeamProvisioningProgress,
 } from '../../../../src/shared/types';
+
+vi.mock('../../../../src/main/services/infrastructure/NotificationManager', () => ({
+  NotificationManager: {
+    getInstance: () => ({
+      addTeamNotification: vi.fn(async () => undefined),
+    }),
+  },
+}));
 
 const liveDescribe =
   process.env.ANTHROPIC_RUNTIME_MEMORY_LIVE === '1' && process.env.ANTHROPIC_API_KEY?.trim()

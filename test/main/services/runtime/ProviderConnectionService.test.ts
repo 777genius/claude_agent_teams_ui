@@ -995,4 +995,65 @@ describe('ProviderConnectionService', () => {
       source: 'app-server',
     });
   });
+
+  it('returns the stored Anthropic API key for team helper mode only in api_key auth mode', async () => {
+    const lookupPreferred = vi.fn().mockResolvedValue({
+      envVarName: 'ANTHROPIC_API_KEY',
+      value: 'stored-team-key',
+    });
+    const { ProviderConnectionService } =
+      await import('@main/services/runtime/ProviderConnectionService');
+
+    const service = new ProviderConnectionService(
+      {
+        lookupPreferred,
+      } as never,
+      {
+        getConfig: () => createConfig('api_key'),
+      } as never
+    );
+
+    await expect(
+      service.getConfiguredAnthropicApiKeyForTeamRuntime({
+        ANTHROPIC_API_KEY: 'env-team-key',
+      })
+    ).resolves.toBe('stored-team-key');
+    expect(lookupPreferred).toHaveBeenCalledWith('ANTHROPIC_API_KEY');
+  });
+
+  it('does not use token-only or OAuth credentials for Anthropic team helper mode', async () => {
+    const { ProviderConnectionService } =
+      await import('@main/services/runtime/ProviderConnectionService');
+
+    const oauthService = new ProviderConnectionService(
+      {
+        lookupPreferred: vi.fn().mockResolvedValue({
+          envVarName: 'ANTHROPIC_API_KEY',
+          value: 'stored-team-key',
+        }),
+      } as never,
+      {
+        getConfig: () => createConfig('oauth'),
+      } as never
+    );
+    const apiKeyService = new ProviderConnectionService(
+      {
+        lookupPreferred: vi.fn().mockResolvedValue(null),
+      } as never,
+      {
+        getConfig: () => createConfig('api_key'),
+      } as never
+    );
+
+    await expect(
+      oauthService.getConfiguredAnthropicApiKeyForTeamRuntime({
+        ANTHROPIC_API_KEY: 'env-team-key',
+      })
+    ).resolves.toBeNull();
+    await expect(
+      apiKeyService.getConfiguredAnthropicApiKeyForTeamRuntime({
+        ANTHROPIC_AUTH_TOKEN: 'proxy-token-only',
+      })
+    ).resolves.toBeNull();
+  });
 });
