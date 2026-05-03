@@ -140,6 +140,29 @@ describe('buildTeamRuntimeDisplayRows', () => {
     });
   });
 
+  it('degrades spawn-only rows when online process evidence has stalled bootstrap', () => {
+    const rows = buildTeamRuntimeDisplayRows({
+      members: [{ name: 'alice' }],
+      spawnStatuses: {
+        alice: createSpawnStatus({
+          status: 'online',
+          launchState: 'runtime_pending_bootstrap',
+          runtimeAlive: true,
+          bootstrapStalled: true,
+          runtimeDiagnostic: 'Runtime is alive, but bootstrap did not confirm',
+        }),
+      },
+    });
+
+    expect(rows[0]).toMatchObject({
+      memberName: 'alice',
+      state: 'degraded',
+      source: 'spawn-status',
+      stateReason: 'Runtime is alive, but bootstrap did not confirm',
+      actionsAllowed: false,
+    });
+  });
+
   it('uses explicit spawn status handling without promoting unknown statuses to running', () => {
     const rows = buildTeamRuntimeDisplayRows({
       members: [{ name: 'alice' }, { name: 'bob' }, { name: 'carol' }],
