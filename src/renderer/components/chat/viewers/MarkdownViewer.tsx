@@ -1169,12 +1169,36 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = React.memo(function
           <span className="text-sm font-medium" style={{ color: COLOR_TEXT_SECONDARY }}>
             {label}
           </span>
-          {copyable && (
-            <>
-              <span className="flex-1" />
-              <CopyButton text={content} inline />
-            </>
-          )}
+          <span className="flex-1" />
+          <button
+            type="button"
+            className="text-xs underline"
+            style={{ color: PROSE_LINK }}
+            onClick={() => setShowRaw(true)}
+            title="Show raw"
+          >
+            Show raw
+          </button>
+          {copyable && <CopyButton text={content} inline />}
+        </div>
+      )}
+
+      {/* Show raw toggle for no-label path */}
+      {!label && (
+        <div
+          className="flex items-center justify-between px-3 py-1 text-xs"
+          style={{ color: COLOR_TEXT_MUTED }}
+        >
+          <span />
+          <button
+            type="button"
+            className="underline"
+            style={{ color: PROSE_LINK }}
+            onClick={() => setShowRaw(true)}
+            title="Show raw"
+          >
+            Show raw
+          </button>
         </div>
       )}
 

@@ -736,7 +736,7 @@ export const TeamListView = memo(function TeamListView(): React.JSX.Element {
     );
   }
 
-  const createDialogElement = (
+  const createDialogElement = showCreateDialog && (
     <Suspense fallback={null}>
       <CreateTeamDialog
         open={showCreateDialog}
@@ -755,7 +755,7 @@ export const TeamListView = memo(function TeamListView(): React.JSX.Element {
     </Suspense>
   );
 
-  const launchDialogElement = (
+  const launchDialogElement = launchDialogOpen && (
     <Suspense fallback={null}>
       <LaunchTeamDialog
         mode="launch"

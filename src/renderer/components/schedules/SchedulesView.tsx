@@ -28,11 +28,13 @@ import { ScheduleRunLogDialog } from '../team/schedule/ScheduleRunLogDialog';
 import { ScheduleRunRow } from '../team/schedule/ScheduleRunRow';
 import { ScheduleStatusBadge } from '../team/schedule/ScheduleStatusBadge';
 
-const LaunchTeamDialog = lazy(() =>
-  import('../team/dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
-);
-
 import type { Schedule, ScheduleRun, ScheduleStatus } from '@shared/types';
+
+const LaunchTeamDialog = lazy(() =>
+  import('@renderer/components/team/dialogs/LaunchTeamDialog').then((m) => ({
+    default: m.LaunchTeamDialog,
+  }))
+);
 
 // =============================================================================
 // Constants
@@ -565,15 +567,17 @@ export const SchedulesView = (): React.JSX.Element => {
       </div>
 
       {/* Create/Edit Dialog */}
-      <Suspense fallback={null}>
-        <LaunchTeamDialog
-          mode="schedule"
-          open={dialogOpen}
-          teamName={editingSchedule?.teamName}
-          schedule={editingSchedule}
-          onClose={handleClose}
-        />
-      </Suspense>
+      {dialogOpen && (
+        <Suspense fallback={null}>
+          <LaunchTeamDialog
+            mode="schedule"
+            open={dialogOpen}
+            teamName={editingSchedule?.teamName}
+            schedule={editingSchedule}
+            onClose={handleClose}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

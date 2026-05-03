@@ -307,15 +307,17 @@ export const ScheduleSection = ({ teamName }: ScheduleSectionProps): React.JSX.E
       )}
 
       {/* Create/Edit Dialog */}
-      <Suspense fallback={null}>
-        <LaunchTeamDialog
-          mode="schedule"
-          open={dialogOpen}
-          teamName={teamName}
-          schedule={editingSchedule}
-          onClose={handleClose}
-        />
-      </Suspense>
+      {dialogOpen && (
+        <Suspense fallback={null}>
+          <LaunchTeamDialog
+            mode="schedule"
+            open={dialogOpen}
+            teamName={teamName}
+            schedule={editingSchedule}
+            onClose={handleClose}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };
