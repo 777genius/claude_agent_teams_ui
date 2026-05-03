@@ -148,7 +148,9 @@ export class TeamMemberLogsFinder {
     private readonly inboxReader: TeamInboxReader = new TeamInboxReader(),
     private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
     private readonly projectResolver: TeamTranscriptProjectResolver = new TeamTranscriptProjectResolver(
-      configReader
+      {
+        getConfig: (teamName) => configReader.getConfigSnapshot(teamName),
+      }
     )
   ) {}
 

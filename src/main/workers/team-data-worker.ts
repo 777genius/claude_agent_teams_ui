@@ -36,11 +36,22 @@ function respond(msg: TeamDataWorkerResponse): void {
 }
 
 parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
+  const startedAt = Date.now();
+  const buildDiag = (): NonNullable<Extract<TeamDataWorkerResponse, { ok: true }>['diag']> => ({
+    op: msg.op,
+    ...(msg.payload && 'teamName' in msg.payload ? { teamName: msg.payload.teamName } : {}),
+    ...(msg.payload && 'taskId' in msg.payload ? { taskId: msg.payload.taskId } : {}),
+    totalMs: Date.now() - startedAt,
+  });
   try {
     switch (msg.op) {
+      case 'warmup': {
+        respond({ id: msg.id, ok: true, result: null, diag: buildDiag() });
+        break;
+      }
       case 'getTeamData': {
         const result = await teamDataService.getTeamData(msg.payload.teamName);
-        respond({ id: msg.id, ok: true, result });
+        respond({ id: msg.id, ok: true, result, diag: buildDiag() });
         break;
       }
       case 'getMessagesPage': {
@@ -48,17 +59,23 @@ parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
           msg.payload.teamName,
           msg.payload.options
         );
-        respond({ id: msg.id, ok: true, result });
+        respond({ id: msg.id, ok: true, result, diag: buildDiag() });
         break;
       }
       case 'getMemberActivityMeta': {
         const result = await teamDataService.getMemberActivityMeta(msg.payload.teamName);
-        respond({ id: msg.id, ok: true, result });
+        respond({ id: msg.id, ok: true, result, diag: buildDiag() });
         break;
       }
       case 'invalidateTeamConfig': {
         TeamConfigReader.invalidateTeam(msg.payload.teamName);
-        respond({ id: msg.id, ok: true, result: null });
+        teamDataService.invalidateMessageFeed(msg.payload.teamName);
+        respond({ id: msg.id, ok: true, result: null, diag: buildDiag() });
+        break;
+      }
+      case 'invalidateTeamMessageFeed': {
+        teamDataService.invalidateMessageFeed(msg.payload.teamName);
+        respond({ id: msg.id, ok: true, result: null, diag: buildDiag() });
         break;
       }
       case 'findLogsForTask': {
@@ -95,7 +112,7 @@ parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
           logsInFlight.set(cacheKey, promise);
         }
         const result = await promise;
-        respond({ id: msg.id, ok: true, result });
+        respond({ id: msg.id, ok: true, result, diag: buildDiag() });
         break;
       }
       default: {

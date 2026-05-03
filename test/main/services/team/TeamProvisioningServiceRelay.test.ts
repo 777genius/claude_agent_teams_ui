@@ -20,12 +20,15 @@ const hoisted = vi.hoisted(() => {
     return {
       isFile: () => true,
       size,
-      mode: 0o644,
-      dev: 0,
-      ino: 0,
-      mtimeMs: 0,
-      ctimeMs: 0,
-      birthtimeMs: 0,
+      mode: 0o100644,
+      dev: 1,
+      ino: 1,
+      mtimeMs: 1,
+      ctimeMs: 1,
+      birthtimeMs: 1,
+      mtimeNs: 1n,
+      ctimeNs: 1n,
+      birthtimeNs: 1n,
     };
   });
 
@@ -301,6 +304,45 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(payload).toContain('"type":"user"');
     expect(payload).toContain('Please assign this to Alice.');
     expect(service.getLiveLeadProcessMessages(teamName)).toHaveLength(1);
+  });
+
+  it('uses snapshot config reads for lead inbox relay routing', async () => {
+    const getConfig = vi.fn(async () => {
+      throw new Error('verified config read should not be used for inbox relay routing');
+    });
+    const getConfigSnapshot = vi.fn(async () => ({
+      name: 'My Team',
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    }));
+    const service = new TeamProvisioningService({
+      getConfig,
+      getConfigSnapshot,
+    } as any);
+    const teamName = 'my-team';
+    seedLeadInbox(teamName, [
+      {
+        from: 'bob',
+        text: 'Please assign this to Alice.',
+        timestamp: '2026-02-23T10:00:00.000Z',
+        read: false,
+        summary: 'Need delegation',
+        messageId: 'm-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: 'OK, will do.' }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+    await expect(relayPromise).resolves.toBe(1);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(getConfigSnapshot).toHaveBeenCalledWith(teamName);
+    expect(getConfig).not.toHaveBeenCalled();
   });
 
   it('shows assistant text after relay capture has already settled', () => {
@@ -2221,11 +2263,15 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       delivered: true,
       diagnostics: [],
     });
+    const recipientSpy = vi.spyOn(service, 'isOpenCodeRuntimeRecipient');
 
     const relay = await service.relayInboxFileToLiveRecipient(teamName, 'jack');
 
     expect(relay).toMatchObject({ kind: 'opencode_member', relayed: 1 });
-    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
+    expect(recipientSpy).toHaveBeenCalledTimes(1);
+    const rows = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
+    );
     expect(rows[0].read).toBe(true);
   });
 

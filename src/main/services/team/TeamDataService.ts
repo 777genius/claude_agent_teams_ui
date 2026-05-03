@@ -112,7 +112,7 @@ const PROCESS_HEALTH_INTERVAL_MS = 2_000;
 const TASK_MAP_YIELD_EVERY = 250;
 const TASK_COMMENT_NOTIFICATION_SOURCE = 'system_notification';
 const PASSIVE_USER_REPLY_LINK_WINDOW_MS = 15_000;
-const MEMBER_RUNTIME_ADVISORY_SNAPSHOT_BUDGET_MS = 750;
+const MEMBER_RUNTIME_ADVISORY_SNAPSHOT_BUDGET_MS = 250;
 const MIXED_TEAM_LIVE_MUTATION_BLOCK_MESSAGE =
   'Live roster mutation on a running mixed team is not supported in V1. Stop the team, edit the roster, then relaunch.';
 
@@ -422,6 +422,10 @@ export class TeamDataService {
     return readConfigForUiSnapshot(this.configReader, teamName);
   }
 
+  private invalidateGlobalTaskProjectionCache(): void {
+    TeamTaskReader.invalidateAllTasksCache();
+  }
+
   private getController(teamName: string): AgentTeamsController {
     return this.controllerFactory(teamName);
   }
@@ -514,7 +518,7 @@ export class TeamDataService {
       request.catch(() => {
         /* background advisory refresh is best-effort */
       });
-      logger.warn(
+      logger.debug(
         `getTeamData team=${teamName} member runtime advisories exceeded ${MEMBER_RUNTIME_ADVISORY_SNAPSHOT_BUDGET_MS}ms budget; continuing without advisories for this snapshot`
       );
       return new Map();
@@ -865,7 +869,7 @@ export class TeamDataService {
   }
 
   async getTaskChangePresence(teamName: string): Promise<Record<string, TaskChangePresenceState>> {
-    const config = await this.configReader.getConfig(teamName);
+    const config = await this.readSnapshotConfig(teamName);
     if (!config) {
       throw new Error(`Team not found: ${teamName}`);
     }
@@ -1121,6 +1125,7 @@ export class TeamDataService {
 
     const tasksDir = path.join(getTasksBasePath(), teamName);
     await fs.promises.rm(tasksDir, { recursive: true, force: true });
+    TeamTaskReader.invalidateAllTasksCache();
   }
 
   async getTeamData(teamName: string): Promise<TeamViewSnapshot> {
@@ -1893,7 +1898,7 @@ export class TeamDataService {
 
     let projectPath: string | undefined;
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       projectPath = config?.projectPath;
     } catch {
       /* best-effort */
@@ -1915,6 +1920,7 @@ export class TeamDataService {
       ...(request.promptTaskRefs?.length ? { promptTaskRefs: request.promptTaskRefs } : {}),
       ...(shouldStart ? { startImmediately: true } : {}),
     }) as TeamTask;
+    this.invalidateGlobalTaskProjectionCache();
 
     // Controller's maybeNotifyAssignedOwner skips the lead (owner === lead).
     // For user-created tasks with startImmediately, ensure the lead also gets notified.
@@ -1943,6 +1949,7 @@ export class TeamDataService {
     }
 
     this.getController(teamName).tasks.startTask(taskId, 'user');
+    this.invalidateGlobalTaskProjectionCache();
 
     if (task.owner) {
       try {
@@ -1995,6 +2002,7 @@ export class TeamDataService {
     }
 
     this.getController(teamName).tasks.startTask(taskId, 'user');
+    this.invalidateGlobalTaskProjectionCache();
 
     if (task.owner) {
       await this.sendUserTaskStartNotification(teamName, task);
@@ -2050,6 +2058,7 @@ export class TeamDataService {
     actor?: string
   ): Promise<void> {
     this.getController(teamName).tasks.setTaskStatus(taskId, status, actor);
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   /**
@@ -2109,10 +2118,12 @@ export class TeamDataService {
 
   async softDeleteTask(teamName: string, taskId: string): Promise<void> {
     this.getController(teamName).tasks.softDeleteTask(taskId, 'user');
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async restoreTask(teamName: string, taskId: string): Promise<void> {
     this.getController(teamName).tasks.restoreTask(taskId, 'user');
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async getDeletedTasks(teamName: string): Promise<TeamTask[]> {
@@ -2121,6 +2132,7 @@ export class TeamDataService {
 
   async updateTaskOwner(teamName: string, taskId: string, owner: string | null): Promise<void> {
     this.getController(teamName).tasks.setTaskOwner(taskId, owner);
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async updateTaskFields(
@@ -2129,6 +2141,7 @@ export class TeamDataService {
     fields: { subject?: string; description?: string }
   ): Promise<void> {
     this.getController(teamName).tasks.updateTaskFields(taskId, fields);
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async addTaskAttachment(
@@ -2140,6 +2153,7 @@ export class TeamDataService {
       taskId,
       meta as unknown as Record<string, unknown>
     );
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async removeTaskAttachment(
@@ -2148,6 +2162,7 @@ export class TeamDataService {
     attachmentId: string
   ): Promise<void> {
     this.getController(teamName).tasks.removeTaskAttachment(taskId, attachmentId);
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async setTaskNeedsClarification(
@@ -2156,6 +2171,7 @@ export class TeamDataService {
     value: 'lead' | 'user' | null
   ): Promise<void> {
     this.getController(teamName).tasks.setNeedsClarification(taskId, value);
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async addTaskRelationship(
@@ -2169,6 +2185,7 @@ export class TeamDataService {
       targetId,
       type === 'blockedBy' ? 'blocked-by' : type
     );
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async removeTaskRelationship(
@@ -2182,6 +2199,7 @@ export class TeamDataService {
       targetId,
       type === 'blockedBy' ? 'blocked-by' : type
     );
+    this.invalidateGlobalTaskProjectionCache();
   }
 
   async addTaskComment(
@@ -2198,6 +2216,7 @@ export class TeamDataService {
       attachments,
       taskRefs,
     }) as { task?: TeamTask; comment?: TaskComment };
+    this.invalidateGlobalTaskProjectionCache();
     const comment =
       addResult.comment ??
       ({
@@ -2218,7 +2237,7 @@ export class TeamDataService {
     let enrichedRequest = request;
     if (!enrichedRequest.leadSessionId) {
       try {
-        const config = await this.configReader.getConfig(teamName);
+        const config = await readConfigForUiSnapshot(this.configReader, teamName);
         if (config?.leadSessionId) {
           enrichedRequest = { ...enrichedRequest, leadSessionId: config.leadSessionId };
         }
@@ -2291,7 +2310,7 @@ export class TeamDataService {
 
   private async resolveLeadName(teamName: string): Promise<string> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       return this.resolveLeadNameFromConfig(config);
     } catch {
       return 'team-lead';
@@ -2302,7 +2321,7 @@ export class TeamDataService {
     teamName: string
   ): Promise<{ leadName: string; leadSessionId?: string }> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       return {
         leadName: this.resolveLeadNameFromConfig(config),
         leadSessionId: config?.leadSessionId,
@@ -2619,7 +2638,7 @@ export class TeamDataService {
     const recoverPending = options?.recoverPending === true;
     let config: TeamConfig | null = null;
     try {
-      config = await this.configReader.getConfig(teamName);
+      config = await readConfigForUiSnapshot(this.configReader, teamName);
     } catch {
       return;
     }
@@ -2774,7 +2793,7 @@ export class TeamDataService {
   ): Promise<SendMessageResult> {
     let leadSessionId: string | undefined;
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
       leadSessionId = config?.leadSessionId;
     } catch {
       // non-critical — proceed without sessionId
@@ -2807,7 +2826,7 @@ export class TeamDataService {
 
   async getLeadMemberName(teamName: string): Promise<string | null> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await readConfigForUiSnapshot(this.configReader, teamName);
 
       // Check config.json members first (Claude Code-created teams)
       if (config?.members?.length) {
@@ -2832,7 +2851,7 @@ export class TeamDataService {
 
   async getTeamDisplayName(teamName: string): Promise<string> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await this.readSnapshotConfig(teamName);
       const displayName = config?.name?.trim();
       return displayName || teamName;
     } catch {
@@ -2845,7 +2864,7 @@ export class TeamDataService {
     projectPath?: string;
   }> {
     try {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await this.readSnapshotConfig(teamName);
       const displayName = config?.name?.trim() || teamName;
       const projectPath =
         typeof config?.projectPath === 'string' && config.projectPath.trim().length > 0
@@ -2943,6 +2962,7 @@ export class TeamDataService {
     await this.membersMetaStore.writeMembers(request.teamName, membersToWrite, {
       providerBackendId: request.providerBackendId,
     });
+    TeamConfigReader.invalidateListTeamsCache();
   }
 
   async reconcileTeamArtifacts(

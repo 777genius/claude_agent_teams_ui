@@ -51,7 +51,10 @@ function makeConfig(overrides: Partial<TeamConfig> = {}): TeamConfig {
 describe('CrossTeamService', () => {
   let service: CrossTeamService;
   let configReader: { getConfig: ReturnType<typeof vi.fn> };
-  let dataService: { getLeadMemberName: ReturnType<typeof vi.fn> };
+  let dataService: {
+    getLeadMemberName: ReturnType<typeof vi.fn>;
+    listTeams: ReturnType<typeof vi.fn>;
+  };
   let inboxWriter: { sendMessage: ReturnType<typeof vi.fn> };
   let provisioning: {
     isTeamAlive: ReturnType<typeof vi.fn>;
@@ -68,6 +71,7 @@ describe('CrossTeamService', () => {
     };
     dataService = {
       getLeadMemberName: vi.fn().mockResolvedValue('team-lead'),
+      listTeams: vi.fn().mockResolvedValue([]),
     };
     inboxWriter = {
       sendMessage: vi.fn().mockResolvedValue({ deliveredToInbox: true, messageId: 'mock-id' }),
@@ -353,10 +357,64 @@ describe('CrossTeamService', () => {
   });
 
   describe('listAvailableTargets', () => {
-    it('returns empty when teams dir read fails', async () => {
-      configReader.getConfig.mockRejectedValue(new Error('ENOENT'));
+    it('returns empty when team summary listing fails', async () => {
+      dataService.listTeams.mockRejectedValue(new Error('ENOENT'));
       const result = await service.listAvailableTargets();
       expect(result).toEqual([]);
+    });
+
+    it('uses team summaries instead of verified config reads for target discovery', async () => {
+      dataService.listTeams.mockResolvedValue([
+        {
+          teamName: 'team-a',
+          displayName: 'Team A',
+          description: '',
+          memberCount: 1,
+          members: [],
+        },
+        {
+          teamName: 'team-b',
+          displayName: 'Team B',
+          description: 'Target team',
+          color: 'blue',
+          memberCount: 1,
+          members: [{ name: 'alice', color: '#abcdef' }],
+          leadName: 'captain',
+          leadColor: '#123456',
+        },
+        {
+          teamName: 'deleted-team',
+          displayName: 'Deleted',
+          description: '',
+          memberCount: 0,
+          members: [],
+          deletedAt: '2026-05-01T00:00:00.000Z',
+        },
+        {
+          teamName: 'draft-team',
+          displayName: 'Draft',
+          description: '',
+          memberCount: 0,
+          members: [],
+          pendingCreate: true,
+        },
+      ]);
+      provisioning.isTeamAlive.mockImplementation((teamName: string) => teamName === 'team-b');
+
+      const result = await service.listAvailableTargets('team-a');
+
+      expect(configReader.getConfig).not.toHaveBeenCalled();
+      expect(result).toEqual([
+        {
+          teamName: 'team-b',
+          displayName: 'Team B',
+          description: 'Target team',
+          color: 'blue',
+          leadName: 'captain',
+          leadColor: '#123456',
+          isOnline: true,
+        },
+      ]);
     });
   });
 

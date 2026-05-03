@@ -33,6 +33,7 @@ interface GetAllTasksPayload {
 }
 
 type WorkerRequest =
+  | { id: string; op: 'warmup'; payload?: Record<string, never> }
   | { id: string; op: 'listTeams'; payload: ListTeamsPayload }
   | { id: string; op: 'getAllTasks'; payload: GetAllTasksPayload };
 
@@ -75,6 +76,10 @@ interface ListTeamsDiag {
   skipped: number;
   skipReasons: Record<string, number>;
   slowest: SlowEntry[];
+  cacheHits: number;
+  cacheMisses: number;
+  cacheWriteSkips: number;
+  cacheEvictions: number;
   totalMs: number;
 }
 
@@ -87,12 +92,19 @@ interface GetAllTasksDiag {
   skipped: number;
   skipReasons: Record<string, number>;
   slowestTeams: SlowEntry[];
+  cacheHits: number;
+  cacheMisses: number;
+  cacheWriteSkips: number;
+  cacheEvictions: number;
   totalMs: number;
 }
 
 interface TaskReadDiag {
   skipped: number;
   skipReasons: Record<string, number>;
+  cacheHits: number;
+  cacheMisses: number;
+  cacheWriteSkips: number;
 }
 
 const MAX_LAUNCH_STATE_BYTES = 32 * 1024;
@@ -104,6 +116,60 @@ const REVIEW_LIFECYCLE_EVENTS = new Set([
   'review_started',
 ]);
 const REVIEW_RESET_STATUSES = new Set(['in_progress', 'deleted']);
+const TEAM_SUMMARY_CACHE_MAX_ENTRIES = 1000;
+const TASK_FILE_CACHE_MAX_ENTRIES = 10000;
+const BOOTSTRAP_STATE_FILE = 'bootstrap-state.json';
+const BOOTSTRAP_JOURNAL_FILE = 'bootstrap-journal.jsonl';
+
+interface PathFingerprint {
+  exists: boolean;
+  isFile?: boolean;
+  isDirectory?: boolean;
+  highResolution?: boolean;
+  size?: string;
+  mode?: string;
+  dev?: string;
+  ino?: string;
+  mtimeNs?: string;
+  ctimeNs?: string;
+  birthtimeNs?: string;
+  mtimeMs?: number;
+  ctimeMs?: number;
+  birthtimeMs?: number;
+  errorCode?: string;
+}
+
+interface TeamSummaryCacheEntry {
+  fingerprint: string;
+  summary: Record<string, unknown>;
+  teamsDir: string;
+  optionKey: string;
+  lastUsedAt: number;
+}
+
+type CachedTaskReadResult =
+  | { task: Record<string, unknown>; skipReason?: undefined }
+  | { task?: undefined; skipReason: string };
+
+interface TaskFileCacheEntry {
+  fingerprint: string;
+  result: CachedTaskReadResult;
+  tasksBase: string;
+  lastUsedAt: number;
+}
+
+const teamSummaryCache = new Map<string, TeamSummaryCacheEntry>();
+const taskFileCache = new Map<string, TaskFileCacheEntry>();
+
+interface TeamSummaryDependencyFingerprint {
+  value: string;
+  cacheSafe: boolean;
+}
+
+interface LaunchStateSummaryRead {
+  summary: ReturnType<typeof choosePreferredLaunchStateSummary> | null;
+  cacheable: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Parsed JSON types (loose shapes from disk)
@@ -272,6 +338,319 @@ function pushSlowest(list: SlowEntry[], entry: SlowEntry, maxLen: number): void 
   if (list.length > maxLen) list.length = maxLen;
 }
 
+function cloneCached<T>(value: T): T {
+  return typeof structuredClone === 'function'
+    ? structuredClone(value)
+    : (JSON.parse(JSON.stringify(value)) as T);
+}
+
+async function statPathFingerprint(filePath: string): Promise<PathFingerprint> {
+  try {
+    const stat = await fs.promises.stat(filePath, { bigint: true });
+    const mtimeNs =
+      typeof (stat as fs.BigIntStats & { mtimeNs?: bigint }).mtimeNs === 'bigint'
+        ? (stat as fs.BigIntStats & { mtimeNs: bigint }).mtimeNs
+        : undefined;
+    const ctimeNs =
+      typeof (stat as fs.BigIntStats & { ctimeNs?: bigint }).ctimeNs === 'bigint'
+        ? (stat as fs.BigIntStats & { ctimeNs: bigint }).ctimeNs
+        : undefined;
+    const birthtimeNs =
+      typeof (stat as fs.BigIntStats & { birthtimeNs?: bigint }).birthtimeNs === 'bigint'
+        ? (stat as fs.BigIntStats & { birthtimeNs: bigint }).birthtimeNs
+        : undefined;
+    return {
+      exists: true,
+      isFile: stat.isFile(),
+      isDirectory: stat.isDirectory(),
+      highResolution: typeof mtimeNs === 'bigint' && typeof ctimeNs === 'bigint',
+      size: stat.size.toString(),
+      mode: stat.mode.toString(),
+      dev: stat.dev.toString(),
+      ino: stat.ino.toString(),
+      mtimeNs: mtimeNs?.toString(),
+      ctimeNs: ctimeNs?.toString(),
+      birthtimeNs: birthtimeNs?.toString(),
+      mtimeMs: Number(stat.mtimeMs),
+      ctimeMs: Number(stat.ctimeMs),
+      birthtimeMs: Number(stat.birthtimeMs),
+    };
+  } catch (error) {
+    return {
+      exists: false,
+      errorCode:
+        typeof (error as NodeJS.ErrnoException | undefined)?.code === 'string'
+          ? (error as NodeJS.ErrnoException).code
+          : undefined,
+    };
+  }
+}
+
+function fingerprintToString(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+function isCacheSafeFingerprint(fingerprint: PathFingerprint): boolean {
+  if (fingerprint.exists) {
+    return fingerprint.highResolution === true;
+  }
+  return fingerprint.errorCode === 'ENOENT' || fingerprint.errorCode === 'ENOTDIR';
+}
+
+function makeTeamSummaryOptionKey(payload: ListTeamsPayload): string {
+  return fingerprintToString({
+    largeConfigBytes: payload.largeConfigBytes,
+    configHeadBytes: payload.configHeadBytes,
+    maxConfigBytes: payload.maxConfigBytes,
+    maxConfigReadMs: payload.maxConfigReadMs,
+    maxMembersMetaBytes: payload.maxMembersMetaBytes,
+    maxSessionHistoryInSummary: payload.maxSessionHistoryInSummary,
+    maxProjectPathHistoryInSummary: payload.maxProjectPathHistoryInSummary,
+  });
+}
+
+function makeTeamSummaryCacheKey(teamsDir: string, teamName: string, optionKey: string): string {
+  return `${teamsDir}\0${teamName}\0${optionKey}`;
+}
+
+function canCacheTeamSummary(summary: Record<string, unknown>): boolean {
+  if (summary.teamLaunchState === 'partial_pending') {
+    return false;
+  }
+  const pendingKeys = [
+    'pendingCount',
+    'runtimeAlivePendingCount',
+    'shellOnlyPendingCount',
+    'runtimeProcessPendingCount',
+    'runtimeCandidatePendingCount',
+    'noRuntimePendingCount',
+    'permissionPendingCount',
+  ];
+  return pendingKeys.every((key) => {
+    const value = summary[key];
+    return typeof value !== 'number' || value <= 0;
+  });
+}
+
+async function readInboxNamesFingerprint(inboxDir: string): Promise<{
+  dir: PathFingerprint;
+  names: string[];
+  cacheSafe: boolean;
+}> {
+  const dir = await statPathFingerprint(inboxDir);
+  if (!dir.exists || !dir.isDirectory) {
+    return { dir, names: [], cacheSafe: isCacheSafeFingerprint(dir) };
+  }
+  try {
+    const entries = await fs.promises.readdir(inboxDir, { withFileTypes: true });
+    const names = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => entry.name)
+      .sort();
+    return { dir, names, cacheSafe: isCacheSafeFingerprint(dir) };
+  } catch (error) {
+    return {
+      dir: {
+        ...dir,
+        errorCode:
+          typeof (error as NodeJS.ErrnoException | undefined)?.code === 'string'
+            ? (error as NodeJS.ErrnoException).code
+            : 'READDIR_FAILED',
+      },
+      names: [],
+      cacheSafe: false,
+    };
+  }
+}
+
+async function buildTeamSummaryFingerprint(
+  teamsDir: string,
+  teamName: string,
+  optionKey: string
+): Promise<TeamSummaryDependencyFingerprint> {
+  const teamDir = path.join(teamsDir, teamName);
+  const [
+    config,
+    teamMeta,
+    membersMeta,
+    launchState,
+    launchSummary,
+    bootstrapState,
+    bootstrapJournal,
+  ] = await Promise.all([
+    statPathFingerprint(path.join(teamDir, 'config.json')),
+    statPathFingerprint(path.join(teamDir, 'team.meta.json')),
+    statPathFingerprint(path.join(teamDir, 'members.meta.json')),
+    statPathFingerprint(path.join(teamDir, TEAM_LAUNCH_STATE_FILE)),
+    statPathFingerprint(path.join(teamDir, TEAM_LAUNCH_SUMMARY_FILE)),
+    statPathFingerprint(path.join(teamDir, BOOTSTRAP_STATE_FILE)),
+    statPathFingerprint(path.join(teamDir, BOOTSTRAP_JOURNAL_FILE)),
+  ]);
+  const inbox = await readInboxNamesFingerprint(path.join(teamDir, 'inboxes'));
+
+  const dependencyFingerprint = {
+    version: 1,
+    optionKey,
+    config,
+    teamMeta,
+    membersMeta,
+    launchState,
+    launchSummary,
+    bootstrapState,
+    bootstrapJournal,
+    inbox,
+  };
+
+  return {
+    value: fingerprintToString(dependencyFingerprint),
+    cacheSafe:
+      [
+        config,
+        teamMeta,
+        membersMeta,
+        launchState,
+        launchSummary,
+        bootstrapState,
+        bootstrapJournal,
+      ].every(isCacheSafeFingerprint) && inbox.cacheSafe,
+  };
+}
+
+async function cacheTeamSummaryIfStable(
+  cacheKey: string,
+  teamsDir: string,
+  teamName: string,
+  optionKey: string,
+  fingerprintBefore: TeamSummaryDependencyFingerprint,
+  summary: Record<string, unknown>,
+  cacheAllowed: boolean,
+  diag: ListTeamsDiag
+): Promise<void> {
+  if (!cacheAllowed) {
+    teamSummaryCache.delete(cacheKey);
+    diag.cacheWriteSkips++;
+    return;
+  }
+  if (!canCacheTeamSummary(summary)) {
+    teamSummaryCache.delete(cacheKey);
+    diag.cacheWriteSkips++;
+    return;
+  }
+  if (!fingerprintBefore.cacheSafe) {
+    diag.cacheWriteSkips++;
+    return;
+  }
+  const fingerprintAfter = await buildTeamSummaryFingerprint(teamsDir, teamName, optionKey);
+  if (!fingerprintAfter.cacheSafe || fingerprintAfter.value !== fingerprintBefore.value) {
+    diag.cacheWriteSkips++;
+    return;
+  }
+  teamSummaryCache.set(cacheKey, {
+    fingerprint: fingerprintAfter.value,
+    summary: cloneCached(summary),
+    teamsDir,
+    optionKey,
+    lastUsedAt: nowMs(),
+  });
+}
+
+function pruneTeamSummaryCache(
+  teamsDir: string,
+  optionKey: string,
+  liveTeamNames: ReadonlySet<string>,
+  diag: ListTeamsDiag
+): void {
+  for (const [key, entry] of teamSummaryCache) {
+    if (entry.teamsDir === teamsDir && entry.optionKey === optionKey) {
+      const teamName = key.split('\0')[1] ?? '';
+      if (!liveTeamNames.has(teamName)) {
+        teamSummaryCache.delete(key);
+        diag.cacheEvictions++;
+      }
+    }
+  }
+  while (teamSummaryCache.size > TEAM_SUMMARY_CACHE_MAX_ENTRIES) {
+    const oldest = teamSummaryCache.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    teamSummaryCache.delete(oldest);
+    diag.cacheEvictions++;
+  }
+}
+
+function makeTaskOptionKey(payload: GetAllTasksPayload): string {
+  return fingerprintToString({
+    maxTaskBytes: payload.maxTaskBytes,
+    maxTaskReadMs: payload.maxTaskReadMs,
+  });
+}
+
+function makeTaskCacheKey(
+  tasksBase: string,
+  teamName: string,
+  fileName: string,
+  optionKey: string
+): string {
+  return `${tasksBase}\0${teamName}\0${fileName}\0${optionKey}`;
+}
+
+async function cacheTaskReadResultIfStable(
+  cacheKey: string,
+  taskPath: string,
+  tasksBase: string,
+  fingerprintBefore: string,
+  fingerprintBeforeCacheSafe: boolean,
+  result: CachedTaskReadResult,
+  taskDiag: TaskReadDiag
+): Promise<void> {
+  if (!fingerprintBeforeCacheSafe) {
+    taskDiag.cacheWriteSkips++;
+    return;
+  }
+  const after = await statPathFingerprint(taskPath);
+  if (!isCacheSafeFingerprint(after) || fingerprintToString(after) !== fingerprintBefore) {
+    taskDiag.cacheWriteSkips++;
+    return;
+  }
+  taskFileCache.set(cacheKey, {
+    fingerprint: fingerprintBefore,
+    result: cloneCached(result),
+    tasksBase,
+    lastUsedAt: nowMs(),
+  });
+}
+
+function applyCachedTaskReadResult(
+  cached: CachedTaskReadResult,
+  tasks: unknown[],
+  taskDiag: TaskReadDiag
+): void {
+  if (cached.skipReason) {
+    taskDiag.skipped++;
+    bumpSkipReason(taskDiag.skipReasons, cached.skipReason);
+    return;
+  }
+  tasks.push(cloneCached(cached.task));
+}
+
+function pruneTaskFileCache(
+  tasksBase: string,
+  liveCacheKeys: ReadonlySet<string>,
+  diag: GetAllTasksDiag
+): void {
+  for (const [key, entry] of taskFileCache) {
+    if (entry.tasksBase === tasksBase && !liveCacheKeys.has(key)) {
+      taskFileCache.delete(key);
+      diag.cacheEvictions++;
+    }
+  }
+  while (taskFileCache.size > TASK_FILE_CACHE_MAX_ENTRIES) {
+    const oldest = taskFileCache.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    taskFileCache.delete(oldest);
+    diag.cacheEvictions++;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // listTeams
 // ---------------------------------------------------------------------------
@@ -340,7 +719,7 @@ function dropCliProvisionerMembers(
 async function readLaunchState(
   teamsDir: string,
   teamName: string
-): Promise<ReturnType<typeof choosePreferredLaunchStateSummary>> {
+): Promise<LaunchStateSummaryRead> {
   const bootstrapSnapshot = await readBootstrapLaunchSnapshot(teamName);
   const launchStatePath = path.join(teamsDir, teamName, TEAM_LAUNCH_STATE_FILE);
   const launchSummaryPath = path.join(teamsDir, teamName, TEAM_LAUNCH_SUMMARY_FILE);
@@ -371,11 +750,24 @@ async function readLaunchState(
     })(),
   ]);
 
-  return choosePreferredLaunchStateSummary({
+  const summary = choosePreferredLaunchStateSummary({
     bootstrapSnapshot,
     launchSnapshot,
     launchSummaryProjection,
   });
+  if (launchSnapshot) {
+    return { summary, cacheable: true };
+  }
+  if (!bootstrapSnapshot) {
+    return { summary, cacheable: true };
+  }
+  if (
+    bootstrapSnapshot.launchPhase === 'finished' &&
+    bootstrapSnapshot.teamLaunchState !== 'partial_pending'
+  ) {
+    return { summary, cacheable: true };
+  }
+  return { summary, cacheable: false };
 }
 
 /**
@@ -384,13 +776,14 @@ async function readLaunchState(
  */
 async function readDraftTeamMeta(
   teamsDir: string,
-  teamName: string
+  teamName: string,
+  options: { maxConfigReadMs: number; maxMembersMetaBytes: number }
 ): Promise<Record<string, unknown> | null> {
   const metaPath = path.join(teamsDir, teamName, 'team.meta.json');
   try {
     const stat = await fs.promises.stat(metaPath);
     if (!stat.isFile() || stat.size > 256 * 1024) return null;
-    const raw = await fs.promises.readFile(metaPath, 'utf8');
+    const raw = await readFileUtf8WithTimeout(metaPath, options.maxConfigReadMs);
     const meta = JSON.parse(raw) as Record<string, unknown>;
     if (meta?.version !== 1 || typeof meta?.cwd !== 'string') return null;
 
@@ -401,14 +794,29 @@ async function readDraftTeamMeta(
 
     // Read members.meta.json for member count
     let memberCount = 0;
+    let leadName: string | undefined;
+    let leadColor: string | undefined;
     try {
       const membersPath = path.join(teamsDir, teamName, 'members.meta.json');
-      const membersRaw = await fs.promises.readFile(membersPath, 'utf8');
+      const membersStat = await fs.promises.stat(membersPath);
+      if (!membersStat.isFile() || membersStat.size > options.maxMembersMetaBytes) {
+        throw new Error('members_meta_too_large');
+      }
+      const membersRaw = await readFileUtf8WithTimeout(membersPath, options.maxConfigReadMs);
       const membersData = JSON.parse(membersRaw) as { members?: unknown[] };
       if (Array.isArray(membersData?.members)) {
         memberCount = membersData.members.filter((member) => {
           if (!isRawMember(member)) return false;
           const name = typeof member.name === 'string' ? member.name.trim() : '';
+          if (!member.removedAt && isLeadMember(member)) {
+            if (name) {
+              leadName = name;
+            }
+            const color = typeof member.color === 'string' ? member.color.trim() : '';
+            if (color) {
+              leadColor = color;
+            }
+          }
           if (!name || name === 'user' || isLeadMember(member)) return false;
           return !member.removedAt;
         }).length;
@@ -426,6 +834,8 @@ async function readDraftTeamMeta(
       lastActivity:
         typeof meta.createdAt === 'number' ? new Date(meta.createdAt).toISOString() : null,
       color: typeof meta.color === 'string' ? meta.color : undefined,
+      ...(leadName ? { leadName } : {}),
+      ...(leadColor ? { leadColor } : {}),
       projectPath: typeof meta.cwd === 'string' ? meta.cwd : undefined,
       pendingCreate: true,
     };
@@ -447,6 +857,10 @@ async function listTeams(
     skipped: 0,
     skipReasons: {},
     slowest: [],
+    cacheHits: 0,
+    cacheMisses: 0,
+    cacheWriteSkips: 0,
+    cacheEvictions: 0,
     totalMs: 0,
   };
 
@@ -460,11 +874,26 @@ async function listTeams(
 
   const teamDirs = entries.filter((e) => e.isDirectory());
   diag.totalDirs = teamDirs.length;
+  const optionKey = makeTeamSummaryOptionKey(payload);
+  const liveTeamNames = new Set(teamDirs.map((entry) => entry.name));
 
   const perTeam = await mapLimit(teamDirs, payload.concurrency, async (entry) => {
     const teamName = entry.name;
     const t0 = nowMs();
     const configPath = path.join(payload.teamsDir, teamName, 'config.json');
+    const cacheKey = makeTeamSummaryCacheKey(payload.teamsDir, teamName, optionKey);
+    const dependencyFingerprint = await buildTeamSummaryFingerprint(
+      payload.teamsDir,
+      teamName,
+      optionKey
+    );
+    const cached = teamSummaryCache.get(cacheKey);
+    if (dependencyFingerprint.cacheSafe && cached?.fingerprint === dependencyFingerprint.value) {
+      cached.lastUsedAt = nowMs();
+      diag.cacheHits++;
+      return cloneCached(cached.summary);
+    }
+    diag.cacheMisses++;
 
     const skip = (reason: string): null => {
       diag.skipped++;
@@ -477,13 +906,37 @@ async function listTeams(
       stat = await fs.promises.stat(configPath);
     } catch {
       // Fallback: check for draft team (team.meta.json without config.json)
-      const draft = await readDraftTeamMeta(payload.teamsDir, teamName);
-      if (draft) return draft;
+      const draft = await readDraftTeamMeta(payload.teamsDir, teamName, payload);
+      if (draft) {
+        await cacheTeamSummaryIfStable(
+          cacheKey,
+          payload.teamsDir,
+          teamName,
+          optionKey,
+          dependencyFingerprint,
+          draft,
+          true,
+          diag
+        );
+        return draft;
+      }
       return skip('config_stat_failed');
     }
     if (!stat.isFile()) {
-      const draft = await readDraftTeamMeta(payload.teamsDir, teamName);
-      if (draft) return draft;
+      const draft = await readDraftTeamMeta(payload.teamsDir, teamName, payload);
+      if (draft) {
+        await cacheTeamSummaryIfStable(
+          cacheKey,
+          payload.teamsDir,
+          teamName,
+          optionKey,
+          dependencyFingerprint,
+          draft,
+          true,
+          diag
+        );
+        return draft;
+      }
       return skip('config_not_file');
     }
     if (stat.size > payload.maxConfigBytes) return skip('config_too_large');
@@ -557,6 +1010,21 @@ async function listTeams(
       removedAt?: unknown;
     }[] = [];
     let leadProviderId: 'anthropic' | 'codex' | 'gemini' | 'opencode' | undefined;
+    let leadName: string | undefined;
+    let leadColor: string | undefined;
+
+    const captureLeadMember = (member: RawMember, overwrite = false): void => {
+      if (member.removedAt) return;
+      if (!isLeadMember(member)) return;
+      const name = typeof member.name === 'string' ? member.name.trim() : '';
+      if (name && (overwrite || !leadName)) {
+        leadName = name;
+      }
+      const colorValue = typeof member.color === 'string' ? member.color.trim() : '';
+      if (colorValue && (overwrite || !leadColor)) {
+        leadColor = colorValue;
+      }
+    };
 
     try {
       const teamMetaPath = path.join(payload.teamsDir, teamName, 'team.meta.json');
@@ -595,6 +1063,7 @@ async function listTeams(
               : undefined;
           const name = typeof member.name === 'string' ? member.name.trim() : '';
           if (!name) continue;
+          captureLeadMember(member);
           if (isLeadMember(member)) continue;
           const key = name.toLowerCase();
           if (member.removedAt) {
@@ -623,6 +1092,7 @@ async function listTeams(
       for (const member of config.members as unknown[]) {
         if (isRawMember(member)) {
           const name = typeof member.name === 'string' ? member.name.trim() : '';
+          captureLeadMember(member, true);
           if (name && name !== 'user' && !isLeadMember(member)) {
             confirmedArtifactNames.add(name);
           }
@@ -657,32 +1127,28 @@ async function listTeams(
       leadProviderId,
       members: metaRuntimeMembers,
     });
-    const launchStateSummary =
-      (await readLaunchState(payload.teamsDir, teamName)) ??
-      (() => {
-        if (suppressLegacyLaunchArtifactHeuristic) {
-          return null;
-        }
-        if (
-          !leadSessionId ||
-          expectedTeammateNames.size === 0 ||
-          confirmedArtifactNames.size === 0
-        ) {
-          return null;
-        }
-        const missingMembers = Array.from(expectedTeammateNames).filter(
-          (name) => !confirmedArtifactNames.has(name)
-        );
-        if (missingMembers.length === 0) {
-          return null;
-        }
-        return {
-          partialLaunchFailure: true as const,
-          expectedMemberCount: expectedTeammateNames.size,
-          confirmedMemberCount: confirmedArtifactNames.size,
-          missingMembers,
-        };
-      })();
+    const launchStateRead = await readLaunchState(payload.teamsDir, teamName);
+    const fallbackLaunchStateSummary = (): ReturnType<typeof choosePreferredLaunchStateSummary> => {
+      if (suppressLegacyLaunchArtifactHeuristic) {
+        return null;
+      }
+      if (!leadSessionId || expectedTeammateNames.size === 0 || confirmedArtifactNames.size === 0) {
+        return null;
+      }
+      const missingMembers = Array.from(expectedTeammateNames).filter(
+        (name) => !confirmedArtifactNames.has(name)
+      );
+      if (missingMembers.length === 0) {
+        return null;
+      }
+      return {
+        partialLaunchFailure: true as const,
+        expectedMemberCount: expectedTeammateNames.size,
+        confirmedMemberCount: confirmedArtifactNames.size,
+        missingMembers,
+      };
+    };
+    const launchStateSummary = launchStateRead.summary ?? fallbackLaunchStateSummary();
     const summary = {
       teamName,
       displayName,
@@ -691,6 +1157,8 @@ async function listTeams(
       taskCount: 0,
       lastActivity: null,
       ...(coloredMembers.length > 0 ? { members: coloredMembers } : {}),
+      ...(leadName ? { leadName } : {}),
+      ...(leadColor ? { leadColor } : {}),
       ...(color ? { color } : {}),
       ...(projectPath ? { projectPath } : {}),
       ...(leadSessionId ? { leadSessionId } : {}),
@@ -704,10 +1172,21 @@ async function listTeams(
     if (ms >= 250) {
       pushSlowest(diag.slowest, { teamName, ms }, 10);
     }
+    await cacheTeamSummaryIfStable(
+      cacheKey,
+      payload.teamsDir,
+      teamName,
+      optionKey,
+      dependencyFingerprint,
+      summary,
+      launchStateRead.cacheable,
+      diag
+    );
     return summary;
   });
 
   const teams = perTeam.filter((t): t is NonNullable<typeof t> => t !== null);
+  pruneTeamSummaryCache(payload.teamsDir, optionKey, liveTeamNames, diag);
   diag.returned = teams.length;
   diag.totalMs = nowMs() - startedAt;
   return { teams, diag };
@@ -843,19 +1322,27 @@ async function readTasksDirForTeam(
   tasksDir: string,
   teamName: string,
   payload: GetAllTasksPayload
-): Promise<{ tasks: unknown[]; taskDiag: TaskReadDiag }> {
-  const taskDiag: TaskReadDiag = { skipped: 0, skipReasons: {} };
+): Promise<{ tasks: unknown[]; taskDiag: TaskReadDiag; liveCacheKeys: Set<string> }> {
+  const taskDiag: TaskReadDiag = {
+    skipped: 0,
+    skipReasons: {},
+    cacheHits: 0,
+    cacheMisses: 0,
+    cacheWriteSkips: 0,
+  };
   let entries: string[];
   try {
     entries = await fs.promises.readdir(tasksDir);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { tasks: [], taskDiag };
+      return { tasks: [], taskDiag, liveCacheKeys: new Set() };
     }
     throw error;
   }
 
   const tasks: unknown[] = [];
+  const liveCacheKeys = new Set<string>();
+  const optionKey = makeTaskOptionKey(payload);
   for (const file of entries) {
     if (
       !file.endsWith('.json') ||
@@ -867,25 +1354,61 @@ async function readTasksDirForTeam(
     }
 
     const taskPath = path.join(tasksDir, file);
+    const cacheKey = makeTaskCacheKey(payload.tasksBase, teamName, file, optionKey);
+    liveCacheKeys.add(cacheKey);
     try {
-      const stat = await fs.promises.stat(taskPath);
-      if (!stat.isFile() || stat.size > payload.maxTaskBytes) {
+      const pathFingerprint = await statPathFingerprint(taskPath);
+      const taskSize = Number(pathFingerprint.size ?? Number.NaN);
+      if (
+        !pathFingerprint.isFile ||
+        !Number.isFinite(taskSize) ||
+        taskSize > payload.maxTaskBytes
+      ) {
         taskDiag.skipped++;
         bumpSkipReason(taskDiag.skipReasons, 'task_not_file_or_large');
         continue;
       }
+      const fingerprint = fingerprintToString(pathFingerprint);
+      const fingerprintCacheSafe = isCacheSafeFingerprint(pathFingerprint);
+      const cached = taskFileCache.get(cacheKey);
+      if (fingerprintCacheSafe && cached?.fingerprint === fingerprint) {
+        cached.lastUsedAt = nowMs();
+        taskDiag.cacheHits++;
+        applyCachedTaskReadResult(cached.result, tasks, taskDiag);
+        continue;
+      }
+      taskDiag.cacheMisses++;
 
+      const stat = await fs.promises.stat(taskPath);
       const raw = await readFileUtf8WithTimeout(taskPath, payload.maxTaskReadMs);
       const parsed = JSON.parse(raw) as ParsedTask;
       const metadata = parsed.metadata;
       if (metadata?._internal === true) {
         taskDiag.skipped++;
         bumpSkipReason(taskDiag.skipReasons, 'task_internal');
+        await cacheTaskReadResultIfStable(
+          cacheKey,
+          taskPath,
+          payload.tasksBase,
+          fingerprint,
+          fingerprintCacheSafe,
+          { skipReason: 'task_internal' },
+          taskDiag
+        );
         continue;
       }
       if (parsed.status === 'deleted') {
         taskDiag.skipped++;
         bumpSkipReason(taskDiag.skipReasons, 'task_deleted');
+        await cacheTaskReadResultIfStable(
+          cacheKey,
+          taskPath,
+          payload.tasksBase,
+          fingerprint,
+          fingerprintCacheSafe,
+          { skipReason: 'task_deleted' },
+          taskDiag
+        );
         continue;
       }
 
@@ -925,7 +1448,7 @@ async function readTasksDirForTeam(
         deriveReviewStateFromEvents(historyEvents) ??
         normalizeFallbackReviewState(parsed.reviewState, status);
 
-      tasks.push({
+      const task = {
         id: typeof parsed.id === 'string' || typeof parsed.id === 'number' ? String(parsed.id) : '',
         displayId:
           typeof parsed.displayId === 'string' && parsed.displayId.trim().length > 0
@@ -981,7 +1504,17 @@ async function readTasksDirForTeam(
             ? (parsed.sourceMessage as Record<string, unknown>)
             : undefined,
         teamName,
-      });
+      };
+      tasks.push(task);
+      await cacheTaskReadResultIfStable(
+        cacheKey,
+        taskPath,
+        payload.tasksBase,
+        fingerprint,
+        fingerprintCacheSafe,
+        { task },
+        taskDiag
+      );
     } catch (error) {
       taskDiag.skipped++;
       const code = (error as NodeJS.ErrnoException).code;
@@ -992,11 +1525,14 @@ async function readTasksDirForTeam(
       }
     }
   }
-  return { tasks, taskDiag };
+  return { tasks, taskDiag, liveCacheKeys };
 }
 
 function mergeTaskDiag(target: GetAllTasksDiag, source: TaskReadDiag): void {
   target.skipped += source.skipped;
+  target.cacheHits += source.cacheHits;
+  target.cacheMisses += source.cacheMisses;
+  target.cacheWriteSkips += source.cacheWriteSkips;
   for (const [reason, count] of Object.entries(source.skipReasons)) {
     target.skipReasons[reason] = (target.skipReasons[reason] || 0) + count;
   }
@@ -1015,6 +1551,10 @@ async function getAllTasks(
     skipped: 0,
     skipReasons: {},
     slowestTeams: [],
+    cacheHits: 0,
+    cacheMisses: 0,
+    cacheWriteSkips: 0,
+    cacheEvictions: 0,
     totalMs: 0,
   };
 
@@ -1031,13 +1571,21 @@ async function getAllTasks(
 
   const dirs = entries.filter((e) => e.isDirectory());
   diag.teamDirs = dirs.length;
+  const liveCacheKeys = new Set<string>();
 
   const chunks = await mapLimit(dirs, payload.concurrency, async (entry) => {
     const teamName = entry.name;
     const t0 = nowMs();
     try {
       const tasksDir = path.join(payload.tasksBase, teamName);
-      const { tasks, taskDiag } = await readTasksDirForTeam(tasksDir, teamName, payload);
+      const {
+        tasks,
+        taskDiag,
+        liveCacheKeys: teamLiveCacheKeys,
+      } = await readTasksDirForTeam(tasksDir, teamName, payload);
+      for (const key of teamLiveCacheKeys) {
+        liveCacheKeys.add(key);
+      }
       mergeTaskDiag(diag, taskDiag);
       const ms = nowMs() - t0;
       if (ms >= 250) {
@@ -1052,6 +1600,7 @@ async function getAllTasks(
   });
 
   const tasks = chunks.flat();
+  pruneTaskFileCache(payload.tasksBase, liveCacheKeys, diag);
   diag.returned = tasks.length;
   diag.totalMs = nowMs() - startedAt;
   return { tasks, diag };
@@ -1068,6 +1617,19 @@ function post(msg: WorkerResponse): void {
 parentPort?.on('message', async (msg: WorkerRequest) => {
   const { id, op } = msg;
   try {
+    if (op === 'warmup') {
+      post({
+        id,
+        ok: true,
+        result: {
+          ready: true,
+          teamSummaryCacheEntries: teamSummaryCache.size,
+          taskFileCacheEntries: taskFileCache.size,
+        },
+        diag: { op, totalMs: 0 },
+      });
+      return;
+    }
     if (op === 'listTeams') {
       const { teams, diag } = await listTeams(msg.payload);
       post({ id, ok: true, result: teams, diag });

@@ -313,6 +313,11 @@ interface OpenCodeRuntimeControlAck {
   observedAt: string;
 }
 
+interface LaunchStateWriteResult {
+  snapshot: PersistedTeamLaunchSnapshot;
+  wrote: boolean;
+}
+
 type BootstrapTranscriptOutcome =
   | {
       kind: 'success';
@@ -336,6 +341,7 @@ import type {
   LeadContextUsage,
   MemberLaunchState,
   MemberSpawnLivenessSource,
+  MemberSpawnStatusesSnapshot,
   MemberSpawnStatus,
   MemberSpawnStatusEntry,
   PersistedTeamLaunchMemberState,
@@ -4435,6 +4441,27 @@ interface OpenCodeMemberInboxDelivery {
   diagnostics?: string[];
 }
 
+interface OpenCodeMemberDirectory {
+  config: TeamConfig | null;
+  teamMeta: Awaited<ReturnType<TeamMetaStore['getMeta']>> | null;
+  metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>>;
+}
+
+type OpenCodeMemberIdentityResolution =
+  | {
+      ok: true;
+      canonicalMemberName: string;
+      laneId: string;
+      laneIdentity: ReturnType<typeof buildPlannedMemberLaneIdentity>;
+      configMember?: TeamMember;
+      metaMember?: TeamMember;
+      memberRuntimeCwd?: string;
+    }
+  | {
+      ok: false;
+      reason: 'recipient_is_not_opencode' | 'recipient_removed' | 'opencode_recipient_unavailable';
+    };
+
 interface OpenCodeMemberInboxRelayResult {
   relayed: number;
   attempted: number;
@@ -4484,6 +4511,8 @@ export class TeamProvisioningService {
   private static readonly SAME_TEAM_RUN_START_SKEW_MS = 1_000;
   private static readonly SAME_TEAM_PERSIST_RETRY_MS = 2_000;
   private static readonly AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS = 2_000;
+  private static readonly MEMBER_SPAWN_STATUS_SNAPSHOT_CACHE_TTL_MS = 500;
+  private static readonly LAUNCH_STATE_NOOP_REFRESH_MS = 15_000;
 
   private readonly runs = new Map<string, ProvisioningRun>();
   private readonly provisioningRunByTeam = new Map<string, string>();
@@ -4544,12 +4573,52 @@ export class TeamProvisioningService {
     string,
     { expiresAtMs: number; snapshot: TeamAgentRuntimeSnapshot }
   >();
+  private readonly agentRuntimeSnapshotInFlightByTeam = new Map<
+    string,
+    {
+      generationAtStart: number;
+      runIdAtStart: string | null;
+      promise: Promise<TeamAgentRuntimeSnapshot>;
+    }
+  >();
   private readonly liveTeamAgentRuntimeMetadataCache = new Map<
     string,
-    { expiresAtMs: number; metadata: Map<string, LiveTeamAgentRuntimeMetadata> }
+    {
+      expiresAtMs: number;
+      metadata: Map<string, LiveTeamAgentRuntimeMetadata>;
+      runId: string | null;
+    }
   >();
+  private readonly liveTeamAgentRuntimeMetadataInFlightByTeam = new Map<
+    string,
+    {
+      generationAtStart: number;
+      runIdAtStart: string | null;
+      promise: Promise<Map<string, LiveTeamAgentRuntimeMetadata>>;
+    }
+  >();
+  private readonly runtimeSnapshotCacheGenerationByTeam = new Map<string, number>();
+  private readonly memberSpawnStatusesSnapshotCache = new Map<
+    string,
+    {
+      expiresAtMs: number;
+      generation: number;
+      runId: string;
+      snapshot: MemberSpawnStatusesSnapshot;
+    }
+  >();
+  private readonly memberSpawnStatusesInFlightByTeam = new Map<
+    string,
+    {
+      generationAtStart: number;
+      runIdAtStart: string;
+      promise: Promise<MemberSpawnStatusesSnapshot>;
+    }
+  >();
+  private readonly memberSpawnStatusesCacheGenerationByTeam = new Map<string, number>();
   private readonly launchStateStore = new TeamLaunchStateStore();
   private readonly launchStateStoreQueue = new Map<string, Promise<unknown>>();
+  private readonly launchStateWrittenRunIdByTeam = new Map<string, string>();
   private readonly memberLogsFinder: TeamMemberLogsFinder;
   private readonly transcriptProjectResolver: TeamTranscriptProjectResolver;
   private teamChangeEmitter: ((event: TeamChangeEvent) => void) | null = null;
@@ -4599,7 +4668,181 @@ export class TeamProvisioningService {
       this.inboxReader,
       this.membersMetaStore
     );
-    this.transcriptProjectResolver = new TeamTranscriptProjectResolver(this.configReader);
+    this.transcriptProjectResolver = new TeamTranscriptProjectResolver({
+      getConfig: (teamName) => this.configReader.getConfigSnapshot(teamName),
+    });
+  }
+
+  private async readConfigSnapshot(teamName: string): Promise<TeamConfig | null> {
+    const configReader = this.configReader as TeamConfigReader & {
+      getConfigSnapshot?: (name: string) => Promise<TeamConfig | null>;
+    };
+    return typeof configReader.getConfigSnapshot === 'function'
+      ? configReader.getConfigSnapshot(teamName)
+      : configReader.getConfig(teamName);
+  }
+
+  private readConfigForObservation(teamName: string): Promise<TeamConfig | null> {
+    return this.readConfigSnapshot(teamName);
+  }
+
+  private readConfigForStrictDecision(teamName: string): Promise<TeamConfig | null> {
+    return this.configReader.getConfig(teamName);
+  }
+
+  private async readOpenCodeMemberDirectory(teamName: string): Promise<OpenCodeMemberDirectory> {
+    const [config, teamMeta, metaMembers] = await Promise.all([
+      this.readConfigForObservation(teamName).catch(() => null),
+      this.teamMetaStore.getMeta(teamName).catch(() => null),
+      this.membersMetaStore.getMembers(teamName).catch(() => []),
+    ]);
+    return { config, teamMeta, metaMembers };
+  }
+
+  private getRuntimeSnapshotCacheGeneration(teamName: string): number {
+    return this.runtimeSnapshotCacheGenerationByTeam.get(teamName) ?? 0;
+  }
+
+  private getMemberSpawnStatusesCacheGeneration(teamName: string): number {
+    return this.memberSpawnStatusesCacheGenerationByTeam.get(teamName) ?? 0;
+  }
+
+  private invalidateMemberSpawnStatusesCache(teamName: string): void {
+    this.memberSpawnStatusesCacheGenerationByTeam.set(
+      teamName,
+      this.getMemberSpawnStatusesCacheGeneration(teamName) + 1
+    );
+    this.memberSpawnStatusesSnapshotCache.delete(teamName);
+    this.memberSpawnStatusesInFlightByTeam.delete(teamName);
+  }
+
+  private invalidateRuntimeSnapshotCaches(teamName: string): void {
+    this.runtimeSnapshotCacheGenerationByTeam.set(
+      teamName,
+      this.getRuntimeSnapshotCacheGeneration(teamName) + 1
+    );
+    this.agentRuntimeSnapshotCache.delete(teamName);
+    this.agentRuntimeSnapshotInFlightByTeam.delete(teamName);
+    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.liveTeamAgentRuntimeMetadataInFlightByTeam.delete(teamName);
+  }
+
+  private cloneMemberSpawnStatusesSnapshot(
+    snapshot: MemberSpawnStatusesSnapshot
+  ): MemberSpawnStatusesSnapshot {
+    return {
+      ...snapshot,
+      statuses: Object.fromEntries(
+        Object.entries(snapshot.statuses).map(([memberName, entry]) => [
+          memberName,
+          {
+            ...entry,
+            ...(entry.pendingPermissionRequestIds
+              ? { pendingPermissionRequestIds: [...entry.pendingPermissionRequestIds] }
+              : {}),
+          },
+        ])
+      ),
+      ...(snapshot.expectedMembers ? { expectedMembers: [...snapshot.expectedMembers] } : {}),
+      ...(snapshot.summary ? { summary: { ...snapshot.summary } } : {}),
+    };
+  }
+
+  private cloneLiveTeamAgentRuntimeMetadata(
+    metadata: ReadonlyMap<string, LiveTeamAgentRuntimeMetadata>
+  ): Map<string, LiveTeamAgentRuntimeMetadata> {
+    return new Map(
+      [...metadata.entries()].map(([memberName, entry]) => [
+        memberName,
+        {
+          ...entry,
+          ...(entry.diagnostics ? { diagnostics: [...entry.diagnostics] } : {}),
+        },
+      ])
+    );
+  }
+
+  private resolveOpenCodeMemberIdentityFromDirectory(
+    teamName: string,
+    memberName: string,
+    directory: OpenCodeMemberDirectory
+  ): OpenCodeMemberIdentityResolution {
+    const normalizedMemberName = memberName.trim();
+    const configMember = directory.config?.members?.find(
+      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
+    );
+    const metaMember = directory.metaMembers.find(
+      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
+    );
+    if (!configMember && !metaMember) {
+      return { ok: false, reason: 'opencode_recipient_unavailable' };
+    }
+
+    const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
+    const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
+    const providerId =
+      normalizeTeamProviderLike(metaMember?.providerId) ??
+      normalizeTeamProviderLike(metaProvider) ??
+      normalizeTeamProviderLike(configMember?.providerId) ??
+      normalizeTeamProviderLike(configProvider) ??
+      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
+    if (providerId !== 'opencode') {
+      return { ok: false, reason: 'recipient_is_not_opencode' };
+    }
+
+    const removedAt =
+      metaMember != null
+        ? metaMember.removedAt
+        : (configMember as { removedAt?: unknown } | undefined)?.removedAt;
+    if (removedAt != null) {
+      return { ok: false, reason: 'recipient_removed' };
+    }
+
+    const canonicalMemberName =
+      metaMember?.name?.trim() || configMember?.name?.trim() || normalizedMemberName;
+    const runtimeRun = this.runtimeAdapterRunByTeam.get(teamName);
+    if (runtimeRun?.providerId === 'opencode') {
+      const laneIdentity = buildPlannedMemberLaneIdentity({
+        leadProviderId: 'opencode',
+        member: {
+          name: canonicalMemberName,
+          providerId: 'opencode',
+        },
+      });
+      const memberRuntimeCwd = metaMember?.cwd?.trim() || configMember?.cwd?.trim();
+      return {
+        ok: true,
+        canonicalMemberName,
+        laneId: laneIdentity.laneId,
+        laneIdentity,
+        ...(configMember ? { configMember } : {}),
+        ...(metaMember ? { metaMember } : {}),
+        ...(memberRuntimeCwd ? { memberRuntimeCwd } : {}),
+      };
+    }
+
+    const leadMember = directory.config?.members?.find((member) => isLeadMember(member));
+    const leadProviderId =
+      normalizeOptionalTeamProviderId(directory.teamMeta?.launchIdentity?.providerId) ??
+      normalizeOptionalTeamProviderId(directory.teamMeta?.providerId) ??
+      normalizeOptionalTeamProviderId(leadMember?.providerId);
+    const laneIdentity = buildPlannedMemberLaneIdentity({
+      leadProviderId,
+      member: {
+        name: canonicalMemberName,
+        providerId,
+      },
+    });
+    const memberRuntimeCwd = metaMember?.cwd?.trim() || configMember?.cwd?.trim();
+    return {
+      ok: true,
+      canonicalMemberName,
+      laneId: laneIdentity.laneId,
+      laneIdentity,
+      ...(configMember ? { configMember } : {}),
+      ...(metaMember ? { metaMember } : {}),
+      ...(memberRuntimeCwd ? { memberRuntimeCwd } : {}),
+    };
   }
 
   setRuntimeAdapterRegistry(registry: TeamRuntimeAdapterRegistry | null): void {
@@ -5272,7 +5515,7 @@ export class TeamProvisioningService {
     const adapter = this.getOpenCodeRuntimeAdapter();
     const previousLaunchState = await this.launchStateStore.read(teamName).catch(() => null);
     const [config, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
+      this.readConfigForObservation(teamName).catch(() => null),
       this.membersMetaStore.getMembers(teamName).catch(() => []),
     ]);
     const evidenceReader = new OpenCodeRuntimeManifestEvidenceReader({
@@ -5331,6 +5574,7 @@ export class TeamProvisioningService {
         this.runtimeAdapterRunByTeam.delete(teamName);
         this.aliveRunByTeam.delete(teamName);
         this.provisioningRunByTeam.delete(teamName);
+        this.invalidateRuntimeSnapshotCaches(teamName);
       }
     }
     if (cleaned > 0) {
@@ -5473,16 +5717,15 @@ export class TeamProvisioningService {
     };
   }
 
-  async isOpenCodeRuntimeRecipient(teamName: string, memberName: string): Promise<boolean> {
+  private resolveRuntimeRecipientProviderIdFromSources(
+    memberName: string,
+    config: TeamConfig | null | undefined,
+    metaMembers: readonly TeamMember[]
+  ): TeamProviderId | undefined {
     const normalizedMemberName = memberName.trim().toLowerCase();
     if (!normalizedMemberName) {
-      return false;
+      return undefined;
     }
-
-    const [config, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
     const configMember = config?.members?.find(
       (member) => member.name?.trim().toLowerCase() === normalizedMemberName
     );
@@ -5491,13 +5734,37 @@ export class TeamProvisioningService {
     );
     const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
     const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const providerId =
+    return (
       normalizeTeamProviderLike(metaMember?.providerId) ??
       normalizeTeamProviderLike(metaProvider) ??
       normalizeTeamProviderLike(configMember?.providerId) ??
       normalizeTeamProviderLike(configProvider) ??
-      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
-    return providerId === 'opencode';
+      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model)
+    );
+  }
+
+  private isOpenCodeRuntimeRecipientFromSources(
+    memberName: string,
+    config: TeamConfig | null | undefined,
+    metaMembers: readonly TeamMember[]
+  ): boolean {
+    return (
+      this.resolveRuntimeRecipientProviderIdFromSources(memberName, config, metaMembers) ===
+      'opencode'
+    );
+  }
+
+  async isOpenCodeRuntimeRecipient(teamName: string, memberName: string): Promise<boolean> {
+    const normalizedMemberName = memberName.trim().toLowerCase();
+    if (!normalizedMemberName) {
+      return false;
+    }
+
+    const [config, metaMembers] = await Promise.all([
+      this.readConfigSnapshot(teamName).catch(() => null),
+      this.membersMetaStore.getMembers(teamName).catch(() => []),
+    ]);
+    return this.isOpenCodeRuntimeRecipientFromSources(normalizedMemberName, config, metaMembers);
   }
 
   private isOpenCodeDeliveryResponseReadCommitAllowed(input: {
@@ -5779,8 +6046,7 @@ export class TeamProvisioningService {
   }): Promise<string[]> {
     const explicitRecipient = input.replyRecipient?.trim() || 'user';
     const candidates = [explicitRecipient];
-    const configuredLeadName = await this.configReader
-      .getConfig(input.teamName)
+    const configuredLeadName = await this.readConfigForObservation(input.teamName)
       .then(
         (config) => config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null
       )
@@ -6202,51 +6468,25 @@ export class TeamProvisioningService {
     if (!adapter) {
       return { delivered: false, reason: 'opencode_runtime_message_bridge_unavailable' };
     }
-    const [config, teamMeta, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.teamMetaStore.getMeta(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
+    const directory = await this.readOpenCodeMemberDirectory(teamName);
+    const identity = this.resolveOpenCodeMemberIdentityFromDirectory(
+      teamName,
+      input.memberName,
+      directory
+    );
+    if (!identity.ok) {
+      return {
+        delivered: false,
+        reason:
+          identity.reason === 'opencode_recipient_unavailable'
+            ? 'recipient_is_not_opencode'
+            : identity.reason,
+      };
+    }
+    const { config } = directory;
+    const { canonicalMemberName, laneIdentity, configMember, metaMember, memberRuntimeCwd } =
+      identity;
     const normalizedMemberName = input.memberName.trim();
-    const configMember = config?.members?.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
-    );
-    const metaMember = metaMembers.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
-    );
-    const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
-    const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const providerId =
-      normalizeTeamProviderLike(metaMember?.providerId) ??
-      normalizeTeamProviderLike(metaProvider) ??
-      normalizeTeamProviderLike(configMember?.providerId) ??
-      normalizeTeamProviderLike(configProvider) ??
-      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
-    if (providerId !== 'opencode') {
-      return { delivered: false, reason: 'recipient_is_not_opencode' };
-    }
-    const removedAt =
-      metaMember != null
-        ? metaMember.removedAt
-        : (configMember as { removedAt?: unknown } | undefined)?.removedAt;
-    if (removedAt != null) {
-      return { delivered: false, reason: 'recipient_removed' };
-    }
-    const canonicalMemberName =
-      metaMember?.name?.trim() || configMember?.name?.trim() || normalizedMemberName;
-
-    const leadMember = config?.members?.find((member) => isLeadMember(member));
-    const leadProviderId =
-      normalizeOptionalTeamProviderId(teamMeta?.launchIdentity?.providerId) ??
-      normalizeOptionalTeamProviderId(teamMeta?.providerId) ??
-      normalizeOptionalTeamProviderId(leadMember?.providerId);
-    const laneIdentity = buildPlannedMemberLaneIdentity({
-      leadProviderId,
-      member: {
-        name: canonicalMemberName,
-        providerId,
-      },
-    });
     if (
       laneIdentity.laneKind === 'secondary' &&
       laneIdentity.laneOwnerProviderId === 'opencode' &&
@@ -6254,7 +6494,6 @@ export class TeamProvisioningService {
     ) {
       return { delivered: false, reason: 'opencode_runtime_not_active' };
     }
-    const memberRuntimeCwd = metaMember?.cwd?.trim() || configMember?.cwd?.trim();
     const cwd =
       laneIdentity.laneKind === 'secondary' && laneIdentity.laneOwnerProviderId === 'opencode'
         ? memberRuntimeCwd ||
@@ -7116,64 +7355,18 @@ export class TeamProvisioningService {
           | 'opencode_recipient_unavailable';
       }
   > {
-    const [config, teamMeta, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.teamMetaStore.getMeta(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
-    const normalizedMemberName = memberName.trim();
-    const configMember = config?.members?.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
+    const directory = await this.readOpenCodeMemberDirectory(teamName);
+    const laneIdentity = this.resolveOpenCodeMemberIdentityFromDirectory(
+      teamName,
+      memberName,
+      directory
     );
-    const metaMember = metaMembers.find(
-      (member) => member.name?.trim().toLowerCase() === normalizedMemberName.toLowerCase()
-    );
-    if (!configMember && !metaMember) {
-      return { ok: false, reason: 'opencode_recipient_unavailable' };
+    if (!laneIdentity.ok) {
+      return laneIdentity;
     }
-    const configProvider = (configMember as { provider?: unknown } | undefined)?.provider;
-    const metaProvider = (metaMember as { provider?: unknown } | undefined)?.provider;
-    const providerId =
-      normalizeTeamProviderLike(metaMember?.providerId) ??
-      normalizeTeamProviderLike(metaProvider) ??
-      normalizeTeamProviderLike(configMember?.providerId) ??
-      normalizeTeamProviderLike(configProvider) ??
-      inferTeamProviderIdFromModel(metaMember?.model ?? configMember?.model);
-    if (providerId !== 'opencode') {
-      return { ok: false, reason: 'recipient_is_not_opencode' };
-    }
-    const removedAt =
-      metaMember != null
-        ? metaMember.removedAt
-        : (configMember as { removedAt?: unknown } | undefined)?.removedAt;
-    if (removedAt != null) {
-      return { ok: false, reason: 'recipient_removed' };
-    }
-    const canonicalMemberName =
-      metaMember?.name?.trim() || configMember?.name?.trim() || normalizedMemberName;
-    const runtimeRun = this.runtimeAdapterRunByTeam.get(teamName);
-    if (runtimeRun?.providerId === 'opencode') {
-      return {
-        ok: true,
-        canonicalMemberName,
-        laneId: 'primary',
-      };
-    }
-    const leadMember = config?.members?.find((member) => isLeadMember(member));
-    const leadProviderId =
-      normalizeOptionalTeamProviderId(teamMeta?.launchIdentity?.providerId) ??
-      normalizeOptionalTeamProviderId(teamMeta?.providerId) ??
-      normalizeOptionalTeamProviderId(leadMember?.providerId);
-    const laneIdentity = buildPlannedMemberLaneIdentity({
-      leadProviderId,
-      member: {
-        name: canonicalMemberName,
-        providerId,
-      },
-    });
     return {
       ok: true,
-      canonicalMemberName,
+      canonicalMemberName: laneIdentity.canonicalMemberName,
       laneId: laneIdentity.laneId,
     };
   }
@@ -7182,24 +7375,21 @@ export class TeamProvisioningService {
     teamName: string,
     laneId: string
   ): Promise<string[]> {
-    const [config, metaMembers] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
-      this.membersMetaStore.getMembers(teamName).catch(() => []),
-    ]);
+    const directory = await this.readOpenCodeMemberDirectory(teamName);
     const names = new Set<string>();
-    for (const member of config?.members ?? []) {
+    for (const member of directory.config?.members ?? []) {
       if (member.name?.trim()) {
         names.add(member.name.trim());
       }
     }
-    for (const member of metaMembers) {
+    for (const member of directory.metaMembers) {
       if (member.name?.trim()) {
         names.add(member.name.trim());
       }
     }
     const resolved: string[] = [];
     for (const name of names) {
-      const identity = await this.resolveOpenCodeMemberDeliveryIdentity(teamName, name);
+      const identity = this.resolveOpenCodeMemberIdentityFromDirectory(teamName, name, directory);
       if (identity.ok && identity.laneId === laneId) {
         resolved.push(identity.canonicalMemberName);
       }
@@ -7272,7 +7462,7 @@ export class TeamProvisioningService {
     }
 
     const [config, teamMeta, metaMembers, currentLaneIndex] = await Promise.all([
-      this.configReader.getConfig(teamName).catch(() => null),
+      this.readConfigForObservation(teamName).catch(() => null),
       this.teamMetaStore.getMeta(teamName).catch(() => null),
       this.membersMetaStore.getMembers(teamName).catch(() => []),
       readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName).catch(() => null),
@@ -7547,6 +7737,7 @@ export class TeamProvisioningService {
 
   private resetTeamScopedTransientStateForNewRun(teamName: string): void {
     peekAutoResumeService()?.cancelPendingAutoResume(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.retainedClaudeLogsByTeam.delete(teamName);
     this.persistedTranscriptClaudeLogsCache.delete(teamName);
     this.leadInboxRelayInFlight.delete(teamName);
@@ -8797,7 +8988,7 @@ export class TeamProvisioningService {
     memberName: string;
     previousMember?: PersistedTeamLaunchMemberState;
   }): Promise<void> {
-    const config = await this.configReader.getConfig(input.teamName).catch(() => null);
+    const config = await this.readConfigForStrictDecision(input.teamName).catch(() => null);
     const metaMembers = await this.membersMetaStore.getMembers(input.teamName).catch(() => []);
     const configuredMember = this.resolveEffectiveConfiguredMember(
       config?.members ?? [],
@@ -8992,8 +9183,7 @@ export class TeamProvisioningService {
         trackedUpdate.run,
         this.getMixedSecondaryLaunchPhase(trackedUpdate.run)
       );
-      this.agentRuntimeSnapshotCache.delete(input.teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(input.teamName);
+      this.invalidateRuntimeSnapshotCaches(input.teamName);
       if (trackedUpdate.changed) {
         this.teamChangeEmitter?.({
           type: 'member-spawn',
@@ -9080,8 +9270,7 @@ export class TeamProvisioningService {
       updatedAt: input.observedAt,
     });
     await this.writeLaunchStateSnapshot(input.teamName, snapshot);
-    this.agentRuntimeSnapshotCache.delete(input.teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(input.teamName);
+    this.invalidateRuntimeSnapshotCaches(input.teamName);
     if (shouldEmitMemberSpawnChange) {
       this.teamChangeEmitter?.({
         type: 'member-spawn',
@@ -9858,8 +10047,7 @@ export class TeamProvisioningService {
               );
               return;
             }
-            this.agentRuntimeSnapshotCache.delete(run.teamName);
-            this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+            this.invalidateRuntimeSnapshotCaches(run.teamName);
             this.setMemberSpawnStatus(run, spawnedMemberName, 'waiting');
             this.appendMemberBootstrapDiagnostic(
               run,
@@ -10282,6 +10470,68 @@ export class TeamProvisioningService {
       return readPersistedStatuses(runId);
     }
 
+    if (!this.shouldCacheMemberSpawnStatusesSnapshot(run)) {
+      return this.buildMemberSpawnStatusesSnapshotForRun(run);
+    }
+
+    const generationAtStart = this.getMemberSpawnStatusesCacheGeneration(teamName);
+    const cached = this.memberSpawnStatusesSnapshotCache.get(teamName);
+    if (
+      cached &&
+      cached.expiresAtMs > Date.now() &&
+      cached.runId === run.runId &&
+      cached.generation === generationAtStart
+    ) {
+      return this.cloneMemberSpawnStatusesSnapshot(cached.snapshot);
+    }
+
+    const existingRequest = this.memberSpawnStatusesInFlightByTeam.get(teamName);
+    if (
+      existingRequest &&
+      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest.runIdAtStart === run.runId
+    ) {
+      const snapshot = await existingRequest.promise;
+      if (
+        this.getMemberSpawnStatusesCacheGeneration(teamName) === generationAtStart &&
+        this.getTrackedRunId(teamName) === run.runId
+      ) {
+        return this.cloneMemberSpawnStatusesSnapshot(snapshot);
+      }
+      return this.getMemberSpawnStatuses(teamName);
+    }
+
+    const request = this.buildMemberSpawnStatusesSnapshotForRun(run, generationAtStart).finally(
+      () => {
+        if (this.memberSpawnStatusesInFlightByTeam.get(teamName)?.promise === request) {
+          this.memberSpawnStatusesInFlightByTeam.delete(teamName);
+        }
+      }
+    );
+    this.memberSpawnStatusesInFlightByTeam.set(teamName, {
+      generationAtStart,
+      runIdAtStart: run.runId,
+      promise: request,
+    });
+    const snapshot = await request;
+    if (
+      this.getMemberSpawnStatusesCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === run.runId
+    ) {
+      return this.cloneMemberSpawnStatusesSnapshot(snapshot);
+    }
+    return this.getMemberSpawnStatuses(teamName);
+  }
+
+  private shouldCacheMemberSpawnStatusesSnapshot(run: ProvisioningRun): boolean {
+    return run.isLaunch === true && run.provisioningComplete !== true;
+  }
+
+  private async buildMemberSpawnStatusesSnapshotForRun(
+    run: ProvisioningRun,
+    generationAtStart?: number
+  ): Promise<MemberSpawnStatusesSnapshot> {
+    const teamName = run.teamName;
     await this.refreshMemberSpawnStatusesFromLeadInbox(run);
     await this.maybeAuditMemberSpawnStatuses(run);
     await this.persistLaunchStateSnapshot(run, run.provisioningComplete ? 'finished' : 'active');
@@ -10301,23 +10551,37 @@ export class TeamProvisioningService {
       });
     const rawSnapshot = liveSnapshot ?? persisted;
     const metaMembers = await this.membersMetaStore.getMembers(teamName).catch(() => []);
-    const snapshot = this.filterRemovedMembersFromLaunchSnapshot(rawSnapshot, metaMembers);
+    const launchSnapshot = this.filterRemovedMembersFromLaunchSnapshot(rawSnapshot, metaMembers);
     const statuses = await this.attachLiveRuntimeMetadataToStatuses(
       teamName,
-      snapshotToMemberSpawnStatuses(snapshot)
+      snapshotToMemberSpawnStatuses(launchSnapshot)
     );
-    const expectedMembers = this.getPersistedLaunchMemberNames(snapshot);
+    const expectedMembers = this.getPersistedLaunchMemberNames(launchSnapshot);
     const summary = summarizeMemberSpawnStatusRecord(expectedMembers, statuses);
-    return {
+    const spawnSnapshot: MemberSpawnStatusesSnapshot = {
       statuses,
-      runId,
+      runId: run.runId,
       teamLaunchState: deriveTeamLaunchAggregateState(summary),
-      launchPhase: snapshot.launchPhase,
+      launchPhase: launchSnapshot.launchPhase,
       expectedMembers,
-      updatedAt: snapshot.updatedAt,
+      updatedAt: launchSnapshot.updatedAt,
       summary,
       source: persisted ? 'merged' : 'live',
     };
+    if (
+      generationAtStart != null &&
+      this.shouldCacheMemberSpawnStatusesSnapshot(run) &&
+      this.getMemberSpawnStatusesCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === run.runId
+    ) {
+      this.memberSpawnStatusesSnapshotCache.set(teamName, {
+        expiresAtMs: Date.now() + TeamProvisioningService.MEMBER_SPAWN_STATUS_SNAPSHOT_CACHE_TTL_MS,
+        generation: generationAtStart,
+        runId: run.runId,
+        snapshot: this.cloneMemberSpawnStatusesSnapshot(spawnSnapshot),
+      });
+    }
+    return spawnSnapshot;
   }
 
   async getTeamAgentRuntimeSnapshot(teamName: string): Promise<TeamAgentRuntimeSnapshot> {
@@ -10327,6 +10591,36 @@ export class TeamProvisioningService {
       return cached.snapshot;
     }
 
+    const generationAtStart = this.getRuntimeSnapshotCacheGeneration(teamName);
+    const existingRequest = this.agentRuntimeSnapshotInFlightByTeam.get(teamName);
+    if (
+      existingRequest &&
+      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest.runIdAtStart === runId
+    ) {
+      return existingRequest.promise;
+    }
+
+    const request = this.buildTeamAgentRuntimeSnapshot(teamName, runId, generationAtStart).finally(
+      () => {
+        if (this.agentRuntimeSnapshotInFlightByTeam.get(teamName)?.promise === request) {
+          this.agentRuntimeSnapshotInFlightByTeam.delete(teamName);
+        }
+      }
+    );
+    this.agentRuntimeSnapshotInFlightByTeam.set(teamName, {
+      generationAtStart,
+      runIdAtStart: runId,
+      promise: request,
+    });
+    return request;
+  }
+
+  private async buildTeamAgentRuntimeSnapshot(
+    teamName: string,
+    runId: string | null,
+    generationAtStart: number
+  ): Promise<TeamAgentRuntimeSnapshot> {
     const updatedAt = nowIso();
     const run = runId ? (this.runs.get(runId) ?? null) : null;
     const currentRuntimeAdapterRun = this.runtimeAdapterRunByTeam.get(teamName);
@@ -10334,7 +10628,8 @@ export class TeamProvisioningService {
 
     let configuredMembers: TeamConfig['members'] = [];
     try {
-      configuredMembers = (await this.configReader.getConfig(teamName))?.members ?? [];
+      const config = await this.readConfigSnapshot(teamName);
+      configuredMembers = config?.members ?? [];
     } catch {
       configuredMembers = [];
     }
@@ -10548,10 +10843,15 @@ export class TeamProvisioningService {
       members: snapshotMembers,
     };
 
-    this.agentRuntimeSnapshotCache.set(teamName, {
-      expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
-      snapshot,
-    });
+    if (
+      this.getRuntimeSnapshotCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === runId
+    ) {
+      this.agentRuntimeSnapshotCache.set(teamName, {
+        expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
+        snapshot,
+      });
+    }
     return snapshot;
   }
 
@@ -10671,6 +10971,7 @@ export class TeamProvisioningService {
     }
     parsed.members = members;
     await atomicWriteAsync(configPath, `${JSON.stringify(parsed, null, 2)}\n`);
+    TeamConfigReader.invalidateTeam(input.teamName);
   }
 
   private enqueueDirectRestartPrompt(input: {
@@ -10850,7 +11151,7 @@ export class TeamProvisioningService {
       metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>>;
       configuredMember: ReturnType<TeamProvisioningService['resolveEffectiveConfiguredMember']>;
     }> => {
-      const config = await this.configReader.getConfig(teamName);
+      const config = await this.readConfigForStrictDecision(teamName);
       const configuredMembers = config?.members ?? [];
       let metaMembers: Awaited<ReturnType<TeamMembersMetaStore['getMembers']>> = [];
       try {
@@ -10924,8 +11225,7 @@ export class TeamProvisioningService {
       );
     }
 
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     const liveRuntimeByMember = await this.getLiveTeamAgentRuntimeMetadata(teamName);
     const livePids = new Set<number>();
     let hasAliveRuntimeWithoutPid = false;
@@ -11070,8 +11370,7 @@ export class TeamProvisioningService {
       throw new Error('Lead restart is not supported from member controls');
     }
 
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.resetRuntimeToolActivity(run, memberName);
     this.clearMemberSpawnToolTracking(run, memberName);
     this.setMemberSpawnStatus(run, memberName, 'spawning');
@@ -11166,7 +11465,7 @@ export class TeamProvisioningService {
       throw new Error('Member name is required');
     }
 
-    const config = await this.configReader.getConfig(teamName);
+    const config = await this.readConfigForStrictDecision(teamName);
     if (!config) {
       throw new Error(`Team "${teamName}" configuration is no longer available`);
     }
@@ -11231,8 +11530,7 @@ export class TeamProvisioningService {
       : 'Skipped by user for this launch';
 
     if (run && !run.processKilled && !run.cancelRequested) {
-      this.agentRuntimeSnapshotCache.delete(teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+      this.invalidateRuntimeSnapshotCaches(teamName);
       this.resetRuntimeToolActivity(run, normalizedMemberName);
       this.clearMemberSpawnToolTracking(run, normalizedMemberName);
       this.setMemberSpawnStatus(run, normalizedMemberName, 'skipped', reason);
@@ -11294,8 +11592,7 @@ export class TeamProvisioningService {
       updatedAt,
     });
     await this.writeLaunchStateSnapshot(teamName, nextSnapshot);
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
   }
 
   private getMutableAliveRunOrThrow(teamName: string): ProvisioningRun {
@@ -11326,7 +11623,7 @@ export class TeamProvisioningService {
       throw new Error('OpenCode runtime adapter is not available for controlled lane reattach.');
     }
 
-    const config = await this.configReader.getConfig(teamName);
+    const config = await this.readConfigForStrictDecision(teamName);
     if (!config) {
       throw new Error(`Team "${teamName}" configuration is no longer available`);
     }
@@ -11409,8 +11706,7 @@ export class TeamProvisioningService {
     }
 
     this.upsertRunAllEffectiveMember(run, memberSpec);
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.resetRuntimeToolActivity(run, memberName);
     this.clearMemberSpawnToolTracking(run, memberName);
     run.pendingMemberRestarts.delete(memberName);
@@ -11464,8 +11760,7 @@ export class TeamProvisioningService {
     );
     if (laneIndex < 0) {
       this.removeRunAllEffectiveMember(run, memberName);
-      this.agentRuntimeSnapshotCache.delete(teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+      this.invalidateRuntimeSnapshotCaches(teamName);
       await this.persistLaunchStateSnapshot(run, this.getMixedSecondaryLaunchPhase(run));
       return;
     }
@@ -11473,8 +11768,7 @@ export class TeamProvisioningService {
     const [lane] = run.mixedSecondaryLanes.splice(laneIndex, 1);
     await this.stopSingleMixedSecondaryRuntimeLane(run, lane, 'cleanup');
     this.removeRunAllEffectiveMember(run, memberName);
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.resetRuntimeToolActivity(run, memberName);
     this.clearMemberSpawnToolTracking(run, memberName);
     run.pendingMemberRestarts.delete(memberName);
@@ -14349,6 +14643,7 @@ export class TeamProvisioningService {
         }).catch(() => undefined);
         this.runtimeAdapterRunByTeam.delete(input.request.teamName);
         this.aliveRunByTeam.delete(input.request.teamName);
+        this.invalidateRuntimeSnapshotCaches(input.request.teamName);
       } else {
         this.runtimeAdapterRunByTeam.set(input.request.teamName, {
           runId,
@@ -14357,6 +14652,7 @@ export class TeamProvisioningService {
           members: result.members,
         });
         this.aliveRunByTeam.set(input.request.teamName, runId);
+        this.invalidateRuntimeSnapshotCaches(input.request.teamName);
       }
       if (this.provisioningRunByTeam.get(input.request.teamName) === runId) {
         this.provisioningRunByTeam.delete(input.request.teamName);
@@ -14434,6 +14730,7 @@ export class TeamProvisioningService {
       ],
     };
     await atomicWriteAsync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    TeamConfigReader.invalidateTeam(request.teamName);
   }
 
   private async persistOpenCodeRuntimeAdapterLaunchResult(
@@ -15318,6 +15615,7 @@ export class TeamProvisioningService {
     if (this.provisioningRunByTeam.get(teamName) === runId) {
       this.provisioningRunByTeam.delete(teamName);
     }
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.setRuntimeAdapterProgress({
       ...runtimeProgress,
       state: 'cancelled',
@@ -15397,6 +15695,7 @@ export class TeamProvisioningService {
     if (this.provisioningRunByTeam.get(teamName) === runId) {
       this.provisioningRunByTeam.delete(teamName);
     }
+    this.invalidateRuntimeSnapshotCaches(teamName);
   }
 
   private recordCancelledOpenCodeRuntimeAdapterLaunch(
@@ -15409,6 +15708,7 @@ export class TeamProvisioningService {
     this.provisioningRunByTeam.delete(teamName);
     this.runtimeAdapterRunByTeam.delete(teamName);
     this.aliveRunByTeam.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     const progress: TeamProvisioningProgress = {
       runId,
       teamName,
@@ -15760,14 +16060,18 @@ export class TeamProvisioningService {
       return { kind: 'ignored', relayed: 0 };
     }
 
-    const leadName = await this.configReader
-      .getConfig(teamName)
-      .then(
-        (config) => config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null
-      )
-      .catch(() => null);
+    const [config, metaMembers] = await Promise.all([
+      this.readConfigSnapshot(teamName).catch(() => null),
+      this.membersMetaStore.getMembers(teamName).catch(() => []),
+    ]);
+    const leadName = config?.members?.find((member) => isLeadMember(member))?.name?.trim() || null;
+    const isOpenCodeRecipient = this.isOpenCodeRuntimeRecipientFromSources(
+      inboxName,
+      config,
+      metaMembers
+    );
     if (inboxName.trim().toLowerCase() === leadName?.toLowerCase()) {
-      if (await this.isOpenCodeRuntimeRecipient(teamName, inboxName)) {
+      if (isOpenCodeRecipient) {
         const diagnostic =
           'opencode_lead_runtime_session_missing: OpenCode lead inbox relay is unsupported in v1; leaving inbox unread for durable retry/diagnostics.';
         logger.warn(`[${teamName}] ${diagnostic} inbox=${inboxName}`);
@@ -15783,7 +16087,7 @@ export class TeamProvisioningService {
       };
     }
 
-    if (await this.isOpenCodeRuntimeRecipient(teamName, inboxName)) {
+    if (isOpenCodeRecipient) {
       const relayOptions: OpenCodeMemberInboxRelayOptions = {
         source: options.source ?? 'watcher',
         ...(options.onlyMessageId ? { onlyMessageId: options.onlyMessageId } : {}),
@@ -16214,7 +16518,7 @@ export class TeamProvisioningService {
       // as read after native delivery, so we must scan ALL messages (including read).
       let config: Awaited<ReturnType<TeamConfigReader['getConfig']>> | null = null;
       try {
-        config = await this.configReader.getConfig(teamName);
+        config = await this.readConfigForObservation(teamName);
       } catch {
         // config not ready yet during early provisioning — skip scan
       }
@@ -16263,7 +16567,7 @@ export class TeamProvisioningService {
       // Re-read config if needed (already fetched above but guard provisioningComplete path)
       if (!config) {
         try {
-          config = await this.configReader.getConfig(teamName);
+          config = await this.readConfigForObservation(teamName);
         } catch {
           return 0;
         }
@@ -16741,7 +17045,7 @@ export class TeamProvisioningService {
 
     for (const teamName of aliveTeams) {
       try {
-        const config = await this.configReader.getConfig(teamName);
+        const config = await this.readConfigForStrictDecision(teamName);
         if (!config) continue;
 
         const oldCode = config.language || 'system';
@@ -17434,17 +17738,49 @@ export class TeamProvisioningService {
   private async getLiveTeamAgentRuntimeMetadata(
     teamName: string
   ): Promise<Map<string, LiveTeamAgentRuntimeMetadata>> {
+    const runId = this.getTrackedRunId(teamName);
     const cached = this.liveTeamAgentRuntimeMetadataCache.get(teamName);
-    if (cached && cached.expiresAtMs > Date.now()) {
-      return cached.metadata;
+    if (cached && cached.expiresAtMs > Date.now() && cached.runId === runId) {
+      return this.cloneLiveTeamAgentRuntimeMetadata(cached.metadata);
     }
 
-    const runId = this.getTrackedRunId(teamName);
+    const generationAtStart = this.getRuntimeSnapshotCacheGeneration(teamName);
+    const existingRequest = this.liveTeamAgentRuntimeMetadataInFlightByTeam.get(teamName);
+    if (
+      existingRequest &&
+      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest.runIdAtStart === runId
+    ) {
+      return this.cloneLiveTeamAgentRuntimeMetadata(await existingRequest.promise);
+    }
+
+    const request = this.buildLiveTeamAgentRuntimeMetadata(
+      teamName,
+      runId,
+      generationAtStart
+    ).finally(() => {
+      if (this.liveTeamAgentRuntimeMetadataInFlightByTeam.get(teamName)?.promise === request) {
+        this.liveTeamAgentRuntimeMetadataInFlightByTeam.delete(teamName);
+      }
+    });
+    this.liveTeamAgentRuntimeMetadataInFlightByTeam.set(teamName, {
+      generationAtStart,
+      runIdAtStart: runId,
+      promise: request,
+    });
+    return this.cloneLiveTeamAgentRuntimeMetadata(await request);
+  }
+
+  private async buildLiveTeamAgentRuntimeMetadata(
+    teamName: string,
+    runId: string | null,
+    generationAtStart: number
+  ): Promise<Map<string, LiveTeamAgentRuntimeMetadata>> {
     const run = runId ? (this.runs.get(runId) ?? null) : null;
 
     let configuredMembers: TeamConfig['members'] = [];
     try {
-      configuredMembers = (await this.configReader.getConfig(teamName))?.members ?? [];
+      configuredMembers = (await this.readConfigSnapshot(teamName))?.members ?? [];
     } catch {
       configuredMembers = [];
     }
@@ -17780,10 +18116,16 @@ export class TeamProvisioningService {
       });
     }
 
-    this.liveTeamAgentRuntimeMetadataCache.set(teamName, {
-      expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
-      metadata: metadataByMember,
-    });
+    if (
+      this.getRuntimeSnapshotCacheGeneration(teamName) === generationAtStart &&
+      this.getTrackedRunId(teamName) === runId
+    ) {
+      this.liveTeamAgentRuntimeMetadataCache.set(teamName, {
+        expiresAtMs: Date.now() + TeamProvisioningService.AGENT_RUNTIME_SNAPSHOT_CACHE_TTL_MS,
+        metadata: this.cloneLiveTeamAgentRuntimeMetadata(metadataByMember),
+        runId,
+      });
+    }
     return metadataByMember;
   }
 
@@ -17836,6 +18178,7 @@ export class TeamProvisioningService {
 
   private async clearPersistedLaunchStateNow(teamName: string): Promise<void> {
     await this.launchStateStore.clear(teamName);
+    this.launchStateWrittenRunIdByTeam.delete(teamName);
     await clearBootstrapState(teamName);
   }
 
@@ -18097,15 +18440,17 @@ export class TeamProvisioningService {
     teamName: string,
     snapshot: PersistedTeamLaunchSnapshot
   ): Promise<PersistedTeamLaunchSnapshot> {
-    return this.enqueueLaunchStateStoreOperation(teamName, () =>
+    const result = await this.enqueueLaunchStateStoreOperation(teamName, () =>
       this.writeLaunchStateSnapshotNow(teamName, snapshot)
     );
+    return result.snapshot;
   }
 
   private async writeLaunchStateSnapshotNow(
     teamName: string,
-    snapshot: PersistedTeamLaunchSnapshot
-  ): Promise<PersistedTeamLaunchSnapshot> {
+    snapshot: PersistedTeamLaunchSnapshot,
+    options?: { allowNoopSkip?: boolean; runId?: string }
+  ): Promise<LaunchStateWriteResult> {
     const previousSnapshot = await this.launchStateStore.read(teamName).catch(() => null);
     const metaMembers = await this.membersMetaStore.getMembers(teamName).catch(() => []);
     const overlaidSnapshot = await this.applyOpenCodeSecondaryEvidenceOverlay({
@@ -18114,8 +18459,74 @@ export class TeamProvisioningService {
       previousSnapshot,
       metaMembers,
     });
+    if (
+      options?.allowNoopSkip === true &&
+      typeof options.runId === 'string' &&
+      this.launchStateWrittenRunIdByTeam.get(teamName) === options.runId &&
+      previousSnapshot &&
+      this.areLaunchStateSnapshotsSemanticallyEqual(previousSnapshot, overlaidSnapshot) &&
+      !this.isLaunchStateNoopRefreshDue(previousSnapshot)
+    ) {
+      return { snapshot: previousSnapshot, wrote: false };
+    }
     await this.launchStateStore.write(teamName, overlaidSnapshot);
-    return overlaidSnapshot;
+    if (typeof options?.runId === 'string') {
+      this.launchStateWrittenRunIdByTeam.set(teamName, options.runId);
+    }
+    return { snapshot: overlaidSnapshot, wrote: true };
+  }
+
+  private isLaunchStateNoopRefreshDue(snapshot: PersistedTeamLaunchSnapshot): boolean {
+    const updatedAtMs = Date.parse(snapshot.updatedAt);
+    return (
+      !Number.isFinite(updatedAtMs) ||
+      Date.now() - updatedAtMs >= TeamProvisioningService.LAUNCH_STATE_NOOP_REFRESH_MS
+    );
+  }
+
+  private areLaunchStateSnapshotsSemanticallyEqual(
+    left: PersistedTeamLaunchSnapshot,
+    right: PersistedTeamLaunchSnapshot
+  ): boolean {
+    return (
+      JSON.stringify(this.toLaunchStateSemanticValue(left)) ===
+      JSON.stringify(this.toLaunchStateSemanticValue(right))
+    );
+  }
+
+  private toLaunchStateSemanticValue(snapshot: PersistedTeamLaunchSnapshot): unknown {
+    const { updatedAt: _updatedAt, members, ...rest } = snapshot;
+    const stableMembers = Object.fromEntries(
+      Object.entries(members)
+        .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
+        .map(([memberName, member]) => {
+          const {
+            lastEvaluatedAt: _lastEvaluatedAt,
+            lastRuntimeAliveAt: _lastRuntimeAliveAt,
+            ...stableMember
+          } = member;
+          return [memberName, stableMember];
+        })
+    );
+    return this.toStableJsonValue({
+      ...rest,
+      members: stableMembers,
+    });
+  }
+
+  private toStableJsonValue(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.toStableJsonValue(item));
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entryValue]) => entryValue !== undefined)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entryValue]) => [key, this.toStableJsonValue(entryValue)])
+    );
   }
 
   private async enqueueLaunchStateStoreOperation<T>(
@@ -18452,6 +18863,7 @@ export class TeamProvisioningService {
     run: Pick<ProvisioningRun, 'teamName' | 'runId'>,
     memberName: string
   ) {
+    this.invalidateMemberSpawnStatusesCache(run.teamName);
     this.teamChangeEmitter?.({
       type: 'member-spawn',
       teamName: run.teamName,
@@ -18799,15 +19211,18 @@ export class TeamProvisioningService {
 
     if (filteredSnapshot.teamLaunchState === 'clean_success' && launchPhase !== 'active') {
       await this.clearPersistedLaunchStateNow(run.teamName);
-      this.agentRuntimeSnapshotCache.delete(run.teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+      this.invalidateRuntimeSnapshotCaches(run.teamName);
       return null;
     }
 
-    const writtenSnapshot = await this.writeLaunchStateSnapshotNow(run.teamName, filteredSnapshot);
-    this.agentRuntimeSnapshotCache.delete(run.teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
-    return writtenSnapshot;
+    const writeResult = await this.writeLaunchStateSnapshotNow(run.teamName, filteredSnapshot, {
+      allowNoopSkip: true,
+      runId: run.runId,
+    });
+    if (writeResult.wrote) {
+      this.invalidateRuntimeSnapshotCaches(run.teamName);
+    }
+    return writeResult.snapshot;
   }
 
   private async launchSingleMixedSecondaryLane(
@@ -20169,9 +20584,9 @@ export class TeamProvisioningService {
     memberName: string,
     sinceMs: number | null
   ): Promise<BootstrapTranscriptOutcome[]> {
-    let config: Awaited<ReturnType<TeamConfigReader['getConfig']>>;
+    let config: TeamConfig | null;
     try {
-      config = await this.configReader.getConfig(teamName);
+      config = await this.readConfigSnapshot(teamName);
     } catch {
       return [];
     }
@@ -20221,7 +20636,7 @@ export class TeamProvisioningService {
   private async collectBootstrapTranscriptProjectDirs(
     teamName: string,
     memberName: string,
-    config: Awaited<ReturnType<TeamConfigReader['getConfig']>>
+    config: TeamConfig | null
   ): Promise<string[]> {
     const pathCandidates: string[] = [];
     const pathSeen = new Set<string>();
@@ -20687,8 +21102,7 @@ export class TeamProvisioningService {
    * Always uses SIGKILL via killTeamProcess() to prevent CLI cleanup.
    */
   async stopTeam(teamName: string): Promise<void> {
-    this.agentRuntimeSnapshotCache.delete(teamName);
-    this.liveTeamAgentRuntimeMetadataCache.delete(teamName);
+    this.invalidateRuntimeSnapshotCaches(teamName);
     this.stopPersistentTeamMembers(teamName);
 
     const runId = this.getTrackedRunId(teamName);
@@ -20916,6 +21330,7 @@ export class TeamProvisioningService {
       this.runtimeAdapterRunByTeam.delete(teamName);
       this.aliveRunByTeam.delete(teamName);
       this.provisioningRunByTeam.delete(teamName);
+      this.invalidateRuntimeSnapshotCaches(teamName);
       return;
     }
     const startedAt = nowIso();
@@ -20934,6 +21349,7 @@ export class TeamProvisioningService {
     if (this.provisioningRunByTeam.get(teamName) === runId) {
       this.provisioningRunByTeam.delete(teamName);
     }
+    this.invalidateRuntimeSnapshotCaches(teamName);
     try {
       await clearOpenCodeRuntimeLaneStorage({
         teamsBasePath: getTeamsBasePath(),
@@ -21279,8 +21695,7 @@ export class TeamProvisioningService {
           );
           return true;
         }
-        this.agentRuntimeSnapshotCache.delete(run.teamName);
-        this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+        this.invalidateRuntimeSnapshotCaches(run.teamName);
         this.setMemberSpawnStatus(run, memberName, 'waiting');
         this.appendMemberBootstrapDiagnostic(
           run,
@@ -21921,7 +22336,7 @@ export class TeamProvisioningService {
     let currentMembers: TeamCreateRequest['members'] = run.request.members;
     let leadName = 'team-lead';
     try {
-      const config = await this.configReader.getConfig(run.teamName);
+      const config = await this.readConfigForObservation(run.teamName);
       if (config?.members) {
         const configLead = config.members.find((m) => isLeadMember(m));
         leadName = configLead?.name?.trim() || 'team-lead';
@@ -22081,7 +22496,7 @@ export class TeamProvisioningService {
     let leadName =
       run.effectiveMembers.find((m) => m.role?.toLowerCase().includes('lead'))?.name || 'team-lead';
     try {
-      const config = await this.configReader.getConfig(run.teamName);
+      const config = await this.readConfigForObservation(run.teamName);
       if (config?.members) {
         const configLead = config.members.find((m) => isLeadMember(m));
         leadName = configLead?.name?.trim() || leadName;
@@ -22792,7 +23207,7 @@ export class TeamProvisioningService {
     // Resolve project cwd from team config
     let projectCwd: string | undefined;
     try {
-      const config = await this.configReader.getConfig(run.teamName);
+      const config = await this.readConfigForStrictDecision(run.teamName);
       projectCwd = config?.projectPath ?? config?.members?.[0]?.cwd;
     } catch {
       // best-effort
@@ -23675,8 +24090,8 @@ export class TeamProvisioningService {
       this.clearSecondaryRuntimeRuns(run.teamName);
     }
     if (!hasNewerTrackedRun) {
-      this.agentRuntimeSnapshotCache.delete(run.teamName);
-      this.liveTeamAgentRuntimeMetadataCache.delete(run.teamName);
+      this.invalidateRuntimeSnapshotCaches(run.teamName);
+      this.invalidateMemberSpawnStatusesCache(run.teamName);
       this.leadInboxRelayInFlight.delete(run.teamName);
       this.relayedLeadInboxMessageIds.delete(run.teamName);
       this.pendingCrossTeamFirstReplies.delete(run.teamName);
@@ -24435,6 +24850,7 @@ export class TeamProvisioningService {
       config.projectPathHistory = pathHistory.slice(-500);
 
       await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
       logger.info(`[${teamName}] Updated config.projectPath immediately: ${cwd}`);
     } catch (error) {
       // Non-fatal: updateConfigPostLaunch will update it later if provisioning succeeds.
@@ -24671,6 +25087,7 @@ export class TeamProvisioningService {
       this.applyEffectiveLaunchStateToConfig(teamName, config, launchState);
 
       await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
     } catch (error) {
       logger.warn(
         `[${teamName}] Failed to update config post-launch: ${
@@ -24721,6 +25138,7 @@ export class TeamProvisioningService {
           if (removedFromConfig.length > 0) {
             parsed.members = nextMembers;
             await atomicWriteAsync(configPath, JSON.stringify(parsed, null, 2));
+            TeamConfigReader.invalidateTeam(teamName);
             logger.warn(
               `[${teamName}] Removed CLI auto-suffixed members from config.json: ${removedFromConfig.join(', ')}`
             );
@@ -24977,6 +25395,7 @@ export class TeamProvisioningService {
     config.members = leadMembers;
     try {
       await atomicWriteAsync(configPath, JSON.stringify(config, null, 2));
+      TeamConfigReader.invalidateTeam(teamName);
       logger.info(
         `[${teamName}] Normalized config.json for launch: kept ${leadMembers.length} lead member(s)`
       );
@@ -25008,6 +25427,7 @@ export class TeamProvisioningService {
         return;
       }
       await atomicWriteAsync(configPath, backupRaw);
+      TeamConfigReader.invalidateTeam(teamName);
       logger.info(`[${teamName}] Restored config.json from prelaunch backup after launch failure`);
     } catch {
       logger.debug(`[${teamName}] No prelaunch backup to restore (or read failed)`);

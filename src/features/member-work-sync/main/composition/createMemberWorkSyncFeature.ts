@@ -124,8 +124,18 @@ export function createMemberWorkSyncFeature(deps: {
 }): MemberWorkSyncFeatureFacade {
   const clock = new SystemClockAdapter();
   const hash = new NodeHashAdapter();
+  const configReaderForReadOnlySync = {
+    listTeams: () =>
+      typeof deps.configReader.listTeams === 'function'
+        ? deps.configReader.listTeams()
+        : Promise.resolve([]),
+    getConfig: (teamName: string) =>
+      typeof deps.configReader.getConfigSnapshot === 'function'
+        ? deps.configReader.getConfigSnapshot(teamName)
+        : deps.configReader.getConfig(teamName),
+  };
   const agendaSource = new TeamTaskAgendaSource({
-    configReader: deps.configReader,
+    configReader: configReaderForReadOnlySync,
     taskReader: deps.taskReader,
     kanbanManager: deps.kanbanManager,
     membersMetaStore: deps.membersMetaStore,
@@ -150,7 +160,7 @@ export function createMemberWorkSyncFeature(deps: {
   const runtimeTurnSettledTargetResolver =
     deps.runtimeTurnSettledTargetResolver ??
     new TeamRuntimeTurnSettledTargetResolver({
-      teamSource: deps.configReader,
+      teamSource: configReaderForReadOnlySync,
       membersMetaStore: deps.membersMetaStore,
     });
   const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);

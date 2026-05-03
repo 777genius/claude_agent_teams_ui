@@ -135,6 +135,10 @@ import { TeamMetaStore } from '../services/team/TeamMetaStore';
 import { buildAddMemberSpawnMessage } from '../services/team/TeamProvisioningService';
 import { TeamTaskAttachmentStore } from '../services/team/TeamTaskAttachmentStore';
 import { TeamWorktreeGitService } from '../services/team/TeamWorktreeGitService';
+import {
+  cloneLaunchIoGovernorPayload,
+  type LaunchIoGovernor,
+} from '../services/team/LaunchIoGovernor';
 
 import {
   validateFromField,
@@ -220,6 +224,7 @@ import type { CliArgsValidationResult } from '@shared/utils/cliArgsParser';
 
 const logger = createLogger('IPC:teams');
 const OPENCODE_RUNTIME_DELIVERY_UI_TIMEOUT_MS = 12_000;
+const TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS = 250;
 
 /**
  * In-memory set of rate-limit message keys already processed.
@@ -511,6 +516,7 @@ let teamBackupService: TeamBackupService | null = null;
 let teammateToolTracker: TeammateToolTracker | null = null;
 let teamLogSourceTracker: TeamLogSourceTracker | null = null;
 let branchStatusService: BranchStatusService | null = null;
+let launchIoGovernor: LaunchIoGovernor | null = null;
 let boardTaskActivityService: BoardTaskActivityService | null = null;
 let boardTaskActivityDetailService: BoardTaskActivityDetailService | null = null;
 let boardTaskLogStreamService: BoardTaskLogStreamService | null = null;
@@ -563,7 +569,8 @@ export function initializeTeamHandlers(
   taskActivityDetailService?: BoardTaskActivityDetailService,
   taskLogStreamService?: BoardTaskLogStreamService,
   taskExactLogsService?: BoardTaskExactLogsService,
-  taskExactLogDetailService?: BoardTaskExactLogDetailService
+  taskExactLogDetailService?: BoardTaskExactLogDetailService,
+  ioGovernor?: LaunchIoGovernor
 ): void {
   teamDataService = service;
   teamProvisioningService = provisioningService;
@@ -574,6 +581,7 @@ export function initializeTeamHandlers(
   teammateToolTracker = toolTracker ?? null;
   teamLogSourceTracker = logSourceTracker ?? null;
   branchStatusService = branchTracker ?? null;
+  launchIoGovernor = ioGovernor ?? null;
   boardTaskActivityService = taskActivityService ?? null;
   boardTaskActivityDetailService = taskActivityDetailService ?? null;
   boardTaskLogStreamService = taskLogStreamService ?? null;
@@ -895,7 +903,14 @@ async function handleListTeams(_event: IpcMainInvokeEvent): Promise<IpcResult<Te
   setCurrentMainOp('team:list');
   const startedAt = Date.now();
   try {
-    return await wrapTeamHandler('list', () => getTeamDataService().listTeams());
+    return await wrapTeamHandler('list', () => {
+      const loadFresh = () => getTeamDataService().listTeams();
+      return launchIoGovernor
+        ? launchIoGovernor.runSummaryOperation('teams:list', loadFresh, {
+            clone: cloneLaunchIoGovernorPayload,
+          })
+        : loadFresh();
+    });
   } finally {
     const ms = Date.now() - startedAt;
     if (ms >= 1500) {
@@ -916,35 +931,53 @@ async function handleGetData(
   const tn = validated.value!;
   const startedAt = Date.now();
   let data: TeamViewSnapshot;
+  let dataSource: 'worker' | 'main-fallback' | 'main-unavailable' = 'main-unavailable';
+  let workerAvailable = false;
   setCurrentMainOp('team:getData');
   try {
     // Prefer worker thread to keep main event loop responsive
     const worker = getTeamDataWorkerClient();
-    if (worker.isAvailable()) {
+    workerAvailable = worker.isAvailable();
+    const missingState = await classifyMissingTeamData(tn);
+    if (missingState === 'provisioning') {
+      return { success: false, error: 'TEAM_PROVISIONING' };
+    }
+    if (missingState === 'draft') {
+      return { success: false, error: 'TEAM_DRAFT' };
+    }
+
+    if (workerAvailable) {
       try {
         data = await worker.getTeamData(tn);
+        dataSource = 'worker';
       } catch (workerErr) {
         logger.warn(
           `[teams:getData] worker failed, falling back: ${workerErr instanceof Error ? workerErr.message : workerErr}`
         );
         noteHeavyTeamDataWorkerFallback('teams:getData');
         data = await getTeamDataService().getTeamData(tn);
+        dataSource = 'main-fallback';
       }
     } else {
       noteHeavyTeamDataWorkerFallback('teams:getData');
       data = await getTeamDataService().getTeamData(tn);
+      dataSource = 'main-unavailable';
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
       message === `Team not found: ${tn}` &&
-      getTeamProvisioningService().hasProvisioningRun(tn)
+      getTeamProvisioningService().hasProvisioningRun?.(tn) === true
     ) {
       return { success: false, error: 'TEAM_PROVISIONING' };
     }
     // Draft team: team.meta.json exists but config.json doesn't (provisioning failed before TeamCreate)
     if (message === `Team not found: ${tn}`) {
-      const meta = await teamMetaStore.getMeta(tn);
+      const meta = await withTimeoutValue(
+        teamMetaStore.getMeta(tn).catch(() => null),
+        TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+        null
+      );
       if (meta) {
         return { success: false, error: 'TEAM_DRAFT' };
       }
@@ -957,7 +990,9 @@ async function handleGetData(
   const getDataMs = Date.now() - startedAt;
 
   if (getDataMs >= 1500) {
-    logger.warn(`[teams:getData] slow team=${tn} ms=${getDataMs}`);
+    logger.warn(
+      `[teams:getData] slow team=${tn} ms=${getDataMs} source=${dataSource} workerAvailable=${workerAvailable}`
+    );
   }
   const teamDataService = getTeamDataService();
   if (data.processes.some((process) => !process.stoppedAt)) {
@@ -1013,6 +1048,33 @@ async function handleGetData(
   checkRateLimitMessages(merged, tn, displayName, projectPath, isAlive, currentLeadSessionId);
   checkApiErrorMessages(merged, tn, displayName, projectPath);
   return { success: true, data: { ...data, isAlive } };
+}
+
+async function classifyMissingTeamData(teamName: string): Promise<'provisioning' | 'draft' | null> {
+  const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
+  const configExists = await withTimeoutValue(
+    fs.promises
+      .access(configPath, fs.constants.F_OK)
+      .then(() => true)
+      .catch((error: unknown) => {
+        const code = typeof error === 'object' && error ? (error as { code?: unknown }).code : null;
+        return code === 'ENOENT' ? false : null;
+      }),
+    TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+    null
+  );
+  if (configExists !== false) {
+    return null;
+  }
+  if (getTeamProvisioningService().hasProvisioningRun?.(teamName) === true) {
+    return 'provisioning';
+  }
+  const meta = await withTimeoutValue(
+    teamMetaStore.getMeta(teamName).catch(() => null),
+    TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+    null
+  );
+  return meta ? 'draft' : null;
 }
 
 async function handleGetTaskChangePresence(
@@ -1116,6 +1178,7 @@ async function handleDeleteTeam(
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
     await getTeamProvisioningService().stopTeam(validated.value!);
     await getTeamDataService().deleteTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
   });
 }
 
@@ -1127,7 +1190,10 @@ async function handleRestoreTeam(
   if (!validated.valid) {
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
-  return wrapTeamHandler('restoreTeam', () => getTeamDataService().restoreTeam(validated.value!));
+  return wrapTeamHandler('restoreTeam', async () => {
+    await getTeamDataService().restoreTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
+  });
 }
 
 async function handlePermanentlyDeleteTeam(
@@ -1141,6 +1207,7 @@ async function handlePermanentlyDeleteTeam(
   return wrapTeamHandler('permanentlyDeleteTeam', async () => {
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
     await getTeamDataService().permanentlyDeleteTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
     // Clean up app-owned data (attachments, task-attachments) that lives outside ~/.claude/
     const appData = getAppDataPath();
     await fs.promises
@@ -1208,6 +1275,7 @@ async function handleUpdateConfig(
       }
     }
 
+    getTeamDataWorkerClient().invalidateTeamConfig(tn);
     return result;
   });
 }
@@ -1797,6 +1865,21 @@ function sendProvisioningProgress(
   safeSendToRenderer(targetWindow, TEAM_PROVISIONING_PROGRESS, progress);
 }
 
+function noteLaunchIntentFailed(teamName: string, source: string): void {
+  if (!launchIoGovernor) {
+    return;
+  }
+  const now = new Date().toISOString();
+  launchIoGovernor.noteProvisioningProgress({
+    runId: `${source}:failed-before-progress`,
+    teamName,
+    state: 'failed',
+    message: 'Launch failed before provisioning progress',
+    startedAt: now,
+    updatedAt: now,
+  } as TeamProvisioningProgress);
+}
+
 async function handleCreateTeam(
   event: IpcMainInvokeEvent,
   request: unknown
@@ -1807,11 +1890,18 @@ async function handleCreateTeam(
   }
   const progressTargetWindow = BrowserWindow.fromWebContents(event.sender);
 
-  return wrapTeamHandler('create', () => {
+  return wrapTeamHandler('create', async () => {
     addMainBreadcrumb('team', 'create', { teamName: validation.value.teamName });
-    return getTeamProvisioningService().createTeam(validation.value, (progress) => {
-      sendProvisioningProgress(progressTargetWindow, progress);
-    });
+    launchIoGovernor?.noteLaunchIntent(validation.value.teamName, 'create');
+    try {
+      return await getTeamProvisioningService().createTeam(validation.value, (progress) => {
+        launchIoGovernor?.noteProvisioningProgress(progress);
+        sendProvisioningProgress(progressTargetWindow, progress);
+      });
+    } catch (error) {
+      noteLaunchIntentFailed(validation.value.teamName, 'create');
+      throw error;
+    }
   });
 }
 
@@ -1944,11 +2034,18 @@ async function handleLaunchTeam(
       members: savedRequest.members,
     };
 
-    return wrapTeamHandler('create', () =>
-      getTeamProvisioningService().createTeam(createRequest, (progress) => {
-        sendProvisioningProgress(progressTargetWindow, progress);
-      })
-    );
+    return wrapTeamHandler('create', async () => {
+      launchIoGovernor?.noteLaunchIntent(tn, 'draft-launch');
+      try {
+        return await getTeamProvisioningService().createTeam(createRequest, (progress) => {
+          launchIoGovernor?.noteProvisioningProgress(progress);
+          sendProvisioningProgress(progressTargetWindow, progress);
+        });
+      } catch (error) {
+        noteLaunchIntentFailed(tn, 'draft-launch');
+        throw error;
+      }
+    });
   }
 
   const persistedMeta = await teamMetaStore.getMeta(tn).catch(() => null);
@@ -1986,33 +2083,41 @@ async function handleLaunchTeam(
   const launchLimitContext =
     typeof payload.limitContext === 'boolean' ? payload.limitContext : persistedMeta?.limitContext;
 
-  return wrapTeamHandler('launch', () => {
+  return wrapTeamHandler('launch', async () => {
     addMainBreadcrumb('team', 'launch', { teamName: validatedTeamName.value! });
-    return getTeamProvisioningService().launchTeam(
-      {
-        teamName: validatedTeamName.value!,
-        cwd,
-        prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
-        providerId: launchProviderId,
-        providerBackendId: launchProviderBackendValidation.value,
-        model: rawLaunchModel,
-        effort: effortValidation.value,
-        fastMode: fastModeValidation.value,
-        limitContext: launchLimitContext,
-        clearContext: payload.clearContext === true ? true : undefined,
-        skipPermissions:
-          typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
-        worktree:
-          typeof payload.worktree === 'string' ? payload.worktree.trim() || undefined : undefined,
-        extraCliArgs:
-          typeof payload.extraCliArgs === 'string'
-            ? payload.extraCliArgs.trim() || undefined
-            : undefined,
-      },
-      (progress) => {
-        sendProvisioningProgress(progressTargetWindow, progress);
-      }
-    );
+    launchIoGovernor?.noteLaunchIntent(validatedTeamName.value!, 'launch');
+    try {
+      return await getTeamProvisioningService().launchTeam(
+        {
+          teamName: validatedTeamName.value!,
+          cwd,
+          prompt:
+            typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
+          providerId: launchProviderId,
+          providerBackendId: launchProviderBackendValidation.value,
+          model: rawLaunchModel,
+          effort: effortValidation.value,
+          fastMode: fastModeValidation.value,
+          limitContext: launchLimitContext,
+          clearContext: payload.clearContext === true ? true : undefined,
+          skipPermissions:
+            typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
+          worktree:
+            typeof payload.worktree === 'string' ? payload.worktree.trim() || undefined : undefined,
+          extraCliArgs:
+            typeof payload.extraCliArgs === 'string'
+              ? payload.extraCliArgs.trim() || undefined
+              : undefined,
+        },
+        (progress) => {
+          launchIoGovernor?.noteProvisioningProgress(progress);
+          sendProvisioningProgress(progressTargetWindow, progress);
+        }
+      );
+    } catch (error) {
+      noteLaunchIntentFailed(validatedTeamName.value!, 'launch');
+      throw error;
+    }
   });
 }
 
@@ -2352,35 +2457,47 @@ async function handleGetMessagesPage(
 
   return wrapTeamHandler('getMessagesPage', async () => {
     let page: MessagesPage;
-    const notificationContext = await getTeamDataService().getTeamNotificationContext(vTeam.value!);
+    const teamName = vTeam.value!;
+    const scanNotifications = (messagesPage: MessagesPage): void => {
+      const notificationContextPromise: Promise<{ displayName: string; projectPath?: string }> =
+        getTeamDataService()
+          .getTeamNotificationContext(teamName)
+          .catch(() => ({ displayName: teamName }));
+      void notificationContextPromise
+        .then((notificationContext) => {
+          scanTeamMessageNotifications(
+            messagesPage.messages,
+            teamName,
+            notificationContext.displayName,
+            notificationContext.projectPath
+          );
+        })
+        .catch((error: unknown) => {
+          logger.debug(
+            `[teams:getMessagesPage] notification scan skipped team=${teamName}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        });
+    };
     const liveMessages =
-      cursor == null ? getTeamProvisioningService().getLiveLeadProcessMessages(vTeam.value!) : [];
+      cursor == null ? getTeamProvisioningService().getLiveLeadProcessMessages(teamName) : [];
 
     if (liveMessages.length > 0) {
-      page = await getTeamDataService().getMessagesPage(vTeam.value!, {
+      page = await getTeamDataService().getMessagesPage(teamName, {
         cursor,
         limit,
         liveMessages,
       });
-      scanTeamMessageNotifications(
-        page.messages,
-        vTeam.value!,
-        notificationContext.displayName,
-        notificationContext.projectPath
-      );
+      scanNotifications(page);
       return page;
     }
 
     const worker = getTeamDataWorkerClient();
     if (worker.isAvailable()) {
       try {
-        page = await worker.getMessagesPage(vTeam.value!, { cursor, limit });
-        scanTeamMessageNotifications(
-          page.messages,
-          vTeam.value!,
-          notificationContext.displayName,
-          notificationContext.projectPath
-        );
+        page = await worker.getMessagesPage(teamName, { cursor, limit });
+        scanNotifications(page);
         return page;
       } catch (workerErr) {
         logger.warn(
@@ -2391,13 +2508,8 @@ async function handleGetMessagesPage(
       }
     }
     noteHeavyTeamDataWorkerFallback('teams:getMessagesPage');
-    page = await getTeamDataService().getMessagesPage(vTeam.value!, { cursor, limit });
-    scanTeamMessageNotifications(
-      page.messages,
-      vTeam.value!,
-      notificationContext.displayName,
-      notificationContext.projectPath
-    );
+    page = await getTeamDataService().getMessagesPage(teamName, { cursor, limit });
+    scanNotifications(page);
     return page;
   });
 }
@@ -3307,8 +3419,8 @@ async function handleCreateConfig(
     });
   }
 
-  return wrapTeamHandler('createConfig', () =>
-    getTeamDataService().createTeamConfig({
+  return wrapTeamHandler('createConfig', async () => {
+    await getTeamDataService().createTeamConfig({
       teamName,
       displayName: payload.displayName?.trim() || undefined,
       description: payload.description?.trim() || undefined,
@@ -3332,8 +3444,9 @@ async function handleCreateConfig(
         typeof payload.extraCliArgs === 'string' && payload.extraCliArgs.trim()
           ? payload.extraCliArgs.trim()
           : undefined,
-    })
-  );
+    });
+    getTeamDataWorkerClient().invalidateTeamConfig(teamName);
+  });
 }
 
 function getTeamMemberLogsFinder(): TeamMemberLogsFinder {
@@ -3724,7 +3837,14 @@ async function handleGetAllTasks(_event: IpcMainInvokeEvent): Promise<IpcResult<
   setCurrentMainOp('team:getAllTasks');
   const startedAt = Date.now();
   try {
-    return await wrapTeamHandler('getAllTasks', () => getTeamDataService().getAllTasks());
+    return await wrapTeamHandler('getAllTasks', () => {
+      const loadFresh = () => getTeamDataService().getAllTasks();
+      return launchIoGovernor
+        ? launchIoGovernor.runSummaryOperation('teams:getAllTasks', loadFresh, {
+            clone: cloneLaunchIoGovernorPayload,
+          })
+        : loadFresh();
+    });
   } finally {
     const ms = Date.now() - startedAt;
     if (ms >= 1500) {
