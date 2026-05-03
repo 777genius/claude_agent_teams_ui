@@ -1591,6 +1591,42 @@ interface MixedSecondaryRuntimeLaneState {
   result: TeamRuntimeLaunchResult | null;
   warnings: string[];
   diagnostics: string[];
+  launchScheduled?: boolean;
+  queuedAtMs?: number;
+  launchStartedAtMs?: number;
+  launchFinishedAtMs?: number;
+}
+
+function formatOpenCodeLaneTimingMs(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${Math.max(0, Math.round(value))}ms`
+    : 'n/a';
+}
+
+function appendDiagnosticOnce(diagnostics: readonly string[], diagnostic: string | null): string[] {
+  if (!diagnostic || diagnostics.includes(diagnostic)) {
+    return [...diagnostics];
+  }
+  return [...diagnostics, diagnostic];
+}
+
+function buildOpenCodeSecondaryLaneTimingDiagnostic(
+  lane: MixedSecondaryRuntimeLaneState
+): string | null {
+  if (
+    typeof lane.queuedAtMs !== 'number' ||
+    typeof lane.launchStartedAtMs !== 'number' ||
+    typeof lane.launchFinishedAtMs !== 'number'
+  ) {
+    return null;
+  }
+  return [
+    'OpenCode secondary lane timing:',
+    `member=${lane.member.name}`,
+    `queueWaitMs=${formatOpenCodeLaneTimingMs(lane.launchStartedAtMs - lane.queuedAtMs)}`,
+    `launchMs=${formatOpenCodeLaneTimingMs(lane.launchFinishedAtMs - lane.launchStartedAtMs)}`,
+    `totalMs=${formatOpenCodeLaneTimingMs(lane.launchFinishedAtMs - lane.queuedAtMs)}`,
+  ].join(' ');
 }
 
 function createUnexpectedMixedSecondaryLaneFailureResult(input: {
@@ -1738,6 +1774,18 @@ function collectRuntimeLaunchFailureDiagnostics(
   );
 }
 
+function collectOpenCodeSecondaryLaneFailureDiagnostics(
+  result: TeamRuntimeLaunchResult,
+  memberName: string,
+  prefixDiagnostics: readonly string[]
+): string[] {
+  const diagnostics = [
+    ...prefixDiagnostics,
+    ...collectRuntimeLaunchFailureDiagnostics(result, memberName),
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  return diagnostics.length > 0 ? diagnostics : ['OpenCode bridge reported member launch failure'];
+}
+
 function isReconciliableOpenCodeUnknownOutcome(diagnostics: readonly string[]): boolean {
   return diagnostics.some((diagnostic) =>
     /outcome must be reconciled before retry/i.test(diagnostic)
@@ -1760,7 +1808,10 @@ function isDefinitiveOpenCodePreLaunchFailure(
     member.agentToolAccepted ||
     member.runtimeAlive ||
     member.bootstrapConfirmed ||
-    typeof member.sessionId === 'string';
+    (typeof member.sessionId === 'string' && member.sessionId.trim().length > 0) ||
+    (typeof member.runtimePid === 'number' &&
+      Number.isFinite(member.runtimePid) &&
+      member.runtimePid > 0);
   if (runtimeMaterialized) {
     return false;
   }
@@ -19229,6 +19280,8 @@ export class TeamProvisioningService {
     run: ProvisioningRun,
     lane: MixedSecondaryRuntimeLaneState
   ): Promise<void> {
+    lane.launchStartedAtMs = Date.now();
+    lane.queuedAtMs = lane.queuedAtMs ?? lane.launchStartedAtMs;
     const requestedDiagnostics = [...lane.diagnostics];
     const shouldAbortLaunch = (): boolean =>
       run.cancelRequested ||
@@ -19250,6 +19303,8 @@ export class TeamProvisioningService {
     const adapter = this.getOpenCodeRuntimeAdapter();
     if (!adapter) {
       const message = 'OpenCode runtime adapter is not registered for mixed team launch.';
+      lane.launchFinishedAtMs = Date.now();
+      const timingDiagnostic = buildOpenCodeSecondaryLaneTimingDiagnostic(lane);
       lane.state = 'finished';
       lane.result = {
         runId: lane.runId ?? randomUUID(),
@@ -19266,14 +19321,14 @@ export class TeamProvisioningService {
             bootstrapConfirmed: false,
             hardFailure: true,
             hardFailureReason: 'opencode_runtime_adapter_missing',
-            diagnostics: [message],
+            diagnostics: appendDiagnosticOnce([message], timingDiagnostic),
           },
         },
         warnings: [],
-        diagnostics: [...requestedDiagnostics, message],
+        diagnostics: appendDiagnosticOnce([...requestedDiagnostics, message], timingDiagnostic),
       };
       lane.warnings = [];
-      lane.diagnostics = [...requestedDiagnostics, message];
+      lane.diagnostics = appendDiagnosticOnce([...requestedDiagnostics, message], timingDiagnostic);
       await this.publishMixedSecondaryLaneStatusChange(run, lane);
       lane.state = 'finished';
       return;
@@ -19340,6 +19395,8 @@ export class TeamProvisioningService {
         providerId: 'opencode',
         model: lane.member.model,
         effort: lane.member.effort,
+        runtimeOnly: true,
+        skipReadinessPreflight: true,
         skipPermissions: run.request.skipPermissions !== false,
         expectedMembers: [
           {
@@ -19369,16 +19426,49 @@ export class TeamProvisioningService {
         await finishCancelledLane();
         return;
       }
-      lane.result = result;
-      lane.warnings = [...result.warnings];
-      lane.diagnostics = [...requestedDiagnostics, ...migration.diagnostics, ...result.diagnostics];
+      lane.launchFinishedAtMs = Date.now();
+      const timingDiagnostic = buildOpenCodeSecondaryLaneTimingDiagnostic(lane);
+      const memberEvidence = result.members[lane.member.name];
+      const resultWithTiming: TeamRuntimeLaunchResult = timingDiagnostic
+        ? {
+            ...result,
+            diagnostics: appendDiagnosticOnce(result.diagnostics, timingDiagnostic),
+            members: {
+              ...result.members,
+              ...(memberEvidence
+                ? {
+                    [lane.member.name]: {
+                      ...memberEvidence,
+                      diagnostics: appendDiagnosticOnce(
+                        memberEvidence.diagnostics ?? [],
+                        timingDiagnostic
+                      ),
+                    },
+                  }
+                : {}),
+            },
+          }
+        : result;
+      lane.result = resultWithTiming;
+      lane.warnings = [...resultWithTiming.warnings];
+      const launchDiagnostics = appendDiagnosticOnce(
+        [...requestedDiagnostics, ...migration.diagnostics, ...resultWithTiming.diagnostics],
+        timingDiagnostic
+      );
+      lane.diagnostics = launchDiagnostics;
 
-      if (isDefinitiveOpenCodePreLaunchFailure(result, lane.member.name)) {
-        const diagnostics = [
-          ...requestedDiagnostics,
-          ...migration.diagnostics,
-          ...collectRuntimeLaunchFailureDiagnostics(result, lane.member.name),
-        ];
+      if (
+        isDefinitiveOpenCodePreLaunchFailure(resultWithTiming, lane.member.name) ||
+        resultWithTiming.teamLaunchState === 'partial_failure'
+      ) {
+        const diagnostics = collectOpenCodeSecondaryLaneFailureDiagnostics(
+          resultWithTiming,
+          lane.member.name,
+          appendDiagnosticOnce(
+            [...requestedDiagnostics, ...migration.diagnostics],
+            timingDiagnostic
+          )
+        );
         await upsertOpenCodeRuntimeLaneIndexEntry({
           teamsBasePath: getTeamsBasePath(),
           teamName: run.teamName,
@@ -19387,8 +19477,6 @@ export class TeamProvisioningService {
           diagnostics,
         }).catch(() => undefined);
         this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
-      } else if (result.teamLaunchState === 'partial_failure') {
-        this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
       }
     } catch (error) {
       if (shouldAbortLaunch()) {
@@ -19396,6 +19484,8 @@ export class TeamProvisioningService {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
+      lane.launchFinishedAtMs = Date.now();
+      const timingDiagnostic = buildOpenCodeSecondaryLaneTimingDiagnostic(lane);
       lane.result = {
         runId: lane.runId,
         teamName: run.teamName,
@@ -19411,20 +19501,23 @@ export class TeamProvisioningService {
             bootstrapConfirmed: false,
             hardFailure: true,
             hardFailureReason: message,
-            diagnostics: [message],
+            diagnostics: appendDiagnosticOnce([message], timingDiagnostic),
           },
         },
         warnings: [],
-        diagnostics: [message],
+        diagnostics: appendDiagnosticOnce([message], timingDiagnostic),
       };
       lane.warnings = [];
-      lane.diagnostics = [...requestedDiagnostics, ...migration.diagnostics, message];
+      lane.diagnostics = appendDiagnosticOnce(
+        [...requestedDiagnostics, ...migration.diagnostics, message],
+        timingDiagnostic
+      );
       await upsertOpenCodeRuntimeLaneIndexEntry({
         teamsBasePath: getTeamsBasePath(),
         teamName: run.teamName,
         laneId: lane.laneId,
         state: 'degraded',
-        diagnostics: [message],
+        diagnostics: appendDiagnosticOnce([message], timingDiagnostic),
       }).catch(() => undefined);
       this.deleteSecondaryRuntimeRun(run.teamName, lane.laneId);
     }
@@ -19486,11 +19579,12 @@ export class TeamProvisioningService {
     run: ProvisioningRun,
     lane: MixedSecondaryRuntimeLaneState
   ): void {
-    if (lane.state !== 'queued') {
+    if (lane.state !== 'queued' || lane.launchScheduled) {
       return;
     }
 
-    lane.state = 'launching';
+    lane.queuedAtMs = lane.queuedAtMs ?? Date.now();
+    lane.launchScheduled = true;
     lane.runId = lane.runId ?? randomUUID();
 
     const launch = async () => {
@@ -19505,6 +19599,7 @@ export class TeamProvisioningService {
           lane.state = 'finished';
           return;
         }
+        lane.state = 'launching';
         await this.launchSingleMixedSecondaryLane(run, lane);
       } catch (error) {
         if (run.cancelRequested || run.processKilled) {

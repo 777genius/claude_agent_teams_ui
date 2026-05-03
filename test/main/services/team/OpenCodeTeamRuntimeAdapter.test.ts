@@ -86,6 +86,76 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     });
   });
 
+  it('can rely on the launch bridge as the only readiness authority', async () => {
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'ready',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'confirmed_alive',
+              runtimePid: 123,
+              model: 'openai/gpt-5.4-mini',
+              evidence: [
+                { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'member_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'run_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+              ],
+            },
+          },
+          warnings: [],
+          diagnostics: [
+            {
+              code: 'opencode_launch_total_timing',
+              severity: 'info',
+              message: 'total=12ms provisioningProbe=3ms members=1',
+            },
+            {
+              code: 'member_reconcile',
+              severity: 'warning',
+              message: 'alice: sample reconcile diagnostic',
+            },
+          ],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const bridge = bridgePort(
+      readiness({
+        state: 'unknown_error',
+        launchAllowed: false,
+        diagnostics: ['readiness should be skipped'],
+      }),
+      { launchOpenCodeTeam }
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(bridge);
+
+    const result = await adapter.launch(launchInput({ skipReadinessPreflight: true }));
+
+    expect(result.teamLaunchState).toBe('clean_success');
+    expect(bridge.checkOpenCodeTeamLaunchReadiness).not.toHaveBeenCalled();
+    expect(launchOpenCodeTeam).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedModel: 'openai/gpt-5.4-mini',
+        expectedCapabilitySnapshotId: null,
+      })
+    );
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        'info:opencode_launch_total_timing: total=12ms provisioningProbe=3ms members=1',
+      ])
+    );
+    expect(result.members.alice?.diagnostics).not.toContain(
+      'info:opencode_launch_total_timing: total=12ms provisioningProbe=3ms members=1'
+    );
+    expect(result.members.alice?.diagnostics).toContain(
+      'warning:member_reconcile: alice: sample reconcile diagnostic'
+    );
+  });
+
   it('rejects non-OpenCode members before readiness or launch bridge dispatch', async () => {
     const launchOpenCodeTeam = vi.fn();
     const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true }), {

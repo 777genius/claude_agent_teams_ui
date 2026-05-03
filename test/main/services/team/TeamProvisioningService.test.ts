@@ -3837,6 +3837,8 @@ describe('TeamProvisioningService', () => {
           providerId: 'opencode',
           model: 'minimax-m2.5-free',
           effort: 'medium',
+          runtimeOnly: true,
+          skipReadinessPreflight: true,
           cwd: '/tmp/mixed-team',
           expectedMembers: [
             expect.objectContaining({
@@ -6552,6 +6554,117 @@ describe('TeamProvisioningService', () => {
                 state: 'degraded',
                 diagnostics: expect.arrayContaining([
                   'OpenCode readiness bridge failed: timeout: OpenCode bridge command timed out',
+                  expect.stringMatching(
+                    /^OpenCode secondary lane timing: member=bob queueWaitMs=\d+ms launchMs=\d+ms totalMs=\d+ms$/
+                  ),
+                ]),
+              },
+            },
+          });
+        },
+        { timeout: 5000 }
+      );
+    });
+
+    it('marks an OpenCode secondary lane degraded when launch fails after runtime materializes', async () => {
+      const teamName = 'mixed-runtime-materialized-failure';
+      const svc = new TeamProvisioningService();
+      const adapterLaunch = vi.fn(async (input: Record<string, unknown>) => ({
+        runId: String(input.runId),
+        teamName: String(input.teamName),
+        launchPhase: 'active',
+        teamLaunchState: 'partial_failure',
+        members: {
+          tom: {
+            memberName: 'tom',
+            providerId: 'opencode',
+            launchState: 'failed_to_start',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: true,
+            hardFailureReason: 'OpenCode bridge reported member launch failure',
+            sessionId: 'ses_tom_materialized_without_bootstrap',
+            runtimePid: 71388,
+            livenessKind: 'runtime_process',
+            diagnostics: [
+              'OpenCode bootstrap MCP did not complete required tools before assistant response: runtime_bootstrap_checkin, member_briefing',
+            ],
+          },
+        },
+        warnings: [],
+        diagnostics: ['OpenCode bridge reported member launch failure'],
+      }));
+
+      svc.setRuntimeAdapterRegistry(
+        new TeamRuntimeAdapterRegistry([
+          {
+            providerId: 'opencode',
+            prepare: vi.fn(),
+            launch: adapterLaunch,
+            reconcile: vi.fn(),
+            stop: vi.fn(),
+          } as any,
+        ])
+      );
+      (svc as any).launchStateStore = {
+        read: vi.fn(async () => null),
+        write: vi.fn(async () => {}),
+        clear: vi.fn(async () => {}),
+      };
+
+      const run = createMemberSpawnRun({
+        teamName,
+        expectedMembers: ['bob'],
+      });
+      run.isLaunch = true;
+      run.request = {
+        teamName,
+        cwd: '/tmp/mixed-runtime-materialized-failure',
+        providerId: 'codex',
+        model: 'gpt-5.4',
+        effort: 'high',
+        skipPermissions: true,
+      };
+      run.effectiveMembers = [
+        {
+          name: 'bob',
+          role: 'Developer',
+          providerId: 'codex',
+          model: 'gpt-5.4',
+          effort: 'high',
+        },
+      ];
+      run.mixedSecondaryLanes = [
+        {
+          laneId: 'secondary:opencode:tom',
+          providerId: 'opencode',
+          member: {
+            name: 'tom',
+            role: 'Developer',
+            providerId: 'opencode',
+            model: 'minimax-m2.5-free',
+            effort: 'medium',
+          },
+          runId: null,
+          state: 'queued',
+          result: null,
+          warnings: [],
+          diagnostics: [],
+        },
+      ];
+
+      await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
+      await vi.waitFor(
+        async () => {
+          expect(adapterLaunch).toHaveBeenCalledTimes(1);
+          await expect(readOpenCodeRuntimeLaneIndex(tempTeamsBase, teamName)).resolves.toMatchObject({
+            lanes: {
+              'secondary:opencode:tom': {
+                state: 'degraded',
+                diagnostics: expect.arrayContaining([
+                  'OpenCode bridge reported member launch failure',
+                  'OpenCode bootstrap MCP did not complete required tools before assistant response: runtime_bootstrap_checkin, member_briefing',
                 ]),
               },
             },
@@ -6670,12 +6783,17 @@ describe('TeamProvisioningService', () => {
       expect(launchSingleMixedSecondaryLane).toHaveBeenCalledTimes(1);
       expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
         'launching',
-        'launching',
-        'launching',
+        'queued',
+        'queued',
       ]);
 
       await expect(resultPromise).resolves.toBeNull();
       expect(persistLaunchStateSnapshot).toHaveBeenCalledTimes(1);
+
+      await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
+      await Promise.resolve();
+      expect(launchSingleMixedSecondaryLane).toHaveBeenCalledTimes(1);
+      expect(persistLaunchStateSnapshot).toHaveBeenCalledTimes(2);
 
       resolveFirstLaunch();
       await Promise.resolve();

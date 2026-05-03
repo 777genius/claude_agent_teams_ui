@@ -35,10 +35,15 @@ export interface TeamRuntimeLaunchInput {
   model?: string;
   effort?: EffortLevel;
   /**
-   * Runtime-only preflight skips model-scoped execution/evidence checks.
-   * Use only for warm-up diagnostics before a concrete launch model is selected.
+   * Runtime-only readiness skips extra model execution probes.
+   * Use when a separate preflight or the real launch prompt is the authority.
    */
   runtimeOnly?: boolean;
+  /**
+   * Skip the adapter-level readiness bridge before launch.
+   * Use only when the launch bridge performs equivalent runtime/provider/MCP validation.
+   */
+  skipReadinessPreflight?: boolean;
   skipPermissions: boolean;
   expectedMembers: TeamRuntimeMemberSpec[];
   previousLaunchState: PersistedTeamLaunchSnapshot | null;
