@@ -20707,6 +20707,7 @@ export class TeamProvisioningService {
       primaryStatuses: this.buildRuntimeSpawnStatusRecord(run),
       secondaryMembers: mixedSecondaryLanes.map((secondaryLane) => {
         const evidenceEntry = secondaryLane.result?.members[secondaryLane.member.name];
+        const currentSpawnStatus = run.memberSpawnStatuses.get(secondaryLane.member.name);
         const finishedWithoutRuntimeEvidence =
           secondaryLane.state === 'finished' && !secondaryLane.result;
         return {
@@ -20739,6 +20740,7 @@ export class TeamProvisioningService {
                 pidSource: evidenceEntry.pidSource,
                 runtimeDiagnostic: evidenceEntry.runtimeDiagnostic,
                 runtimeDiagnosticSeverity: evidenceEntry.runtimeDiagnosticSeverity,
+                bootstrapStalled: currentSpawnStatus?.bootstrapStalled === true ? true : undefined,
                 diagnostics: evidenceEntry.diagnostics,
               }
             : finishedWithoutRuntimeEvidence
@@ -20748,6 +20750,8 @@ export class TeamProvisioningService {
                   runtimeAlive: false,
                   bootstrapConfirmed: false,
                   hardFailure: false,
+                  bootstrapStalled:
+                    currentSpawnStatus?.bootstrapStalled === true ? true : undefined,
                   diagnostics:
                     secondaryLane.diagnostics.length > 0
                       ? [...secondaryLane.diagnostics]

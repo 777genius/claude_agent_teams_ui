@@ -12946,6 +12946,95 @@ describe('TeamProvisioningService', () => {
     );
   });
 
+  it('preserves OpenCode secondary bootstrapStalled through mixed launch snapshot rebuilds', () => {
+    const teamName = 'zz-opencode-bootstrap-stalled-snapshot-rebuild';
+    const svc = new TeamProvisioningService();
+    const acceptedAt = new Date(Date.now() - 6 * 60_000).toISOString();
+    const run = createMemberSpawnRun({
+      teamName,
+      expectedMembers: [],
+      memberSpawnStatuses: new Map([
+        [
+          'alice',
+          createMemberSpawnStatusEntry({
+            status: 'waiting',
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            firstSpawnAcceptedAt: acceptedAt,
+            livenessKind: 'registered_only',
+            bootstrapStalled: true,
+            runtimeDiagnostic:
+              'OpenCode member_briefing completed, but runtime_bootstrap_checkin did not complete after 5 min.',
+            runtimeDiagnosticSeverity: 'warning',
+          }),
+        ],
+      ]),
+    });
+    run.isLaunch = true;
+    run.effectiveMembers = [];
+    run.request = {
+      ...run.request,
+      teamName,
+      cwd: '/tmp/opencode-bootstrap-stalled-snapshot-rebuild',
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+      skipPermissions: true,
+    };
+    run.mixedSecondaryLanes = [
+      {
+        laneId: 'secondary:opencode:alice',
+        providerId: 'opencode',
+        member: {
+          name: 'alice',
+          providerId: 'opencode',
+          model: 'openrouter/qwen/qwen3-coder',
+        },
+        runId: 'opencode-run-alice',
+        state: 'finished',
+        result: {
+          runId: 'opencode-run-alice',
+          teamName,
+          launchPhase: 'active',
+          teamLaunchState: 'partial_pending',
+          members: {
+            alice: {
+              memberName: 'alice',
+              providerId: 'opencode',
+              launchState: 'runtime_pending_bootstrap',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: false,
+              sessionId: 'ses_alice_partial_bootstrap',
+              livenessKind: 'registered_only',
+              diagnostics: ['OpenCode runtime session materialized.'],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        },
+        warnings: [],
+        diagnostics: [],
+      },
+    ];
+
+    const snapshot = (svc as any).buildMixedPersistedLaunchSnapshotForRun(run, 'active');
+
+    expect(snapshot?.members.alice).toMatchObject({
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: false,
+      bootstrapConfirmed: false,
+      hardFailure: false,
+      runtimeSessionId: 'ses_alice_partial_bootstrap',
+      livenessKind: 'registered_only',
+      bootstrapStalled: true,
+    });
+  });
+
   it('does not copy bootstrap-state success into OpenCode secondary runtime evidence', async () => {
     const teamName = 'zz-opencode-bootstrap-state-not-evidence';
     const leadSessionId = 'lead-session';
