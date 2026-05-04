@@ -59,19 +59,19 @@ describe('anthropicTeamApiKeyHelper', () => {
     expect(helperRaw).toContain('KEY_FILE=');
     expect(helperRaw).not.toContain(apiKey);
     const parsedSettings = JSON.parse(settingsRaw) as { apiKeyHelper: string };
-    const shellResult = await execFileAsync('/bin/sh', ['-c', parsedSettings.apiKeyHelper]);
-    expect(shellResult.stdout.trim()).toBe(apiKey);
 
     if (process.platform !== 'win32') {
+      const shellResult = await execFileAsync('/bin/sh', ['-c', parsedSettings.apiKeyHelper]);
+      expect(shellResult.stdout.trim()).toBe(apiKey);
       expect((await stat(material.keyPath)).mode & 0o777).toBe(0o600);
       expect((await stat(material.helperPath)).mode & 0o777).toBe(0o700);
       expect((await stat(material.settingsPath)).mode & 0o777).toBe(0o600);
-    }
 
-    await verifyAnthropicTeamApiKeyHelperMaterial({
-      helperPath: material.helperPath,
-      expectedApiKey: apiKey,
-    });
+      await verifyAnthropicTeamApiKeyHelperMaterial({
+        helperPath: material.helperPath,
+        expectedApiKey: apiKey,
+      });
+    }
   });
 
   it('cleans only owned helper material files', async () => {

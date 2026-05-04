@@ -22,6 +22,14 @@ vi.mock('electron', () => ({
     { isSupported: vi.fn().mockReturnValue(true) }
   ),
   BrowserWindow: vi.fn(),
+  nativeImage: {
+    createFromPath: vi.fn(() => ({
+      isEmpty: vi.fn().mockReturnValue(true),
+    })),
+    createFromDataURL: vi.fn(() => ({
+      isEmpty: vi.fn().mockReturnValue(false),
+    })),
+  },
 }));
 
 // --- Mock fs/promises to prevent disk I/O ---
@@ -69,11 +77,32 @@ import { ConfigManager } from '@main/services/infrastructure/ConfigManager';
 import { NotificationManager } from '@main/services/infrastructure/NotificationManager';
 import { Notification as ElectronNotification } from 'electron';
 
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
 function getLastNotificationOptions(): Record<string, unknown> {
   const mock = ElectronNotification as unknown as {
     mock: { calls: [Record<string, unknown>][] };
   };
-  return mock.mock.calls.at(-1)?.[0] ?? {};
+  const options = mock.mock.calls.at(-1)?.[0] ?? {};
+  if (typeof options.toastXml !== 'string') {
+    return options;
+  }
+
+  const textRows = [...options.toastXml.matchAll(/<text>(.*?)<\/text>/g)].map((match) =>
+    decodeXmlText(match[1] ?? '')
+  );
+  return {
+    ...options,
+    title: textRows[0],
+    body: textRows.slice(1).join('\n'),
+  };
 }
 
 function makeTeamPayload(
