@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@renderer/components/ui/button';
 import { cn } from '@renderer/lib/utils';
+import { renderLinkifiedText } from '@renderer/utils/linkifiedText';
 import {
   AlertTriangle,
   Check,
@@ -431,9 +432,9 @@ export const ProvisioningProgressBlock = ({
         ) : null}
       </div>
       {message ? (
-        <p
+        <div
           className={cn(
-            'mt-1.5 text-xs',
+            'mt-1.5 whitespace-pre-wrap text-xs',
             isError || messageSeverity === 'error'
               ? 'text-red-400'
               : messageSeverity === 'warning'
@@ -443,13 +444,16 @@ export const ProvisioningProgressBlock = ({
                   : 'text-[var(--color-text-muted)]'
           )}
         >
-          {message}
-        </p>
+          {renderLinkifiedText(message, {
+            linkClassName: 'underline underline-offset-2 hover:text-[var(--color-accent)]',
+          })}
+        </div>
       ) : null}
       <div className="mt-2 px-2">
         <StepProgressBar
           steps={PROVISIONING_STEPS}
           currentIndex={currentStepIndex}
+          active={loading}
           errorIndex={errorStepIndex}
         />
       </div>

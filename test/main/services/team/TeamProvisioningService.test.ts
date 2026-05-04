@@ -585,6 +585,113 @@ describe('TeamProvisioningService', () => {
     });
   });
 
+  describe('team launch notifications', () => {
+    it('uses live member evidence instead of stale summary for incomplete launch copy', async () => {
+      const { NotificationManager } =
+        await import('@main/services/infrastructure/NotificationManager');
+      const addTeamNotification = vi.fn(async (_payload: unknown) => undefined);
+      NotificationManager.setInstance({ addTeamNotification } as never);
+
+      try {
+        const svc = new TeamProvisioningService();
+        const run = {
+          runId: 'run-relay-works-18',
+          teamName: 'relay-works-18',
+          isLaunch: true,
+          request: {
+            cwd: tempClaudeRoot,
+            displayName: 'relay-works-18',
+          },
+          expectedMembers: ['bob', 'jack', 'alice', 'tom'],
+          allEffectiveMembers: [
+            { name: 'bob' },
+            { name: 'jack' },
+            { name: 'alice' },
+            { name: 'tom' },
+          ],
+          memberSpawnStatuses: new Map([
+            [
+              'bob',
+              createMemberSpawnStatusEntry({
+                status: 'online',
+                launchState: 'confirmed_alive',
+                runtimeAlive: true,
+                bootstrapConfirmed: true,
+              }),
+            ],
+            [
+              'jack',
+              createMemberSpawnStatusEntry({
+                status: 'online',
+                launchState: 'confirmed_alive',
+                runtimeAlive: true,
+                bootstrapConfirmed: true,
+              }),
+            ],
+            [
+              'alice',
+              createMemberSpawnStatusEntry({
+                status: 'error',
+                launchState: 'failed_to_start',
+                runtimeAlive: false,
+                bootstrapConfirmed: false,
+                hardFailure: true,
+                hardFailureReason: 'Insufficient credits',
+              }),
+            ],
+            [
+              'tom',
+              createMemberSpawnStatusEntry({
+                status: 'waiting',
+                launchState: 'runtime_pending_bootstrap',
+                runtimeAlive: true,
+                bootstrapConfirmed: false,
+              }),
+            ],
+          ]),
+        };
+        const staleSnapshot = {
+          expectedMembers: ['bob', 'jack', 'alice', 'tom'],
+          members: Object.fromEntries(
+            ['bob', 'jack', 'alice', 'tom'].map((name) => [
+              name,
+              {
+                name,
+                launchState: 'runtime_pending_bootstrap',
+                agentToolAccepted: true,
+                runtimeAlive: false,
+                bootstrapConfirmed: false,
+                hardFailure: false,
+                lastEvaluatedAt: '2026-04-13T10:00:00.000Z',
+              },
+            ])
+          ),
+          summary: {
+            confirmedCount: 0,
+            pendingCount: 4,
+            failedCount: 0,
+            runtimeAlivePendingCount: 0,
+          },
+        };
+
+        await (svc as any).fireTeamLaunchIncompleteNotification(
+          run,
+          [{ name: 'alice' }],
+          staleSnapshot.summary,
+          staleSnapshot
+        );
+      } finally {
+        NotificationManager.resetInstance();
+      }
+
+      expect(addTeamNotification).toHaveBeenCalledTimes(1);
+      const payload = addTeamNotification.mock.calls[0]![0] as { body: string };
+      expect(payload.body).toBe('2/4 joined · failed: @alice · still joining: @tom');
+      expect(payload.body).not.toContain('0/4');
+      expect(payload.body).not.toContain('did not join');
+    });
+  });
+
   describe('getClaudeLogs', () => {
     it('retains the last logs after cleanupRun removes the live run', async () => {
       const svc = new TeamProvisioningService();

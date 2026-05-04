@@ -83,8 +83,7 @@ describe('buildTeamProvisioningPresentation', () => {
       memberSpawnSnapshot: undefined,
     });
 
-    expect(presentation?.panelMessage).toContain('jack failed to start');
-    expect(presentation?.panelMessage).toContain('gpt-5.2-codex');
+    expect(presentation?.panelMessage).toBe('jack failed to start');
     expect(presentation?.panelMessageSeverity).toBe('warning');
     expect(presentation?.compactDetail).toBe('jack failed to start');
     expect(presentation?.compactTone).toBe('warning');
@@ -266,7 +265,66 @@ describe('buildTeamProvisioningPresentation', () => {
       memberSpawnSnapshot: undefined,
     });
 
-    expect(presentation?.panelMessage).toBe(`alice failed to start - ${reason}`);
+    expect(presentation?.panelMessage).toBe('alice failed to start');
+  });
+
+  it('keeps multiple failed teammate details out of the top panel', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-multi-failure',
+        teamName: 'relay-works-18',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed with teammate errors',
+        messageSeverity: 'warning',
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        { name: 'team-lead', agentType: 'team-lead' },
+        { name: 'alice', agentType: 'reviewer' },
+        { name: 'tom', agentType: 'developer' },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason:
+            'Latest assistant message msg_alice failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+          updatedAt: '2026-04-13T10:00:03.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: true,
+        },
+        tom: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason:
+            'Latest assistant message msg_tom failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+          updatedAt: '2026-04-13T10:00:04.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: true,
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['alice', 'tom'],
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 0,
+          failedCount: 2,
+          runtimeAlivePendingCount: 0,
+        },
+      },
+    });
+
+    expect(presentation?.panelMessage).toBe('2 teammates failed to start');
+    expect(presentation?.panelMessage).not.toContain('msg_alice');
+    expect(presentation?.panelMessage).not.toContain('openrouter.ai');
   });
 
   it('surfaces the failed teammate reason after launch completes with errors', () => {
@@ -331,7 +389,7 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.successMessage).toBe(
       'Launch finished with errors - 1/1 teammates failed to start'
     );
-    expect(presentation?.panelMessage).toContain('requested model is not available');
+    expect(presentation?.panelMessage).toBe('jack failed to start');
     expect(presentation?.compactDetail).toBe('jack failed to start');
     expect(presentation?.currentStepIndex).toBe(2);
   });
@@ -467,7 +525,7 @@ describe('buildTeamProvisioningPresentation', () => {
     });
 
     expect(presentation?.currentStepIndex).toBe(2);
-    expect(presentation?.panelMessage).toContain('bob failed to start');
+    expect(presentation?.panelMessage).toBe('bob failed to start');
     expect(presentation?.compactTone).toBe('warning');
   });
 
@@ -1480,8 +1538,7 @@ describe('buildTeamProvisioningPresentation', () => {
       },
     });
 
-    expect(presentation?.panelMessage).toContain('jack failed to start');
-    expect(presentation?.panelMessage).toContain('requested model is not available');
+    expect(presentation?.panelMessage).toBe('jack failed to start');
     expect(presentation?.compactDetail).toBe('jack failed to start');
   });
 

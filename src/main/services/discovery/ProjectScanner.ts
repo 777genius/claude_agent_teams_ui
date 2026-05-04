@@ -39,7 +39,11 @@ import {
   type SessionsPaginationOptions,
   type WorktreeSource,
 } from '@main/types';
-import { analyzeSessionFileMetadata, extractCwd } from '@main/utils/jsonl';
+import {
+  analyzeSessionFileMetadata,
+  extractCwd,
+  type SessionFileMetadata,
+} from '@main/utils/jsonl';
 import {
   buildSessionPath,
   buildSubagentsPath,
@@ -60,6 +64,7 @@ import { LocalFileSystemProvider } from '../infrastructure/LocalFileSystemProvid
 import { ProjectPathResolver } from './ProjectPathResolver';
 import { resolveProjectStorageDir as resolveProjectStorageDirFromCandidates } from './projectStorageDir';
 import { SessionContentFilter } from './SessionContentFilter';
+import { type SessionFileSignature, SessionMetadataIndex } from './SessionMetadataIndex';
 import { SessionSearcher } from './SessionSearcher';
 import { SubagentLocator } from './SubagentLocator';
 import { subprojectRegistry } from './SubprojectRegistry';
@@ -77,8 +82,22 @@ const SEARCH_PROJECT_CACHE_TTL_MS = 30_000;
 // for lookups and navigation; a small cap preserves that behavior without huge payloads.
 const MAX_SESSION_IDS_EXPORTED = 200;
 
+export interface ProjectScannerOptions {
+  /**
+   * Directory for the persisted session-list metadata index.
+   * Defaults to a sibling of the configured projects directory.
+   */
+  sessionIndexDir?: string;
+  /** Test hook: set to 0 to persist index files without debounce. */
+  sessionIndexPersistDelayMs?: number;
+}
+
 function splitPathSegments(value: string): string[] {
   return value.split(/[/\\]+/).filter(Boolean);
+}
+
+function getDefaultSessionIndexDir(projectsDir: string): string {
+  return path.join(path.dirname(projectsDir), '.agent-teams-session-index');
 }
 
 /**
@@ -164,8 +183,14 @@ export class ProjectScanner {
   private readonly subagentLocator: SubagentLocator;
   private readonly sessionSearcher: SessionSearcher;
   private readonly projectPathResolver: ProjectPathResolver;
+  private readonly sessionMetadataIndex: SessionMetadataIndex | null;
 
-  constructor(projectsDir?: string, todosDir?: string, fsProvider?: FileSystemProvider) {
+  constructor(
+    projectsDir?: string,
+    todosDir?: string,
+    fsProvider?: FileSystemProvider,
+    options?: ProjectScannerOptions
+  ) {
     this.projectsDir = projectsDir ?? getProjectsBasePath();
     this.todosDir = todosDir ?? getTodosBasePath();
     this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
@@ -175,6 +200,13 @@ export class ProjectScanner {
     this.subagentLocator = new SubagentLocator(this.projectsDir, this.fsProvider);
     this.sessionSearcher = new SessionSearcher(this.projectsDir, this.fsProvider);
     this.projectPathResolver = new ProjectPathResolver(this.projectsDir, this.fsProvider);
+    this.sessionMetadataIndex =
+      this.fsProvider.type === 'local'
+        ? new SessionMetadataIndex({
+            rootDir: options?.sessionIndexDir ?? getDefaultSessionIndexDir(this.projectsDir),
+            persistDelayMs: options?.sessionIndexPersistDelayMs,
+          })
+        : null;
   }
 
   // ===========================================================================
@@ -643,7 +675,14 @@ export class ProjectScanner {
       }
 
       const entries = await this.fsProvider.readdir(projectPath);
-      let sessionFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'));
+      const allSessionFiles = entries.filter(
+        (entry) => entry.isFile() && entry.name.endsWith('.jsonl')
+      );
+      await this.pruneSessionMetadataIndex(
+        projectPath,
+        new Set(allSessionFiles.map((file) => path.join(projectPath, file.name)))
+      );
+      let sessionFiles = allSessionFiles;
 
       // Filter to only sessions belonging to this subproject
       if (sessionFilter) {
@@ -733,7 +772,14 @@ export class ProjectScanner {
 
       // Step 1: Get all session files with their timestamps (lightweight stat calls)
       const entries = await this.fsProvider.readdir(projectPath);
-      let sessionFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'));
+      const allSessionFiles = entries.filter(
+        (entry) => entry.isFile() && entry.name.endsWith('.jsonl')
+      );
+      await this.pruneSessionMetadataIndex(
+        projectPath,
+        new Set(allSessionFiles.map((file) => path.join(projectPath, file.name)))
+      );
+      let sessionFiles = allSessionFiles;
 
       // Filter to only sessions belonging to this subproject
       if (sessionFilter) {
@@ -967,18 +1013,14 @@ export class ProjectScanner {
     const effectiveMtime = prefetchedMtimeMs ?? stats?.mtimeMs ?? Date.now();
     const effectiveSize = prefetchedSize ?? stats?.size ?? -1;
     const birthtimeMs = prefetchedBirthtimeMs ?? stats?.birthtimeMs ?? effectiveMtime;
-    const cachedMetadata = this.sessionMetadataCache.get(filePath);
-    const metadata =
-      cachedMetadata?.mtimeMs === effectiveMtime && cachedMetadata.size === effectiveSize
-        ? cachedMetadata.metadata
-        : await analyzeSessionFileMetadata(filePath, this.fsProvider);
-    if (cachedMetadata?.mtimeMs !== effectiveMtime || cachedMetadata.size !== effectiveSize) {
-      this.sessionMetadataCache.set(filePath, {
-        mtimeMs: effectiveMtime,
-        size: effectiveSize,
-        metadata,
-      });
-    }
+    const signature = this.buildSessionFileSignature(
+      sessionId,
+      filePath,
+      effectiveMtime,
+      effectiveSize,
+      birthtimeMs
+    );
+    const metadata = await this.getSessionFileMetadata(signature);
 
     // Check for subagents (todoData skipped here — loaded on-demand in detail view)
     const hasSubagents = await this.subagentLocator.hasSubagents(projectId, sessionId);
@@ -1035,28 +1077,25 @@ export class ProjectScanner {
     const effectiveMtime = prefetchedMtimeMs ?? stats?.mtimeMs ?? Date.now();
     const effectiveSize = prefetchedSize ?? stats?.size ?? -1;
     const birthtimeMs = prefetchedBirthtimeMs ?? stats?.birthtimeMs ?? effectiveMtime;
-    let metadata: Awaited<ReturnType<typeof analyzeSessionFileMetadata>>;
-    const cachedMetadata = this.sessionMetadataCache.get(filePath);
-    if (cachedMetadata?.mtimeMs === effectiveMtime && cachedMetadata.size === effectiveSize) {
-      metadata = cachedMetadata.metadata;
-    } else {
-      try {
-        metadata = await analyzeSessionFileMetadata(filePath, this.fsProvider);
-        this.sessionMetadataCache.set(filePath, {
-          mtimeMs: effectiveMtime,
-          size: effectiveSize,
-          metadata,
-        });
-      } catch (error) {
-        logger.debug(`Failed to analyze session metadata for ${filePath}:`, error);
-        metadata = {
-          firstUserMessage: null,
-          messageCount: 0,
-          isOngoing: false,
-          gitBranch: null,
-          model: null,
-        };
-      }
+    let metadata: SessionFileMetadata;
+    const signature = this.buildSessionFileSignature(
+      sessionId,
+      filePath,
+      effectiveMtime,
+      effectiveSize,
+      birthtimeMs
+    );
+    try {
+      metadata = await this.getSessionFileMetadata(signature);
+    } catch (error) {
+      logger.debug(`Failed to analyze session metadata for ${filePath}:`, error);
+      metadata = {
+        firstUserMessage: null,
+        messageCount: 0,
+        isOngoing: false,
+        gitBranch: null,
+        model: null,
+      };
     }
     const metadataLevel: SessionMetadataLevel = 'light';
     const previewTimestampMs = this.parseTimestampMs(metadata.firstUserMessage?.timestamp);
@@ -1421,6 +1460,94 @@ export class ProjectScanner {
     }
   }
 
+  async flushSessionMetadataIndexForTesting(): Promise<void> {
+    await this.sessionMetadataIndex?.flushForTesting();
+  }
+
+  private buildSessionFileSignature(
+    sessionId: string,
+    filePath: string,
+    mtimeMs: number,
+    size: number,
+    birthtimeMs?: number
+  ): SessionFileSignature {
+    return {
+      sessionId,
+      filePath,
+      mtimeMs,
+      size,
+      birthtimeMs,
+    };
+  }
+
+  private async getSessionFileMetadata(
+    signature: SessionFileSignature
+  ): Promise<SessionFileMetadata> {
+    const cachedMetadata = this.sessionMetadataCache.get(signature.filePath);
+    if (cachedMetadata?.mtimeMs === signature.mtimeMs && cachedMetadata.size === signature.size) {
+      return cachedMetadata.metadata;
+    }
+
+    let indexedMetadata: SessionFileMetadata | undefined;
+    if (this.sessionMetadataIndex) {
+      try {
+        indexedMetadata = await this.sessionMetadataIndex.getMetadata(signature);
+      } catch (error) {
+        logger.debug(
+          `Failed to read session metadata index for ${signature.filePath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+    if (indexedMetadata) {
+      this.sessionMetadataCache.set(signature.filePath, {
+        mtimeMs: signature.mtimeMs,
+        size: signature.size,
+        metadata: indexedMetadata,
+      });
+      return indexedMetadata;
+    }
+
+    const metadata = await analyzeSessionFileMetadata(signature.filePath, this.fsProvider);
+    this.sessionMetadataCache.set(signature.filePath, {
+      mtimeMs: signature.mtimeMs,
+      size: signature.size,
+      metadata,
+    });
+    if (this.sessionMetadataIndex) {
+      try {
+        await this.sessionMetadataIndex.setMetadata(signature, metadata);
+      } catch (error) {
+        logger.debug(
+          `Failed to update session metadata index for ${signature.filePath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+    return metadata;
+  }
+
+  private async pruneSessionMetadataIndex(
+    projectStorageDir: string,
+    existingFilePaths: Set<string>
+  ): Promise<void> {
+    if (!this.sessionMetadataIndex) {
+      return;
+    }
+
+    try {
+      await this.sessionMetadataIndex.pruneMissing(projectStorageDir, existingFilePaths);
+    } catch (error) {
+      logger.debug(
+        `Failed to prune session metadata index for ${projectStorageDir}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
   /**
    * Resolve best-available file timestamps from directory entry metadata or stat fallback.
    */
@@ -1545,9 +1672,37 @@ export class ProjectScanner {
       const stats = hasPrefetched ? null : await this.fsProvider.stat(filePath);
       const effectiveMtime = mtimeMs ?? stats?.mtimeMs ?? Date.now();
       const effectiveSize = size ?? stats?.size ?? -1;
+      const signature = this.buildSessionFileSignature(
+        extractSessionId(path.basename(filePath)),
+        filePath,
+        effectiveMtime,
+        effectiveSize,
+        stats?.birthtimeMs
+      );
       const cached = this.contentPresenceCache.get(filePath);
       if (cached?.mtimeMs === effectiveMtime && cached.size === effectiveSize) {
         return cached.hasContent;
+      }
+
+      let indexed: boolean | undefined;
+      if (this.sessionMetadataIndex) {
+        try {
+          indexed = await this.sessionMetadataIndex.getContentPresence(signature);
+        } catch (error) {
+          logger.debug(
+            `Failed to read content-presence index for ${filePath}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      }
+      if (typeof indexed === 'boolean') {
+        this.contentPresenceCache.set(filePath, {
+          mtimeMs: effectiveMtime,
+          size: effectiveSize,
+          hasContent: indexed,
+        });
+        return indexed;
       }
 
       const hasContent = await this.sessionContentFilter.hasNonNoiseMessages(
@@ -1559,6 +1714,17 @@ export class ProjectScanner {
         size: effectiveSize,
         hasContent,
       });
+      if (this.sessionMetadataIndex) {
+        try {
+          await this.sessionMetadataIndex.setContentPresence(signature, hasContent);
+        } catch (error) {
+          logger.debug(
+            `Failed to update content-presence index for ${filePath}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      }
       return hasContent;
     } catch {
       return false;

@@ -4,13 +4,13 @@ import {
   getLaunchJoinMilestonesFromMembers,
   getLaunchJoinState,
 } from '@renderer/components/team/provisioningSteps';
+import { isLeadMember } from '@shared/utils/leadDetection';
 
 import type {
   MemberSpawnStatusEntry,
   MemberSpawnStatusesSnapshot,
   TeamProvisioningProgress,
 } from '@shared/types';
-import { isLeadMember } from '@shared/utils/leadDetection';
 
 type MemberSpawnStatusCollection =
   | Record<string, MemberSpawnStatusEntry>
@@ -574,18 +574,9 @@ function buildFailedSpawnPanelMessage(
   }
   if (failedSpawnDetails.length === 1) {
     const [failed] = failedSpawnDetails;
-    return failed.reason
-      ? `${failed.name} failed to start - ${normalizeFailureReason(failed.reason)}`
-      : `${failed.name} failed to start`;
+    return `${failed.name} failed to start`;
   }
-  const listedFailures = failedSpawnDetails
-    .slice(0, 2)
-    .map((failed) =>
-      failed.reason ? `${failed.name} - ${normalizeFailureReason(failed.reason)}` : failed.name
-    )
-    .join('; ');
-  const remainingCount = failedSpawnDetails.length - Math.min(failedSpawnDetails.length, 2);
-  return `Failed teammates: ${listedFailures}${remainingCount > 0 ? `; +${remainingCount} more` : ''}`;
+  return `${failedSpawnDetails.length} teammates failed to start`;
 }
 
 function buildFailedSpawnCompactDetail(

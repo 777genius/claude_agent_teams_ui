@@ -12,6 +12,8 @@ export interface StepProgressBarProps {
   steps: StepProgressBarStep[];
   /** 0-based index of the current step, -1 if not started */
   currentIndex: number;
+  /** Whether the current step should show in-progress animations */
+  active?: boolean;
   /** If set, this step shows a red error indicator instead of active/pending */
   errorIndex?: number;
   className?: string;
@@ -28,25 +30,33 @@ export interface StepProgressBarProps {
 export const StepProgressBar = ({
   steps,
   currentIndex,
+  active = true,
   errorIndex,
   className,
 }: StepProgressBarProps): React.JSX.Element => {
-  // Track which step just completed for jelly + flash animation
   const prevIndexRef = useRef(currentIndex);
   const [justCompletedIndex, setJustCompletedIndex] = useState<number | null>(null);
+  const canAnimate = active && errorIndex === undefined;
 
   useEffect(() => {
     const prev = prevIndexRef.current;
     prevIndexRef.current = currentIndex;
 
-    // Animate the highest step that just became "done"
-    if (currentIndex > prev && prev >= 0 && errorIndex === undefined) {
-      const lastDoneIndex = Math.min(currentIndex - 1, steps.length - 1);
-      setJustCompletedIndex(lastDoneIndex);
-      const timer = setTimeout(() => setJustCompletedIndex(null), 500);
-      return () => clearTimeout(timer);
+    if (!canAnimate) {
+      const clearTimer = window.setTimeout(() => setJustCompletedIndex(null), 0);
+      return () => window.clearTimeout(clearTimer);
     }
-  }, [currentIndex, errorIndex, steps.length]);
+
+    if (currentIndex > prev && prev >= 0) {
+      const lastDoneIndex = Math.min(currentIndex - 1, steps.length - 1);
+      const startTimer = window.setTimeout(() => setJustCompletedIndex(lastDoneIndex), 0);
+      const clearTimer = window.setTimeout(() => setJustCompletedIndex(null), 500);
+      return () => {
+        window.clearTimeout(startTimer);
+        window.clearTimeout(clearTimer);
+      };
+    }
+  }, [canAnimate, currentIndex, steps.length]);
 
   return (
     <div className={cn('flex items-start justify-center', className)}>
@@ -55,11 +65,12 @@ export const StepProgressBar = ({
         const isDone = !isError && currentIndex >= 0 && index < currentIndex;
         const isCurrent = !isError && currentIndex >= 0 && index === currentIndex;
         const isLast = index === steps.length - 1;
-        const isJustCompleted = justCompletedIndex === index;
+        const isJustCompleted = canAnimate && justCompletedIndex === index;
+        const isAnimatingCurrent = canAnimate && isCurrent;
 
         // The connecting line between this step and the next
         const lineState: 'done' | 'active' | 'pending' =
-          isDone && !isLast ? 'done' : isCurrent && !isLast ? 'active' : 'pending';
+          isDone && !isLast ? 'done' : isAnimatingCurrent && !isLast ? 'active' : 'pending';
 
         return (
           <div
@@ -69,7 +80,7 @@ export const StepProgressBar = ({
           >
             {/* Step circle + label column */}
             <div className="flex flex-col items-center" style={{ width: 56 }}>
-              {/* Circle wrapper — holds flash overlay */}
+              {/* Circle wrapper - holds flash overlay */}
               <div className="relative flex items-center justify-center">
                 {/* Green flash burst on completion */}
                 {isJustCompleted && isDone && (
@@ -96,7 +107,7 @@ export const StepProgressBar = ({
                   style={
                     isJustCompleted && isDone
                       ? { animation: 'stepper-jelly 0.45s ease-out' }
-                      : isCurrent
+                      : isAnimatingCurrent
                         ? { animation: 'stepper-pulse-ring 2s ease-in-out infinite' }
                         : undefined
                   }

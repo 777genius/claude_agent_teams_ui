@@ -8,6 +8,7 @@ import { useTheme } from '@renderer/hooks/useTheme';
 import { useStore } from '@renderer/store';
 import { selectResolvedMembersForTeamName } from '@renderer/store/slices/teamSlice';
 import { formatAgentRole } from '@renderer/utils/formatAgentRole';
+import { renderLinkifiedText } from '@renderer/utils/linkifiedText';
 import {
   agentAvatarUrl,
   buildMemberAvatarMap,
@@ -89,6 +90,34 @@ function splitRuntimeSummaryMemory(runtimeSummary: string | undefined): {
     summary: match[1]?.trim() || undefined,
     memory: match[2]?.trim() || undefined,
   };
+}
+
+function normalizeLaunchFailureReason(value: string | undefined): string | null {
+  const normalized = value
+    ?.replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^Latest assistant message\s+\S+\s+failed with APIError\s*[-:]\s*/i, '')
+    .replace(/^APIError\s*[-:]\s*/i, '');
+  return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function truncateLaunchFailureReason(value: string, maxLength = 220): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function getLaunchFailureLinkLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'openrouter.ai' && parsed.pathname === '/settings/credits') {
+      return 'OpenRouter credits';
+    }
+  } catch {
+    return url;
+  }
+  return url;
 }
 
 export const MemberCard = memo(function MemberCard({
@@ -244,6 +273,17 @@ export const MemberCard = memo(function MemberCard({
     spawnEntry?.skippedForLaunch === true;
   const showFailedLaunchBadge = !isRemoved && isFailedLaunch;
   const showSkippedLaunchBadge = !isRemoved && isSkippedLaunch;
+  const rawLaunchFailureReason =
+    spawnError ??
+    spawnEntry?.hardFailureReason ??
+    spawnEntry?.runtimeDiagnostic ??
+    spawnEntry?.error;
+  const launchFailureReason = showFailedLaunchBadge
+    ? normalizeLaunchFailureReason(rawLaunchFailureReason)
+    : null;
+  const displayedLaunchFailureReason = launchFailureReason
+    ? truncateLaunchFailureReason(launchFailureReason)
+    : null;
   const hasLiveLaunchControls =
     isTeamAlive === true || isTeamProvisioning === true || isLaunchSettling === true;
   const hasRestartMemberControl =
@@ -449,6 +489,21 @@ export const MemberCard = memo(function MemberCard({
                     {memoryLabel}
                   </span>
                 ) : null}
+              </div>
+            ) : null}
+            {displayedLaunchFailureReason ? (
+              <div
+                data-testid="member-launch-failure-reason"
+                className="mt-1 min-w-0 text-[10px] font-medium leading-snug text-red-300/90"
+                title={rawLaunchFailureReason}
+              >
+                <span className="line-clamp-2 break-words">
+                  {renderLinkifiedText(displayedLaunchFailureReason, {
+                    linkClassName: 'underline underline-offset-2 hover:text-red-200',
+                    stopPropagation: true,
+                    getLinkLabel: getLaunchFailureLinkLabel,
+                  })}
+                </span>
               </div>
             ) : null}
           </div>

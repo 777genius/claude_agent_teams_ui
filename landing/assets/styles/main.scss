@@ -1,10 +1,12 @@
+@import "./brand-tokens.css";
+
 :root {
   color-scheme: light dark;
 }
 
 body {
   margin: 0;
-  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: var(--at-font-sans);
   background: rgb(var(--v-theme-background));
   color: rgb(var(--v-theme-on-background));
 }
@@ -32,7 +34,7 @@ body {
 
 /* Monospace accent font for technical elements */
 .mono {
-  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-family: var(--at-font-mono);
 }
 
 @media (max-width: 960px) {
@@ -72,5 +74,5 @@ body {
 }
 
 .app-header {
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(var(--at-blur-md));
 }

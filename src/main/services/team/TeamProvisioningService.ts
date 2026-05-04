@@ -2308,7 +2308,7 @@ const OPEN_CODE_GENERIC_MEMBER_LAUNCH_FAILURE_REASON =
   'OpenCode bridge reported member launch failure';
 const OPEN_CODE_SECRET_FLAG_PATTERN =
   /(--(?:api-key|token|password|secret|authorization|auth-token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
-const OPEN_CODE_BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+const OPEN_CODE_BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Z0-9._~+/=-]+/gi;
 const OPEN_CODE_SECRET_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{16,}\b/g;
 
 function normalizeOpenCodePersistedFailureReason(value: string | undefined): string | undefined {
@@ -25533,37 +25533,51 @@ export class TeamProvisioningService {
       const config = ConfigManager.getInstance().getConfig();
       const suppressToast = !config.notifications.notifyOnTeamLaunched;
       const displayName = run.request.displayName || run.teamName;
-      const expectedMembers =
-        snapshot?.expectedMembers ??
-        run.expectedMembers ??
-        run.allEffectiveMembers.map((member) => member.name).filter(Boolean);
+      const expectedMembers = [
+        ...new Set(
+          [
+            ...(snapshot?.expectedMembers ?? []),
+            ...(run.expectedMembers ?? []),
+            ...run.allEffectiveMembers.map((member) => member.name).filter(Boolean),
+          ].filter(Boolean)
+        ),
+      ];
       const expectedCount = expectedMembers.length;
       if (expectedCount === 0) return;
 
-      const failedNames = failedMembers.map((member) => member.name).filter(Boolean);
-      const pendingNames =
-        snapshot?.expectedMembers.filter((memberName) => {
-          if (failedNames.includes(memberName)) return false;
-          const member = snapshot.members[memberName];
-          if (!member) return false;
-          return (
-            member.launchState !== 'confirmed_alive' && member.launchState !== 'skipped_for_launch'
-          );
-        }) ?? [];
-      const missingNames = failedNames.length > 0 ? failedNames : pendingNames;
-      const missingCount =
-        missingNames.length > 0
-          ? missingNames.length
-          : Math.max(0, launchSummary.pendingCount + launchSummary.failedCount);
-      const rawJoinedCount =
-        typeof launchSummary.confirmedCount === 'number'
-          ? launchSummary.confirmedCount
-          : expectedCount - missingCount;
-      const joinedCount = Math.max(0, Math.min(expectedCount, rawJoinedCount));
-      const missingLabel =
-        missingNames.length > 0
-          ? `${missingNames.map((name) => `@${name}`).join(', ')} did not join`
-          : `${missingCount} teammate${missingCount === 1 ? '' : 's'} did not join`;
+      const failedNames = this.getLaunchIncompleteFailedNames(
+        run,
+        expectedMembers,
+        failedMembers,
+        snapshot
+      );
+      const pendingNames = this.getLaunchIncompletePendingNames(
+        run,
+        expectedMembers,
+        failedNames,
+        snapshot
+      );
+      const joinedCount = this.getLaunchIncompleteJoinedCount(
+        run,
+        expectedMembers,
+        failedNames.length + pendingNames.length,
+        launchSummary,
+        snapshot
+      );
+      const missingCount = Math.max(0, launchSummary.pendingCount + launchSummary.failedCount);
+      const bodyParts = [`${joinedCount}/${expectedCount} joined`];
+      if (failedNames.length > 0) {
+        bodyParts.push(`failed: ${this.formatLaunchIncompleteMemberMentions(failedNames)}`);
+      }
+      if (pendingNames.length > 0) {
+        bodyParts.push(`still joining: ${this.formatLaunchIncompleteMemberMentions(pendingNames)}`);
+      }
+      if (bodyParts.length === 1 && missingCount > 0 && joinedCount < expectedCount) {
+        const genericMissingCount = Math.min(missingCount, expectedCount - joinedCount);
+        bodyParts.push(
+          `${genericMissingCount} teammate${genericMissingCount === 1 ? '' : 's'} not joined yet`
+        );
+      }
 
       await NotificationManager.getInstance().addTeamNotification({
         teamEventType: 'team_launch_incomplete',
@@ -25571,7 +25585,7 @@ export class TeamProvisioningService {
         teamDisplayName: displayName,
         from: 'system',
         summary: 'Team launch incomplete',
-        body: `${joinedCount}/${expectedCount} joined · ${missingLabel}`,
+        body: bodyParts.join(' · '),
         dedupeKey: `team_launch_incomplete:${run.teamName}:${run.runId}`,
         target: { kind: 'team', teamName: run.teamName, section: 'members' },
         projectPath: run.request.cwd,
@@ -25584,6 +25598,113 @@ export class TeamProvisioningService {
         }`
       );
     }
+  }
+
+  private getLaunchIncompleteMemberEvidence(
+    run: ProvisioningRun,
+    snapshot: PersistedTeamLaunchSnapshot | null | undefined,
+    memberName: string
+  ): {
+    live?: MemberSpawnStatusEntry;
+    persisted?: PersistedTeamLaunchMemberState;
+  } {
+    return {
+      live: run.memberSpawnStatuses?.get(memberName),
+      persisted: snapshot?.members[memberName],
+    };
+  }
+
+  private formatLaunchIncompleteMemberMentions(names: readonly string[]): string {
+    return names.map((name) => `@${name}`).join(', ');
+  }
+
+  private getLaunchIncompleteFailedNames(
+    run: ProvisioningRun,
+    expectedMembers: readonly string[],
+    failedMembers: readonly { name: string }[],
+    snapshot?: PersistedTeamLaunchSnapshot | null
+  ): string[] {
+    const failedNames = new Set(failedMembers.map((member) => member.name).filter(Boolean));
+    for (const memberName of expectedMembers) {
+      const { live, persisted } = this.getLaunchIncompleteMemberEvidence(run, snapshot, memberName);
+      if (
+        live?.launchState === 'failed_to_start' ||
+        persisted?.launchState === 'failed_to_start' ||
+        live?.hardFailure === true ||
+        persisted?.hardFailure === true
+      ) {
+        failedNames.add(memberName);
+      }
+    }
+    return [...failedNames].sort((left, right) => left.localeCompare(right));
+  }
+
+  private getLaunchIncompletePendingNames(
+    run: ProvisioningRun,
+    expectedMembers: readonly string[],
+    failedNames: readonly string[],
+    snapshot?: PersistedTeamLaunchSnapshot | null
+  ): string[] {
+    const failed = new Set(failedNames);
+    return expectedMembers
+      .filter((memberName) => {
+        if (failed.has(memberName)) {
+          return false;
+        }
+        const { live, persisted } = this.getLaunchIncompleteMemberEvidence(
+          run,
+          snapshot,
+          memberName
+        );
+        const hasEvidence = live !== undefined || persisted !== undefined;
+        if (!hasEvidence) {
+          return false;
+        }
+        const confirmed =
+          live?.launchState === 'confirmed_alive' ||
+          persisted?.launchState === 'confirmed_alive' ||
+          live?.bootstrapConfirmed === true ||
+          persisted?.bootstrapConfirmed === true;
+        if (confirmed) {
+          return false;
+        }
+        const skipped =
+          live?.launchState === 'skipped_for_launch' ||
+          persisted?.launchState === 'skipped_for_launch' ||
+          live?.skippedForLaunch === true ||
+          persisted?.skippedForLaunch === true;
+        return !skipped;
+      })
+      .sort((left, right) => left.localeCompare(right));
+  }
+
+  private getLaunchIncompleteJoinedCount(
+    run: ProvisioningRun,
+    expectedMembers: readonly string[],
+    namedMissingCount: number,
+    launchSummary: {
+      confirmedCount: number;
+    },
+    snapshot?: PersistedTeamLaunchSnapshot | null
+  ): number {
+    const evidenceConfirmedCount = expectedMembers.filter((memberName) => {
+      const { live, persisted } = this.getLaunchIncompleteMemberEvidence(run, snapshot, memberName);
+      return (
+        live?.launchState === 'confirmed_alive' ||
+        persisted?.launchState === 'confirmed_alive' ||
+        live?.bootstrapConfirmed === true ||
+        persisted?.bootstrapConfirmed === true
+      );
+    }).length;
+    const namedMissingUpperBound = expectedMembers.length - namedMissingCount;
+    const rawJoinedCount =
+      namedMissingCount > 0
+        ? Math.min(
+            namedMissingUpperBound,
+            Math.max(evidenceConfirmedCount, launchSummary.confirmedCount)
+          )
+        : Math.max(evidenceConfirmedCount, launchSummary.confirmedCount);
+    return Math.max(0, Math.min(expectedMembers.length, rawJoinedCount));
   }
 
   // ---------------------------------------------------------------------------

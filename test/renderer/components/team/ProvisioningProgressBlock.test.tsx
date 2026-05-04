@@ -2,6 +2,17 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const hoisted = vi.hoisted(() => ({
+  openExternal: vi.fn(),
+  stepperProps: [] as { active?: boolean }[],
+}));
+
+vi.mock('@renderer/api', () => ({
+  api: {
+    openExternal: hoisted.openExternal,
+  },
+}));
+
 vi.mock('@renderer/components/ui/button', () => ({
   Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) =>
     React.createElement('button', { type: 'button', onClick }, children),
@@ -17,7 +28,14 @@ vi.mock('@renderer/components/team/CliLogsRichView', () => ({
 }));
 
 vi.mock('@renderer/components/team/StepProgressBar', () => ({
-  StepProgressBar: () => React.createElement('div', null, 'step-progress'),
+  StepProgressBar: (props: { active?: boolean }) => {
+    hoisted.stepperProps.push(props);
+    return React.createElement(
+      'div',
+      { 'data-stepper-active': props.active ? 'true' : 'false' },
+      'step-progress'
+    );
+  },
 }));
 
 vi.mock('lucide-react', () => {
@@ -40,6 +58,8 @@ import { ProvisioningProgressBlock } from '@renderer/components/team/Provisionin
 describe('ProvisioningProgressBlock', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    hoisted.openExternal.mockReset();
+    hoisted.stepperProps = [];
     vi.unstubAllGlobals();
   });
 
@@ -69,6 +89,9 @@ describe('ProvisioningProgressBlock', () => {
     expect(host.textContent).toContain('CLI logs');
     expect(host.textContent).not.toContain('streamed output');
     expect(host.textContent).not.toContain('logs:tail line');
+    expect(host.querySelector('[data-stepper-active]')?.getAttribute('data-stepper-active')).toBe(
+      'true'
+    );
 
     await act(async () => {
       root.unmount();
@@ -251,6 +274,50 @@ describe('ProvisioningProgressBlock', () => {
     expect(copied).toContain('--api-key [redacted]');
     expect(copied).not.toContain('secret-value');
     expect(copied).not.toContain('hidden-value');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('renders multi-line status messages and opens links externally', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(ProvisioningProgressBlock, {
+          title: 'Launch details',
+          message:
+            'Failed teammates:\n- alice - Insufficient credits. Add more using https://openrouter.ai/settings/credits\n- tom - Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+          messageSeverity: 'warning',
+          currentStepIndex: 2,
+          loading: false,
+          defaultLiveOutputOpen: false,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Failed teammates:');
+    expect(host.textContent).toContain('alice - Insufficient credits');
+    expect(host.textContent).toContain('tom - Insufficient credits');
+    expect(host.querySelector('[data-stepper-active]')?.getAttribute('data-stepper-active')).toBe(
+      'false'
+    );
+
+    const links = host.querySelectorAll('a[href="https://openrouter.ai/settings/credits"]');
+    expect(links).toHaveLength(2);
+
+    await act(async () => {
+      links[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(hoisted.openExternal).toHaveBeenCalledWith('https://openrouter.ai/settings/credits');
 
     await act(async () => {
       root.unmount();

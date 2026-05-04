@@ -2,6 +2,15 @@ import "vuetify/styles";
 import { createVuetify } from "vuetify";
 import { aliases, mdi } from "vuetify/iconsets/mdi-svg";
 
+const brand = {
+  cyan: "#00f0ff",
+  magenta: "#ff00ff",
+  lightBackground: "#f0f2f5",
+  lightSurface: "#ffffff",
+  darkBackground: "#0a0a0f",
+  darkSurface: "#12121a"
+};
+
 export default defineNuxtPlugin({
   name: "vuetify",
   setup(nuxtApp) {
@@ -16,18 +25,18 @@ export default defineNuxtPlugin({
         themes: {
           light: {
             colors: {
-              primary: "#00f0ff",
-              secondary: "#ff00ff",
-              background: "#f0f2f5",
-              surface: "#ffffff"
+              primary: brand.cyan,
+              secondary: brand.magenta,
+              background: brand.lightBackground,
+              surface: brand.lightSurface
             }
           },
           dark: {
             colors: {
-              primary: "#00f0ff",
-              secondary: "#ff00ff",
-              background: "#0a0a0f",
-              surface: "#12121a"
+              primary: brand.cyan,
+              secondary: brand.magenta,
+              background: brand.darkBackground,
+              surface: brand.darkSurface
             }
           }
         }

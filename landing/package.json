@@ -6,7 +6,12 @@
     "dev": "nuxt dev",
     "build": "nuxt build",
     "generate": "nuxt generate",
+    "generate:docs": "vitepress build product-docs --outDir .output/public/docs",
+    "generate:all": "nuxt generate && vitepress build product-docs --outDir .output/public/docs",
     "preview": "nuxt preview",
+    "docs:dev": "vitepress dev product-docs",
+    "docs:build": "vitepress build product-docs",
+    "docs:preview": "vitepress preview product-docs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --check",
@@ -29,9 +34,14 @@
   "devDependencies": {
     "@mdi/font": "^7.4.47",
     "@nuxt/eslint": "^1.12.1",
+    "@shikijs/transformers": "3.22.0",
     "eslint": "^9.39.2",
+    "medium-zoom": "^1.1.0",
     "prettier": "^3.8.0",
     "sass": "^1.97.2",
-    "vite-plugin-vuetify": "^2.1.3"
+    "vite-plugin-vuetify": "^2.1.3",
+    "vitepress": "2.0.0-alpha.17",
+    "vitepress-codeblock-collapse": "^1.0.0",
+    "vitepress-plugin-llms": "^1.12.2"
   }
 }
