@@ -60,6 +60,7 @@ import {
   TEAM_RESTART_MEMBER,
   TEAM_RESTORE,
   TEAM_RESTORE_TASK,
+  TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
   TEAM_SAVE_TASK_ATTACHMENT,
   TEAM_SEND_MESSAGE,
   TEAM_SET_CHANGE_PRESENCE_TRACKING,
@@ -188,6 +189,7 @@ import type {
   MemberLogSummary,
   MemberSpawnStatusesSnapshot,
   MessagesPage,
+  RetryFailedOpenCodeSecondaryLanesResult,
   SendMessageRequest,
   SendMessageResult,
   TaskAttachmentMeta,
@@ -708,6 +710,10 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_LEAD_CONTEXT, handleLeadContext);
   ipcMain.handle(TEAM_MEMBER_SPAWN_STATUSES, handleMemberSpawnStatuses);
   ipcMain.handle(TEAM_GET_AGENT_RUNTIME, handleGetAgentRuntime);
+  ipcMain.handle(
+    TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
+    handleRetryFailedOpenCodeSecondaryLanes
+  );
   ipcMain.handle(TEAM_RESTART_MEMBER, handleRestartMember);
   ipcMain.handle(TEAM_SKIP_MEMBER_FOR_LAUNCH, handleSkipMemberForLaunch);
   ipcMain.handle(TEAM_SOFT_DELETE_TASK, handleSoftDeleteTask);
@@ -789,6 +795,7 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_LEAD_CONTEXT);
   ipcMain.removeHandler(TEAM_MEMBER_SPAWN_STATUSES);
   ipcMain.removeHandler(TEAM_GET_AGENT_RUNTIME);
+  ipcMain.removeHandler(TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES);
   ipcMain.removeHandler(TEAM_RESTART_MEMBER);
   ipcMain.removeHandler(TEAM_SKIP_MEMBER_FOR_LAUNCH);
   ipcMain.removeHandler(TEAM_SOFT_DELETE_TASK);
@@ -3830,6 +3837,19 @@ async function handleRestartMember(
   }
   return wrapTeamHandler('restartMember', async () =>
     getTeamProvisioningService().restartMember(validatedTeamName.value!, validatedMemberName.value!)
+  );
+}
+
+async function handleRetryFailedOpenCodeSecondaryLanes(
+  _event: IpcMainInvokeEvent,
+  teamName: unknown
+): Promise<IpcResult<RetryFailedOpenCodeSecondaryLanesResult>> {
+  const validatedTeamName = validateTeamName(teamName);
+  if (!validatedTeamName.valid) {
+    return { success: false, error: validatedTeamName.error ?? 'Invalid teamName' };
+  }
+  return wrapTeamHandler('retryFailedOpenCodeSecondaryLanes', async () =>
+    getTeamProvisioningService().retryFailedOpenCodeSecondaryLanes(validatedTeamName.value!)
   );
 }
 

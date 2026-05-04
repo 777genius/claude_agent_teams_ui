@@ -60,6 +60,7 @@ import type {
   MessagesPage,
   ProjectBranchChangeEvent,
   ReplaceMembersRequest,
+  RetryFailedOpenCodeSecondaryLanesResult,
   SendMessageRequest,
   SendMessageResult,
   TaskAttachmentMeta,
@@ -555,6 +556,9 @@ export interface TeamsAPI {
   getLeadContext: (teamName: string) => Promise<LeadContextUsageSnapshot>;
   getMemberSpawnStatuses: (teamName: string) => Promise<MemberSpawnStatusesSnapshot>;
   getTeamAgentRuntime: (teamName: string) => Promise<TeamAgentRuntimeSnapshot>;
+  retryFailedOpenCodeSecondaryLanes: (
+    teamName: string
+  ) => Promise<RetryFailedOpenCodeSecondaryLanesResult>;
   restartMember: (teamName: string, memberName: string) => Promise<void>;
   skipMemberForLaunch: (teamName: string, memberName: string) => Promise<void>;
   softDeleteTask: (teamName: string, taskId: string) => Promise<void>;

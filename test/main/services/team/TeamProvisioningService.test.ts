@@ -16195,4 +16195,64 @@ describe('TeamProvisioningService', () => {
     });
     expect(run.expectedMembers).toEqual(['alice', 'jack']);
   });
+
+  it('bulk retries failed OpenCode secondary lanes sequentially and classifies outcomes', async () => {
+    const svc = new TeamProvisioningService();
+    const run = createMemberSpawnRun({
+      teamName: 'mixed-retry-team',
+      runId: 'run-mixed-retry',
+      expectedMembers: ['alice', 'tom', 'nova'],
+    });
+    run.isLaunch = true;
+    run.provisioningComplete = true;
+
+    (svc as any).runs.set(run.runId, run);
+    (svc as any).aliveRunByTeam.set(run.teamName, run.runId);
+
+    vi.spyOn(svc as any, 'collectFailedOpenCodeSecondaryRetryCandidates').mockResolvedValue([
+      { memberName: 'alice', laneId: 'secondary:opencode:alice' },
+      { memberName: 'tom', laneId: 'secondary:opencode:tom' },
+      { memberName: 'nova', laneId: 'secondary:opencode:nova' },
+    ]);
+    const reattach = vi
+      .spyOn(svc as any, 'reattachOpenCodeOwnedMemberLane')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('OpenCode bridge crashed'));
+    vi.spyOn(svc as any, 'readOpenCodeSecondaryRetryOutcome')
+      .mockResolvedValueOnce({ launchState: 'confirmed_alive' })
+      .mockResolvedValueOnce({
+        launchState: 'failed_to_start',
+        reason: 'Latest assistant message reported OpenRouter credits exhausted',
+      });
+    const notify = vi
+      .spyOn(svc as any, 'notifyLeadAboutConfirmedOpenCodeRetries')
+      .mockResolvedValue(undefined);
+
+    const result = await svc.retryFailedOpenCodeSecondaryLanes(run.teamName);
+
+    expect(reattach).toHaveBeenNthCalledWith(1, run.teamName, 'alice', {
+      reason: 'manual_restart',
+    });
+    expect(reattach).toHaveBeenNthCalledWith(2, run.teamName, 'tom', {
+      reason: 'manual_restart',
+    });
+    expect(reattach).toHaveBeenNthCalledWith(3, run.teamName, 'nova', {
+      reason: 'manual_restart',
+    });
+    expect(result).toEqual({
+      attempted: ['alice', 'tom'],
+      confirmed: ['alice'],
+      pending: [],
+      failed: [
+        {
+          memberName: 'tom',
+          error: 'Latest assistant message reported OpenRouter credits exhausted',
+        },
+        { memberName: 'nova', error: 'OpenCode bridge crashed' },
+      ],
+      skipped: [],
+    });
+    expect(notify).toHaveBeenCalledWith(run, result);
+  });
 });

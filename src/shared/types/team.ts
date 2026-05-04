@@ -1079,6 +1079,14 @@ export interface MemberSpawnStatusesSnapshot {
   source?: 'live' | 'persisted' | 'merged';
 }
 
+export interface RetryFailedOpenCodeSecondaryLanesResult {
+  attempted: string[];
+  confirmed: string[];
+  pending: string[];
+  failed: Array<{ memberName: string; error: string }>;
+  skipped: Array<{ memberName: string; reason: string }>;
+}
+
 export type MemberSpawnLivenessSource = 'heartbeat' | 'process';
 
 export type TeamAgentRuntimeBackendType = 'lead' | 'tmux' | 'iterm2' | 'in-process' | 'process';

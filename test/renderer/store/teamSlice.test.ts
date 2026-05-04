@@ -34,6 +34,7 @@ const hoisted = vi.hoisted(() => ({
   restoreTeam: vi.fn(),
   permanentlyDeleteTeam: vi.fn(),
   sendMessage: vi.fn(),
+  retryFailedOpenCodeSecondaryLanes: vi.fn(),
   restartMember: vi.fn(),
   skipMemberForLaunch: vi.fn(),
   requestReview: vi.fn(),
@@ -69,6 +70,7 @@ vi.mock('@renderer/api', () => ({
       restoreTeam: hoisted.restoreTeam,
       permanentlyDeleteTeam: hoisted.permanentlyDeleteTeam,
       sendMessage: hoisted.sendMessage,
+      retryFailedOpenCodeSecondaryLanes: hoisted.retryFailedOpenCodeSecondaryLanes,
       restartMember: hoisted.restartMember,
       skipMemberForLaunch: hoisted.skipMemberForLaunch,
       requestReview: hoisted.requestReview,
@@ -328,6 +330,13 @@ describe('teamSlice actions', () => {
     hoisted.deleteTeam.mockResolvedValue(undefined);
     hoisted.restoreTeam.mockResolvedValue(undefined);
     hoisted.permanentlyDeleteTeam.mockResolvedValue(undefined);
+    hoisted.retryFailedOpenCodeSecondaryLanes.mockResolvedValue({
+      attempted: [],
+      confirmed: [],
+      pending: [],
+      failed: [],
+      skipped: [],
+    });
     hoisted.restartMember.mockResolvedValue(undefined);
     hoisted.skipMemberForLaunch.mockResolvedValue(undefined);
   });
@@ -3392,6 +3401,38 @@ describe('teamSlice actions', () => {
       alice: expect.objectContaining({ status: 'spawning', launchState: 'starting' }),
     });
     expect(store.getState().teamAgentRuntimeByTeam['my-team']).toEqual(createRuntimeSnapshot());
+  });
+
+  it('retryFailedOpenCodeSecondaryLanes refreshes only spawn statuses and runtime snapshot', async () => {
+    const store = createSliceStore();
+    const refreshSpawnStatuses = vi.fn(async (_teamName: string) => undefined);
+    const refreshRuntimeSnapshot = vi.fn(async (_teamName: string) => undefined);
+    const refreshTeamData = vi.fn(async (_teamName: string) => undefined);
+    const fetchTeams = vi.fn(async () => undefined);
+    store.setState({
+      fetchMemberSpawnStatuses: refreshSpawnStatuses,
+      fetchTeamAgentRuntime: refreshRuntimeSnapshot,
+      refreshTeamData,
+      fetchTeams,
+    });
+    hoisted.retryFailedOpenCodeSecondaryLanes.mockResolvedValueOnce({
+      attempted: ['alice'],
+      confirmed: [],
+      pending: [],
+      failed: [{ memberName: 'alice', error: 'OpenRouter credits exhausted' }],
+      skipped: [],
+    });
+
+    const result = await store.getState().retryFailedOpenCodeSecondaryLanes('my-team');
+
+    expect(result.failed).toEqual([
+      { memberName: 'alice', error: 'OpenRouter credits exhausted' },
+    ]);
+    expect(hoisted.retryFailedOpenCodeSecondaryLanes).toHaveBeenCalledWith('my-team');
+    expect(refreshSpawnStatuses).toHaveBeenCalledWith('my-team');
+    expect(refreshRuntimeSnapshot).toHaveBeenCalledWith('my-team');
+    expect(refreshTeamData).not.toHaveBeenCalled();
+    expect(fetchTeams).not.toHaveBeenCalled();
   });
 
   it('restartMember refreshes spawn statuses and runtime snapshot even when restart fails', async () => {

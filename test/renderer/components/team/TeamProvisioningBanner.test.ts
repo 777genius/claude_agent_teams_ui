@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const storeState = {
   progress: null as Record<string, unknown> | null,
   cancelProvisioning: vi.fn(),
+  retryFailedOpenCodeSecondaryLanes: vi.fn(),
   selectedTeamName: 'northstar-core',
   selectedTeamData: {
     members: [
@@ -106,6 +107,13 @@ describe('TeamProvisioningBanner launch-step alignment', () => {
       cliLogsTail: '',
       assistantOutput: '',
     };
+    storeState.retryFailedOpenCodeSecondaryLanes.mockResolvedValue({
+      attempted: [],
+      confirmed: [],
+      pending: [],
+      failed: [],
+      skipped: [],
+    });
     storeState.memberSpawnStatusesByTeam['northstar-core'] = {};
     storeState.selectedTeamData.members = [
       { name: 'team-lead', agentType: 'team-lead' },
@@ -401,6 +409,51 @@ describe('TeamProvisioningBanner launch-step alignment', () => {
     expect(block?.getAttribute('data-success-severity')).toBe('warning');
     expect(block?.textContent).toContain('Launch finished with errors');
     expect(block?.textContent).toContain('bob failed to start');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('renders a bulk retry action for failed OpenCode secondary teammates', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    storeState.selectedTeamData.members = [
+      { name: 'team-lead', agentType: 'team-lead', providerId: 'anthropic' },
+      {
+        name: 'alice',
+        agentType: 'developer',
+        providerId: 'opencode',
+        laneKind: 'secondary',
+        laneOwnerProviderId: 'opencode',
+      },
+    ];
+    storeState.teamDataCacheByName['northstar-core'] = {
+      members: [...storeState.selectedTeamData.members],
+    };
+    storeState.memberSpawnStatusesByTeam['northstar-core'] = {
+      alice: {
+        status: 'error',
+        launchState: 'failed_to_start',
+        updatedAt: '2026-04-09T10:00:00.000Z',
+        runtimeAlive: false,
+        bootstrapConfirmed: false,
+        hardFailure: true,
+        hardFailureReason: 'OpenRouter credits exhausted',
+        agentToolAccepted: false,
+      },
+    } as Record<string, unknown>;
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(React.createElement(TeamProvisioningBanner, { teamName: 'northstar-core' }));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('Retry failed OpenCode teammates');
 
     await act(async () => {
       root.unmount();

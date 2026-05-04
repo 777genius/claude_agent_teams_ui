@@ -394,6 +394,9 @@ export const TEAM_GET_AGENT_RUNTIME = 'team:getAgentRuntime';
 /** Restart a specific teammate runtime */
 export const TEAM_RESTART_MEMBER = 'team:restartMember';
 
+/** Retry failed OpenCode-owned secondary runtime lanes */
+export const TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES = 'team:retryFailedOpenCodeSecondaryLanes';
+
 /** Skip a failed teammate for the current launch */
 export const TEAM_SKIP_MEMBER_FOR_LAUNCH = 'team:skipMemberForLaunch';
 

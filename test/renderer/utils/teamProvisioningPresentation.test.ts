@@ -91,6 +91,128 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.defaultLiveOutputOpen).toBe(false);
   });
 
+  it('counts retryable failed OpenCode secondary teammates conservatively', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-opencode-retry',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed with teammate errors',
+        messageSeverity: 'warning',
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          providerId: 'anthropic',
+        },
+        {
+          name: 'alice',
+          agentType: 'developer',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+        },
+        {
+          name: 'bob',
+          agentType: 'developer',
+          providerId: 'anthropic',
+          laneKind: 'primary',
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason: 'OpenRouter credits exhausted',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: false,
+        },
+        bob: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason: 'Primary lane failed',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: false,
+        },
+      },
+      memberSpawnSnapshot: undefined,
+    });
+
+    expect(presentation?.retryableOpenCodeSecondaryFailedNames).toEqual(['alice']);
+    expect(presentation?.retryableOpenCodeSecondaryFailedCount).toBe(1);
+  });
+
+  it('does not count skipped or permission-blocked OpenCode failures as bulk retry candidates', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-opencode-no-retry',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed with teammate errors',
+        messageSeverity: 'warning',
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'alice',
+          agentType: 'developer',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+        },
+        {
+          name: 'tom',
+          agentType: 'developer',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'skipped',
+          launchState: 'skipped_for_launch',
+          skippedForLaunch: true,
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: false,
+        },
+        tom: {
+          status: 'waiting',
+          launchState: 'runtime_pending_permission',
+          pendingPermissionRequestIds: ['perm-1'],
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+      },
+      memberSpawnSnapshot: undefined,
+    });
+
+    expect(presentation?.retryableOpenCodeSecondaryFailedNames).toEqual([]);
+    expect(presentation?.retryableOpenCodeSecondaryFailedCount).toBe(0);
+  });
+
   it('does not truncate long failed teammate reasons in the panel message', () => {
     const reason =
       'You are bootstrapping into team "relay-works-10" as member "alice". Your first action is to call the MCP tool member_briefing on the agent-teams server with teamName="relay-works-10" and memberName="alice". If tool search shows only the prefixed MCP name, use mcp__agent-teams__member_briefing.';

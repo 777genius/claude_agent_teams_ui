@@ -46,6 +46,7 @@ import type {
   NotificationTarget,
   PersistedTeamLaunchSummary,
   ResolvedTeamMember,
+  RetryFailedOpenCodeSecondaryLanesResult,
   SendMessageRequest,
   SendMessageResult,
   TaskChangePresenceState,
@@ -2500,6 +2501,9 @@ export interface TeamSlice {
     memberName: string,
     role: string | undefined
   ) => Promise<void>;
+  retryFailedOpenCodeSecondaryLanes: (
+    teamName: string
+  ) => Promise<RetryFailedOpenCodeSecondaryLanesResult>;
   addTaskRelationship: (
     teamName: string,
     taskId: string,
@@ -4671,6 +4675,19 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   restartMember: async (teamName: string, memberName: string) => {
     try {
       await unwrapIpc('team:restartMember', () => api.teams.restartMember(teamName, memberName));
+    } finally {
+      await Promise.allSettled([
+        get().fetchMemberSpawnStatuses(teamName),
+        get().fetchTeamAgentRuntime(teamName),
+      ]);
+    }
+  },
+
+  retryFailedOpenCodeSecondaryLanes: async (teamName: string) => {
+    try {
+      return await unwrapIpc('team:retryFailedOpenCodeSecondaryLanes', () =>
+        api.teams.retryFailedOpenCodeSecondaryLanes(teamName)
+      );
     } finally {
       await Promise.allSettled([
         get().fetchMemberSpawnStatuses(teamName),

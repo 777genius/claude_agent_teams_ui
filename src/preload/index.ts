@@ -168,6 +168,7 @@ import {
   TEAM_RESTART_MEMBER,
   TEAM_RESTORE,
   TEAM_RESTORE_TASK,
+  TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
   TEAM_SAVE_TASK_ATTACHMENT,
   TEAM_SEND_MESSAGE,
   TEAM_SET_CHANGE_PRESENCE_TRACKING,
@@ -283,6 +284,7 @@ import type {
   ProjectBranchChangeEvent,
   RejectResult,
   ReplaceMembersRequest,
+  RetryFailedOpenCodeSecondaryLanesResult,
   Schedule,
   ScheduleChangeEvent,
   ScheduleRun,
@@ -1117,6 +1119,12 @@ const electronAPI: ElectronAPI = {
     },
     getTeamAgentRuntime: async (teamName: string) => {
       return invokeIpcWithResult<TeamAgentRuntimeSnapshot>(TEAM_GET_AGENT_RUNTIME, teamName);
+    },
+    retryFailedOpenCodeSecondaryLanes: async (teamName: string) => {
+      return invokeIpcWithResult<RetryFailedOpenCodeSecondaryLanesResult>(
+        TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
+        teamName
+      );
     },
     restartMember: async (teamName: string, memberName: string) => {
       return invokeIpcWithResult<void>(TEAM_RESTART_MEMBER, teamName, memberName);

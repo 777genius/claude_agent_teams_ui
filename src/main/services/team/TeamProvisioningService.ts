@@ -367,6 +367,7 @@ import type {
   PersistedTeamLaunchSnapshot,
   PersistedTeamLaunchSummary,
   ProviderModelLaunchIdentity,
+  RetryFailedOpenCodeSecondaryLanesResult,
   TaskRef,
   TeamAgentRuntimeBackendType,
   TeamAgentRuntimeDiagnosticSeverity,
@@ -1697,6 +1698,16 @@ interface MixedSecondaryRuntimeLaneState {
   queuedAtMs?: number;
   launchStartedAtMs?: number;
   launchFinishedAtMs?: number;
+}
+
+interface OpenCodeSecondaryRetryCandidate {
+  memberName: string;
+  laneId: string;
+}
+
+interface OpenCodeSecondaryRetryOutcome {
+  launchState: MemberLaunchState;
+  reason?: string;
 }
 
 function formatOpenCodeLaneTimingMs(value: number | null | undefined): string {
@@ -5043,6 +5054,10 @@ export class TeamProvisioningService {
   private readonly launchStateStore = new TeamLaunchStateStore();
   private readonly launchStateStoreQueue = new Map<string, Promise<unknown>>();
   private readonly launchStateWrittenRunIdByTeam = new Map<string, string>();
+  private readonly failedOpenCodeSecondaryRetryInFlightByTeam = new Map<
+    string,
+    Promise<RetryFailedOpenCodeSecondaryLanesResult>
+  >();
   private readonly memberLogsFinder: TeamMemberLogsFinder;
   private readonly transcriptProjectResolver: TeamTranscriptProjectResolver;
   private teamChangeEmitter: ((event: TeamChangeEvent) => void) | null = null;
@@ -12188,6 +12203,353 @@ export class TeamProvisioningService {
       }
       throw error;
     }
+  }
+
+  async retryFailedOpenCodeSecondaryLanes(
+    teamName: string
+  ): Promise<RetryFailedOpenCodeSecondaryLanesResult> {
+    const existing = this.failedOpenCodeSecondaryRetryInFlightByTeam.get(teamName);
+    if (existing) {
+      return existing;
+    }
+
+    const retry = this.retryFailedOpenCodeSecondaryLanesNow(teamName).finally(() => {
+      this.failedOpenCodeSecondaryRetryInFlightByTeam.delete(teamName);
+    });
+    this.failedOpenCodeSecondaryRetryInFlightByTeam.set(teamName, retry);
+    return retry;
+  }
+
+  private async retryFailedOpenCodeSecondaryLanesNow(
+    teamName: string
+  ): Promise<RetryFailedOpenCodeSecondaryLanesResult> {
+    const run = this.getMutableAliveRunOrThrow(teamName);
+    if (this.getProvisioningRunId(teamName)) {
+      throw new Error('Team launch is still in progress');
+    }
+
+    const result: RetryFailedOpenCodeSecondaryLanesResult = {
+      attempted: [],
+      confirmed: [],
+      pending: [],
+      failed: [],
+      skipped: [],
+    };
+    const candidates = await this.collectFailedOpenCodeSecondaryRetryCandidates(run);
+
+    for (const candidate of candidates) {
+      if (!this.isCurrentTrackedRun(run) || run.processKilled || run.cancelRequested) {
+        result.skipped.push({
+          memberName: candidate.memberName,
+          reason: 'Team stopped during retry',
+        });
+        continue;
+      }
+
+      try {
+        await this.reattachOpenCodeOwnedMemberLane(teamName, candidate.memberName, {
+          reason: 'manual_restart',
+        });
+        result.attempted.push(candidate.memberName);
+
+        const outcome = await this.readOpenCodeSecondaryRetryOutcome(
+          run,
+          candidate.memberName,
+          candidate.laneId
+        );
+        if (outcome.launchState === 'confirmed_alive') {
+          result.confirmed.push(candidate.memberName);
+        } else if (outcome.launchState === 'failed_to_start') {
+          result.failed.push({
+            memberName: candidate.memberName,
+            error: outcome.reason ?? 'OpenCode retry failed',
+          });
+        } else if (outcome.launchState === 'skipped_for_launch') {
+          result.skipped.push({
+            memberName: candidate.memberName,
+            reason: outcome.reason ?? 'Teammate is skipped for this launch',
+          });
+        } else {
+          result.pending.push(candidate.memberName);
+        }
+      } catch (error) {
+        result.failed.push({
+          memberName: candidate.memberName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    await this.notifyLeadAboutConfirmedOpenCodeRetries(run, result);
+    return result;
+  }
+
+  private async collectFailedOpenCodeSecondaryRetryCandidates(
+    run: ProvisioningRun
+  ): Promise<OpenCodeSecondaryRetryCandidate[]> {
+    const teamName = run.teamName;
+    const leadProviderId = resolveTeamProviderId(run.request.providerId);
+    if (leadProviderId === 'opencode') {
+      throw new Error(
+        'Retrying OpenCode secondary lanes is only supported for mixed teams with a non-OpenCode lead.'
+      );
+    }
+    if (!this.getOpenCodeRuntimeAdapter()) {
+      throw new Error('OpenCode runtime adapter is not available for secondary lane retry.');
+    }
+
+    const config = await this.readConfigForStrictDecision(teamName);
+    if (!config) {
+      throw new Error(`Team "${teamName}" configuration is no longer available`);
+    }
+    const metaMembers = await this.membersMetaStore.getMembers(teamName).catch(() => []);
+    const persistedSnapshot = await this.launchStateStore.read(teamName).catch(() => null);
+
+    const names = new Set<string>();
+    for (const member of config.members ?? []) {
+      const name = member.name?.trim();
+      if (name) {
+        names.add(name);
+      }
+    }
+    for (const member of metaMembers) {
+      const name = member.name?.trim();
+      if (name) {
+        names.add(name);
+      }
+    }
+    for (const lane of run.mixedSecondaryLanes ?? []) {
+      const name = lane.member.name?.trim();
+      if (name) {
+        names.add(name);
+      }
+    }
+    for (const name of persistedSnapshot?.expectedMembers ?? []) {
+      if (name.trim()) {
+        names.add(name.trim());
+      }
+    }
+    for (const name of Object.keys(persistedSnapshot?.members ?? {})) {
+      if (name.trim()) {
+        names.add(name.trim());
+      }
+    }
+
+    const candidates: OpenCodeSecondaryRetryCandidate[] = [];
+    for (const memberName of [...names].sort((left, right) => left.localeCompare(right))) {
+      const configuredMember = this.resolveEffectiveConfiguredMember(
+        config.members ?? [],
+        metaMembers,
+        memberName
+      );
+      if (!configuredMember || configuredMember.removedAt) {
+        continue;
+      }
+      if (isLeadMember({ name: memberName, agentType: configuredMember.agentType })) {
+        continue;
+      }
+      if (normalizeOptionalTeamProviderId(configuredMember.providerId) !== 'opencode') {
+        continue;
+      }
+
+      const laneIdentity = buildPlannedMemberLaneIdentity({
+        leadProviderId,
+        member: {
+          name: memberName,
+          providerId: 'opencode',
+        },
+      });
+      if (
+        laneIdentity.laneKind !== 'secondary' ||
+        laneIdentity.laneOwnerProviderId !== 'opencode'
+      ) {
+        continue;
+      }
+
+      const existingLane = (run.mixedSecondaryLanes ?? []).find(
+        (lane) =>
+          lane.laneId === laneIdentity.laneId ||
+          matchesTeamMemberIdentity(lane.member.name, memberName)
+      );
+      const liveEntry = run.memberSpawnStatuses.get(memberName);
+      const persistedMember =
+        persistedSnapshot?.members[memberName] ??
+        Object.values(persistedSnapshot?.members ?? {}).find(
+          (member) => member.laneId === laneIdentity.laneId
+        );
+
+      if (
+        this.isRetryableFailedOpenCodeSecondaryLane({
+          liveEntry,
+          persistedMember,
+          existingLane,
+        })
+      ) {
+        candidates.push({ memberName, laneId: laneIdentity.laneId });
+      }
+    }
+    return candidates;
+  }
+
+  private isRetryableFailedOpenCodeSecondaryLane(input: {
+    liveEntry?: MemberSpawnStatusEntry;
+    persistedMember?: PersistedTeamLaunchMemberState;
+    existingLane?: MixedSecondaryRuntimeLaneState;
+  }): boolean {
+    const { liveEntry, persistedMember, existingLane } = input;
+    if (existingLane?.state === 'queued' || existingLane?.state === 'launching') {
+      return false;
+    }
+    if (
+      liveEntry?.launchState === 'skipped_for_launch' ||
+      liveEntry?.skippedForLaunch === true ||
+      persistedMember?.launchState === 'skipped_for_launch' ||
+      persistedMember?.skippedForLaunch === true
+    ) {
+      return false;
+    }
+    if (
+      liveEntry?.launchState === 'runtime_pending_permission' ||
+      liveEntry?.launchState === 'runtime_pending_bootstrap' ||
+      persistedMember?.launchState === 'runtime_pending_permission' ||
+      persistedMember?.launchState === 'runtime_pending_bootstrap' ||
+      (liveEntry?.pendingPermissionRequestIds?.length ?? 0) > 0 ||
+      (persistedMember?.pendingPermissionRequestIds?.length ?? 0) > 0
+    ) {
+      return false;
+    }
+    if (liveEntry?.launchState === 'starting' || liveEntry?.status === 'spawning') {
+      return false;
+    }
+    if (
+      liveEntry?.launchState === 'confirmed_alive' ||
+      liveEntry?.bootstrapConfirmed === true ||
+      persistedMember?.launchState === 'confirmed_alive' ||
+      persistedMember?.bootstrapConfirmed === true
+    ) {
+      return false;
+    }
+
+    return (
+      liveEntry?.launchState === 'failed_to_start' ||
+      liveEntry?.status === 'error' ||
+      persistedMember?.launchState === 'failed_to_start' ||
+      persistedMember?.hardFailure === true
+    );
+  }
+
+  private async readOpenCodeSecondaryRetryOutcome(
+    run: ProvisioningRun,
+    memberName: string,
+    laneId: string
+  ): Promise<OpenCodeSecondaryRetryOutcome> {
+    const lane = (run.mixedSecondaryLanes ?? []).find(
+      (candidate) =>
+        candidate.laneId === laneId || matchesTeamMemberIdentity(candidate.member.name, memberName)
+    );
+    const memberEvidence =
+      lane?.result?.members[memberName] ??
+      Object.values(lane?.result?.members ?? {}).find((member) =>
+        matchesTeamMemberIdentity(member.memberName, memberName)
+      );
+    const persistedSnapshot = await this.launchStateStore.read(run.teamName).catch(() => null);
+    const persistedMember =
+      persistedSnapshot?.members[memberName] ??
+      Object.values(persistedSnapshot?.members ?? {}).find((member) => member.laneId === laneId);
+    const liveEntry = run.memberSpawnStatuses.get(memberName);
+
+    if (
+      memberEvidence?.launchState === 'confirmed_alive' ||
+      memberEvidence?.bootstrapConfirmed === true ||
+      liveEntry?.launchState === 'confirmed_alive' ||
+      liveEntry?.bootstrapConfirmed === true ||
+      persistedMember?.launchState === 'confirmed_alive' ||
+      persistedMember?.bootstrapConfirmed === true
+    ) {
+      return { launchState: 'confirmed_alive' };
+    }
+
+    if (
+      liveEntry?.launchState === 'skipped_for_launch' ||
+      liveEntry?.skippedForLaunch === true ||
+      persistedMember?.launchState === 'skipped_for_launch' ||
+      persistedMember?.skippedForLaunch === true
+    ) {
+      return {
+        launchState: 'skipped_for_launch',
+        reason: liveEntry?.skipReason ?? persistedMember?.skipReason,
+      };
+    }
+
+    if (
+      memberEvidence?.launchState === 'failed_to_start' ||
+      memberEvidence?.hardFailure === true ||
+      liveEntry?.launchState === 'failed_to_start' ||
+      liveEntry?.status === 'error' ||
+      persistedMember?.launchState === 'failed_to_start' ||
+      persistedMember?.hardFailure === true
+    ) {
+      return {
+        launchState: 'failed_to_start',
+        reason: this.selectOpenCodeSecondaryRetryFailureReason({
+          memberEvidence,
+          liveEntry,
+          persistedMember,
+        }),
+      };
+    }
+
+    return {
+      launchState:
+        memberEvidence?.launchState ??
+        liveEntry?.launchState ??
+        persistedMember?.launchState ??
+        'runtime_pending_bootstrap',
+    };
+  }
+
+  private selectOpenCodeSecondaryRetryFailureReason(input: {
+    memberEvidence?: TeamRuntimeMemberLaunchEvidence;
+    liveEntry?: MemberSpawnStatusEntry;
+    persistedMember?: PersistedTeamLaunchMemberState;
+  }): string | undefined {
+    const diagnostics = [
+      input.memberEvidence?.hardFailureReason,
+      input.memberEvidence?.runtimeDiagnostic,
+      ...(input.memberEvidence?.diagnostics ?? []),
+      input.liveEntry?.hardFailureReason,
+      input.liveEntry?.runtimeDiagnostic,
+      input.liveEntry?.error,
+      input.persistedMember?.hardFailureReason,
+      input.persistedMember?.runtimeDiagnostic,
+    ];
+    return diagnostics
+      .find(
+        (diagnostic): diagnostic is string =>
+          typeof diagnostic === 'string' && diagnostic.trim().length > 0
+      )
+      ?.trim();
+  }
+
+  private async notifyLeadAboutConfirmedOpenCodeRetries(
+    run: ProvisioningRun,
+    result: RetryFailedOpenCodeSecondaryLanesResult
+  ): Promise<void> {
+    if (result.confirmed.length === 0) {
+      return;
+    }
+    const confirmedNames = result.confirmed.map((name) => `@${name}`).join(', ');
+    const message = [
+      `Системное замечание: повторный запуск OpenCode-тиммейтов подтверждён: ${confirmedNames}.`,
+      `Их можно снова считать доступными.`,
+    ].join(' ');
+    await this.sendMessageToRun(run, message).catch((error: unknown) =>
+      logger.warn(
+        `[${run.teamName}] failed to send OpenCode retry recovery notice to lead: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    );
   }
 
   async skipMemberForLaunch(teamName: string, memberName: string): Promise<void> {

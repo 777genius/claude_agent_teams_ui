@@ -10,6 +10,7 @@ import type {
   MemberSpawnStatusesSnapshot,
   TeamProvisioningProgress,
 } from '@shared/types';
+import { isLeadMember } from '@shared/utils/leadDetection';
 
 type MemberSpawnStatusCollection =
   | Record<string, MemberSpawnStatusEntry>
@@ -67,6 +68,42 @@ function isFailedSpawnEntry(entry: MemberSpawnStatusEntry | undefined): boolean 
 
 function isSkippedSpawnEntry(entry: MemberSpawnStatusEntry | undefined): boolean {
   return entry?.launchState === 'skipped_for_launch' || entry?.skippedForLaunch === true;
+}
+
+function isOpenCodeSecondaryRetryCandidate(params: {
+  member: ProvisioningMemberLike | undefined;
+  entry: MemberSpawnStatusEntry | undefined;
+}): boolean {
+  const { member, entry } = params;
+  if (!member || !entry) {
+    return false;
+  }
+  if (member.providerId !== 'opencode' || member.removedAt) {
+    return false;
+  }
+  if (isLeadMember({ name: member.name, agentType: member.agentType })) {
+    return false;
+  }
+  if (member.laneKind && member.laneKind !== 'secondary') {
+    return false;
+  }
+  if (member.laneOwnerProviderId && member.laneOwnerProviderId !== 'opencode') {
+    return false;
+  }
+  if (
+    entry.launchState === 'skipped_for_launch' ||
+    entry.skippedForLaunch === true ||
+    entry.launchState === 'runtime_pending_permission' ||
+    entry.launchState === 'runtime_pending_bootstrap' ||
+    (entry.pendingPermissionRequestIds?.length ?? 0) > 0 ||
+    entry.launchState === 'starting' ||
+    entry.status === 'spawning' ||
+    entry.launchState === 'confirmed_alive' ||
+    entry.bootstrapConfirmed === true
+  ) {
+    return false;
+  }
+  return entry.launchState === 'failed_to_start' || entry.status === 'error';
 }
 
 function shouldPreferSnapshotEntryOverLive(params: {
@@ -480,6 +517,51 @@ function getSkippedSpawnDetails(params: {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function getRetryableOpenCodeSecondaryFailedNames(params: {
+  members: readonly ProvisioningMemberLike[];
+  memberSpawnStatuses: MemberSpawnStatusCollection;
+  memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
+  memberSpawnSnapshotUpdatedAt?: string;
+}): string[] {
+  const membersByName = new Map(
+    params.members
+      .map((member) => [member.name.trim(), member] as const)
+      .filter(([name]) => name.length > 0)
+  );
+  const names = new Set<string>(membersByName.keys());
+  if (params.memberSpawnStatuses instanceof Map) {
+    for (const name of params.memberSpawnStatuses.keys()) {
+      names.add(name);
+    }
+  } else if (params.memberSpawnStatuses) {
+    for (const name of Object.keys(params.memberSpawnStatuses)) {
+      names.add(name);
+    }
+  }
+  for (const name of Object.keys(params.memberSpawnSnapshotStatuses ?? {})) {
+    names.add(name);
+  }
+
+  return [...names]
+    .filter((name) => {
+      const liveEntry =
+        params.memberSpawnStatuses instanceof Map
+          ? params.memberSpawnStatuses.get(name)
+          : params.memberSpawnStatuses?.[name];
+      const snapshotEntry = params.memberSpawnSnapshotStatuses?.[name];
+      const entry = getPreferredSpawnEntry({
+        liveEntry,
+        snapshotEntry,
+        snapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+      });
+      return isOpenCodeSecondaryRetryCandidate({
+        member: membersByName.get(name),
+        entry,
+      });
+    })
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function normalizeFailureReason(reason: string): string {
   return reason.replace(/\s+/g, ' ').trim();
 }
@@ -581,6 +663,8 @@ export interface TeamProvisioningPresentation {
   allTeammatesConfirmedAlive: boolean;
   hasMembersStillJoining: boolean;
   remainingJoinCount: number;
+  retryableOpenCodeSecondaryFailedCount: number;
+  retryableOpenCodeSecondaryFailedNames: string[];
   panelTitle: string;
   panelMessage?: string | null;
   panelMessageSeverity?: 'error' | 'warning' | 'info';
@@ -674,6 +758,13 @@ export function buildTeamProvisioningPresentation({
     memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
     memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
   });
+  const retryableOpenCodeSecondaryFailedNames = getRetryableOpenCodeSecondaryFailedNames({
+    members,
+    memberSpawnStatuses,
+    memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
+    memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
+  });
+  const retryableOpenCodeSecondaryFailedCount = retryableOpenCodeSecondaryFailedNames.length;
 
   const { allTeammatesConfirmedAlive, hasMembersStillJoining, remainingJoinCount } =
     getLaunchJoinState({
@@ -712,6 +803,8 @@ export function buildTeamProvisioningPresentation({
       allTeammatesConfirmedAlive,
       hasMembersStillJoining,
       remainingJoinCount,
+      retryableOpenCodeSecondaryFailedCount,
+      retryableOpenCodeSecondaryFailedNames,
       panelTitle: 'Launch failed',
       panelMessage: progress.error ?? failedSpawnPanelMessage ?? genericFailedSpawnPanelMessage,
       panelTone: 'error',
@@ -800,6 +893,8 @@ export function buildTeamProvisioningPresentation({
       allTeammatesConfirmedAlive,
       hasMembersStillJoining,
       remainingJoinCount,
+      retryableOpenCodeSecondaryFailedCount,
+      retryableOpenCodeSecondaryFailedNames,
       panelTitle: 'Launch details',
       panelMessage:
         failedSpawnCount > 0 || skippedSpawnCount > 0 || hasMembersStillJoining
@@ -875,6 +970,8 @@ export function buildTeamProvisioningPresentation({
       allTeammatesConfirmedAlive,
       hasMembersStillJoining,
       remainingJoinCount,
+      retryableOpenCodeSecondaryFailedCount,
+      retryableOpenCodeSecondaryFailedNames,
       panelTitle: openCodeSecondaryWaitPhrase ? 'Core team ready' : 'Launching team',
       panelMessage:
         failedSpawnCount > 0

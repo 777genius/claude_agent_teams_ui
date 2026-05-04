@@ -981,6 +981,9 @@ export class HttpAPIClient implements ElectronAPI {
     restartMember: async (): Promise<void> => {
       throw new Error('Member restart is not available in browser mode');
     },
+    retryFailedOpenCodeSecondaryLanes: async () => {
+      throw new Error('OpenCode secondary retry is not available in browser mode');
+    },
     skipMemberForLaunch: async (): Promise<void> => {
       throw new Error('Member launch skip is not available in browser mode');
     },
