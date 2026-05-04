@@ -78,6 +78,11 @@ const REQUIRED_READY_CHECKPOINTS = new Set([
   'member_ready',
   'run_ready',
 ]);
+const GENERIC_OPEN_CODE_MEMBER_FAILURE_REASON = 'OpenCode bridge reported member launch failure';
+const SECRET_FLAG_PATTERN =
+  /(--(?:api-key|token|password|secret|authorization|auth-token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
+const BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+const SECRET_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{16,}\b/g;
 
 export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
   readonly providerId = 'opencode' as const;
@@ -484,6 +489,23 @@ function mapOpenCodeLaunchDataToRuntimeResult(
         : data.teamLaunchState === 'failed'
           ? 'failed'
           : 'created';
+      const checkpointDiagnosticsForMember = [
+        ...checkpointDiagnostic,
+        ...(missingExpectedMembers.includes(member.name) ? incompleteReadyDiagnostic : []),
+      ];
+      const memberDiagnostics = [
+        ...(bridgeMember
+          ? []
+          : [
+              `OpenCode bridge response did not include ${member.name}; keeping the member pending until lane state materializes.`,
+            ]),
+        ...(bridgeMember?.diagnostics ?? []),
+        ...(bridgeMember?.evidence ?? []).map(
+          (evidence) => `${evidence.kind} at ${evidence.observedAt}`
+        ),
+        ...memberBridgeDiagnostics,
+        ...checkpointDiagnosticsForMember,
+      ];
       return [
         member.name,
         mapBridgeMemberToRuntimeEvidence(
@@ -493,20 +515,13 @@ function mapOpenCodeLaunchDataToRuntimeResult(
           bridgeMember?.runtimePid,
           bridgeMember?.pendingPermissionRequestIds,
           bridgeMember != null,
-          [
-            ...(bridgeMember
-              ? []
-              : [
-                  `OpenCode bridge response did not include ${member.name}; keeping the member pending until lane state materializes.`,
-                ]),
-            ...(bridgeMember?.diagnostics ?? []),
-            ...(bridgeMember?.evidence ?? []).map(
-              (evidence) => `${evidence.kind} at ${evidence.observedAt}`
-            ),
-            ...memberBridgeDiagnostics,
-            ...checkpointDiagnostic,
-            ...(missingExpectedMembers.includes(member.name) ? incompleteReadyDiagnostic : []),
-          ]
+          memberDiagnostics,
+          selectOpenCodeMemberFailureReason({
+            memberDiagnostics: bridgeMember?.diagnostics ?? [],
+            bridgeDiagnostics: data.diagnostics,
+            checkpointDiagnostics: checkpointDiagnosticsForMember,
+            fallback: GENERIC_OPEN_CODE_MEMBER_FAILURE_REASON,
+          })
         ),
       ];
     })
@@ -542,7 +557,8 @@ function mapBridgeMemberToRuntimeEvidence(
   runtimePid: number | undefined,
   pendingPermissionRequestIds: string[] | undefined,
   runtimeMaterialized: boolean,
-  diagnostics: string[]
+  diagnostics: string[],
+  selectedHardFailureReason: string
 ): TeamRuntimeMemberLaunchEvidence {
   const confirmed = launchState === 'confirmed_alive';
   const failed = launchState === 'failed';
@@ -590,7 +606,7 @@ function mapBridgeMemberToRuntimeEvidence(
     runtimeAlive: confirmed,
     bootstrapConfirmed: confirmed,
     hardFailure: failed,
-    hardFailureReason: failed ? 'OpenCode bridge reported member launch failure' : undefined,
+    hardFailureReason: failed ? selectedHardFailureReason : undefined,
     pendingPermissionRequestIds:
       pendingPermissionRequestIds && pendingPermissionRequestIds.length > 0
         ? [...new Set(pendingPermissionRequestIds)]
@@ -603,6 +619,83 @@ function mapBridgeMemberToRuntimeEvidence(
     ...(runtimeDiagnosticSeverity ? { runtimeDiagnosticSeverity } : {}),
     diagnostics,
   };
+}
+
+function selectOpenCodeMemberFailureReason(input: {
+  memberDiagnostics: readonly string[];
+  bridgeDiagnostics: readonly {
+    code: string;
+    severity: 'info' | 'warning' | 'error';
+    message: string;
+  }[];
+  checkpointDiagnostics: readonly string[];
+  fallback: string;
+}): string {
+  return (
+    firstDisplayableOpenCodeFailureMessage(input.memberDiagnostics, { includeGeneric: false }) ??
+    firstDisplayableOpenCodeFailureMessage(
+      input.bridgeDiagnostics
+        .filter((diagnostic) => diagnostic.severity === 'error')
+        .map((diagnostic) => diagnostic.message),
+      { includeGeneric: false }
+    ) ??
+    firstDisplayableOpenCodeFailureMessage(input.memberDiagnostics, { includeGeneric: true }) ??
+    firstDisplayableOpenCodeFailureMessage(input.checkpointDiagnostics, { includeGeneric: true }) ??
+    firstDisplayableOpenCodeFailureMessage(
+      input.bridgeDiagnostics
+        .filter((diagnostic) => diagnostic.severity !== 'info')
+        .map((diagnostic) => diagnostic.message),
+      { includeGeneric: true }
+    ) ??
+    normalizeOpenCodeFailureMessage(input.fallback) ??
+    GENERIC_OPEN_CODE_MEMBER_FAILURE_REASON
+  );
+}
+
+function firstDisplayableOpenCodeFailureMessage(
+  values: readonly string[],
+  options: { includeGeneric: boolean }
+): string | undefined {
+  for (const value of values) {
+    const normalized = normalizeOpenCodeFailureMessage(value);
+    if (!normalized) {
+      continue;
+    }
+    if (!options.includeGeneric && isGenericOpenCodeFailureMessage(normalized)) {
+      continue;
+    }
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeOpenCodeFailureMessage(value: string | undefined): string | undefined {
+  const trimmed = value?.replace(/\s+/g, ' ').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed
+    .replace(SECRET_FLAG_PATTERN, '$1[redacted]')
+    .replace(BEARER_TOKEN_PATTERN, 'Bearer [redacted]')
+    .replace(SECRET_KEY_PATTERN, '[redacted-api-key]');
+}
+
+function isGenericOpenCodeFailureMessage(message: string): boolean {
+  return (
+    message === GENERIC_OPEN_CODE_MEMBER_FAILURE_REASON ||
+    message.startsWith(`${GENERIC_OPEN_CODE_MEMBER_FAILURE_REASON}:`) ||
+    message.startsWith('OpenCode secondary lane timing:') ||
+    message.startsWith(
+      'OpenCode bridge reported ready without all required durable checkpoints:'
+    ) ||
+    message.startsWith(
+      'OpenCode bridge reported ready before all expected members were confirmed:'
+    ) ||
+    message.startsWith(
+      'OpenCode bootstrap MCP did not complete required tools before assistant response:'
+    ) ||
+    isOpenCodeLaunchTimingDiagnostic(message)
+  );
 }
 
 function extractCheckpointNames(data: OpenCodeLaunchTeamCommandData): Set<string> {

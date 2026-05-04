@@ -156,6 +156,106 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     );
   });
 
+  it('uses concrete member diagnostics as failed OpenCode hard failure reasons', async () => {
+    const concreteReason =
+      'Latest assistant message msg_123 failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits';
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'failed',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'failed',
+              model: 'openai/gpt-5.4-mini',
+              diagnostics: ['OpenCode bridge reported member launch failure', concreteReason],
+              evidence: [],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), { launchOpenCodeTeam })
+    );
+
+    const result = await adapter.launch(launchInput());
+
+    expect(result.members.alice).toMatchObject({
+      launchState: 'failed_to_start',
+      hardFailureReason: concreteReason,
+    });
+  });
+
+  it('falls back to bridge error diagnostics when member failure details are generic', async () => {
+    const bridgeError = 'Provider runtime returned a concrete launch error';
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'failed',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'failed',
+              model: 'openai/gpt-5.4-mini',
+              diagnostics: ['OpenCode bridge reported member launch failure'],
+              evidence: [],
+            },
+          },
+          warnings: [],
+          diagnostics: [{ code: 'provider_error', severity: 'error', message: bridgeError }],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), { launchOpenCodeTeam })
+    );
+
+    const result = await adapter.launch(launchInput());
+
+    expect(result.members.alice?.hardFailureReason).toBe(bridgeError);
+  });
+
+  it('redacts secret-like values in selected OpenCode failure reasons', async () => {
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'failed',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'failed',
+              model: 'openai/gpt-5.4-mini',
+              diagnostics: [
+                'Provider failed with --api-key sk-openroutersecret000000000000 and Bearer abc.def.ghi',
+              ],
+              evidence: [],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), { launchOpenCodeTeam })
+    );
+
+    const result = await adapter.launch(launchInput());
+
+    expect(result.members.alice?.hardFailureReason).toBe(
+      'Provider failed with --api-key [redacted] and Bearer [redacted]'
+    );
+  });
+
   it('rejects non-OpenCode members before readiness or launch bridge dispatch', async () => {
     const launchOpenCodeTeam = vi.fn();
     const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true }), {

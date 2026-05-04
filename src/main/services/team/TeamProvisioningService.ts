@@ -2293,6 +2293,105 @@ function hasRealOpenCodeFailureDiagnostic(text: string): boolean {
   );
 }
 
+const OPEN_CODE_GENERIC_MEMBER_LAUNCH_FAILURE_REASON =
+  'OpenCode bridge reported member launch failure';
+const OPEN_CODE_SECRET_FLAG_PATTERN =
+  /(--(?:api-key|token|password|secret|authorization|auth-token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
+const OPEN_CODE_BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+const OPEN_CODE_SECRET_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{16,}\b/g;
+
+function normalizeOpenCodePersistedFailureReason(value: string | undefined): string | undefined {
+  const trimmed = value?.replace(/\s+/g, ' ').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed
+    .replace(OPEN_CODE_SECRET_FLAG_PATTERN, '$1[redacted]')
+    .replace(OPEN_CODE_BEARER_TOKEN_PATTERN, 'Bearer [redacted]')
+    .replace(OPEN_CODE_SECRET_KEY_PATTERN, '[redacted-api-key]');
+}
+
+function isGenericOpenCodePersistedFailureReason(value: string | undefined): boolean {
+  const normalized = normalizeOpenCodePersistedFailureReason(value);
+  return (
+    normalized === OPEN_CODE_GENERIC_MEMBER_LAUNCH_FAILURE_REASON ||
+    normalized?.startsWith(`${OPEN_CODE_GENERIC_MEMBER_LAUNCH_FAILURE_REASON}:`) === true ||
+    normalized?.startsWith('OpenCode secondary lane timing:') === true ||
+    normalized?.startsWith(
+      'OpenCode bridge reported ready without all required durable checkpoints:'
+    ) === true ||
+    normalized?.startsWith(
+      'OpenCode bridge reported ready before all expected members were confirmed:'
+    ) === true ||
+    normalized?.startsWith(
+      'OpenCode bootstrap MCP did not complete required tools before assistant response:'
+    ) === true ||
+    normalized?.startsWith('info:opencode_launch_member_timing:') === true ||
+    normalized?.startsWith('info:opencode_launch_total_timing:') === true
+  );
+}
+
+function selectOpenCodePersistedFailureReasonFromDiagnostics(
+  member: PersistedTeamLaunchMemberState
+): string | undefined {
+  if (!isPersistedOpenCodeSecondaryLaneMember(member)) {
+    return undefined;
+  }
+  if (member.launchState !== 'failed_to_start' || member.hardFailure !== true) {
+    return undefined;
+  }
+  if (!isGenericOpenCodePersistedFailureReason(member.hardFailureReason)) {
+    return undefined;
+  }
+  for (const value of member.diagnostics ?? []) {
+    const normalized = normalizeOpenCodePersistedFailureReason(value);
+    if (!normalized || isGenericOpenCodePersistedFailureReason(normalized)) {
+      continue;
+    }
+    return normalized;
+  }
+  return undefined;
+}
+
+function promoteOpenCodePersistedFailureReasonsFromDiagnostics(
+  snapshot: PersistedTeamLaunchSnapshot | null
+): PersistedTeamLaunchSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+  let changed = false;
+  const members: Record<string, PersistedTeamLaunchMemberState> = { ...snapshot.members };
+  for (const [memberName, member] of Object.entries(snapshot.members)) {
+    const promotedReason = selectOpenCodePersistedFailureReasonFromDiagnostics(member);
+    if (!promotedReason || promotedReason === member.hardFailureReason) {
+      continue;
+    }
+    members[memberName] = {
+      ...member,
+      hardFailureReason: promotedReason,
+      runtimeDiagnostic:
+        member.runtimeDiagnostic &&
+        !isGenericOpenCodePersistedFailureReason(member.runtimeDiagnostic)
+          ? member.runtimeDiagnostic
+          : promotedReason,
+      runtimeDiagnosticSeverity: member.runtimeDiagnosticSeverity ?? 'error',
+    };
+    changed = true;
+  }
+  if (!changed) {
+    return snapshot;
+  }
+  return createPersistedLaunchSnapshot({
+    teamName: snapshot.teamName,
+    expectedMembers: snapshot.expectedMembers,
+    bootstrapExpectedMembers: snapshot.bootstrapExpectedMembers,
+    leadSessionId: snapshot.leadSessionId,
+    launchPhase: snapshot.launchPhase,
+    members,
+    updatedAt: nowIso(),
+  });
+}
+
 function promoteOpenCodeSecondaryMemberFromCommittedBootstrapEvidence(input: {
   current: PersistedTeamLaunchMemberState;
   previous: PersistedTeamLaunchMemberState | null;
@@ -19770,6 +19869,99 @@ export class TeamProvisioningService {
     return statuses;
   }
 
+  private async overlayPrimaryBootstrapTruthIntoRunStatusesFromBootstrapState(
+    run: ProvisioningRun
+  ): Promise<void> {
+    if (
+      !run.isLaunch ||
+      !Array.isArray(run.mixedSecondaryLanes) ||
+      run.mixedSecondaryLanes.length === 0
+    ) {
+      return;
+    }
+
+    let bootstrapSnapshot: PersistedTeamLaunchSnapshot | null = null;
+    try {
+      bootstrapSnapshot = await readBootstrapLaunchSnapshot(run.teamName);
+    } catch {
+      return;
+    }
+    if (!bootstrapSnapshot) {
+      return;
+    }
+
+    const runStartedAtMs = Date.parse(run.startedAt);
+    const bootstrapUpdatedAtMs = Date.parse(bootstrapSnapshot.updatedAt);
+    if (
+      !Number.isFinite(runStartedAtMs) ||
+      !Number.isFinite(bootstrapUpdatedAtMs) ||
+      bootstrapUpdatedAtMs < runStartedAtMs
+    ) {
+      return;
+    }
+
+    const primaryMemberNames = new Set(
+      (run.effectiveMembers ?? [])
+        .map((member) => member.name?.trim())
+        .filter((name): name is string => Boolean(name))
+    );
+    if (primaryMemberNames.size === 0) {
+      return;
+    }
+
+    const updatedAt = nowIso();
+    for (const memberName of primaryMemberNames) {
+      if (this.isOpenCodeSecondaryLaneMemberInRun(run, memberName)) {
+        continue;
+      }
+      const bootstrapMember = bootstrapSnapshot.members[memberName];
+      if (bootstrapMember?.bootstrapConfirmed !== true) {
+        continue;
+      }
+      const current =
+        run.memberSpawnStatuses.get(memberName) ?? createInitialMemberSpawnStatusEntry();
+      if (current.launchState === 'skipped_for_launch' || current.skippedForLaunch === true) {
+        continue;
+      }
+      const failureReason = current.hardFailureReason ?? current.error;
+      if (
+        current.launchState === 'failed_to_start' &&
+        !isAutoClearableLaunchFailureReason(failureReason)
+      ) {
+        continue;
+      }
+
+      const observedAt =
+        bootstrapMember.lastHeartbeatAt ??
+        bootstrapMember.lastEvaluatedAt ??
+        bootstrapSnapshot.updatedAt ??
+        updatedAt;
+      const next: MemberSpawnStatusEntry = {
+        ...current,
+        status: 'online',
+        updatedAt,
+        agentToolAccepted: true,
+        runtimeAlive: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        bootstrapStalled: undefined,
+        error: undefined,
+        hardFailureReason: undefined,
+        livenessSource: current.livenessSource ?? 'heartbeat',
+        firstSpawnAcceptedAt:
+          current.firstSpawnAcceptedAt ?? bootstrapMember.firstSpawnAcceptedAt ?? observedAt,
+        lastHeartbeatAt: isMemberSpawnHeartbeatTimestampNewer(current.lastHeartbeatAt, observedAt)
+          ? observedAt
+          : current.lastHeartbeatAt,
+        livenessLastCheckedAt: updatedAt,
+        launchState: 'confirmed_alive',
+      };
+      run.memberSpawnStatuses.set(memberName, next);
+      run.pendingMemberRestarts?.delete(memberName);
+      this.syncMemberLaunchGraceCheck(run, memberName, next);
+    }
+  }
+
   private syncRunMemberSpawnStatusesFromSnapshot(
     run: ProvisioningRun,
     snapshot: PersistedTeamLaunchSnapshot
@@ -20191,6 +20383,7 @@ export class TeamProvisioningService {
     run: ProvisioningRun,
     launchPhase: 'active' | 'finished' | 'reconciled'
   ): Promise<PersistedTeamLaunchSnapshot | null> {
+    await this.overlayPrimaryBootstrapTruthIntoRunStatusesFromBootstrapState(run);
     const snapshot = this.buildLiveLaunchSnapshotForRun(run, launchPhase);
     if (!snapshot) {
       if (run.isLaunch) {
@@ -21209,7 +21402,7 @@ export class TeamProvisioningService {
           metaMembers,
         })
       : null;
-    const stableRecoveredMixedSnapshot =
+    const stableRecoveredMixedSnapshotWithCommittedEvidence =
       overlaidRecoveredMixedSnapshot &&
       this.hasCommittedOpenCodeSecondaryEvidenceOverlayDelta(
         overlaidRecoveredMixedSnapshot,
@@ -21217,6 +21410,14 @@ export class TeamProvisioningService {
       )
         ? await this.writeLaunchStateSnapshot(teamName, overlaidRecoveredMixedSnapshot)
         : overlaidRecoveredMixedSnapshot;
+    const promotedRecoveredMixedSnapshot = promoteOpenCodePersistedFailureReasonsFromDiagnostics(
+      stableRecoveredMixedSnapshotWithCommittedEvidence
+    );
+    const stableRecoveredMixedSnapshot =
+      promotedRecoveredMixedSnapshot &&
+      promotedRecoveredMixedSnapshot !== stableRecoveredMixedSnapshotWithCommittedEvidence
+        ? await this.writeLaunchStateSnapshot(teamName, promotedRecoveredMixedSnapshot)
+        : promotedRecoveredMixedSnapshot;
     const filteredBootstrapSnapshot = bootstrapSnapshot
       ? this.filterRemovedMembersFromLaunchSnapshot(bootstrapSnapshot, metaMembers)
       : null;
@@ -21248,15 +21449,46 @@ export class TeamProvisioningService {
       : null;
     const shouldPersistCommittedEvidenceOverlay =
       this.hasCommittedOpenCodeSecondaryEvidenceOverlayDelta(filteredPersisted, persisted);
+    const promotedPersisted =
+      promoteOpenCodePersistedFailureReasonsFromDiagnostics(filteredPersisted);
+    const shouldPersistFailureReasonPromotion = promotedPersisted !== filteredPersisted;
     const persistedWithCommittedEvidence =
-      filteredPersisted && shouldPersistCommittedEvidenceOverlay
-        ? await this.writeLaunchStateSnapshot(teamName, filteredPersisted)
-        : filteredPersisted;
+      promotedPersisted &&
+      (shouldPersistCommittedEvidenceOverlay || shouldPersistFailureReasonPromotion)
+        ? await this.writeLaunchStateSnapshot(teamName, promotedPersisted)
+        : promotedPersisted;
     const preferredSnapshot = choosePreferredLaunchSnapshot(
       overlaidBootstrapSnapshot,
       persistedWithCommittedEvidence
     );
-    if (preferredSnapshot && preferredSnapshot === overlaidBootstrapSnapshot) {
+    const bootstrapSelectionWouldCollapseMixedLaunch =
+      preferredSnapshot &&
+      preferredSnapshot === overlaidBootstrapSnapshot &&
+      preferredSnapshot.teamLaunchState === 'clean_success' &&
+      !this.hasMixedLaunchMetadata(preferredSnapshot) &&
+      this.hasMixedLaunchMetadata(persistedWithCommittedEvidence);
+    if (
+      preferredSnapshot &&
+      preferredSnapshot === overlaidBootstrapSnapshot &&
+      !bootstrapSelectionWouldCollapseMixedLaunch
+    ) {
+      if (persistedWithCommittedEvidence) {
+        if (
+          preferredSnapshot.teamLaunchState === 'clean_success' &&
+          !this.hasMixedLaunchMetadata(preferredSnapshot)
+        ) {
+          await this.clearPersistedLaunchState(teamName);
+          return {
+            snapshot: preferredSnapshot,
+            statuses: snapshotToMemberSpawnStatuses(preferredSnapshot),
+          };
+        }
+        const writtenSnapshot = await this.writeLaunchStateSnapshot(teamName, preferredSnapshot);
+        return {
+          snapshot: writtenSnapshot,
+          statuses: snapshotToMemberSpawnStatuses(writtenSnapshot),
+        };
+      }
       return {
         snapshot: preferredSnapshot,
         statuses: snapshotToMemberSpawnStatuses(preferredSnapshot),

@@ -133,7 +133,10 @@ import {
   createPersistedLaunchSnapshot,
   snapshotFromRuntimeMemberStatuses,
 } from '@main/services/team/TeamLaunchStateEvaluator';
-import { getTeamLaunchStatePath } from '@main/services/team/TeamLaunchStateStore';
+import {
+  getTeamLaunchStatePath,
+  getTeamLaunchSummaryPath,
+} from '@main/services/team/TeamLaunchStateStore';
 import { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import {
   getOpenCodeLaneScopedRuntimeFilePath,
@@ -14200,6 +14203,91 @@ describe('TeamProvisioningService', () => {
     });
   });
 
+  it('clears stale launch-state and launch-summary when bootstrap truth supersedes a persisted failure', async () => {
+    const teamName = 'bootstrap-supersedes-stale-launch-summary-team';
+    const leadSessionId = 'lead-session';
+    const staleUpdatedAt = '2026-04-16T09:55:00.000Z';
+    const freshObservedAt = '2026-04-16T10:00:00.000Z';
+    writeLaunchConfig(teamName, '/Users/test/proj', leadSessionId, ['bob']);
+    writeLaunchState(
+      teamName,
+      leadSessionId,
+      {
+        bob: {
+          launchState: 'failed_to_start',
+          agentToolAccepted: false,
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          hardFailureReason: 'Teammate was never spawned during launch.',
+        },
+      },
+      { updatedAt: staleUpdatedAt }
+    );
+    fs.writeFileSync(
+      getTeamLaunchSummaryPath(teamName),
+      `${JSON.stringify(
+        {
+          version: 1,
+          teamName,
+          updatedAt: staleUpdatedAt,
+          launchPhase: 'finished',
+          partialLaunchFailure: true,
+          expectedMemberCount: 1,
+          confirmedMemberCount: 0,
+          missingMembers: ['bob'],
+          teamLaunchState: 'partial_failure',
+          launchUpdatedAt: staleUpdatedAt,
+          confirmedCount: 0,
+          pendingCount: 0,
+          failedCount: 1,
+          skippedCount: 0,
+          runtimeAlivePendingCount: 0,
+          shellOnlyPendingCount: 0,
+          runtimeProcessPendingCount: 0,
+          runtimeCandidatePendingCount: 0,
+          noRuntimePendingCount: 0,
+          permissionPendingCount: 0,
+        },
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'bob',
+          status: 'bootstrap_confirmed',
+          lastAttemptAt: Date.parse(freshObservedAt),
+          lastObservedAt: Date.parse(freshObservedAt),
+        },
+      ],
+      freshObservedAt
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.statuses.bob).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      hardFailure: false,
+    });
+    await expect(fsPromises.readFile(getTeamLaunchStatePath(teamName), 'utf8')).rejects.toMatchObject(
+      {
+        code: 'ENOENT',
+      }
+    );
+    await expect(
+      fsPromises.readFile(getTeamLaunchSummaryPath(teamName), 'utf8')
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
   it('reconciles extra persisted launch members when bootstrap state proves they were registered', async () => {
     const teamName = 'registered-bootstrap-extra-member-team';
     const teamDir = path.join(tempTeamsBase, teamName);
@@ -15452,6 +15540,476 @@ describe('TeamProvisioningService', () => {
       launchState: 'runtime_pending_bootstrap',
       hardFailure: false,
       hardFailureReason: undefined,
+    });
+  });
+
+  it('keeps primary bootstrap-confirmed members alive when OpenCode secondary lanes fail', async () => {
+    const teamName = 'atlas-hq-source-aware-live';
+    const startedAt = '2026-04-23T10:00:00.000Z';
+    const exactOpenCodeReason =
+      'Latest assistant message msg_alice failed with APIError - Insufficient credits.';
+    writeLaunchConfig(teamName, '/Users/test/proj', 'lead-session', ['bob', 'jack']);
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'bob',
+          status: 'bootstrap_confirmed',
+          lastObservedAt: Date.parse('2026-04-23T10:01:00.000Z'),
+        },
+        {
+          name: 'jack',
+          status: 'bootstrap_confirmed',
+          lastObservedAt: Date.parse('2026-04-23T10:01:00.000Z'),
+        },
+      ],
+      '2026-04-23T10:01:00.000Z'
+    );
+    const run = createMemberSpawnRun({
+      teamName,
+      runId: 'run-atlas-hq-source-aware-live',
+      startedAt,
+      expectedMembers: ['bob', 'jack'],
+      memberSpawnStatuses: new Map([
+        [
+          'bob',
+          createMemberSpawnStatusEntry({
+            status: 'error',
+            launchState: 'failed_to_start',
+            agentToolAccepted: false,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: true,
+            error: 'Teammate was never spawned during launch.',
+            hardFailureReason: 'Teammate was never spawned during launch.',
+          }),
+        ],
+        [
+          'jack',
+          createMemberSpawnStatusEntry({
+            status: 'error',
+            launchState: 'failed_to_start',
+            agentToolAccepted: false,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: true,
+            error: 'Teammate was never spawned during launch.',
+            hardFailureReason: 'Teammate was never spawned during launch.',
+          }),
+        ],
+      ]),
+    });
+    run.isLaunch = true;
+    run.request = {
+      teamName,
+      cwd: '/Users/test/proj',
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+      members: [],
+    };
+    run.effectiveMembers = [
+      { name: 'bob', providerId: 'codex', model: 'gpt-5.3-codex' },
+      { name: 'jack', providerId: 'codex', model: 'gpt-5.4' },
+    ];
+    run.mixedSecondaryLanes = [
+      {
+        laneId: 'secondary:opencode:alice',
+        providerId: 'opencode',
+        member: {
+          name: 'alice',
+          providerId: 'opencode',
+          model: 'openrouter/z-ai/glm-5.1',
+        },
+        runId: 'lane-run-alice',
+        state: 'finished',
+        result: {
+          runId: 'lane-run-alice',
+          teamName,
+          launchPhase: 'finished',
+          teamLaunchState: 'partial_failure',
+          members: {
+            alice: {
+              memberName: 'alice',
+              providerId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: exactOpenCodeReason,
+              diagnostics: [exactOpenCodeReason],
+            },
+          },
+          warnings: [],
+          diagnostics: [exactOpenCodeReason],
+        },
+        warnings: [],
+        diagnostics: [exactOpenCodeReason],
+      },
+      {
+        laneId: 'secondary:opencode:tom',
+        providerId: 'opencode',
+        member: {
+          name: 'tom',
+          providerId: 'opencode',
+          model: 'openrouter/minimax/minimax-m2.5',
+        },
+        runId: 'lane-run-tom',
+        state: 'finished',
+        result: {
+          runId: 'lane-run-tom',
+          teamName,
+          launchPhase: 'finished',
+          teamLaunchState: 'partial_failure',
+          members: {
+            tom: {
+              memberName: 'tom',
+              providerId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'Tom provider launch failed.',
+              diagnostics: ['Tom provider launch failed.'],
+            },
+          },
+          warnings: [],
+          diagnostics: ['Tom provider launch failed.'],
+        },
+        warnings: [],
+        diagnostics: ['Tom provider launch failed.'],
+      },
+    ];
+    run.detectedSessionId = 'lead-session';
+
+    const svc = new TeamProvisioningService();
+    const snapshot = await (svc as any).persistLaunchStateSnapshot(run, 'finished');
+
+    expect(snapshot.members.bob).toMatchObject({
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      hardFailure: false,
+    });
+    expect(snapshot.members.jack).toMatchObject({
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      hardFailure: false,
+    });
+    expect(snapshot.members.alice).toMatchObject({
+      launchState: 'failed_to_start',
+      hardFailureReason: exactOpenCodeReason,
+    });
+    expect(snapshot.members.tom).toMatchObject({
+      launchState: 'failed_to_start',
+      hardFailureReason: 'Tom provider launch failed.',
+    });
+    expect(snapshot.summary.confirmedCount).toBe(2);
+    expect(snapshot.summary.failedCount).toBe(2);
+  });
+
+  it('reconciles persisted mixed launch-state when primary bootstrap members were marked missing', async () => {
+    const teamName = 'atlas-hq-source-aware-persisted';
+    const exactOpenCodeReason =
+      'Latest assistant message msg_alice failed with APIError - Insufficient credits.';
+    writeTeamMeta(teamName, {
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+    });
+    writeMembersMeta(teamName, [
+      { name: 'bob', providerId: 'codex', model: 'gpt-5.3-codex' },
+      { name: 'jack', providerId: 'codex', model: 'gpt-5.4' },
+      { name: 'alice', providerId: 'opencode', model: 'openrouter/z-ai/glm-5.1' },
+      { name: 'tom', providerId: 'opencode', model: 'openrouter/minimax/minimax-m2.5' },
+    ]);
+    writeLaunchConfig(teamName, '/Users/test/proj', 'lead-session', ['bob', 'jack']);
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'bob',
+          status: 'bootstrap_confirmed',
+          lastObservedAt: Date.parse('2026-04-23T10:01:00.000Z'),
+        },
+        {
+          name: 'jack',
+          status: 'bootstrap_confirmed',
+          lastObservedAt: Date.parse('2026-04-23T10:01:00.000Z'),
+        },
+      ],
+      '2026-04-23T10:01:00.000Z'
+    );
+    fs.writeFileSync(
+      getTeamLaunchStatePath(teamName),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          leadSessionId: 'lead-session',
+          launchPhase: 'finished',
+          expectedMembers: ['bob', 'jack', 'alice', 'tom'],
+          bootstrapExpectedMembers: ['bob', 'jack'],
+          members: {
+            bob: {
+              name: 'bob',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'failed_to_start',
+              agentToolAccepted: false,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'Teammate was never spawned during launch.',
+              lastEvaluatedAt: '2026-04-23T10:02:00.000Z',
+            },
+            jack: {
+              name: 'jack',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'failed_to_start',
+              agentToolAccepted: false,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'Teammate was never spawned during launch.',
+              lastEvaluatedAt: '2026-04-23T10:02:00.000Z',
+            },
+            alice: {
+              name: 'alice',
+              providerId: 'opencode',
+              model: 'openrouter/z-ai/glm-5.1',
+              laneId: 'secondary:opencode:alice',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              diagnostics: [exactOpenCodeReason],
+              lastEvaluatedAt: '2026-04-23T10:02:00.000Z',
+            },
+            tom: {
+              name: 'tom',
+              providerId: 'opencode',
+              model: 'openrouter/minimax/minimax-m2.5',
+              laneId: 'secondary:opencode:tom',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              diagnostics: ['Tom provider launch failed.'],
+              lastEvaluatedAt: '2026-04-23T10:02:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:02:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.statuses.bob).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      hardFailure: false,
+    });
+    expect(result.statuses.jack).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      hardFailure: false,
+    });
+    expect(result.statuses.alice).toMatchObject({
+      status: 'error',
+      launchState: 'failed_to_start',
+      hardFailureReason: exactOpenCodeReason,
+    });
+    expect(result.statuses.tom).toMatchObject({
+      status: 'error',
+      launchState: 'failed_to_start',
+      hardFailureReason: 'Tom provider launch failed.',
+    });
+    const summary = JSON.parse(await fsPromises.readFile(getTeamLaunchSummaryPath(teamName), 'utf8'));
+    expect(summary).toMatchObject({
+      teamLaunchState: 'partial_failure',
+      confirmedCount: 2,
+      failedCount: 2,
+      missingMembers: ['alice', 'tom'],
+    });
+  });
+
+  it('does not collapse persisted mixed secondary failures when primary bootstrap snapshot is clean and richer', async () => {
+    const teamName = 'mixed-clean-bootstrap-does-not-collapse-secondary-failure';
+    writeMembersMeta(teamName, [
+      { name: 'bob', providerId: 'codex', model: 'gpt-5.4' },
+      { name: 'alice', providerId: 'opencode', model: 'openrouter/z-ai/glm-5.1' },
+    ]);
+    writeLaunchConfig(teamName, '/Users/test/proj', 'lead-session', ['bob']);
+    writeBootstrapState(
+      teamName,
+      [
+        { name: 'bob', status: 'bootstrap_confirmed' },
+        { name: 'jack', status: 'bootstrap_confirmed' },
+        { name: 'nova', status: 'bootstrap_confirmed' },
+        { name: 'sam', status: 'bootstrap_confirmed' },
+        { name: 'kim', status: 'bootstrap_confirmed' },
+      ],
+      '2026-04-23T10:03:00.000Z'
+    );
+    const exactOpenCodeReason =
+      'Latest assistant message msg_alice failed with APIError - Insufficient credits.';
+    fs.writeFileSync(
+      getTeamLaunchStatePath(teamName),
+      `${JSON.stringify(
+        createPersistedLaunchSnapshot({
+          teamName,
+          leadSessionId: 'lead-session',
+          launchPhase: 'finished',
+          expectedMembers: ['bob', 'alice'],
+          bootstrapExpectedMembers: ['bob'],
+          members: {
+            bob: {
+              name: 'bob',
+              providerId: 'codex',
+              laneId: 'primary',
+              laneKind: 'primary',
+              laneOwnerProviderId: 'codex',
+              launchState: 'failed_to_start',
+              agentToolAccepted: false,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'Teammate was never spawned during launch.',
+              lastEvaluatedAt: '2026-04-23T10:02:00.000Z',
+            },
+            alice: {
+              name: 'alice',
+              providerId: 'opencode',
+              laneId: 'secondary:opencode:alice',
+              laneKind: 'secondary',
+              laneOwnerProviderId: 'opencode',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'OpenCode bridge reported member launch failure',
+              diagnostics: [exactOpenCodeReason],
+              lastEvaluatedAt: '2026-04-23T10:02:00.000Z',
+            },
+          },
+          updatedAt: '2026-04-23T10:02:00.000Z',
+        }),
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('partial_failure');
+    expect(result.statuses.bob).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      hardFailure: false,
+    });
+    expect(result.statuses.alice).toMatchObject({
+      status: 'error',
+      launchState: 'failed_to_start',
+      hardFailureReason: exactOpenCodeReason,
+    });
+    const persisted = JSON.parse(await fsPromises.readFile(getTeamLaunchStatePath(teamName), 'utf8'));
+    expect(persisted.members.alice).toMatchObject({
+      laneId: 'secondary:opencode:alice',
+      launchState: 'failed_to_start',
+      hardFailureReason: exactOpenCodeReason,
+    });
+  });
+
+  it('does not revive primary members from stale bootstrap-state during mixed projection', async () => {
+    const teamName = 'atlas-hq-stale-bootstrap-live';
+    writeLaunchConfig(teamName, '/Users/test/proj', 'lead-session', ['bob']);
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'bob',
+          status: 'bootstrap_confirmed',
+          lastObservedAt: Date.parse('2026-04-23T09:59:00.000Z'),
+        },
+      ],
+      '2026-04-23T09:59:00.000Z'
+    );
+    const run = createMemberSpawnRun({
+      teamName,
+      runId: 'run-atlas-hq-stale-bootstrap-live',
+      startedAt: '2026-04-23T10:00:00.000Z',
+      expectedMembers: ['bob'],
+      memberSpawnStatuses: new Map([
+        [
+          'bob',
+          createMemberSpawnStatusEntry({
+            status: 'error',
+            launchState: 'failed_to_start',
+            agentToolAccepted: false,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: true,
+            error: 'Teammate was never spawned during launch.',
+            hardFailureReason: 'Teammate was never spawned during launch.',
+          }),
+        ],
+      ]),
+    });
+    run.isLaunch = true;
+    run.request = {
+      teamName,
+      cwd: '/Users/test/proj',
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+      members: [],
+    };
+    run.effectiveMembers = [{ name: 'bob', providerId: 'codex', model: 'gpt-5.3-codex' }];
+    run.mixedSecondaryLanes = [
+      {
+        laneId: 'secondary:opencode:alice',
+        providerId: 'opencode',
+        member: { name: 'alice', providerId: 'opencode', model: 'openrouter/model' },
+        runId: 'lane-run-alice',
+        state: 'finished',
+        result: null,
+        warnings: [],
+        diagnostics: [],
+      },
+    ];
+
+    const svc = new TeamProvisioningService();
+    const snapshot = await (svc as any).persistLaunchStateSnapshot(run, 'finished');
+
+    expect(snapshot.members.bob).toMatchObject({
+      launchState: 'failed_to_start',
+      bootstrapConfirmed: false,
+      hardFailure: true,
     });
   });
 
