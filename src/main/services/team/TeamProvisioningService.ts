@@ -2417,6 +2417,11 @@ function promoteOpenCodeSecondaryMemberFromCommittedBootstrapEvidence(input: {
     ]),
   ];
   const runtimeAlive = true;
+  const livenessKind =
+    input.current.livenessKind === 'runtime_process' ||
+    input.current.livenessKind === 'confirmed_bootstrap'
+      ? input.current.livenessKind
+      : 'confirmed_bootstrap';
   return {
     ...input.previous,
     ...input.current,
@@ -2428,12 +2433,7 @@ function promoteOpenCodeSecondaryMemberFromCommittedBootstrapEvidence(input: {
     hardFailureReason: undefined,
     runtimeRunId: input.session.runId ?? input.current.runtimeRunId,
     runtimeSessionId: input.session.id,
-    livenessKind: runtimeAlive
-      ? input.current.livenessKind
-      : input.current.livenessKind === 'runtime_process' ||
-          input.current.livenessKind === 'runtime_process_candidate'
-        ? input.current.livenessKind
-        : 'confirmed_bootstrap',
+    livenessKind,
     runtimeDiagnostic: 'OpenCode bootstrap evidence committed.',
     runtimeDiagnosticSeverity: 'info',
     firstSpawnAcceptedAt:
@@ -6280,17 +6280,28 @@ export class TeamProvisioningService {
     );
   }
 
-  async isOpenCodeRuntimeRecipient(teamName: string, memberName: string): Promise<boolean> {
+  async resolveRuntimeRecipientProviderId(
+    teamName: string,
+    memberName: string
+  ): Promise<TeamProviderId | undefined> {
     const normalizedMemberName = memberName.trim().toLowerCase();
     if (!normalizedMemberName) {
-      return false;
+      return undefined;
     }
 
     const [config, metaMembers] = await Promise.all([
       this.readConfigSnapshot(teamName).catch(() => null),
       this.membersMetaStore.getMembers(teamName).catch(() => []),
     ]);
-    return this.isOpenCodeRuntimeRecipientFromSources(normalizedMemberName, config, metaMembers);
+    return this.resolveRuntimeRecipientProviderIdFromSources(
+      normalizedMemberName,
+      config,
+      metaMembers
+    );
+  }
+
+  async isOpenCodeRuntimeRecipient(teamName: string, memberName: string): Promise<boolean> {
+    return (await this.resolveRuntimeRecipientProviderId(teamName, memberName)) === 'opencode';
   }
 
   private isOpenCodeDeliveryResponseReadCommitAllowed(input: {
@@ -18829,10 +18840,17 @@ export class TeamProvisioningService {
         continue;
       }
       const runtimeDiagnostic = buildRuntimeDiagnosticForSpawn(metadata);
+      const metadataLivenessKind =
+        current.bootstrapConfirmed === true || current.launchState === 'confirmed_alive'
+          ? metadata.livenessKind === 'runtime_process' ||
+            metadata.livenessKind === 'confirmed_bootstrap'
+            ? metadata.livenessKind
+            : current.livenessKind
+          : metadata.livenessKind;
       const nextEntry: MemberSpawnStatusEntry = {
         ...current,
         ...(metadata.model ? { runtimeModel: metadata.model } : {}),
-        ...(metadata.livenessKind ? { livenessKind: metadata.livenessKind } : {}),
+        ...(metadataLivenessKind ? { livenessKind: metadataLivenessKind } : {}),
         ...(runtimeDiagnostic ? { runtimeDiagnostic } : {}),
         ...(metadata.runtimeDiagnosticSeverity
           ? { runtimeDiagnosticSeverity: metadata.runtimeDiagnosticSeverity }
@@ -19740,7 +19758,8 @@ export class TeamProvisioningService {
       return (
         previous?.launchState !== member.launchState ||
         previous?.bootstrapConfirmed !== member.bootstrapConfirmed ||
-        previous?.runtimeSessionId !== member.runtimeSessionId
+        previous?.runtimeSessionId !== member.runtimeSessionId ||
+        previous?.livenessKind !== member.livenessKind
       );
     });
   }
@@ -19773,7 +19792,9 @@ export class TeamProvisioningService {
     previous: PersistedTeamLaunchMemberState | null
   ): boolean {
     if (current.launchState === 'confirmed_alive' && current.bootstrapConfirmed) {
-      return false;
+      return (
+        current.livenessKind !== 'confirmed_bootstrap' && current.livenessKind !== 'runtime_process'
+      );
     }
     if (
       previous?.launchState === 'confirmed_alive' &&
@@ -25257,7 +25278,7 @@ export class TeamProvisioningService {
       if (!hasSpawnFailures && !hasPendingBootstrap) {
         // Fire "Team Launched" notification only for clean launches.
         void this.fireTeamLaunchedNotification(run);
-      } else {
+      } else if (hasSpawnFailures) {
         void this.fireTeamLaunchIncompleteNotification(
           run,
           failedSpawnMembers,
@@ -25442,7 +25463,7 @@ export class TeamProvisioningService {
     if (!hasSpawnFailures && !hasPendingBootstrap) {
       // Fire "Team Launched" notification only for clean launches.
       void this.fireTeamLaunchedNotification(run);
-    } else {
+    } else if (hasSpawnFailures) {
       void this.fireTeamLaunchIncompleteNotification(
         run,
         failedSpawnMembers,
@@ -25551,6 +25572,9 @@ export class TeamProvisioningService {
         failedMembers,
         snapshot
       );
+      if (failedNames.length === 0) {
+        return;
+      }
       const pendingNames = this.getLaunchIncompletePendingNames(
         run,
         expectedMembers,
@@ -25627,6 +25651,15 @@ export class TeamProvisioningService {
     const failedNames = new Set(failedMembers.map((member) => member.name).filter(Boolean));
     for (const memberName of expectedMembers) {
       const { live, persisted } = this.getLaunchIncompleteMemberEvidence(run, snapshot, memberName);
+      const liveResolved =
+        live?.launchState === 'confirmed_alive' ||
+        live?.bootstrapConfirmed === true ||
+        live?.launchState === 'skipped_for_launch' ||
+        live?.skippedForLaunch === true;
+      if (liveResolved) {
+        failedNames.delete(memberName);
+        continue;
+      }
       if (
         live?.launchState === 'failed_to_start' ||
         persisted?.launchState === 'failed_to_start' ||

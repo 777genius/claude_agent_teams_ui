@@ -92,6 +92,29 @@ describe('buildTeamRuntimeDisplayRows', () => {
     });
   });
 
+  it('treats confirmed spawn bootstrap as running even if stale status is still waiting', () => {
+    const rows = buildTeamRuntimeDisplayRows({
+      members: [{ name: 'alice' }],
+      spawnStatuses: {
+        alice: createSpawnStatus({
+          status: 'waiting',
+          launchState: 'confirmed_alive',
+          bootstrapConfirmed: true,
+          runtimeAlive: true,
+          livenessKind: 'registered_only',
+        }),
+      },
+    });
+
+    expect(rows[0]).toMatchObject({
+      memberName: 'alice',
+      state: 'running',
+      source: 'spawn-status',
+      stateReason: 'Bootstrap confirmed',
+      actionsAllowed: false,
+    });
+  });
+
   it('maps a non-alive runtime with error diagnostics to degraded', () => {
     const rows = buildTeamRuntimeDisplayRows({
       members: [{ name: 'alice' }],

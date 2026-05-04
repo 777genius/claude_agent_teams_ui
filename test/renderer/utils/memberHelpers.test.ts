@@ -385,6 +385,7 @@ describe('memberHelpers spawn-aware presence', () => {
         spawnLaunchState: 'confirmed_alive',
         spawnLivenessSource: 'process',
         spawnRuntimeAlive: true,
+        spawnBootstrapConfirmed: true,
         runtimeEntry: {
           memberName: 'alice',
           alive: false,
@@ -399,10 +400,38 @@ describe('memberHelpers spawn-aware presence', () => {
         isTeamProvisioning: false,
       })
     ).toMatchObject({
-      presenceLabel: 'registered',
-      launchVisualState: 'registered_only',
-      launchStatusLabel: 'registered',
-      dotClass: expect.stringContaining('bg-zinc-400'),
+      presenceLabel: 'online',
+      launchVisualState: null,
+      launchStatusLabel: null,
+      dotClass: expect.stringContaining('bg-emerald-400'),
+    });
+
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'confirmed_alive',
+        spawnLivenessSource: 'process',
+        spawnRuntimeAlive: true,
+        spawnBootstrapConfirmed: true,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          livenessKind: 'registered_only',
+          runtimeDiagnostic: 'registered runtime metadata without live process',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: false,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'online',
+      launchVisualState: null,
+      launchStatusLabel: null,
+      dotClass: expect.stringContaining('bg-emerald-400'),
     });
   });
 

@@ -38,6 +38,7 @@ interface MemberDetailHeaderProps {
   spawnLaunchState?: MemberLaunchState;
   spawnLivenessSource?: MemberSpawnLivenessSource;
   spawnRuntimeAlive?: boolean;
+  spawnBootstrapConfirmed?: boolean;
   spawnBootstrapStalled?: boolean;
   isLaunchSettling?: boolean;
   onUpdateRole?: (newRole: string | undefined) => Promise<void> | void;
@@ -55,6 +56,7 @@ export const MemberDetailHeader = ({
   spawnLaunchState,
   spawnLivenessSource,
   spawnRuntimeAlive,
+  spawnBootstrapConfirmed,
   spawnBootstrapStalled,
   isLaunchSettling,
   onUpdateRole,
@@ -81,6 +83,7 @@ export const MemberDetailHeader = ({
     spawnLaunchState,
     spawnLivenessSource,
     spawnRuntimeAlive,
+    spawnBootstrapConfirmed,
     spawnBootstrapStalled,
     runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,

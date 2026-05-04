@@ -325,6 +325,7 @@ const MemberPopoverContent = ({
         spawnLaunchState: spawnEntry?.launchState,
         spawnLivenessSource: spawnEntry?.livenessSource,
         spawnRuntimeAlive: spawnEntry?.runtimeAlive,
+        spawnBootstrapConfirmed: spawnEntry?.bootstrapConfirmed,
         spawnBootstrapStalled: spawnEntry?.bootstrapStalled,
         runtimeAdvisory: member.runtimeAdvisory,
         isLaunchSettling: provisioningPresentation?.hasMembersStillJoining ?? false,

@@ -169,6 +169,7 @@ export const MemberCard = memo(function MemberCard({
     spawnLaunchState,
     spawnLivenessSource,
     spawnRuntimeAlive,
+    spawnBootstrapConfirmed: spawnEntry?.bootstrapConfirmed,
     spawnBootstrapStalled: spawnEntry?.bootstrapStalled,
     runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,

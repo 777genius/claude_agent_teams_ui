@@ -545,6 +545,7 @@ export class TeamGraphAdapter {
         spawnLaunchState: spawn?.launchState,
         spawnLivenessSource: spawn?.livenessSource,
         spawnRuntimeAlive: spawn?.runtimeAlive,
+        spawnBootstrapConfirmed: spawn?.bootstrapConfirmed,
         spawnBootstrapStalled: spawn?.bootstrapStalled,
         runtimeAdvisory: member.runtimeAdvisory,
         isLaunchSettling,

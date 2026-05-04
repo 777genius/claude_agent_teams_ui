@@ -232,11 +232,14 @@ function buildSpawnBackedDisplayRow(
     };
   }
 
-  if (spawn.status === 'online' && hasConfirmedSpawnLiveness(spawn)) {
+  if (
+    (spawn.status === 'online' && hasConfirmedSpawnLiveness(spawn)) ||
+    isConfirmedSpawnLaunch(spawn)
+  ) {
     return {
       memberName,
       state: 'running',
-      stateReason: spawn.runtimeDiagnostic ?? 'Spawn status is online',
+      stateReason: spawn.runtimeDiagnostic ?? 'Bootstrap confirmed',
       source: 'spawn-status',
       updatedAt: spawn.livenessLastCheckedAt ?? spawn.lastHeartbeatAt ?? spawn.updatedAt,
       runtimeModel: spawn.runtimeModel,
@@ -297,6 +300,10 @@ function hasConfirmedSpawnLiveness(spawn: MemberSpawnStatusEntry): boolean {
     spawn.livenessSource === 'heartbeat' ||
     spawn.livenessSource === 'process'
   );
+}
+
+function isConfirmedSpawnLaunch(spawn: MemberSpawnStatusEntry): boolean {
+  return spawn.launchState === 'confirmed_alive' && spawn.bootstrapConfirmed === true;
 }
 
 function formatRuntimePidLabel(runtime: TeamAgentRuntimeEntry): string | undefined {

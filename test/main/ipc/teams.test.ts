@@ -14,6 +14,7 @@ import type {
   SendMessageResult,
   TeamViewSnapshot,
   TeamCreateRequest,
+  TeamProviderId,
   TeamProvisioningProgress,
 } from '@shared/types/team';
 
@@ -217,7 +218,16 @@ describe('ipc teams handlers', () => {
     getLeadMemberName: vi.fn(async () => 'team-lead'),
     getTeamDisplayName: vi.fn(async () => 'My Team'),
     updateConfig: vi.fn(async () => ({ name: 'My Team' })),
-    sendMessage: vi.fn(async () => ({ deliveredToInbox: true, messageId: 'm1' })),
+    sendMessage: vi.fn(
+      async (_teamName: string, _request: unknown) => ({ deliveredToInbox: true, messageId: 'm1' })
+    ) as ReturnType<
+      typeof vi.fn<
+        (
+          teamName: string,
+          request: unknown
+        ) => Promise<{ deliveredToInbox: boolean; messageId: string }>
+      >
+    >,
     sendDirectToLead: vi.fn(async () => ({ deliveredToInbox: false, messageId: 'direct-1' })),
     createTask: vi.fn(async () => ({ id: '1', subject: 'Test', status: 'pending' })),
     requestReview: vi.fn(async () => undefined),
@@ -269,6 +279,14 @@ describe('ipc teams handlers', () => {
     pushLiveLeadProcessMessage: vi.fn(),
     relayLeadInboxMessages: vi.fn(async () => 0),
     relayMemberInboxMessages: vi.fn(async () => 0),
+    resolveRuntimeRecipientProviderId: vi.fn(
+      async (_teamName: string, _memberName: string): Promise<TeamProviderId | undefined> =>
+        undefined
+    ) as ReturnType<
+      typeof vi.fn<
+        (teamName: string, memberName: string) => Promise<TeamProviderId | undefined>
+      >
+    >,
     isOpenCodeRuntimeRecipient: vi.fn(async () => false),
     relayOpenCodeMemberInboxMessages: vi.fn(async () => ({
       relayed: 0,
@@ -348,6 +366,8 @@ describe('ipc teams handlers', () => {
     mockTeamDataWorkerClient.findLogsForTask.mockReset();
     mockTeamDataWorkerClient.invalidateTeamConfig.mockReset();
     mockTeamDataWorkerClient.invalidateTeamMessageFeed.mockReset();
+    provisioningService.resolveRuntimeRecipientProviderId.mockReset();
+    provisioningService.resolveRuntimeRecipientProviderId.mockResolvedValue(undefined);
     launchIoGovernor = new LaunchIoGovernor({ quietWindowMs: 100 });
     initializeTeamHandlers(
       service as never,
@@ -645,8 +665,63 @@ describe('ipc teams handlers', () => {
     expect(result.success).toBe(false);
   });
 
+  it('uses Agent Teams MCP reply instructions for Codex user direct messages', async () => {
+    provisioningService.resolveRuntimeRecipientProviderId.mockResolvedValueOnce('codex');
+    const sendHandler = handlers.get(TEAM_SEND_MESSAGE);
+    expect(sendHandler).toBeDefined();
+
+    const result = (await sendHandler!({} as never, 'my-team', {
+      member: 'jack',
+      from: ' User ',
+      text: 'Здесь?',
+    })) as { success: boolean };
+
+    expect(result.success).toBe(true);
+    const request = service.sendMessage.mock.calls.at(-1)?.[1] as
+      | { from?: string; text?: string; messageId?: string }
+      | undefined;
+    expect(request).toBeDefined();
+    expect(request?.from).toBe('user');
+    expect(request?.messageId).toEqual(expect.any(String));
+    expect(request?.text).toContain('agent-teams_message_send');
+    expect(request?.text).toContain('mcp__agent-teams__message_send');
+    expect(request?.text).toContain('teamName="my-team"');
+    expect(request?.text).toContain('to="user"');
+    expect(request?.text).toContain('from="jack"');
+    expect(request?.text).toContain('source="runtime_delivery"');
+    expect(request?.text).toContain(`relayOfMessageId="${request?.messageId}"`);
+    expect(request?.text).toContain('before any visible-message tool attempt');
+    expect(request?.text).not.toContain('tool call fails before sending');
+    expect(request?.text).not.toContain('Reply using the SendMessage tool');
+  });
+
+  it.each([
+    ['anthropic' as const],
+    ['gemini' as const],
+    [undefined],
+  ])('keeps SendMessage reply instructions for %s user direct messages', async (providerId) => {
+    provisioningService.resolveRuntimeRecipientProviderId.mockResolvedValueOnce(providerId);
+    const sendHandler = handlers.get(TEAM_SEND_MESSAGE);
+    expect(sendHandler).toBeDefined();
+
+    const result = (await sendHandler!({} as never, 'my-team', {
+      member: 'alice',
+      text: 'Здесь?',
+    })) as { success: boolean };
+
+    expect(result.success).toBe(true);
+    const request = service.sendMessage.mock.calls.at(-1)?.[1] as
+      | { text?: string; messageId?: string }
+      | undefined;
+    expect(request).toBeDefined();
+    expect(request).not.toHaveProperty('messageId');
+    expect(request?.text).toContain('Reply using the SendMessage tool');
+    expect(request?.text).toContain('to="user"');
+    expect(request?.text).not.toContain('agent-teams_message_send');
+  });
+
   it('stores base text and returns runtimeDelivery success for OpenCode teammate sends', async () => {
-    provisioningService.isOpenCodeRuntimeRecipient.mockResolvedValueOnce(true);
+    provisioningService.resolveRuntimeRecipientProviderId.mockResolvedValueOnce('opencode');
     provisioningService.relayOpenCodeMemberInboxMessages.mockResolvedValueOnce({
       relayed: 1,
       attempted: 1,
@@ -699,7 +774,7 @@ describe('ipc teams handlers', () => {
   });
 
   it('returns runtimeDelivery failure without hiding the persisted OpenCode message', async () => {
-    provisioningService.isOpenCodeRuntimeRecipient.mockResolvedValueOnce(true);
+    provisioningService.resolveRuntimeRecipientProviderId.mockResolvedValueOnce('opencode');
     provisioningService.relayOpenCodeMemberInboxMessages.mockResolvedValueOnce({
       relayed: 0,
       attempted: 1,
@@ -734,7 +809,7 @@ describe('ipc teams handlers', () => {
   });
 
   it('returns runtimeDelivery acceptanceUnknown for OpenCode observe-pending timeout sends', async () => {
-    provisioningService.isOpenCodeRuntimeRecipient.mockResolvedValueOnce(true);
+    provisioningService.resolveRuntimeRecipientProviderId.mockResolvedValueOnce('opencode');
     provisioningService.relayOpenCodeMemberInboxMessages.mockResolvedValueOnce({
       relayed: 0,
       attempted: 1,
@@ -774,7 +849,7 @@ describe('ipc teams handlers', () => {
   it('maps OpenCode UI relay timeout to pending acceptance-unknown delivery', async () => {
     vi.useFakeTimers();
     try {
-      provisioningService.isOpenCodeRuntimeRecipient.mockResolvedValueOnce(true);
+      provisioningService.resolveRuntimeRecipientProviderId.mockResolvedValueOnce('opencode');
       provisioningService.relayOpenCodeMemberInboxMessages.mockReturnValueOnce(
         new Promise(() => undefined)
       );

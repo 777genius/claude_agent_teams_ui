@@ -583,9 +583,214 @@ describe('TeamProvisioningService', () => {
       await expect(svc.warmup()).resolves.not.toThrow();
       expect(spawnCli).toHaveBeenCalled();
     });
+
   });
 
   describe('team launch notifications', () => {
+    it('does not fire incomplete notification for pending-only teammates still joining', async () => {
+      const { NotificationManager } =
+        await import('@main/services/infrastructure/NotificationManager');
+      const addTeamNotification = vi.fn(async (_payload: unknown) => undefined);
+      NotificationManager.setInstance({ addTeamNotification } as never);
+
+      try {
+        const svc = new TeamProvisioningService();
+        const run = {
+          runId: 'run-beacon-desk-15',
+          teamName: 'beacon-desk-15',
+          isLaunch: true,
+          request: {
+            cwd: tempClaudeRoot,
+            displayName: 'beacon-desk-15',
+          },
+          expectedMembers: ['alice', 'bob', 'jack', 'tom'],
+          allEffectiveMembers: [
+            { name: 'alice' },
+            { name: 'bob' },
+            { name: 'jack' },
+            { name: 'tom' },
+          ],
+          memberSpawnStatuses: new Map(
+            ['alice', 'bob', 'jack', 'tom'].map((name) => [
+              name,
+              createMemberSpawnStatusEntry({
+                status: 'waiting',
+                launchState: 'runtime_pending_bootstrap',
+                runtimeAlive: true,
+                bootstrapConfirmed: false,
+                hardFailure: false,
+              }),
+            ])
+          ),
+        };
+        const pendingSnapshot = {
+          expectedMembers: ['alice', 'bob', 'jack', 'tom'],
+          members: Object.fromEntries(
+            ['alice', 'bob', 'jack', 'tom'].map((name) => [
+              name,
+              {
+                name,
+                launchState: 'runtime_pending_bootstrap',
+                agentToolAccepted: true,
+                runtimeAlive: true,
+                bootstrapConfirmed: false,
+                hardFailure: false,
+                lastEvaluatedAt: '2026-04-13T10:00:00.000Z',
+              },
+            ])
+          ),
+          summary: {
+            confirmedCount: 0,
+            pendingCount: 4,
+            failedCount: 0,
+            runtimeAlivePendingCount: 4,
+          },
+        };
+
+        await (svc as any).fireTeamLaunchIncompleteNotification(
+          run,
+          [],
+          pendingSnapshot.summary,
+          pendingSnapshot
+        );
+      } finally {
+        NotificationManager.resetInstance();
+      }
+
+      expect(addTeamNotification).not.toHaveBeenCalled();
+    });
+
+    it('ignores stale failed summary without concrete failed member evidence', async () => {
+      const { NotificationManager } =
+        await import('@main/services/infrastructure/NotificationManager');
+      const addTeamNotification = vi.fn(async (_payload: unknown) => undefined);
+      NotificationManager.setInstance({ addTeamNotification } as never);
+
+      try {
+        const svc = new TeamProvisioningService();
+        const run = {
+          runId: 'run-stale-summary',
+          teamName: 'stale-summary-team',
+          isLaunch: true,
+          request: {
+            cwd: tempClaudeRoot,
+            displayName: 'stale-summary-team',
+          },
+          expectedMembers: ['alice'],
+          allEffectiveMembers: [{ name: 'alice' }],
+          memberSpawnStatuses: new Map([
+            [
+              'alice',
+              createMemberSpawnStatusEntry({
+                status: 'waiting',
+                launchState: 'runtime_pending_bootstrap',
+                runtimeAlive: true,
+                bootstrapConfirmed: false,
+                hardFailure: false,
+              }),
+            ],
+          ]),
+        };
+        const staleSnapshot = {
+          expectedMembers: ['alice'],
+          members: {
+            alice: {
+              name: 'alice',
+              launchState: 'runtime_pending_bootstrap',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: false,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-04-13T10:00:00.000Z',
+            },
+          },
+          summary: {
+            confirmedCount: 0,
+            pendingCount: 0,
+            failedCount: 1,
+            runtimeAlivePendingCount: 0,
+          },
+        };
+
+        await (svc as any).fireTeamLaunchIncompleteNotification(
+          run,
+          [],
+          staleSnapshot.summary,
+          staleSnapshot
+        );
+      } finally {
+        NotificationManager.resetInstance();
+      }
+
+      expect(addTeamNotification).not.toHaveBeenCalled();
+    });
+
+    it('prefers live confirmed evidence over stale persisted failed member evidence', async () => {
+      const { NotificationManager } =
+        await import('@main/services/infrastructure/NotificationManager');
+      const addTeamNotification = vi.fn(async (_payload: unknown) => undefined);
+      NotificationManager.setInstance({ addTeamNotification } as never);
+
+      try {
+        const svc = new TeamProvisioningService();
+        const run = {
+          runId: 'run-live-confirmed',
+          teamName: 'live-confirmed-team',
+          isLaunch: true,
+          request: {
+            cwd: tempClaudeRoot,
+            displayName: 'live-confirmed-team',
+          },
+          expectedMembers: ['alice'],
+          allEffectiveMembers: [{ name: 'alice' }],
+          memberSpawnStatuses: new Map([
+            [
+              'alice',
+              createMemberSpawnStatusEntry({
+                status: 'online',
+                launchState: 'confirmed_alive',
+                runtimeAlive: true,
+                bootstrapConfirmed: true,
+                hardFailure: false,
+              }),
+            ],
+          ]),
+        };
+        const staleSnapshot = {
+          expectedMembers: ['alice'],
+          members: {
+            alice: {
+              name: 'alice',
+              launchState: 'failed_to_start',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: true,
+              hardFailureReason: 'stale failure',
+              lastEvaluatedAt: '2026-04-13T10:00:00.000Z',
+            },
+          },
+          summary: {
+            confirmedCount: 0,
+            pendingCount: 0,
+            failedCount: 1,
+            runtimeAlivePendingCount: 0,
+          },
+        };
+
+        await (svc as any).fireTeamLaunchIncompleteNotification(
+          run,
+          [],
+          staleSnapshot.summary,
+          staleSnapshot
+        );
+      } finally {
+        NotificationManager.resetInstance();
+      }
+
+      expect(addTeamNotification).not.toHaveBeenCalled();
+    });
+
     it('uses live member evidence instead of stale summary for incomplete launch copy', async () => {
       const { NotificationManager } =
         await import('@main/services/infrastructure/NotificationManager');
@@ -12752,6 +12957,7 @@ describe('TeamProvisioningService', () => {
         bootstrapConfirmed: false,
         hardFailure: false,
         hardFailureReason: undefined,
+        livenessKind: 'registered_only',
         diagnostics: [
           'OpenCode bridge reported bootstrap confirmation, but no lane runtime evidence was committed.',
         ],
@@ -12767,6 +12973,7 @@ describe('TeamProvisioningService', () => {
       agentToolAccepted: true,
       bootstrapConfirmed: true,
       runtimeAlive: true,
+      livenessKind: 'confirmed_bootstrap',
     });
     const persisted = JSON.parse(
       await fsPromises.readFile(getTeamLaunchStatePath(teamName), 'utf8')
@@ -12776,6 +12983,7 @@ describe('TeamProvisioningService', () => {
       bootstrapConfirmed: true,
       runtimeAlive: true,
       runtimeSessionId: 'ses-tom',
+      livenessKind: 'confirmed_bootstrap',
     });
   });
 
@@ -12882,6 +13090,74 @@ describe('TeamProvisioningService', () => {
       runtimeSessionId: 'ses-tom',
     });
     expect(persistedAfterMissingWrite.teamLaunchState).toBe('clean_success');
+  });
+
+  it('normalizes stale confirmed OpenCode secondary liveness from committed bootstrap evidence', async () => {
+    const teamName = 'zz-opencode-committed-overlay-normalizes-liveness';
+    const leadSessionId = 'lead-session';
+    const laneId = 'secondary:opencode:tom';
+    const runId = 'opencode-run-tom';
+
+    writeMembersMeta(teamName, [{ name: 'tom', providerId: 'opencode' }]);
+    await upsertOpenCodeRuntimeLaneIndexEntry({
+      teamsBasePath: tempTeamsBase,
+      teamName,
+      laneId,
+      state: 'active',
+    });
+    await writeCommittedOpenCodeSessionStore({
+      teamName,
+      laneId,
+      runId,
+      sessions: [
+        {
+          id: 'ses-tom',
+          teamName,
+          memberName: 'tom',
+          laneId,
+          runId,
+          observedAt: '2026-04-22T12:00:00.000Z',
+          source: 'runtime_bootstrap_checkin',
+        },
+      ],
+    });
+    writeLaunchState(teamName, leadSessionId, {
+      tom: {
+        providerId: 'opencode',
+        laneId,
+        laneKind: 'secondary',
+        laneOwnerProviderId: 'opencode',
+        launchState: 'confirmed_alive',
+        agentToolAccepted: true,
+        runtimeAlive: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        runtimeSessionId: 'ses-tom',
+        livenessKind: 'registered_only',
+        runtimeDiagnostic: 'OpenCode bootstrap evidence committed.',
+        diagnostics: ['opencode_bootstrap_evidence_committed'],
+      },
+    });
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.statuses.tom).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      runtimeAlive: true,
+      livenessKind: 'confirmed_bootstrap',
+    });
+    const persisted = JSON.parse(
+      await fsPromises.readFile(getTeamLaunchStatePath(teamName), 'utf8')
+    );
+    expect(persisted.members.tom).toMatchObject({
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      runtimeAlive: true,
+      livenessKind: 'confirmed_bootstrap',
+    });
   });
 
   it('marks a live teammate bootstrap as confirmed from transcript even when runtime discovery is stale', async () => {

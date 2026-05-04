@@ -132,6 +132,7 @@ export const MemberHoverCard = memo(function MemberHoverCard({
     spawnLaunchState: spawnEntry?.launchState,
     spawnLivenessSource: spawnEntry?.livenessSource,
     spawnRuntimeAlive: spawnEntry?.runtimeAlive,
+    spawnBootstrapConfirmed: spawnEntry?.bootstrapConfirmed,
     spawnBootstrapStalled: spawnEntry?.bootstrapStalled,
     runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,

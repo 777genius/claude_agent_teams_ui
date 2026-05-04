@@ -228,6 +228,24 @@ import type { CliArgsValidationResult } from '@shared/utils/cliArgsParser';
 
 const logger = createLogger('IPC:teams');
 const OPENCODE_RUNTIME_DELIVERY_UI_TIMEOUT_MS = 12_000;
+
+type VisibleDirectReplyProtocol = 'send_message' | 'agent_teams_message_send';
+
+function resolveVisibleDirectReplyProtocol(input: {
+  providerId?: TeamProviderId;
+  isLeadRecipient: boolean;
+  replyRecipient: string;
+}): VisibleDirectReplyProtocol {
+  if (
+    !input.isLeadRecipient &&
+    input.replyRecipient.trim().toLowerCase() === 'user' &&
+    input.providerId === 'codex'
+  ) {
+    return 'agent_teams_message_send';
+  }
+
+  return 'send_message';
+}
 const TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS = 250;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -2473,7 +2491,11 @@ function buildMessageDeliveryText(
   opts: {
     actionMode?: AgentActionMode;
     isLeadRecipient: boolean;
+    memberName?: string;
+    messageId?: string;
+    protocol?: VisibleDirectReplyProtocol;
     replyRecipient?: string;
+    teamName?: string;
   }
 ): string {
   const hiddenBlocks: string[] = [];
@@ -2482,22 +2504,49 @@ function buildMessageDeliveryText(
     hiddenBlocks.push(actionModeBlock);
   }
   if (!opts.isLeadRecipient) {
-    const replyRecipient =
+    const rawReplyRecipient =
       typeof opts.replyRecipient === 'string' && opts.replyRecipient.trim().length > 0
         ? opts.replyRecipient.trim()
         : 'user';
-    const senderDescriptor = replyRecipient === 'user' ? 'the human user' : `"${replyRecipient}"`;
+    const isUserReplyRecipient = rawReplyRecipient.toLowerCase() === 'user';
+    const replyRecipient = isUserReplyRecipient ? 'user' : rawReplyRecipient;
+    const senderDescriptor = isUserReplyRecipient ? 'the human user' : `"${replyRecipient}"`;
+    const protocol = opts.protocol ?? 'send_message';
+    const canUseAgentTeamsMessageSend =
+      protocol === 'agent_teams_message_send' &&
+      isUserReplyRecipient &&
+      typeof opts.teamName === 'string' &&
+      opts.teamName.trim().length > 0 &&
+      typeof opts.memberName === 'string' &&
+      opts.memberName.trim().length > 0 &&
+      typeof opts.messageId === 'string' &&
+      opts.messageId.trim().length > 0;
+    const replyInstructionLines = canUseAgentTeamsMessageSend
+      ? [
+          'CRITICAL: Reply using the Agent Teams MCP message_send tool, not SendMessage.',
+          'Use tool agent-teams_message_send or mcp__agent-teams__message_send, whichever exposed name is available.',
+          `CRITICAL: The tool input must include teamName="${opts.teamName!.trim()}", to="user", from="${opts.memberName!.trim()}", text, summary, source="runtime_delivery", and relayOfMessageId="${opts.messageId!.trim()}".`,
+          'Do NOT answer only with normal assistant text when the Agent Teams message_send tool is available because that will not appear in the UI message thread.',
+        ]
+      : [
+          'CRITICAL: Reply using the SendMessage tool, not plain assistant text.',
+          `CRITICAL: The destination must be exactly to="${replyRecipient}".`,
+          'CRITICAL: The SendMessage tool input must use the exact field names `to`, `summary`, and `message`.',
+          'Do NOT answer only with normal assistant text because that will not appear in the UI message thread.',
+        ];
     hiddenBlocks.push(
       [
         AGENT_BLOCK_OPEN,
         `You received a direct message from ${senderDescriptor} via the UI.`,
-        'CRITICAL: Reply using the SendMessage tool, not plain assistant text.',
-        `CRITICAL: The destination must be exactly to="${replyRecipient}".`,
-        'CRITICAL: The SendMessage tool input must use the exact field names `to`, `summary`, and `message`.',
-        'Do NOT answer only with normal assistant text because that will not appear in the UI message thread.',
+        ...replyInstructionLines,
         `Please reply back to recipient "${replyRecipient}" with a short, human-readable answer.`,
         'If you cannot respond now, reply with a brief status (e.g. "Busy, will reply later").',
-        ...(replyRecipient === 'user'
+        ...(canUseAgentTeamsMessageSend
+          ? [
+              'If neither Agent Teams MCP message_send tool name is available before any visible-message tool attempt, write exactly the concise reply text as normal assistant text so the runtime can relay it.',
+            ]
+          : []),
+        ...(isUserReplyRecipient
           ? [
               'CRITICAL: If the user asks you to check with the lead or another teammate before you can fully answer, FIRST send a short acknowledgement to "user" so the human sees you started (for example: "Принял, сейчас уточню и вернусь с ответом.").',
               'Only after that first acknowledgement may you message the lead or another teammate.',
@@ -2848,22 +2897,37 @@ async function handleSendMessage(
       typeof payload.from === 'string' && payload.from.trim().length > 0
         ? payload.from.trim()
         : 'user';
-    const isOpenCodeRecipient =
-      !isLeadRecipient && (await provisioning.isOpenCodeRuntimeRecipient(tn, memberName));
+    const storedFrom = replyRecipient.toLowerCase() === 'user' ? 'user' : replyRecipient;
+    const recipientProviderId = !isLeadRecipient
+      ? await provisioning.resolveRuntimeRecipientProviderId(tn, memberName)
+      : undefined;
+    const isOpenCodeRecipient = recipientProviderId === 'opencode';
+    const directReplyProtocol = resolveVisibleDirectReplyProtocol({
+      isLeadRecipient,
+      replyRecipient,
+      ...(recipientProviderId ? { providerId: recipientProviderId } : {}),
+    });
+    const inboxMessageId =
+      directReplyProtocol === 'agent_teams_message_send' ? crypto.randomUUID() : undefined;
     const memberDeliveryText = buildMessageDeliveryText(baseText, {
       actionMode,
       isLeadRecipient,
+      memberName,
+      protocol: directReplyProtocol,
       replyRecipient,
+      teamName: tn,
+      ...(inboxMessageId ? { messageId: inboxMessageId } : {}),
     });
     const inboxText = isOpenCodeRecipient ? baseText : memberDeliveryText;
     const result = await getTeamDataService().sendMessage(tn, {
       member: memberName,
       text: inboxText,
       summary: payload.summary,
-      from: payload.from,
+      from: storedFrom,
       actionMode,
       source: 'user_sent',
       taskRefs: validatedTaskRefs.value,
+      ...(inboxMessageId ? { messageId: inboxMessageId } : {}),
     });
 
     // Teammate inbox relay DISABLED (2026-03-23).

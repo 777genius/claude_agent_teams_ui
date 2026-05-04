@@ -252,6 +252,7 @@ export const MemberDetailDialog = ({
               spawnLaunchState={spawnEntry?.launchState}
               spawnLivenessSource={spawnEntry?.livenessSource}
               spawnRuntimeAlive={spawnEntry?.runtimeAlive}
+              spawnBootstrapConfirmed={spawnEntry?.bootstrapConfirmed}
               spawnBootstrapStalled={spawnEntry?.bootstrapStalled}
               runtimeEntry={runtimeEntry}
               isLaunchSettling={isLaunchSettling}

@@ -746,6 +746,7 @@ export function buildMemberLaunchPresentation({
   spawnLaunchState,
   spawnLivenessSource,
   spawnRuntimeAlive,
+  spawnBootstrapConfirmed,
   spawnBootstrapStalled,
   runtimeAdvisory,
   runtimeEntry,
@@ -759,6 +760,7 @@ export function buildMemberLaunchPresentation({
   spawnLaunchState: MemberLaunchState | undefined;
   spawnLivenessSource: MemberSpawnLivenessSource | undefined;
   spawnRuntimeAlive: boolean | undefined;
+  spawnBootstrapConfirmed?: boolean;
   spawnBootstrapStalled?: boolean;
   runtimeAdvisory: MemberRuntimeAdvisory | undefined;
   runtimeEntry?: TeamAgentRuntimeEntry;
@@ -767,12 +769,19 @@ export function buildMemberLaunchPresentation({
   isTeamProvisioning?: boolean;
   leadActivity?: LeadActivityState;
 }): MemberLaunchPresentation {
+  const hasConfirmedSpawnLaunch =
+    spawnLaunchState === 'confirmed_alive' && spawnBootstrapConfirmed === true;
+  const effectiveSpawnStatus =
+    hasConfirmedSpawnLaunch && (spawnStatus === 'waiting' || spawnStatus === 'spawning')
+      ? 'online'
+      : spawnStatus;
+  const effectiveSpawnRuntimeAlive = hasConfirmedSpawnLaunch ? true : spawnRuntimeAlive;
   const presenceLabel = getLaunchAwarePresenceLabel(
     member,
-    spawnStatus,
+    effectiveSpawnStatus,
     spawnLaunchState,
     spawnLivenessSource,
-    spawnRuntimeAlive,
+    effectiveSpawnRuntimeAlive,
     runtimeAdvisory,
     isLaunchSettling,
     isTeamAlive,
@@ -781,18 +790,18 @@ export function buildMemberLaunchPresentation({
   );
   const baseDotClass = getSpawnAwareDotClass(
     member,
-    spawnStatus,
+    effectiveSpawnStatus,
     spawnLaunchState,
-    spawnRuntimeAlive,
+    effectiveSpawnRuntimeAlive,
     isLaunchSettling,
     isTeamAlive,
     isTeamProvisioning,
     leadActivity
   );
   const cardClass = getSpawnCardClass(
-    spawnStatus,
+    effectiveSpawnStatus,
     spawnLaunchState,
-    spawnRuntimeAlive,
+    effectiveSpawnRuntimeAlive,
     isLaunchSettling,
     isTeamAlive,
     isTeamProvisioning
@@ -812,18 +821,23 @@ export function buildMemberLaunchPresentation({
       launchVisualState = 'permission_pending';
     } else if (spawnBootstrapStalled === true) {
       launchVisualState = 'bootstrap_stalled';
-    } else if (runtimeEntry?.livenessKind === 'shell_only') {
+    } else if (!hasConfirmedSpawnLaunch && runtimeEntry?.livenessKind === 'shell_only') {
       launchVisualState = 'shell_only';
-    } else if (runtimeEntry?.livenessKind === 'runtime_process_candidate') {
+    } else if (
+      !hasConfirmedSpawnLaunch &&
+      runtimeEntry?.livenessKind === 'runtime_process_candidate'
+    ) {
       launchVisualState = 'runtime_candidate';
-    } else if (runtimeEntry?.livenessKind === 'registered_only') {
+    } else if (!hasConfirmedSpawnLaunch && runtimeEntry?.livenessKind === 'registered_only') {
       launchVisualState = 'registered_only';
     } else if (
-      runtimeEntry?.livenessKind === 'stale_metadata' ||
-      runtimeEntry?.livenessKind === 'not_found'
+      !hasConfirmedSpawnLaunch &&
+      (runtimeEntry?.livenessKind === 'stale_metadata' ||
+        runtimeEntry?.livenessKind === 'not_found')
     ) {
       launchVisualState = 'stale_runtime';
     } else if (
+      !hasConfirmedSpawnLaunch &&
       isQueuedOpenCodeLaunch(
         member,
         spawnStatus,
@@ -835,6 +849,7 @@ export function buildMemberLaunchPresentation({
     ) {
       launchVisualState = 'queued';
     } else if (
+      !hasConfirmedSpawnLaunch &&
       isLaunchStillStarting(
         spawnStatus,
         spawnLaunchState,
@@ -844,16 +859,13 @@ export function buildMemberLaunchPresentation({
     ) {
       launchVisualState = spawnStatus === 'spawning' ? 'spawning' : 'waiting';
     } else if (
+      !hasConfirmedSpawnLaunch &&
       spawnLaunchState === 'runtime_pending_bootstrap' &&
       (runtimeEntry?.livenessKind === 'runtime_process' ||
         (spawnStatus === 'online' && spawnRuntimeAlive === true))
     ) {
       launchVisualState = 'runtime_pending';
-    } else if (
-      isLaunchSettling &&
-      spawnStatus === 'online' &&
-      spawnLaunchState === 'confirmed_alive'
-    ) {
+    } else if (isLaunchSettling && spawnLaunchState === 'confirmed_alive') {
       launchVisualState = 'settling';
     }
   }
