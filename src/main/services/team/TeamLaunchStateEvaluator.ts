@@ -133,12 +133,24 @@ function isPersistedBootstrapStalled(
     | 'bootstrapConfirmed'
     | 'hardFailure'
     | 'bootstrapStalled'
+    | 'runtimePid'
+    | 'runtimeSessionId'
+    | 'livenessKind'
   >
 ): boolean {
+  const hasMaterializedOpenCodeRuntimeMarker =
+    member.runtimeAlive === true ||
+    (typeof member.runtimePid === 'number' &&
+      Number.isFinite(member.runtimePid) &&
+      member.runtimePid > 0) ||
+    (typeof member.runtimeSessionId === 'string' && member.runtimeSessionId.trim().length > 0) ||
+    member.livenessKind === 'runtime_process' ||
+    member.livenessKind === 'runtime_process_candidate' ||
+    member.livenessKind === 'registered_only';
   return (
     member.bootstrapStalled === true &&
     isOpenCodeSecondaryBootstrapPending(member) &&
-    member.runtimeAlive === true
+    hasMaterializedOpenCodeRuntimeMarker
   );
 }
 

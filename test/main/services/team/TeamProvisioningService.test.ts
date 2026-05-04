@@ -12843,6 +12843,109 @@ describe('TeamProvisioningService', () => {
     );
   });
 
+  it('marks OpenCode secondary partial member_briefing bootstrap as stalled instead of confirmed', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-opencode-partial-bootstrap-stalled';
+    const leadSessionId = 'lead-session';
+    const memberSessionId = 'alice-opencode-session';
+    const projectPath = '/Users/test/proj';
+    const projectId = '-Users-test-proj';
+    const acceptedAt = new Date(Date.now() - 6 * 60_000).toISOString();
+    const successAt = new Date(Date.now() - 5 * 60_000).toISOString();
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['alice']);
+
+    const projectRoot = path.join(tempProjectsBase, projectId);
+    fs.mkdirSync(projectRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, `${memberSessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: acceptedAt,
+          teamName,
+          agentName: 'alice',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: `You are bootstrapping into team "${teamName}" as member "alice".`,
+          },
+        }),
+        JSON.stringify({
+          timestamp: successAt,
+          teamName,
+          agentName: 'alice',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'item_1',
+                content: `Member briefing for alice on team "${teamName}" (${teamName}).\nTask briefing for alice:\nNo actionable tasks.`,
+                is_error: false,
+              },
+            ],
+          },
+        }),
+      ].join('\n') + '\n',
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const run = createMemberSpawnRun({
+      teamName,
+      expectedMembers: ['alice'],
+      memberSpawnStatuses: new Map([
+        [
+          'alice',
+          createMemberSpawnStatusEntry({
+            status: 'waiting',
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: false,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            firstSpawnAcceptedAt: acceptedAt,
+            livenessKind: 'registered_only',
+          }),
+        ],
+      ]),
+    });
+    run.mixedSecondaryLanes = [
+      {
+        laneId: 'secondary:opencode:alice',
+        providerId: 'opencode',
+        member: {
+          name: 'alice',
+          providerId: 'opencode',
+          model: 'openrouter/qwen/qwen3-coder',
+        },
+        runId: 'opencode-run-alice',
+        state: 'finished',
+        result: null,
+        warnings: [],
+        diagnostics: [],
+      },
+    ];
+
+    await (svc as any).maybeAuditMemberSpawnStatuses(run, { force: true });
+
+    expect(run.memberSpawnStatuses.get('alice')).toMatchObject({
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      runtimeAlive: false,
+      bootstrapConfirmed: false,
+      hardFailure: false,
+      bootstrapStalled: true,
+      runtimeDiagnostic:
+        'OpenCode member_briefing completed, but runtime_bootstrap_checkin did not complete after 5 min.',
+      runtimeDiagnosticSeverity: 'warning',
+    });
+    expect(run.provisioningOutputParts.join('\n')).not.toContain(
+      'bootstrap confirmed via transcript'
+    );
+  });
+
   it('does not copy bootstrap-state success into OpenCode secondary runtime evidence', async () => {
     const teamName = 'zz-opencode-bootstrap-state-not-evidence';
     const leadSessionId = 'lead-session';

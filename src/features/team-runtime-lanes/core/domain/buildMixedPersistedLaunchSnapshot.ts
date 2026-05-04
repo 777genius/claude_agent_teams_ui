@@ -88,6 +88,26 @@ function preservesStrongRuntimeAlive(value: {
   );
 }
 
+function hasMaterializedOpenCodeRuntimeMarker(value: {
+  runtimeAlive?: boolean;
+  runtimePid?: number;
+  runtimeSessionId?: string;
+  sessionId?: string;
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+}): boolean {
+  return (
+    value.runtimeAlive === true ||
+    (typeof value.runtimePid === 'number' &&
+      Number.isFinite(value.runtimePid) &&
+      value.runtimePid > 0) ||
+    (typeof value.runtimeSessionId === 'string' && value.runtimeSessionId.trim().length > 0) ||
+    (typeof value.sessionId === 'string' && value.sessionId.trim().length > 0) ||
+    value.livenessKind === 'runtime_process' ||
+    value.livenessKind === 'runtime_process_candidate' ||
+    value.livenessKind === 'registered_only'
+  );
+}
+
 function buildDiagnostics(
   member: Pick<
     PersistedTeamLaunchMemberState,
@@ -279,7 +299,7 @@ function createSecondaryLaneMemberState(
       providerId === 'opencode' &&
       evidence?.bootstrapStalled === true &&
       launchState === 'runtime_pending_bootstrap' &&
-      strongRuntimeAlive &&
+      hasMaterializedOpenCodeRuntimeMarker(evidence) &&
       evidence.bootstrapConfirmed !== true &&
       hardFailure !== true
         ? true

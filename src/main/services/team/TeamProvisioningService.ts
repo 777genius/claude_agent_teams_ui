@@ -336,10 +336,13 @@ interface LaunchStateWriteResult {
   wrote: boolean;
 }
 
+type BootstrapTranscriptSuccessSource = 'member_briefing' | 'assistant_text';
+
 type BootstrapTranscriptOutcome =
   | {
       kind: 'success';
       observedAt: string;
+      source: BootstrapTranscriptSuccessSource;
     }
   | {
       kind: 'failure';
@@ -3228,15 +3231,23 @@ function isBootstrapTranscriptSuccessText(
   teamName: string,
   memberName: string
 ): boolean {
+  return getBootstrapTranscriptSuccessSource(text, teamName, memberName) !== null;
+}
+
+function getBootstrapTranscriptSuccessSource(
+  text: string,
+  teamName: string,
+  memberName: string
+): BootstrapTranscriptSuccessSource | null {
   const normalizedText = text.replace(/\s+/g, ' ').trim().toLowerCase();
   if (!normalizedText) {
-    return false;
+    return null;
   }
 
   const normalizedTeamName = teamName.trim().toLowerCase();
   const normalizedMemberName = memberName.trim().toLowerCase();
   if (!normalizedTeamName || !normalizedMemberName) {
-    return false;
+    return null;
   }
 
   if (
@@ -3247,13 +3258,13 @@ function isBootstrapTranscriptSuccessText(
       `member briefing for ${normalizedMemberName} on team '${normalizedTeamName}' (${normalizedTeamName}).`
     )
   ) {
-    return true;
+    return 'member_briefing';
   }
 
-  return (
-    normalizedText.includes(`bootstrap выполнен для \`${normalizedMemberName}\``) &&
+  return normalizedText.includes(`bootstrap выполнен для \`${normalizedMemberName}\``) &&
     normalizedText.includes(`команде \`${normalizedTeamName}\``)
-  );
+    ? 'assistant_text'
+    : null;
 }
 
 function isBootstrapTranscriptContextText(
@@ -13030,6 +13041,29 @@ export class TeamProvisioningService {
       }
       return;
     }
+    if (
+      this.isOpenCodeSecondaryLaneMemberInRun(run, memberName) &&
+      refreshed.launchState === 'runtime_pending_bootstrap' &&
+      refreshed.bootstrapConfirmed !== true &&
+      refreshed.hardFailure !== true &&
+      elapsedMs >= MEMBER_BOOTSTRAP_STALL_MS
+    ) {
+      const enriched = {
+        ...refreshed,
+        ...(metadata?.livenessKind ? { livenessKind: metadata.livenessKind } : {}),
+        ...(runtimeDiagnostic ? { runtimeDiagnostic } : {}),
+        ...(metadata?.runtimeDiagnosticSeverity
+          ? { runtimeDiagnosticSeverity: metadata.runtimeDiagnosticSeverity }
+          : {}),
+      };
+      const diagnostic = await this.buildOpenCodeSecondaryBootstrapStallDiagnostic(
+        run,
+        memberName,
+        enriched
+      );
+      this.setOpenCodeSecondaryBootstrapStalledStatus(run, memberName, enriched, diagnostic);
+      return;
+    }
     const strictReason = restartPending
       ? buildRestartGraceTimeoutReason(memberName)
       : (runtimeDiagnostic ??
@@ -13108,6 +13142,76 @@ export class TeamProvisioningService {
         memberName,
         'runtime process is alive, teammate check-in not yet received'
       );
+    }
+    if (!this.isCurrentTrackedRun(run)) return;
+    this.emitMemberSpawnChange(run, memberName);
+    if (run.isLaunch) {
+      void this.persistLaunchStateSnapshot(run, run.provisioningComplete ? 'finished' : 'active');
+    }
+  }
+
+  private async buildOpenCodeSecondaryBootstrapStallDiagnostic(
+    run: ProvisioningRun,
+    memberName: string,
+    current: MemberSpawnStatusEntry
+  ): Promise<string> {
+    const acceptedAtMs =
+      current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+    const transcriptOutcome = await this.findBootstrapTranscriptOutcome(
+      run.teamName,
+      memberName,
+      Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
+    );
+    if (transcriptOutcome?.kind === 'success' && transcriptOutcome.source === 'member_briefing') {
+      return 'OpenCode member_briefing completed, but runtime_bootstrap_checkin did not complete after 5 min.';
+    }
+    return 'OpenCode bootstrap did not complete runtime_bootstrap_checkin after 5 min.';
+  }
+
+  private setOpenCodeSecondaryBootstrapStalledStatus(
+    run: ProvisioningRun,
+    memberName: string,
+    current: MemberSpawnStatusEntry,
+    runtimeDiagnostic: string
+  ): void {
+    const observedAt = nowIso();
+    const wasBootstrapStalled = current.bootstrapStalled === true;
+    const runtimeProcessAlive =
+      current.runtimeAlive === true && current.livenessKind === 'runtime_process';
+    const next: MemberSpawnStatusEntry = {
+      ...current,
+      status: 'waiting',
+      launchState: 'runtime_pending_bootstrap',
+      agentToolAccepted: true,
+      runtimeAlive: runtimeProcessAlive,
+      bootstrapConfirmed: false,
+      hardFailure: false,
+      error: undefined,
+      hardFailureReason: undefined,
+      livenessSource: undefined,
+      livenessKind:
+        current.livenessKind ?? (runtimeProcessAlive ? 'runtime_process' : 'registered_only'),
+      runtimeDiagnostic,
+      runtimeDiagnosticSeverity: 'warning',
+      bootstrapStalled: true,
+      livenessLastCheckedAt: observedAt,
+      firstSpawnAcceptedAt: current.firstSpawnAcceptedAt ?? observedAt,
+      updatedAt: observedAt,
+    };
+
+    run.memberSpawnStatuses.set(memberName, next);
+    const launchDiagnostics = boundLaunchDiagnostics(buildLaunchDiagnosticsFromRun(run));
+    if (launchDiagnostics) {
+      run.progress = {
+        ...run.progress,
+        updatedAt: observedAt,
+        launchDiagnostics,
+      };
+      run.onProgress(run.progress);
+    }
+
+    if (!wasBootstrapStalled) {
+      this.appendMemberBootstrapDiagnostic(run, memberName, runtimeDiagnostic);
     }
     if (!this.isCurrentTrackedRun(run)) return;
     this.emitMemberSpawnChange(run, memberName);
@@ -18661,6 +18765,21 @@ export class TeamProvisioningService {
 
       if (matchedRuntimeNames.length > 0) {
         if (current?.agentToolAccepted) {
+          if (
+            this.isOpenCodeSecondaryLaneMemberInRun(run, expected) &&
+            current.launchState === 'runtime_pending_bootstrap' &&
+            current.bootstrapConfirmed !== true &&
+            current.hardFailure !== true &&
+            this.isOpenCodeBootstrapStallWindowElapsed(current.firstSpawnAcceptedAt)
+          ) {
+            const diagnostic = await this.buildOpenCodeSecondaryBootstrapStallDiagnostic(
+              run,
+              expected,
+              current
+            );
+            this.setOpenCodeSecondaryBootstrapStalledStatus(run, expected, current, diagnostic);
+            continue;
+          }
           this.setMemberSpawnStatus(run, expected, 'waiting');
         }
         continue;
@@ -18935,6 +19054,46 @@ export class TeamProvisioningService {
         nextEntry.launchState = deriveMemberLaunchState(nextEntry);
       }
       nextStatuses[resolvedStatusKey] = nextEntry;
+    }
+    for (const [memberName, current] of Object.entries(nextStatuses)) {
+      const openCodeSecondaryBootstrapPending =
+        options?.openCodeSecondaryBootstrapPendingMembers?.has(memberName) === true &&
+        current.launchState === 'runtime_pending_bootstrap' &&
+        current.bootstrapConfirmed !== true &&
+        current.hardFailure !== true;
+      if (
+        !openCodeSecondaryBootstrapPending ||
+        current.bootstrapStalled === true ||
+        !this.isOpenCodeBootstrapStallWindowElapsed(current.firstSpawnAcceptedAt)
+      ) {
+        continue;
+      }
+      const runtimeProcessAlive =
+        current.runtimeAlive === true && current.livenessKind === 'runtime_process';
+      const runtimeDiagnostic = runtimeProcessAlive
+        ? 'Runtime process is alive, but no bootstrap check-in after 5 min.'
+        : 'OpenCode bootstrap did not complete runtime_bootstrap_checkin after 5 min.';
+      const nextEntry: MemberSpawnStatusEntry = {
+        ...current,
+        status: 'waiting',
+        launchState: 'runtime_pending_bootstrap',
+        agentToolAccepted: true,
+        runtimeAlive: runtimeProcessAlive,
+        bootstrapConfirmed: false,
+        hardFailure: false,
+        hardFailureReason: undefined,
+        error: undefined,
+        livenessSource: undefined,
+        livenessKind:
+          current.livenessKind ?? (runtimeProcessAlive ? 'runtime_process' : 'registered_only'),
+        runtimeDiagnostic,
+        runtimeDiagnosticSeverity: 'warning',
+        bootstrapStalled: true,
+        livenessLastCheckedAt: nowIso(),
+        updatedAt: nowIso(),
+      };
+      nextEntry.launchState = deriveMemberLaunchState(nextEntry);
+      nextStatuses[memberName] = nextEntry;
     }
     return nextStatuses;
   }
@@ -22242,8 +22401,9 @@ export class TeamProvisioningService {
           }
           return { kind: 'failure', observedAt, reason };
         }
-        if (isBootstrapTranscriptSuccessText(text, teamName, memberName)) {
-          return { kind: 'success', observedAt };
+        const successSource = getBootstrapTranscriptSuccessSource(text, teamName, memberName);
+        if (successSource) {
+          return { kind: 'success', observedAt, source: successSource };
         }
       }
     } catch {
