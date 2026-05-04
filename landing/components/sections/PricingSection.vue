@@ -40,7 +40,7 @@ function onGetStarted() {
               <h3 class="pricing-card__name">{{ plan.name }}</h3>
               <div class="pricing-card__price-wrap">
                 <span class="pricing-card__price">{{ plan.price }}</span>
-                <span class="pricing-card__period">/ {{ plan.period }}</span>
+                <span v-if="plan.period" class="pricing-card__period">/ {{ plan.period }}</span>
               </div>
               <p class="pricing-card__description">{{ plan.description }}</p>
             </div>

@@ -8,7 +8,7 @@ const { t, locale } = useI18n();
 const downloadStore = useDownloadStore();
 const { data: releaseData, resolve } = useReleaseDownloads();
 const { trackDownloadClick } = useAnalytics();
-const { releaseDownloadUrl } = useGithubRepo();
+const { repoUrl, releaseDownloadUrl } = useGithubRepo();
 
 onMounted(() => downloadStore.init());
 
@@ -62,6 +62,13 @@ const releaseDate = computed(() => {
     day: 'numeric',
   });
 });
+
+const devBranchUrl = computed(() => `${repoUrl.value}/tree/dev`);
+const devBranchNote = computed(() =>
+  locale.value === 'ru'
+    ? 'Самая свежая версия доступна в ветке dev - можно развернуть локально.'
+    : 'Freshest version is available on the dev branch - clone and run it locally.',
+);
 </script>
 
 <template>
@@ -132,6 +139,15 @@ const releaseDate = computed(() => {
           </div>
         </div>
       </div>
+
+      <a
+        class="download-section__dev-note"
+        :href="devBranchUrl"
+        target="_blank"
+        rel="noopener"
+      >
+        {{ devBranchNote }}
+      </a>
 
       <p v-if="releaseVersion" class="download-section__release-info">
         v{{ releaseVersion }} · {{ releaseDate }}
@@ -374,6 +390,38 @@ const releaseDate = computed(() => {
   font-family: 'JetBrains Mono', monospace;
 }
 
+.download-section__dev-note {
+  display: flex;
+  width: fit-content;
+  max-width: min(620px, calc(100vw - 32px));
+  margin: 18px auto 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(0, 240, 255, 0.035);
+  color: #00f0ff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  text-align: center;
+  text-decoration: none;
+  opacity: 0.82;
+  position: relative;
+  z-index: 1;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.download-section__dev-note:hover {
+  border-color: rgba(57, 255, 20, 0.24);
+  background: rgba(57, 255, 20, 0.045);
+  color: #39ff14;
+  opacity: 1;
+}
+
 @keyframes downloadFadeUp {
   from {
     opacity: 0;
@@ -421,6 +469,12 @@ const releaseDate = computed(() => {
 
 .v-theme--light .download-section__release-info {
   color: #94a3b8;
+}
+
+.v-theme--light .download-section__dev-note {
+  background: rgba(8, 145, 178, 0.06);
+  border-color: rgba(8, 145, 178, 0.16);
+  color: #0891b2;
 }
 
 .v-theme--light .download-section__card-indicator {

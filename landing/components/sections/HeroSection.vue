@@ -2,12 +2,13 @@
 import { mdiRobotOutline, mdiViewDashboardOutline, mdiOpenSourceInitiative } from '@mdi/js';
 
 const { content } = useLandingContent();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const { baseURL } = useRuntimeConfig().app;
+const workflowVideoSrc = 'https://github.com/user-attachments/assets/35e27989-726d-4059-8662-bae610e46b42';
 
 const downloadStore = useDownloadStore();
 const { resolve, data: releaseData } = useReleaseDownloads();
-const { latestReleaseUrl, releaseDownloadUrl } = useGithubRepo();
+const { repoUrl, latestReleaseUrl, releaseDownloadUrl } = useGithubRepo();
 
 const releaseVersion = computed(() => releaseData.value?.version || null);
 const releaseDate = computed(() => {
@@ -28,10 +29,33 @@ const heroDownloadUrl = computed(() => {
   const arch = asset.os === 'macos' ? downloadStore.macArch : asset.arch;
   return resolve(asset.os, arch)?.url || releaseDownloadUrl(asset.fileName);
 });
+
+const devBranchUrl = computed(() => `${repoUrl.value}/tree/dev`);
+const devBranchNote = computed(() =>
+  locale.value === 'ru'
+    ? 'Самая свежая версия в ветке dev - можно развернуть локально.'
+    : 'Freshest version is on the dev branch - clone and run it locally.',
+);
 </script>
 
 <template>
   <section id="hero" class="hero-section section anchor-offset">
+    <div class="hero-section__video-bg" aria-hidden="true">
+      <video
+        class="hero-section__video-bg-player"
+        autoplay
+        muted
+        loop
+        playsinline
+        preload="metadata"
+        :poster="`${baseURL}screenshots/1.jpg`"
+      >
+        <source :src="workflowVideoSrc" type="video/mp4">
+      </video>
+      <div class="hero-section__video-bg-wash" />
+      <div class="hero-section__video-bg-edge" />
+    </div>
+
     <v-container class="hero-section__container">
       <v-row align="center" justify="space-between">
         <!-- Left: Text content -->
@@ -70,6 +94,15 @@ const heroDownloadUrl = computed(() => {
               {{ t('hero.ctaSecondary') }}
             </v-btn>
           </div>
+
+          <a
+            class="hero-section__dev-note"
+            :href="devBranchUrl"
+            target="_blank"
+            rel="noopener"
+          >
+            {{ devBranchNote }}
+          </a>
 
           <!-- Release version badge -->
           <div v-if="releaseVersion" class="hero-section__release-badge">
@@ -123,15 +156,63 @@ const heroDownloadUrl = computed(() => {
   min-height: 85vh;
   display: flex;
   align-items: center;
+  isolation: isolate;
+}
+
+.hero-section__video-bg {
+  position: absolute;
+  inset: -120px 0 -110px;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hero-section__video-bg-player {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(1px) saturate(1.22) contrast(1.08);
+  opacity: 0.95;
+  mix-blend-mode: normal;
+  transform: scale(1.04);
+}
+
+.hero-section__video-bg-wash {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgb(var(--v-theme-background)) 0%, rgba(var(--v-theme-background), 0.82) 34%, rgba(var(--v-theme-background), 0.08) 64%, rgba(var(--v-theme-background), 0.34) 100%),
+    linear-gradient(180deg, rgba(var(--v-theme-background), 0.28) 0%, rgba(var(--v-theme-background), 0.52) 58%, rgb(var(--v-theme-background)) 96%);
+}
+
+.hero-section__video-bg-edge {
+  position: absolute;
+  inset: auto 0 0;
+  height: 42%;
+  background: linear-gradient(180deg, transparent, rgb(var(--v-theme-background)));
+}
+
+.v-theme--light .hero-section__video-bg-player {
+  mix-blend-mode: multiply;
+}
+
+.v-theme--light .hero-section__video-bg-wash {
+  background:
+    linear-gradient(90deg, rgb(var(--v-theme-background)) 0%, rgba(var(--v-theme-background), 0.86) 34%, rgba(var(--v-theme-background), 0.16) 64%, rgba(var(--v-theme-background), 0.36) 100%),
+    linear-gradient(180deg, rgba(var(--v-theme-background), 0.36) 0%, rgba(var(--v-theme-background), 0.54) 58%, rgb(var(--v-theme-background)) 96%);
 }
 
 .hero-section__container {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .hero-section__content {
   animation: heroFadeIn 0.8s ease both;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
 }
 
 /* ─── Title ─── */
@@ -169,8 +250,8 @@ const heroDownloadUrl = computed(() => {
 .hero-section__subtitle {
   font-size: 1.2rem;
   line-height: 1.7;
-  color: #8892b0;
-  opacity: 0.9;
+  color: #aeb8d4;
+  opacity: 0.96;
   max-width: 480px;
   margin-bottom: 36px;
   animation: heroFadeIn 0.8s ease both;
@@ -182,9 +263,31 @@ const heroDownloadUrl = computed(() => {
   display: flex;
   gap: 14px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   animation: heroFadeIn 0.8s ease both;
   animation-delay: 0.4s;
+}
+
+.hero-section__dev-note {
+  display: inline-flex;
+  max-width: 460px;
+  margin-bottom: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: #00f0ff;
+  opacity: 0.78;
+  text-decoration: none;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease;
+  animation: heroFadeIn 0.8s ease both;
+  animation-delay: 0.43s;
+}
+
+.hero-section__dev-note:hover {
+  color: #39ff14;
+  opacity: 1;
 }
 
 /* ─── Release badge ─── */
@@ -346,6 +449,20 @@ const heroDownloadUrl = computed(() => {
     padding-top: 40px;
   }
 
+  .hero-section__video-bg {
+    inset: -90px 0 -90px;
+  }
+
+  .hero-section__video-bg-player {
+    opacity: 0.82;
+  }
+
+  .hero-section__video-bg-wash {
+    background:
+      linear-gradient(90deg, rgb(var(--v-theme-background)) 0%, rgba(var(--v-theme-background), 0.9) 50%, rgba(var(--v-theme-background), 0.54) 100%),
+      linear-gradient(180deg, rgba(var(--v-theme-background), 0.42) 0%, rgba(var(--v-theme-background), 0.72) 58%, rgb(var(--v-theme-background)) 96%);
+  }
+
   .hero-section__title {
     font-size: 2rem;
     white-space: nowrap;
@@ -372,6 +489,11 @@ const heroDownloadUrl = computed(() => {
 }
 
 @media (max-width: 600px) {
+  .hero-section__content {
+    flex: 0 0 calc(100vw - 48px);
+    max-width: calc(100vw - 48px);
+  }
+
   .hero-section__title {
     font-size: 1.6rem;
     white-space: nowrap;
@@ -387,10 +509,21 @@ const heroDownloadUrl = computed(() => {
   .hero-section__subtitle {
     font-size: 0.95rem;
     margin-bottom: 28px;
+    width: 100%;
+    max-width: 330px;
+    word-break: normal;
+    overflow-wrap: normal;
+    hyphens: none;
   }
 
   .hero-section__actions {
-    margin-bottom: 28px;
+    margin-bottom: 12px;
+  }
+
+  .hero-section__dev-note {
+    max-width: 320px;
+    margin-bottom: 20px;
+    font-size: 0.7rem;
   }
 
   .hero-section__trust {

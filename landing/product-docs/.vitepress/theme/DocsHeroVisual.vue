@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { withBase } from "vitepress";
+
+const workflowVideoSrc = "https://github.com/user-attachments/assets/35e27989-726d-4059-8662-bae610e46b42";
 </script>
 
 <template>
@@ -13,7 +15,7 @@ import { withBase } from "vitepress";
       preload="metadata"
       :poster="withBase('/screenshots/1.jpg')"
     >
-      <source :src="withBase('/video/demo.mp4')" type="video/mp4">
+      <source :src="workflowVideoSrc" type="video/mp4">
     </video>
     <div class="docs-hero-visual__wash" />
     <div class="docs-hero-visual__edge" />
@@ -35,8 +37,8 @@ import { withBase } from "vitepress";
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: blur(14px) saturate(1.32) contrast(1.14);
-  opacity: 0.62;
+  filter: blur(1px) saturate(1.22) contrast(1.08);
+  opacity: 0.95;
   mix-blend-mode: multiply;
   transform: scale(1.04);
 }
@@ -45,8 +47,8 @@ import { withBase } from "vitepress";
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, var(--vp-c-bg) 0%, color-mix(in srgb, var(--vp-c-bg) 84%, transparent) 34%, color-mix(in srgb, var(--vp-c-bg) 24%, transparent) 64%, color-mix(in srgb, var(--vp-c-bg) 50%, transparent) 100%),
-    linear-gradient(180deg, color-mix(in srgb, var(--vp-c-bg) 52%, transparent) 0%, color-mix(in srgb, var(--vp-c-bg) 64%, transparent) 58%, var(--vp-c-bg) 96%);
+    linear-gradient(90deg, var(--vp-c-bg) 0%, color-mix(in srgb, var(--vp-c-bg) 82%, transparent) 34%, color-mix(in srgb, var(--vp-c-bg) 8%, transparent) 64%, color-mix(in srgb, var(--vp-c-bg) 26%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vp-c-bg) 32%, transparent) 0%, color-mix(in srgb, var(--vp-c-bg) 44%, transparent) 58%, var(--vp-c-bg) 96%);
 }
 
 .docs-hero-visual__edge {
@@ -57,15 +59,15 @@ import { withBase } from "vitepress";
 }
 
 .dark .docs-hero-visual__video {
-  opacity: 0.52;
-  filter: blur(16px) saturate(1.38) contrast(1.14);
+  opacity: 0.95;
+  filter: blur(1px) saturate(1.24) contrast(1.08);
   mix-blend-mode: normal;
 }
 
 .dark .docs-hero-visual__wash {
   background:
-    linear-gradient(90deg, var(--vp-c-bg) 0%, color-mix(in srgb, var(--vp-c-bg) 78%, transparent) 34%, color-mix(in srgb, var(--vp-c-bg) 26%, transparent) 64%, color-mix(in srgb, var(--vp-c-bg) 58%, transparent) 100%),
-    linear-gradient(180deg, color-mix(in srgb, var(--vp-c-bg) 50%, transparent) 0%, color-mix(in srgb, var(--vp-c-bg) 68%, transparent) 58%, var(--vp-c-bg) 96%);
+    linear-gradient(90deg, var(--vp-c-bg) 0%, color-mix(in srgb, var(--vp-c-bg) 76%, transparent) 34%, color-mix(in srgb, var(--vp-c-bg) 8%, transparent) 64%, color-mix(in srgb, var(--vp-c-bg) 34%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vp-c-bg) 28%, transparent) 0%, color-mix(in srgb, var(--vp-c-bg) 52%, transparent) 58%, var(--vp-c-bg) 96%);
 }
 
 @media (max-width: 768px) {
@@ -74,7 +76,8 @@ import { withBase } from "vitepress";
   }
 
   .docs-hero-visual__video {
-    opacity: 0.16;
+    opacity: 0.95;
+    filter: blur(1px) saturate(1.2) contrast(1.06);
   }
 }
 </style>

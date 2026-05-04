@@ -44,7 +44,7 @@
     {
       "id": "isFree",
       "question": "Ist es wirklich kostenlos?",
-      "answer": "Ja. Die App ist 100% kostenlos und Open Source. Die App selbst hat kein Bezahlmodell. Um Agenten auszuführen, brauchen Sie nur Zugriff auf einen unterstützten Provider bzw. Runtime wie Anthropic oder Codex."
+      "answer": "Ja. Die App ist kostenlos und Open Source. Die App selbst hat kein Bezahlmodell. Um Agenten auszuführen, brauchen Sie nur Zugriff auf einen unterstützten Provider bzw. Runtime wie Anthropic oder Codex."
     },
     {
       "id": "platforms",
@@ -82,9 +82,9 @@
   "pricing": [
     {
       "id": "free",
-      "name": "Für immer kostenlos",
+      "name": "Kostenlos",
       "price": "0€",
-      "period": "für immer",
+      "period": "",
       "description": "Alles inklusive. Keine Limits, keine API-Schlüssel, keine Kreditkarte.",
       "features": [
         "Unbegrenzte Agenten-Teams",
