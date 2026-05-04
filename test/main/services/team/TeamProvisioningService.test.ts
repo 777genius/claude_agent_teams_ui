@@ -895,6 +895,133 @@ describe('TeamProvisioningService', () => {
       expect(payload.body).not.toContain('0/4');
       expect(payload.body).not.toContain('did not join');
     });
+
+    it('does not report persisted bootstrap-confirmed primary members as failed from a stale failed list', async () => {
+      const { NotificationManager } =
+        await import('@main/services/infrastructure/NotificationManager');
+      const addTeamNotification = vi.fn(async (_payload: unknown) => undefined);
+      NotificationManager.setInstance({ addTeamNotification } as never);
+
+      try {
+        const svc = new TeamProvisioningService();
+        const run = {
+          runId: 'run-forge-labs-15',
+          teamName: 'forge-labs-15',
+          isLaunch: true,
+          request: {
+            cwd: tempClaudeRoot,
+            displayName: 'forge-labs-15',
+          },
+          expectedMembers: ['bob', 'jack', 'alice', 'tom'],
+          allEffectiveMembers: [
+            { name: 'bob' },
+            { name: 'jack' },
+            { name: 'alice' },
+            { name: 'tom' },
+          ],
+          memberSpawnStatuses: new Map([
+            [
+              'bob',
+              createMemberSpawnStatusEntry({
+                status: 'error',
+                launchState: 'failed_to_start',
+                runtimeAlive: false,
+                bootstrapConfirmed: false,
+                hardFailure: true,
+                hardFailureReason: 'Teammate was never spawned during launch.',
+              }),
+            ],
+            [
+              'jack',
+              createMemberSpawnStatusEntry({
+                status: 'error',
+                launchState: 'failed_to_start',
+                runtimeAlive: false,
+                bootstrapConfirmed: false,
+                hardFailure: true,
+                hardFailureReason: 'Teammate was never spawned during launch.',
+              }),
+            ],
+            [
+              'alice',
+              createMemberSpawnStatusEntry({
+                status: 'waiting',
+                launchState: 'runtime_pending_bootstrap',
+                runtimeAlive: false,
+                bootstrapConfirmed: false,
+              }),
+            ],
+            [
+              'tom',
+              createMemberSpawnStatusEntry({
+                status: 'online',
+                launchState: 'confirmed_alive',
+                runtimeAlive: true,
+                bootstrapConfirmed: true,
+              }),
+            ],
+          ]),
+        };
+        const reconciledSnapshot = {
+          expectedMembers: ['bob', 'jack', 'alice', 'tom'],
+          members: {
+            bob: {
+              name: 'bob',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-05-04T19:32:37.000Z',
+            },
+            jack: {
+              name: 'jack',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-05-04T19:32:30.000Z',
+            },
+            alice: {
+              name: 'alice',
+              launchState: 'runtime_pending_bootstrap',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-05-04T19:35:49.000Z',
+            },
+            tom: {
+              name: 'tom',
+              launchState: 'confirmed_alive',
+              agentToolAccepted: true,
+              runtimeAlive: true,
+              bootstrapConfirmed: true,
+              hardFailure: false,
+              lastEvaluatedAt: '2026-05-04T19:35:49.000Z',
+            },
+          },
+          summary: {
+            confirmedCount: 3,
+            pendingCount: 1,
+            failedCount: 0,
+            runtimeAlivePendingCount: 0,
+          },
+        };
+
+        await (svc as any).fireTeamLaunchIncompleteNotification(
+          run,
+          [{ name: 'bob' }, { name: 'jack' }],
+          reconciledSnapshot.summary,
+          reconciledSnapshot
+        );
+      } finally {
+        NotificationManager.resetInstance();
+      }
+
+      expect(addTeamNotification).not.toHaveBeenCalled();
+    });
   });
 
   describe('getClaudeLogs', () => {
@@ -4882,7 +5009,7 @@ describe('TeamProvisioningService', () => {
           visibleMessageToolCallId: null,
           visibleReplyMessageId: null,
           visibleReplyCorrelation: null,
-          latestAssistantPreview: null,
+          latestAssistantPreview: 'Answer after observe.',
           reason: null,
         },
         diagnostics: [],
@@ -4971,8 +5098,21 @@ describe('TeamProvisioningService', () => {
         })
       ).resolves.toMatchObject({
         delivered: true,
-        responsePending: false,
-        responseState: 'responded_plain_text',
+          responsePending: false,
+          responseState: 'responded_plain_text',
+          visibleReplyCorrelation: 'plain_assistant_text',
+        });
+
+      const userInbox = JSON.parse(
+        await fsPromises.readFile(path.join(tempTeamsBase, 'team-a', 'inboxes', 'user.json'), 'utf8')
+      ) as Array<Record<string, unknown>>;
+      expect(userInbox).toHaveLength(1);
+      expect(userInbox[0]).toMatchObject({
+        from: 'bob',
+        to: 'user',
+        text: 'Answer after observe.',
+        relayOfMessageId: 'msg-ledger-1',
+        source: 'runtime_delivery',
       });
 
       expect(sendMessageToMember).toHaveBeenCalledTimes(1);
@@ -14319,6 +14459,205 @@ describe('TeamProvisioningService', () => {
     });
   });
 
+  it('self-heals stale persisted OpenCode secondary bootstrap without live metadata', async () => {
+    const teamName = 'zz-opencode-persisted-bootstrap-stall-no-live';
+    const leadSessionId = 'lead-session';
+    const acceptedAt = new Date(Date.now() - 6 * 60_000).toISOString();
+
+    writeTeamMeta(teamName, {
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+    });
+    writeMembersMeta(teamName, [
+      {
+        name: 'tom',
+        providerId: 'opencode',
+        model: 'openrouter/minimax/minimax-m2.5',
+      },
+    ]);
+    writeLaunchConfig(teamName, '/Users/test/proj', leadSessionId, ['tom']);
+    writeLaunchState(teamName, leadSessionId, {
+      tom: {
+        providerId: 'opencode',
+        model: 'openrouter/minimax/minimax-m2.5',
+        laneId: 'secondary:opencode:tom',
+        laneKind: 'secondary',
+        laneOwnerProviderId: 'opencode',
+        launchState: 'runtime_pending_bootstrap',
+        agentToolAccepted: true,
+        runtimeAlive: false,
+        bootstrapConfirmed: false,
+        hardFailure: false,
+        runtimeSessionId: 'ses_tom_partial',
+        runtimePid: 55947,
+        livenessKind: 'registered_only',
+        firstSpawnAcceptedAt: acceptedAt,
+        diagnostics: [
+          'OpenCode bootstrap MCP tool failed before required attach completed: runtime_bootstrap_checkin',
+          'member_briefing at 2026-05-04T18:25:43.091Z',
+        ],
+        lastEvaluatedAt: acceptedAt,
+      },
+    });
+
+    const svc = new TeamProvisioningService();
+    vi.spyOn(svc as any, 'getLiveTeamAgentRuntimeMetadata').mockResolvedValue(new Map());
+
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.statuses.tom).toMatchObject({
+      launchState: 'runtime_pending_bootstrap',
+      bootstrapConfirmed: false,
+      hardFailure: false,
+      bootstrapStalled: true,
+      runtimeDiagnostic:
+        'OpenCode bootstrap MCP tool failed before required attach completed: runtime_bootstrap_checkin',
+      runtimeDiagnosticSeverity: 'warning',
+    });
+    const persisted = JSON.parse(
+      await fsPromises.readFile(getTeamLaunchStatePath(teamName), 'utf8')
+    );
+    expect(persisted.members.tom).toMatchObject({
+      launchState: 'runtime_pending_bootstrap',
+      bootstrapConfirmed: false,
+      hardFailure: false,
+      bootstrapStalled: true,
+    });
+  });
+
+  it('sends one targeted OpenCode bootstrap check-in retry when a partial bootstrap stalls', async () => {
+    const teamName = 'zz-opencode-bootstrap-checkin-retry';
+    const acceptedAt = new Date(Date.now() - 6 * 60_000).toISOString();
+    const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
+      ok: true,
+      providerId: 'opencode',
+      memberName: String(input.memberName),
+      diagnostics: [],
+    }));
+    const svc = new TeamProvisioningService();
+    svc.setRuntimeAdapterRegistry(
+      new TeamRuntimeAdapterRegistry([
+        {
+          providerId: 'opencode',
+          prepare: vi.fn(),
+          launch: vi.fn(),
+          reconcile: vi.fn(),
+          stop: vi.fn(),
+          sendMessageToMember,
+        } as any,
+      ])
+    );
+    vi.spyOn(svc as any, 'refreshMemberSpawnStatusesFromLeadInbox').mockResolvedValue(undefined);
+    vi.spyOn(svc as any, 'maybeAuditMemberSpawnStatuses').mockResolvedValue(undefined);
+    vi.spyOn(svc as any, 'getLiveTeamAgentRuntimeMetadata').mockResolvedValue(
+      new Map([
+        [
+          'tom',
+          {
+            alive: true,
+            providerId: 'opencode',
+            livenessKind: 'runtime_process',
+            runtimeSessionId: 'ses_tom_partial',
+            runtimeDiagnostic: 'OpenCode runtime process detected',
+            runtimeDiagnosticSeverity: 'info',
+          },
+        ],
+      ])
+    );
+
+    const run = createMemberSpawnRun({
+      teamName,
+      runId: 'run-bootstrap-checkin-retry',
+      expectedMembers: ['tom'],
+      memberSpawnStatuses: new Map([
+        [
+          'tom',
+          createMemberSpawnStatusEntry({
+            status: 'waiting',
+            launchState: 'runtime_pending_bootstrap',
+            agentToolAccepted: true,
+            runtimeAlive: true,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            firstSpawnAcceptedAt: acceptedAt,
+            livenessKind: 'runtime_process',
+          }),
+        ],
+      ]),
+    });
+    run.onProgress = vi.fn();
+    run.isLaunch = false;
+    run.request = {
+      teamName,
+      cwd: '/Users/test/proj',
+      providerId: 'codex',
+      providerBackendId: 'codex-native',
+      model: 'gpt-5.4',
+      members: [],
+    };
+    run.mixedSecondaryLanes = [
+      {
+        laneId: 'secondary:opencode:tom',
+        providerId: 'opencode',
+        member: {
+          name: 'tom',
+          providerId: 'opencode',
+          model: 'openrouter/minimax/minimax-m2.5',
+          cwd: '/Users/test/proj',
+        },
+        runId: 'opencode-run-tom',
+        state: 'finished',
+        result: {
+          runId: 'opencode-run-tom',
+          teamName,
+          launchPhase: 'active',
+          teamLaunchState: 'partial_pending',
+          members: {
+            tom: {
+              memberName: 'tom',
+              providerId: 'opencode',
+              launchState: 'runtime_pending_bootstrap',
+              agentToolAccepted: true,
+              runtimeAlive: false,
+              bootstrapConfirmed: false,
+              hardFailure: false,
+              sessionId: 'ses_tom_partial',
+              diagnostics: [
+                'runtime_bootstrap_checkin failed: Not connected',
+                'member_briefing at 2026-05-04T18:25:43.091Z',
+              ],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        },
+        warnings: [],
+        diagnostics: [],
+      },
+    ];
+    (svc as any).runs.set(run.runId, run);
+    (svc as any).aliveRunByTeam.set(teamName, run.runId);
+
+    await (svc as any).reevaluateMemberLaunchStatus(run, 'tom');
+    await (svc as any).reevaluateMemberLaunchStatus(run, 'tom');
+
+    expect(sendMessageToMember).toHaveBeenCalledTimes(1);
+    expect(sendMessageToMember).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'opencode-run-tom',
+        teamName,
+        laneId: 'secondary:opencode:tom',
+        memberName: 'tom',
+        cwd: '/Users/test/proj',
+        bootstrapCheckinRetry: {
+          runtimeSessionId: 'ses_tom_partial',
+          reason: 'runtime_bootstrap_checkin failed: Not connected',
+        },
+      })
+    );
+  });
+
   it('keeps process table diagnostics visible when live metadata has no primary diagnostic', async () => {
     const svc = new TeamProvisioningService();
     (svc as any).getLiveTeamAgentRuntimeMetadata = vi.fn(
@@ -16288,6 +16627,8 @@ describe('TeamProvisioningService', () => {
     const teamName = 'atlas-hq-source-aware-persisted';
     const exactOpenCodeReason =
       'Latest assistant message msg_alice failed with APIError - Insufficient credits.';
+    const transientBobMcpFailure =
+      'resources/read failed: resources/read failed for `agent-teams` (member_briefing?teamName=atlas-hq-source-aware-persisted&memberName=bob): Mcp error: -32601: Method not found';
     writeTeamMeta(teamName, {
       providerId: 'codex',
       providerBackendId: 'codex-native',
@@ -16337,7 +16678,7 @@ describe('TeamProvisioningService', () => {
               runtimeAlive: false,
               bootstrapConfirmed: false,
               hardFailure: true,
-              hardFailureReason: 'Teammate was never spawned during launch.',
+              hardFailureReason: transientBobMcpFailure,
               lastEvaluatedAt: '2026-04-23T10:02:00.000Z',
             },
             jack: {

@@ -59,6 +59,10 @@ export interface OpenCodeTeamRuntimeMessageInput {
   replyRecipient?: string;
   actionMode?: AgentActionMode;
   taskRefs?: TaskRef[];
+  bootstrapCheckinRetry?: {
+    runtimeSessionId: string;
+    reason?: string;
+  };
 }
 
 export interface OpenCodeTeamRuntimeMessageResult {
@@ -743,6 +747,30 @@ function buildMemberBootstrapPrompt(
 }
 
 function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput): string {
+  if (input.bootstrapCheckinRetry) {
+    const runtimeSessionId = input.bootstrapCheckinRetry.runtimeSessionId.trim();
+    return [
+      '<opencode_runtime_bootstrap_checkin_retry>',
+      'The desktop app detected that this OpenCode session exists, but runtime_bootstrap_checkin has not committed durable runtime evidence yet.',
+      input.bootstrapCheckinRetry.reason
+        ? `Reason: ${input.bootstrapCheckinRetry.reason.trim()}`
+        : null,
+      'Before any other tool or message, call MCP tool agent-teams_runtime_bootstrap_checkin or mcp__agent-teams__runtime_bootstrap_checkin with exactly:',
+      JSON.stringify({
+        runId: input.runId,
+        teamName: input.teamName,
+        memberName: input.memberName,
+        runtimeSessionId,
+      }),
+      'Do not call member_briefing, task tools, message_send, or cross_team_send before runtime_bootstrap_checkin completes.',
+      'After runtime_bootstrap_checkin succeeds, stop this turn immediately and wait silently.',
+      'If runtime_bootstrap_checkin is unavailable or fails, reply with one short sentence containing the exact error text, then stop.',
+      '</opencode_runtime_bootstrap_checkin_retry>',
+    ]
+      .filter((line): line is string => line !== null)
+      .join('\n');
+  }
+
   const replyRecipient = input.replyRecipient?.trim() || 'user';
   const deliveryContext =
     input.messageId && input.taskRefs?.length
