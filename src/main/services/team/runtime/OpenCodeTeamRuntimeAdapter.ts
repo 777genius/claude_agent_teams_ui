@@ -85,7 +85,7 @@ const REQUIRED_READY_CHECKPOINTS = new Set([
 const GENERIC_OPEN_CODE_MEMBER_FAILURE_REASON = 'OpenCode bridge reported member launch failure';
 const SECRET_FLAG_PATTERN =
   /(--(?:api-key|token|password|secret|authorization|auth-token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
-const BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+const BEARER_TOKEN_PATTERN = /\bBearer\s+\S+/gi;
 const SECRET_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{16,}\b/g;
 
 export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
@@ -797,6 +797,7 @@ function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput)
     input.messageId
       ? `Include relayOfMessageId="${input.messageId}" in that message_send call.`
       : null,
+    'After the message_send tool call succeeds, stop immediately. Do not send follow-up confirmations or repeat the same answer.',
     'Do not call runtime_bootstrap_checkin or member_briefing just to answer this delivered app message.',
     'Do not answer only with plain assistant text when agent-teams_message_send is available.',
     'Do not use SendMessage or runtime_deliver_message for ordinary visible replies.',

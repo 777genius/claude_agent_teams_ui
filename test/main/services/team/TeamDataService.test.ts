@@ -4620,47 +4620,51 @@ describe('TeamDataService', () => {
   });
 
   it('keeps member branch enrichment on by default for full UI team data snapshots', async () => {
+    const rootRepoPath = path.normalize('/repo');
+    const aliceRepoPath = path.normalize('/repo-alice');
     const getBranchSpy = vi
       .spyOn(gitIdentityResolver, 'getBranch')
-      .mockImplementation(async (cwd) => (cwd === '/repo-alice' ? 'feature/alice' : 'main'));
+      .mockImplementation(async (cwd) => (cwd === aliceRepoPath ? 'feature/alice' : 'main'));
     const harness = createGetTeamDataHarness({
       config: buildDefaultTeamConfig({
-        projectPath: '/repo',
+        projectPath: rootRepoPath,
         members: [
-          { name: 'team-lead', role: 'Lead', cwd: '/repo' },
-          { name: 'alice', role: 'Developer', cwd: '/repo-alice' },
+          { name: 'team-lead', role: 'Lead', cwd: rootRepoPath },
+          { name: 'alice', role: 'Developer', cwd: aliceRepoPath },
         ],
       }),
       resolveMembers: () => [
-        { ...buildResolvedMember('team-lead'), cwd: '/repo' },
-        { ...buildResolvedMember('alice'), cwd: '/repo-alice' },
+        { ...buildResolvedMember('team-lead'), cwd: rootRepoPath },
+        { ...buildResolvedMember('alice'), cwd: aliceRepoPath },
       ],
     });
 
     const data = await harness.service.getTeamData('my-team');
 
-    expect(getBranchSpy).toHaveBeenCalledWith('/repo');
-    expect(getBranchSpy).toHaveBeenCalledWith('/repo-alice');
+    expect(getBranchSpy).toHaveBeenCalledWith(rootRepoPath);
+    expect(getBranchSpy).toHaveBeenCalledWith(aliceRepoPath);
     expect(data.members.find((member) => member.name === 'alice')?.gitBranch).toBe(
       'feature/alice'
     );
   });
 
   it('keeps member branch enrichment on for explicit full UI team data snapshots', async () => {
+    const rootRepoPath = path.normalize('/repo');
+    const aliceRepoPath = path.normalize('/repo-alice');
     const getBranchSpy = vi
       .spyOn(gitIdentityResolver, 'getBranch')
-      .mockImplementation(async (cwd) => (cwd === '/repo-alice' ? 'feature/alice' : 'main'));
+      .mockImplementation(async (cwd) => (cwd === aliceRepoPath ? 'feature/alice' : 'main'));
     const harness = createGetTeamDataHarness({
       config: buildDefaultTeamConfig({
-        projectPath: '/repo',
+        projectPath: rootRepoPath,
         members: [
-          { name: 'team-lead', role: 'Lead', cwd: '/repo' },
-          { name: 'alice', role: 'Developer', cwd: '/repo-alice' },
+          { name: 'team-lead', role: 'Lead', cwd: rootRepoPath },
+          { name: 'alice', role: 'Developer', cwd: aliceRepoPath },
         ],
       }),
       resolveMembers: () => [
-        { ...buildResolvedMember('team-lead'), cwd: '/repo' },
-        { ...buildResolvedMember('alice'), cwd: '/repo-alice' },
+        { ...buildResolvedMember('team-lead'), cwd: rootRepoPath },
+        { ...buildResolvedMember('alice'), cwd: aliceRepoPath },
       ],
     });
 
@@ -4668,8 +4672,8 @@ describe('TeamDataService', () => {
       includeMemberBranches: true,
     });
 
-    expect(getBranchSpy).toHaveBeenCalledWith('/repo');
-    expect(getBranchSpy).toHaveBeenCalledWith('/repo-alice');
+    expect(getBranchSpy).toHaveBeenCalledWith(rootRepoPath);
+    expect(getBranchSpy).toHaveBeenCalledWith(aliceRepoPath);
     expect(data.members.find((member) => member.name === 'alice')?.gitBranch).toBe(
       'feature/alice'
     );

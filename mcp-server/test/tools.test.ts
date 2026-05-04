@@ -1427,6 +1427,7 @@ describe('agent-teams-mcp tools', () => {
     );
 
     expect(sent.deliveredToInbox).toBe(true);
+    expect(sent.protocolInstruction).toContain('do not call message_send again');
     const inboxPath = path.join(claudeDir, 'teams', teamName, 'inboxes', 'alice.json');
     const rows = JSON.parse(fs.readFileSync(inboxPath, 'utf8'));
     expect(rows[0].source).toBe('system_notification');

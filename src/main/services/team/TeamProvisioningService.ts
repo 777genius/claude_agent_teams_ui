@@ -2260,7 +2260,7 @@ function extractOpenCodeMemberSessionRecordedAt(
   diagnostics: readonly string[] | undefined
 ): string[] {
   return (diagnostics ?? []).flatMap((diagnostic) => {
-    const match = diagnostic.match(OPENCODE_MEMBER_SESSION_RECORDED_AT_PATTERN);
+    const match = OPENCODE_MEMBER_SESSION_RECORDED_AT_PATTERN.exec(diagnostic);
     return match?.[1] ? [match[1]] : [];
   });
 }
