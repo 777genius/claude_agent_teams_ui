@@ -61,6 +61,7 @@ import type {
   TeamClaudeLogsResponse,
   TeamCreateRequest,
   TeamCreateResponse,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -706,7 +707,10 @@ export class HttpAPIClient implements ElectronAPI {
       console.warn('[HttpAPIClient] teams API is not available in browser mode');
       return [];
     },
-    getData: async (_teamName: string): Promise<TeamViewSnapshot> => {
+    getData: async (
+      _teamName: string,
+      _options?: TeamGetDataOptions
+    ): Promise<TeamViewSnapshot> => {
       throw new Error('Teams detail is not available in browser mode');
     },
     getTaskChangePresence: async (): Promise<

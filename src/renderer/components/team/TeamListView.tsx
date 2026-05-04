@@ -601,7 +601,9 @@ export const TeamListView = memo(function TeamListView(): React.JSX.Element {
       e.stopPropagation();
       void (async () => {
         try {
-          const data = await api.teams.getData(teamName);
+          const data = await api.teams.getData(teamName, {
+            includeMemberBranches: false,
+          });
           const existingNames = teams.map((t) => t.teamName);
           const uniqueName = generateUniqueName(teamName, existingNames);
           const members = (data.members ?? [])
@@ -653,7 +655,9 @@ export const TeamListView = memo(function TeamListView(): React.JSX.Element {
       e.stopPropagation();
       if (!projectPath) return;
       try {
-        const data = await api.teams.getData(teamName);
+        const data = await api.teams.getData(teamName, {
+          includeMemberBranches: false,
+        });
         setLaunchDialogTeamName(teamName);
         setLaunchDialogMembers(resolveLaunchDialogMembers(data.members ?? []));
         setLaunchDialogDefaultPath(data.config.projectPath ?? projectPath);

@@ -73,6 +73,7 @@ import type {
   TeamCreateConfigRequest,
   TeamCreateRequest,
   TeamCreateResponse,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -440,7 +441,7 @@ export interface HttpServerAPI {
 
 export interface TeamsAPI {
   list: () => Promise<TeamSummary[]>;
-  getData: (teamName: string) => Promise<TeamViewSnapshot>;
+  getData: (teamName: string, options?: TeamGetDataOptions) => Promise<TeamViewSnapshot>;
   getTaskChangePresence: (teamName: string) => Promise<Record<string, TaskChangePresenceState>>;
   setChangePresenceTracking: (teamName: string, enabled: boolean) => Promise<void>;
   setToolActivityTracking: (teamName: string, enabled: boolean) => Promise<void>;

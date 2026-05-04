@@ -53,6 +53,7 @@ import type {
   TeamAgentRuntimeEntry,
   TeamAgentRuntimeSnapshot,
   TeamCreateRequest,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamMemberActivityMeta,
   TeamMemberSnapshot,
@@ -77,9 +78,19 @@ const TEAM_FETCH_TIMEOUT_MS = 30_000;
 const MEMBER_SPAWN_STATUSES_IPC_RETRY_BACKOFF_MS = 5_000;
 const TEAM_REFRESH_BURST_WINDOW_MS = 4_000;
 const MEMBER_SPAWN_UI_EQUAL_WARN_THROTTLE_MS = 2_000;
+const POST_PAINT_TEAM_ENRICHMENT_FALLBACK_MS = 500;
 const inFlightTeamDataRequests = new Map<string, Promise<TeamViewSnapshot>>();
 const inFlightRefreshTeamDataCalls = new Map<string, Set<symbol>>();
 const pendingFreshTeamDataRefreshes = new Set<string>();
+const queuedFullTeamDataRefreshesAfterThin = new Set<string>();
+interface PostPaintHandle {
+  rafId?: number;
+  timerId?: ReturnType<typeof setTimeout>;
+  fallbackTimerId?: ReturnType<typeof setTimeout>;
+  cancelled: boolean;
+  ran: boolean;
+}
+const postPaintTeamEnrichmentTimers = new Map<string, PostPaintHandle>();
 const inFlightTeamMessagesHeadRequests = new Map<string, Promise<RefreshTeamMessagesHeadResult>>();
 const inFlightTeamMessagesOlderRequests = new Map<string, Promise<void>>();
 const queuedTeamMessagesHeadRefreshesAfterOlder = new Map<
@@ -105,6 +116,55 @@ interface RefreshTeamDataOptions {
   withDedup?: boolean;
 }
 
+type TeamDataSnapshotMode = 'full' | 'thin';
+
+function normalizeTeamGetDataOptions(options?: TeamGetDataOptions): TeamGetDataOptions | undefined {
+  return options?.includeMemberBranches === false ? { includeMemberBranches: false } : undefined;
+}
+
+function shouldIncludeMemberBranches(options?: TeamGetDataOptions): boolean {
+  return normalizeTeamGetDataOptions(options)?.includeMemberBranches !== false;
+}
+
+function getTeamDataSnapshotMode(options?: TeamGetDataOptions): TeamDataSnapshotMode {
+  return shouldIncludeMemberBranches(options) ? 'full' : 'thin';
+}
+
+function getTeamDataRequestKey(teamName: string, options?: TeamGetDataOptions): string {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  return `${teamName}\u0000mode:${getTeamDataSnapshotMode(normalizedOptions)}`;
+}
+
+function getTeamDataRequestLabel(teamName: string, options?: TeamGetDataOptions): string {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  return `team:getData(${teamName},mode=${getTeamDataSnapshotMode(normalizedOptions)})`;
+}
+
+function getFullTeamDataRequestKey(teamName: string): string {
+  return getTeamDataRequestKey(teamName);
+}
+
+function getThinTeamDataRequestKey(teamName: string): string {
+  return getTeamDataRequestKey(teamName, { includeMemberBranches: false });
+}
+
+function hasFullTeamDataRequestForTeam(teamName: string): boolean {
+  return inFlightTeamDataRequests.has(getFullTeamDataRequestKey(teamName));
+}
+
+function hasThinTeamDataRequestForTeam(teamName: string): boolean {
+  return inFlightTeamDataRequests.has(getThinTeamDataRequestKey(teamName));
+}
+
+function clearTeamDataRequestsForTeam(teamName: string): void {
+  const prefix = `${teamName}\u0000`;
+  for (const key of inFlightTeamDataRequests.keys()) {
+    if (key.startsWith(prefix)) {
+      inFlightTeamDataRequests.delete(key);
+    }
+  }
+}
+
 type TeamGraphSlotAssignments = Record<string, GraphOwnerSlotAssignment>;
 type TeamGraphMemberSeedInput = Pick<TeamMemberSnapshot, 'name' | 'agentId' | 'removedAt'>;
 type TeamGraphConfigMemberSeedInput = Pick<
@@ -118,9 +178,10 @@ interface TeamGraphLayoutSessionState {
 
 export function isTeamDataRefreshPending(teamName: string): boolean {
   return (
-    inFlightTeamDataRequests.has(teamName) ||
+    hasFullTeamDataRequestForTeam(teamName) ||
     (inFlightRefreshTeamDataCalls.get(teamName)?.size ?? 0) > 0 ||
-    pendingFreshTeamDataRefreshes.has(teamName)
+    pendingFreshTeamDataRefreshes.has(teamName) ||
+    queuedFullTeamDataRefreshesAfterThin.has(teamName)
   );
 }
 
@@ -144,6 +205,11 @@ export function __resetTeamSliceModuleStateForTests(): void {
   inFlightTeamDataRequests.clear();
   inFlightRefreshTeamDataCalls.clear();
   pendingFreshTeamDataRefreshes.clear();
+  queuedFullTeamDataRefreshesAfterThin.clear();
+  for (const teamName of postPaintTeamEnrichmentTimers.keys()) {
+    cancelPostPaintTeamEnrichments(teamName);
+  }
+  postPaintTeamEnrichmentTimers.clear();
   inFlightTeamMessagesHeadRequests.clear();
   inFlightTeamMessagesOlderRequests.clear();
   queuedTeamMessagesHeadRefreshesAfterOlder.clear();
@@ -184,9 +250,11 @@ function clearTeamScopedSelectorCaches(teamName: string): void {
 }
 
 function clearTeamScopedTransientState(teamName: string): void {
-  inFlightTeamDataRequests.delete(teamName);
+  clearTeamDataRequestsForTeam(teamName);
   inFlightRefreshTeamDataCalls.delete(teamName);
   pendingFreshTeamDataRefreshes.delete(teamName);
+  queuedFullTeamDataRefreshesAfterThin.delete(teamName);
+  cancelPostPaintTeamEnrichments(teamName);
   inFlightTeamMessagesHeadRequests.delete(teamName);
   inFlightTeamMessagesOlderRequests.delete(teamName);
   queuedTeamMessagesHeadRefreshesAfterOlder.delete(teamName);
@@ -389,12 +457,171 @@ function endInFlightTeamDataRefresh(teamName: string, token: symbol): void {
   }
 }
 
+function cancelPostPaintTeamEnrichments(teamName: string): void {
+  const handle = postPaintTeamEnrichmentTimers.get(teamName);
+  if (!handle) {
+    return;
+  }
+
+  handle.cancelled = true;
+  if (
+    handle.rafId !== undefined &&
+    typeof window !== 'undefined' &&
+    typeof window.cancelAnimationFrame === 'function'
+  ) {
+    window.cancelAnimationFrame(handle.rafId);
+  }
+  if (handle.timerId !== undefined) {
+    clearTimeout(handle.timerId);
+  }
+  if (handle.fallbackTimerId !== undefined) {
+    clearTimeout(handle.fallbackTimerId);
+  }
+  postPaintTeamEnrichmentTimers.delete(teamName);
+}
+
+function scheduleAfterPaint(run: () => void): PostPaintHandle {
+  const handle: PostPaintHandle = {
+    cancelled: false,
+    ran: false,
+  };
+
+  const runOnce = (): void => {
+    if (handle.cancelled || handle.ran) {
+      return;
+    }
+    handle.ran = true;
+
+    if (
+      handle.rafId !== undefined &&
+      typeof window !== 'undefined' &&
+      typeof window.cancelAnimationFrame === 'function'
+    ) {
+      window.cancelAnimationFrame(handle.rafId);
+      handle.rafId = undefined;
+    }
+    if (handle.timerId !== undefined) {
+      clearTimeout(handle.timerId);
+      handle.timerId = undefined;
+    }
+    if (handle.fallbackTimerId !== undefined) {
+      clearTimeout(handle.fallbackTimerId);
+      handle.fallbackTimerId = undefined;
+    }
+
+    run();
+  };
+
+  const scheduleTimer = (): void => {
+    handle.timerId = setTimeout(runOnce, 0);
+  };
+
+  handle.fallbackTimerId = setTimeout(runOnce, POST_PAINT_TEAM_ENRICHMENT_FALLBACK_MS);
+
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    handle.rafId = window.requestAnimationFrame(() => {
+      handle.rafId = undefined;
+      scheduleTimer();
+    });
+    return handle;
+  }
+
+  scheduleTimer();
+  return handle;
+}
+
+function drainQueuedFullRefreshAfterThinSettles(teamName: string, get: () => TeamSlice): void {
+  if (!queuedFullTeamDataRefreshesAfterThin.delete(teamName)) {
+    return;
+  }
+  void get().refreshTeamData(teamName, { withDedup: true });
+}
+
+function isSelectedTeamLoadStillCurrent(
+  get: () => TeamSlice,
+  teamName: string,
+  requestNonce: number,
+  teamStateEpoch: number
+): boolean {
+  const state = get();
+  return (
+    isTeamLocalStateEpochCurrent(teamName, teamStateEpoch) &&
+    state.selectedTeamName === teamName &&
+    state.selectedTeamLoadNonce === requestNonce &&
+    state.selectedTeamData?.teamName === teamName
+  );
+}
+
+function schedulePostPaintTeamEnrichments(params: {
+  teamName: string;
+  requestNonce: number;
+  teamStateEpoch: number;
+  get: () => TeamSlice;
+}): void {
+  const { teamName, requestNonce, teamStateEpoch, get } = params;
+
+  cancelPostPaintTeamEnrichments(teamName);
+
+  const handle = scheduleAfterPaint(() => {
+    if (postPaintTeamEnrichmentTimers.get(teamName) !== handle) {
+      return;
+    }
+    postPaintTeamEnrichmentTimers.delete(teamName);
+
+    void (async () => {
+      if (!isTeamLocalStateEpochCurrent(teamName, teamStateEpoch)) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
+        return;
+      }
+
+      const state = get();
+      if (state.selectedTeamName !== teamName) {
+        drainQueuedFullRefreshAfterThinSettles(teamName, get);
+        return;
+      }
+
+      if (state.selectedTeamLoadNonce !== requestNonce) {
+        return;
+      }
+
+      if (state.selectedTeamData?.teamName !== teamName) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
+        return;
+      }
+
+      if (queuedFullTeamDataRefreshesAfterThin.delete(teamName)) {
+        void get().refreshTeamData(teamName, { withDedup: true });
+      }
+
+      try {
+        const headResult = await get().refreshTeamMessagesHead(teamName);
+        if (!isSelectedTeamLoadStillCurrent(get, teamName, requestNonce, teamStateEpoch)) {
+          return;
+        }
+        if (headResult.feedChanged || isMemberActivityMetaStale(get(), teamName)) {
+          await get().refreshMemberActivityMeta(teamName);
+        }
+      } catch (error) {
+        logger.debug(
+          `post-paint team enrichments skipped team=${teamName} error=${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    })();
+  });
+
+  postPaintTeamEnrichmentTimers.set(teamName, handle);
+}
+
 export function __getTeamScopedTransientStateForTests(teamName: string): {
   hasResolvedMembersSelector: boolean;
   resolvedMemberSelectorCount: number;
   hasMergedMessagesSelector: boolean;
   memberMessagesSelectorCount: number;
   hasPendingFreshTeamDataRefresh: boolean;
+  hasQueuedFullTeamDataRefreshAfterThin: boolean;
+  hasPostPaintTeamEnrichmentTimer: boolean;
   hasQueuedHeadRefreshAfterOlder: boolean;
   hasPendingFreshMessagesHeadRefresh: boolean;
   hasPendingFreshMemberActivityMetaRefresh: boolean;
@@ -425,6 +652,8 @@ export function __getTeamScopedTransientStateForTests(teamName: string): {
     hasMergedMessagesSelector: mergedMessagesSelectorCache.has(teamName),
     memberMessagesSelectorCount,
     hasPendingFreshTeamDataRefresh: pendingFreshTeamDataRefreshes.has(teamName),
+    hasQueuedFullTeamDataRefreshAfterThin: queuedFullTeamDataRefreshesAfterThin.has(teamName),
+    hasPostPaintTeamEnrichmentTimer: postPaintTeamEnrichmentTimers.has(teamName),
     hasQueuedHeadRefreshAfterOlder: queuedTeamMessagesHeadRefreshesAfterOlder.has(teamName),
     hasPendingFreshMessagesHeadRefresh: pendingFreshTeamMessagesHeadRefreshes.has(teamName),
     hasPendingFreshMemberActivityMetaRefresh:
@@ -536,31 +765,48 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-function fetchTeamDataDeduped(teamName: string): Promise<TeamViewSnapshot> {
-  const existing = inFlightTeamDataRequests.get(teamName);
+function fetchTeamDataDeduped(
+  teamName: string,
+  options?: TeamGetDataOptions
+): Promise<TeamViewSnapshot> {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  const key = getTeamDataRequestKey(teamName, normalizedOptions);
+  const existing = inFlightTeamDataRequests.get(key);
   if (existing) {
     return existing;
   }
 
   const request = withTimeout(
-    unwrapIpc('team:getData', () => api.teams.getData(teamName)),
+    unwrapIpc('team:getData', () =>
+      normalizedOptions === undefined
+        ? api.teams.getData(teamName)
+        : api.teams.getData(teamName, normalizedOptions)
+    ),
     TEAM_GET_DATA_TIMEOUT_MS,
-    `team:getData(${teamName})`
+    getTeamDataRequestLabel(teamName, normalizedOptions)
   ).finally(() => {
-    if (inFlightTeamDataRequests.get(teamName) === request) {
-      inFlightTeamDataRequests.delete(teamName);
+    if (inFlightTeamDataRequests.get(key) === request) {
+      inFlightTeamDataRequests.delete(key);
     }
   });
 
-  inFlightTeamDataRequests.set(teamName, request);
+  inFlightTeamDataRequests.set(key, request);
   return request;
 }
 
-function fetchTeamDataFresh(teamName: string): Promise<TeamViewSnapshot> {
+function fetchTeamDataFresh(
+  teamName: string,
+  options?: TeamGetDataOptions
+): Promise<TeamViewSnapshot> {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
   return withTimeout(
-    unwrapIpc('team:getData', () => api.teams.getData(teamName)),
+    unwrapIpc('team:getData', () =>
+      normalizedOptions === undefined
+        ? api.teams.getData(teamName)
+        : api.teams.getData(teamName, normalizedOptions)
+    ),
     TEAM_GET_DATA_TIMEOUT_MS,
-    `team:getData(${teamName})`
+    getTeamDataRequestLabel(teamName, normalizedOptions)
   );
 }
 
@@ -3412,6 +3658,8 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     const requestNonce = get().selectedTeamLoadNonce + 1;
     const previousData = selectTeamDataForName(get(), teamName);
 
+    cancelPostPaintTeamEnrichments(teamName);
+
     // Repoint selection synchronously to the new team's cached snapshot when available.
     // Never keep the previous team's snapshot attached to a newly selected team.
     set({
@@ -3426,12 +3674,20 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     });
 
     try {
-      const data = await fetchTeamDataDeduped(teamName);
+      const data = await fetchTeamDataDeduped(teamName, {
+        includeMemberBranches: false,
+      });
       if (!isTeamLocalStateEpochCurrent(teamName, teamStateEpoch)) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
         return;
       }
       // Stale check: user may have switched to another team during the async call
-      if (get().selectedTeamName !== teamName || get().selectedTeamLoadNonce !== requestNonce) {
+      const stateAfterLoad = get();
+      if (stateAfterLoad.selectedTeamName !== teamName) {
+        drainQueuedFullRefreshAfterThinSettles(teamName, get);
+        return;
+      }
+      if (stateAfterLoad.selectedTeamLoadNonce !== requestNonce) {
         return;
       }
       // Eagerly patch teamByName with color/displayName from detailed data
@@ -3479,80 +3735,105 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
         };
       });
       lastResolvedTeamDataRefreshAtByTeam.set(teamName, Date.now());
-      const invalidationState = previousData
-        ? collectTaskChangeInvalidationState(teamName, previousData.tasks, data.tasks)
-        : { cacheKeys: [], taskIds: [] };
-      if (invalidationState.cacheKeys.length > 0) {
-        get().invalidateTaskChangePresence(invalidationState.cacheKeys);
-      }
-      if (invalidationState.taskIds.length > 0) {
-        await api.review.invalidateTaskChangeSummaries(teamName, invalidationState.taskIds);
-      }
-      // Sync tab label with the team's display name from config
-      const displayName = data.config.name || teamName;
-      const allTabs = get().getAllPaneTabs();
-      const relatedTabs = allTabs.filter(
-        (tab) => (tab.type === 'team' || tab.type === 'graph') && tab.teamName === teamName
-      );
-      for (const tab of relatedTabs) {
-        const nextLabel = tab.type === 'graph' ? `${displayName} Graph` : displayName;
-        if (tab.label !== nextLabel) {
-          get().updateTabLabel(tab.id, nextLabel);
+
+      try {
+        const invalidationState = previousData
+          ? collectTaskChangeInvalidationState(teamName, previousData.tasks, data.tasks)
+          : { cacheKeys: [], taskIds: [] };
+        if (invalidationState.cacheKeys.length > 0) {
+          get().invalidateTaskChangePresence(invalidationState.cacheKeys);
         }
-      }
+        if (invalidationState.taskIds.length > 0) {
+          void api.review
+            .invalidateTaskChangeSummaries(teamName, invalidationState.taskIds)
+            .catch(() => undefined);
+        }
 
-      const messagesHeadResult = await get().refreshTeamMessagesHead(teamName);
-      if (messagesHeadResult.feedChanged || isMemberActivityMetaStale(get(), teamName)) {
-        await get().refreshMemberActivityMeta(teamName);
-      }
-
-      if (opts?.skipProjectAutoSelect) {
-        return;
-      }
-
-      // Auto-select the project associated with this team's cwd/projectPath.
-      // Must search both flat projects and grouped repositoryGroups/worktrees
-      // because the default viewMode is 'grouped' and flat projects may be empty.
-      const projectPath = data.config.projectPath;
-      if (projectPath) {
-        const state = get();
-        const normalizedTeamPath = normalizePath(projectPath);
-
-        // 1. Try flat projects list
-        const matchingProject = state.projects.find(
-          (p) => normalizePath(p.path) === normalizedTeamPath
+        // Sync tab label with the team's display name from config.
+        const displayName = data.config.name || teamName;
+        const allTabs = get().getAllPaneTabs();
+        const relatedTabs = allTabs.filter(
+          (tab) => (tab.type === 'team' || tab.type === 'graph') && tab.teamName === teamName
         );
-        if (matchingProject && state.selectedProjectId !== matchingProject.id) {
-          state.selectProject(matchingProject.id);
-        } else if (!matchingProject) {
-          // 2. Try grouped view: search worktrees across all repository groups
-          for (const repo of state.repositoryGroups) {
-            const matchingWorktree = repo.worktrees.find(
-              (wt) => normalizePath(wt.path) === normalizedTeamPath
-            );
-            if (matchingWorktree) {
-              if (state.selectedWorktreeId !== matchingWorktree.id) {
-                set(getWorktreeNavigationState(repo.id, matchingWorktree.id));
-                void get().fetchSessionsInitial(matchingWorktree.id);
+        for (const tab of relatedTabs) {
+          const nextLabel = tab.type === 'graph' ? `${displayName} Graph` : displayName;
+          if (tab.label !== nextLabel) {
+            get().updateTabLabel(tab.id, nextLabel);
+          }
+        }
+
+        // Auto-select the project associated with this team's cwd/projectPath.
+        // Must search both flat projects and grouped repositoryGroups/worktrees
+        // because the default viewMode is 'grouped' and flat projects may be empty.
+        const projectPath = data.config.projectPath;
+        if (
+          !opts?.skipProjectAutoSelect &&
+          projectPath &&
+          isSelectedTeamLoadStillCurrent(get, teamName, requestNonce, teamStateEpoch)
+        ) {
+          const state = get();
+          const normalizedTeamPath = normalizePath(projectPath);
+
+          // 1. Try flat projects list
+          const matchingProject = state.projects.find(
+            (p) => normalizePath(p.path) === normalizedTeamPath
+          );
+          if (matchingProject && state.selectedProjectId !== matchingProject.id) {
+            state.selectProject(matchingProject.id);
+          } else if (!matchingProject) {
+            // 2. Try grouped view: search worktrees across all repository groups
+            for (const repo of state.repositoryGroups) {
+              const matchingWorktree = repo.worktrees.find(
+                (wt) => normalizePath(wt.path) === normalizedTeamPath
+              );
+              if (matchingWorktree) {
+                if (state.selectedWorktreeId !== matchingWorktree.id) {
+                  set(getWorktreeNavigationState(repo.id, matchingWorktree.id));
+                  void get().fetchSessionsInitial(matchingWorktree.id);
+                }
+                break;
               }
-              break;
             }
           }
         }
+      } catch (error) {
+        logger.debug(
+          `selectTeam(${teamName}) post-structural sync work failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+
+      try {
+        schedulePostPaintTeamEnrichments({
+          teamName,
+          requestNonce,
+          teamStateEpoch,
+          get,
+        });
+      } catch (error) {
+        logger.debug(
+          `selectTeam(${teamName}) failed to schedule post-paint enrichments: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
     } catch (error) {
       if (!isTeamLocalStateEpochCurrent(teamName, teamStateEpoch)) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
         return;
       }
       // If provisioning is in progress for this team, stay in loading state;
       // file watcher / progress callback will refresh once config is written.
       const currentState = get();
-      if (
-        currentState.selectedTeamName !== teamName ||
-        currentState.selectedTeamLoadNonce !== requestNonce
-      ) {
+      if (currentState.selectedTeamName !== teamName) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
         return;
       }
+      if (currentState.selectedTeamLoadNonce !== requestNonce) {
+        return;
+      }
+      queuedFullTeamDataRefreshesAfterThin.delete(teamName);
       const isProvisioning = isTeamProvisioningActive(currentState, teamName);
 
       const msg = error instanceof Error ? error.message : String(error);
@@ -3591,12 +3872,21 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   },
 
   refreshTeamData: async (teamName: string, opts?: RefreshTeamDataOptions) => {
+    const fullKey = getFullTeamDataRequestKey(teamName);
+    const reusedInFlightRequest = opts?.withDedup === true && inFlightTeamDataRequests.has(fullKey);
+    const queuedBehindThinRequest =
+      opts?.withDedup === true && !reusedInFlightRequest && hasThinTeamDataRequestForTeam(teamName);
+
+    if (queuedBehindThinRequest) {
+      queuedFullTeamDataRefreshesAfterThin.add(teamName);
+      logger.debug(`refreshTeamData(${teamName}) queued behind thin team:getData`);
+      return;
+    }
+
     const teamStateEpoch = captureTeamLocalStateEpoch(teamName);
     const refreshToken = beginInFlightTeamDataRefresh(teamName);
     // Silent refresh — update data without showing loading skeleton.
     // Only selectTeam() sets loading: true (for initial load).
-    const reusedInFlightRequest =
-      opts?.withDedup === true && inFlightTeamDataRequests.has(teamName);
     noteTeamRefreshBurst(teamName);
     if (reusedInFlightRequest) {
       pendingFreshTeamDataRefreshes.add(teamName);

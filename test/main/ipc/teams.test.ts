@@ -1274,6 +1274,113 @@ describe('ipc teams handlers', () => {
     (electron.app as { isPackaged: boolean }).isPackaged = false;
   });
 
+  it('forwards thin TEAM_GET_DATA options to the worker without changing full request shape', async () => {
+    mockTeamDataWorkerClient.isAvailable.mockReturnValue(true);
+    mockTeamDataWorkerClient.getTeamData.mockResolvedValueOnce({
+      teamName: 'my-team',
+      config: { name: 'My Team' },
+      tasks: [],
+      members: [],
+      kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+      processes: [],
+    });
+
+    const handler = handlers.get(TEAM_GET_DATA)!;
+    const result = (await handler({} as never, 'my-team', {
+      includeMemberBranches: false,
+    })) as {
+      success: boolean;
+      data?: { teamName: string };
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data?.teamName).toBe('my-team');
+    expect(mockTeamDataWorkerClient.getTeamData).toHaveBeenCalledWith('my-team', {
+      includeMemberBranches: false,
+    });
+    expect(service.getTeamData).not.toHaveBeenCalled();
+  });
+
+  it('normalizes explicit full TEAM_GET_DATA options to the existing one-argument call shape', async () => {
+    mockTeamDataWorkerClient.isAvailable.mockReturnValue(true);
+    mockTeamDataWorkerClient.getTeamData.mockResolvedValueOnce({
+      teamName: 'my-team',
+      config: { name: 'My Team' },
+      tasks: [],
+      members: [],
+      kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+      processes: [],
+    });
+
+    const handler = handlers.get(TEAM_GET_DATA)!;
+    const result = (await handler({} as never, 'my-team', {
+      includeMemberBranches: true,
+    })) as {
+      success: boolean;
+      data?: { teamName: string };
+    };
+
+    expect(result.success).toBe(true);
+    expect(mockTeamDataWorkerClient.getTeamData).toHaveBeenCalledWith('my-team');
+  });
+
+  it('forwards thin TEAM_GET_DATA options through packaged main-thread fallback', async () => {
+    const electron = await import('electron');
+    mockTeamDataWorkerClient.isAvailable.mockReturnValue(false);
+    (electron.app as { isPackaged: boolean }).isPackaged = true;
+
+    const handler = handlers.get(TEAM_GET_DATA)!;
+    const result = (await handler({} as never, 'my-team', {
+      includeMemberBranches: false,
+    })) as {
+      success: boolean;
+      data?: { teamName: string };
+    };
+
+    expect(result.success).toBe(true);
+    expect(service.getTeamData).toHaveBeenCalledWith('my-team', {
+      includeMemberBranches: false,
+    });
+    vi.mocked(console.error).mockClear();
+
+    (electron.app as { isPackaged: boolean }).isPackaged = false;
+  });
+
+  it('rejects malformed TEAM_GET_DATA options before dispatching to service or worker', async () => {
+    const handler = handlers.get(TEAM_GET_DATA)!;
+    const result = (await handler({} as never, 'my-team', {
+      includeMemberBranches: 'false',
+    })) as {
+      success: boolean;
+      error?: string;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('includeMemberBranches');
+    expect(mockTeamDataWorkerClient.getTeamData).not.toHaveBeenCalled();
+    expect(service.getTeamData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['null options', null, 'options must be an object'],
+    ['array options', [], 'options must be an object'],
+    ['unknown option key', { includeMemberBranches: false, thin: true }, 'Unknown getData option'],
+  ])(
+    'rejects malformed TEAM_GET_DATA %s before dispatching to service or worker',
+    async (_label, rawOptions, expectedError) => {
+      const handler = handlers.get(TEAM_GET_DATA)!;
+      const result = (await handler({} as never, 'my-team', rawOptions)) as {
+        success: boolean;
+        error?: string;
+      };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain(expectedError);
+      expect(mockTeamDataWorkerClient.getTeamData).not.toHaveBeenCalled();
+      expect(service.getTeamData).not.toHaveBeenCalled();
+    }
+  );
+
   it('classifies draft teams before asking the team-data worker for a full snapshot', async () => {
     const claudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ipc-draft-get-data-'));
     setClaudeBasePathOverride(claudeRoot);

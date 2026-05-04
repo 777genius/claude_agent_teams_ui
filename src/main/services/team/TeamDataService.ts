@@ -86,6 +86,7 @@ import type {
   TeamConfig,
   TeamCreateConfigRequest,
   TeamCreateRequest,
+  TeamGetDataOptions,
   TeamMember,
   TeamMemberActivityMeta,
   TeamMemberSnapshot,
@@ -1128,7 +1129,8 @@ export class TeamDataService {
     TeamTaskReader.invalidateAllTasksCache();
   }
 
-  async getTeamData(teamName: string): Promise<TeamViewSnapshot> {
+  async getTeamData(teamName: string, options?: TeamGetDataOptions): Promise<TeamViewSnapshot> {
+    const includeMemberBranches = options?.includeMemberBranches !== false;
     const startedAt = Date.now();
     const marks: Record<string, number> = {};
     const mark = (label: string): void => {
@@ -1376,8 +1378,11 @@ export class TeamDataService {
     }
     mark('runtimeAdvisories');
 
-    // Enrich members with git branch when it differs from lead's branch
-    await this.enrichMemberBranches(members, config);
+    // Enrich members with git branch when it differs from lead's branch.
+    // UI-first reads can skip this because the renderer hydrates branches through branch sync.
+    if (includeMemberBranches) {
+      await this.enrichMemberBranches(members, config);
+    }
     mark('enrichBranches');
     mark('syncComments');
 
@@ -1392,6 +1397,7 @@ export class TeamDataService {
     const totalMs = Date.now() - startedAt;
     if (totalMs >= 1500) {
       const counts = `counts=tasks:${tasks.length},inboxNames:${inboxNames.length},members:${members.length},processes:${processes.length}`;
+      const branchMode = includeMemberBranches ? 'full' : 'skipped';
       logger.warn(
         `getTeamData team=${teamName} slow total=${totalMs}ms config=${msSince('config')} tasks=${msSince('tasks')} inboxNames=${msSince(
           'inboxNames'
@@ -1412,7 +1418,7 @@ export class TeamDataService {
         )}/enrichBranches=${msBetween(
           'runtimeAdvisories',
           'enrichBranches'
-        )}/processes=${msBetween('syncComments', 'processes')} ${counts}${
+        )}/processes=${msBetween('syncComments', 'processes')} branchMode=${branchMode} ${counts}${
           warnings.length > 0 ? ` warnings=${warnings.join('|')}` : ''
         }`
       );

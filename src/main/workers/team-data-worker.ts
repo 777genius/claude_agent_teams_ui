@@ -50,7 +50,7 @@ parentPort?.on('message', async (msg: TeamDataWorkerRequest) => {
         break;
       }
       case 'getTeamData': {
-        const result = await teamDataService.getTeamData(msg.payload.teamName);
+        const result = await teamDataService.getTeamData(msg.payload.teamName, msg.payload.options);
         respond({ id: msg.id, ok: true, result, diag: buildDiag() });
         break;
       }

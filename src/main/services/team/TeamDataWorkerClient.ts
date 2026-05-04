@@ -17,6 +17,7 @@ import type { TeamDataWorkerRequest, TeamDataWorkerResponse } from './teamDataWo
 import type {
   MemberLogSummary,
   MessagesPage,
+  TeamGetDataOptions,
   TeamMemberActivityMeta,
   TeamViewSnapshot,
 } from '@shared/types';
@@ -63,38 +64,59 @@ interface PendingEntry {
   reject: (e: Error) => void;
 }
 
-function summarizeWorkerPayload(
-  payload: TeamDataWorkerRequest['payload']
-): Record<string, unknown> {
-  if (!payload) {
-    return {};
-  }
-  if ('taskId' in payload) {
-    return {
-      teamName: payload.teamName,
-      taskId: payload.taskId,
-      owner: payload.options?.owner,
-      status: payload.options?.status,
-      intervals: Array.isArray(payload.options?.intervals)
-        ? payload.options.intervals.length
-        : undefined,
-      since: payload.options?.since,
-    };
-  }
-  if ('options' in payload) {
-    return {
-      teamName: payload.teamName,
-      cursor:
-        typeof payload.options.cursor === 'string'
-          ? payload.options.cursor.slice(0, 24)
-          : payload.options.cursor,
-      limit: payload.options.limit,
-    };
-  }
-  if ('teamName' in payload) {
-    return {
-      teamName: payload.teamName,
-    };
+function normalizeTeamGetDataOptions(options?: TeamGetDataOptions): TeamGetDataOptions | undefined {
+  return options?.includeMemberBranches === false ? { includeMemberBranches: false } : undefined;
+}
+
+function getTeamDataRequestKey(teamName: string, options?: TeamGetDataOptions): string {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  return `${teamName}\u0000branches:${normalizedOptions ? '0' : '1'}`;
+}
+
+function getTeamDataRequestPayload(
+  teamName: string,
+  options?: TeamGetDataOptions
+): Extract<TeamDataWorkerRequest, { op: 'getTeamData' }>['payload'] {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  return normalizedOptions ? { teamName, options: normalizedOptions } : { teamName };
+}
+
+function summarizeWorkerRequest(request: TeamDataWorkerRequest): Record<string, unknown> {
+  switch (request.op) {
+    case 'warmup':
+      return {};
+    case 'getTeamData': {
+      const { teamName, options } = request.payload;
+      return {
+        teamName,
+        includeMemberBranches: options?.includeMemberBranches !== false,
+      };
+    }
+    case 'getMessagesPage': {
+      const { teamName, options } = request.payload;
+      return {
+        teamName,
+        cursor: typeof options.cursor === 'string' ? options.cursor.slice(0, 24) : options.cursor,
+        limit: options.limit,
+      };
+    }
+    case 'getMemberActivityMeta':
+    case 'invalidateTeamConfig':
+    case 'invalidateTeamMessageFeed':
+      return {
+        teamName: request.payload.teamName,
+      };
+    case 'findLogsForTask':
+      return {
+        teamName: request.payload.teamName,
+        taskId: request.payload.taskId,
+        owner: request.payload.options?.owner,
+        status: request.payload.options?.status,
+        intervals: Array.isArray(request.payload.options?.intervals)
+          ? request.payload.options.intervals.length
+          : undefined,
+        since: request.payload.options?.since,
+      };
   }
   return {};
 }
@@ -169,6 +191,7 @@ export class TeamDataWorkerClient {
   ): Promise<unknown> {
     const worker = this.ensureWorker();
     const id = makeId();
+    const request = { id, op, payload } as TeamDataWorkerRequest;
     const startedAt = Date.now();
     const pendingAtStart = this.pending.size;
 
@@ -177,7 +200,7 @@ export class TeamDataWorkerClient {
         const timeoutError = new Error(`Worker call timeout after ${WORKER_CALL_TIMEOUT_MS}ms`);
         logger.warn(
           `worker call timeout op=${op} ms=${Date.now() - startedAt} pendingAtStart=${pendingAtStart} pendingNow=${this.pending.size} payload=${JSON.stringify(
-            summarizeWorkerPayload(payload)
+            summarizeWorkerRequest(request)
           )}`
         );
         this.failWorker(worker, timeoutError);
@@ -192,7 +215,7 @@ export class TeamDataWorkerClient {
           if (ms >= 1500) {
             logger.warn(
               `worker call slow op=${op} ms=${ms} workerTotalMs=${String(diag?.totalMs ?? 'unknown')} pendingAtStart=${pendingAtStart} pendingNow=${this.pending.size} payload=${JSON.stringify(
-                summarizeWorkerPayload(payload)
+                summarizeWorkerRequest(request)
               )}`
             );
           }
@@ -204,7 +227,7 @@ export class TeamDataWorkerClient {
           if (ms >= 1500) {
             logger.warn(
               `worker call failed slow op=${op} ms=${ms} pendingAtStart=${pendingAtStart} pendingNow=${this.pending.size} payload=${JSON.stringify(
-                summarizeWorkerPayload(payload)
+                summarizeWorkerRequest(request)
               )} error=${error.message}`
             );
           }
@@ -212,7 +235,7 @@ export class TeamDataWorkerClient {
         },
       });
 
-      worker.postMessage({ id, op, payload } as TeamDataWorkerRequest);
+      worker.postMessage(request);
     });
   }
 
@@ -237,36 +260,37 @@ export class TeamDataWorkerClient {
   ): void {
     const worker = this.worker;
     if (!worker) return;
+    const request = { id: makeId(), op, payload } as TeamDataWorkerRequest;
     try {
-      worker.postMessage({ id: makeId(), op, payload } as TeamDataWorkerRequest);
+      worker.postMessage(request);
     } catch (error) {
       logger.debug(
         `worker best-effort post failed op=${op} payload=${JSON.stringify(
-          summarizeWorkerPayload(payload)
+          summarizeWorkerRequest(request)
         )} error=${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
 
-  async getTeamData(teamName: string): Promise<TeamViewSnapshot> {
+  async getTeamData(teamName: string, options?: TeamGetDataOptions): Promise<TeamViewSnapshot> {
     if (!SAFE_NAME_RE.test(teamName)) throw new Error('Invalid teamName');
-    const existing = this.getTeamDataInFlight.get(teamName);
+    const key = getTeamDataRequestKey(teamName, options);
+    const existing = this.getTeamDataInFlight.get(key);
     if (existing) return existing;
 
-    const promise = (this.call('getTeamData', { teamName }) as Promise<TeamViewSnapshot>).finally(
-      () => {
-        if (this.getTeamDataInFlight.get(teamName) === promise) {
-          this.getTeamDataInFlight.delete(teamName);
-        }
+    const payload = getTeamDataRequestPayload(teamName, options);
+    const promise = (this.call('getTeamData', payload) as Promise<TeamViewSnapshot>).finally(() => {
+      if (this.getTeamDataInFlight.get(key) === promise) {
+        this.getTeamDataInFlight.delete(key);
       }
-    );
-    this.getTeamDataInFlight.set(teamName, promise);
+    });
+    this.getTeamDataInFlight.set(key, promise);
     return promise;
   }
 
   invalidateTeamConfig(teamName: string): void {
     if (!SAFE_NAME_RE.test(teamName)) return;
-    this.getTeamDataInFlight.delete(teamName);
+    this.clearTeamDataInFlightForTeam(teamName);
     this.clearMessagesPageInFlightForTeam(teamName);
     this.postBestEffort('invalidateTeamConfig', { teamName });
   }
@@ -282,6 +306,15 @@ export class TeamDataWorkerClient {
     for (const key of this.getMessagesPageInFlight.keys()) {
       if (key.startsWith(prefix)) {
         this.getMessagesPageInFlight.delete(key);
+      }
+    }
+  }
+
+  private clearTeamDataInFlightForTeam(teamName: string): void {
+    const prefix = `${teamName}\u0000`;
+    for (const key of this.getTeamDataInFlight.keys()) {
+      if (key.startsWith(prefix)) {
+        this.getTeamDataInFlight.delete(key);
       }
     }
   }

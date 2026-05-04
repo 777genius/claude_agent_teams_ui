@@ -875,6 +875,14 @@ export interface TeamMemberActivityMeta {
   feedRevision: string;
 }
 
+export interface TeamGetDataOptions {
+  /**
+   * Default true.
+   * Set false only for UI-first reads where branch labels can arrive through branch sync.
+   */
+  includeMemberBranches?: boolean;
+}
+
 export interface TeamViewSnapshot {
   teamName: string;
   config: TeamConfig;

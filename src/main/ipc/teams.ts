@@ -202,6 +202,7 @@ import type {
   TeamCreateRequest,
   TeamCreateResponse,
   TeamFastMode,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -226,6 +227,42 @@ import type { CliArgsValidationResult } from '@shared/utils/cliArgsParser';
 const logger = createLogger('IPC:teams');
 const OPENCODE_RUNTIME_DELIVERY_UI_TIMEOUT_MS = 12_000;
 const TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS = 250;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function validateTeamGetDataOptions(
+  value: unknown
+): { valid: true; value: TeamGetDataOptions | undefined } | { valid: false; error: string } {
+  if (value === undefined) {
+    return { valid: true, value: undefined };
+  }
+  if (!isPlainObject(value)) {
+    return { valid: false, error: 'options must be an object' };
+  }
+
+  const allowed = new Set(['includeMemberBranches']);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      return { valid: false, error: `Unknown getData option: ${key}` };
+    }
+  }
+
+  const includeMemberBranches = value.includeMemberBranches;
+  if (includeMemberBranches !== undefined && typeof includeMemberBranches !== 'boolean') {
+    return { valid: false, error: 'includeMemberBranches must be a boolean' };
+  }
+
+  return {
+    valid: true,
+    value: includeMemberBranches === false ? { includeMemberBranches: false } : undefined,
+  };
+}
 
 /**
  * In-memory set of rate-limit message keys already processed.
@@ -944,17 +981,27 @@ async function handleListTeams(_event: IpcMainInvokeEvent): Promise<IpcResult<Te
 
 async function handleGetData(
   _event: IpcMainInvokeEvent,
-  teamName: unknown
+  teamName: unknown,
+  rawOptions?: unknown
 ): Promise<IpcResult<TeamViewSnapshot>> {
   const validated = validateTeamName(teamName);
   if (!validated.valid) {
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
+  const optionsResult = validateTeamGetDataOptions(rawOptions);
+  if (!optionsResult.valid) {
+    return { success: false, error: optionsResult.error };
+  }
   const tn = validated.value!;
+  const getDataOptions = optionsResult.value;
   const startedAt = Date.now();
   let data: TeamViewSnapshot;
   let dataSource: 'worker' | 'main-fallback' | 'main-unavailable' = 'main-unavailable';
   let workerAvailable = false;
+  const readFromMain = (): Promise<TeamViewSnapshot> =>
+    getDataOptions === undefined
+      ? getTeamDataService().getTeamData(tn)
+      : getTeamDataService().getTeamData(tn, getDataOptions);
   setCurrentMainOp('team:getData');
   try {
     // Prefer worker thread to keep main event loop responsive
@@ -970,19 +1017,22 @@ async function handleGetData(
 
     if (workerAvailable) {
       try {
-        data = await worker.getTeamData(tn);
+        data =
+          getDataOptions === undefined
+            ? await worker.getTeamData(tn)
+            : await worker.getTeamData(tn, getDataOptions);
         dataSource = 'worker';
       } catch (workerErr) {
         logger.warn(
           `[teams:getData] worker failed, falling back: ${workerErr instanceof Error ? workerErr.message : workerErr}`
         );
         noteHeavyTeamDataWorkerFallback('teams:getData');
-        data = await getTeamDataService().getTeamData(tn);
+        data = await readFromMain();
         dataSource = 'main-fallback';
       }
     } else {
       noteHeavyTeamDataWorkerFallback('teams:getData');
-      data = await getTeamDataService().getTeamData(tn);
+      data = await readFromMain();
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1011,8 +1061,9 @@ async function handleGetData(
   const getDataMs = Date.now() - startedAt;
 
   if (getDataMs >= 1500) {
+    const branchMode = getDataOptions?.includeMemberBranches === false ? 'skipped' : 'full';
     logger.warn(
-      `[teams:getData] slow team=${tn} ms=${getDataMs} source=${dataSource} workerAvailable=${workerAvailable}`
+      `[teams:getData] slow team=${tn} ms=${getDataMs} source=${dataSource} workerAvailable=${workerAvailable} branchMode=${branchMode}`
     );
   }
   const teamDataService = getTeamDataService();

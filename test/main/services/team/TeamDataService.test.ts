@@ -10,6 +10,7 @@ import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigR
 import { buildTaskChangePresenceDescriptor } from '../../../../src/main/services/team/taskChangePresenceUtils';
 import { TeamDataService } from '../../../../src/main/services/team/TeamDataService';
 import { TeamTaskReader } from '../../../../src/main/services/team/TeamTaskReader';
+import { gitIdentityResolver } from '../../../../src/main/services/parsing/GitIdentityResolver';
 import type { TeamMetaFile } from '../../../../src/main/services/team/TeamMetaStore';
 
 import type {
@@ -4592,6 +4593,86 @@ describe('TeamDataService', () => {
 
     expect(harness.getConfigSnapshot).toHaveBeenCalledWith('my-team');
     expect(harness.getConfig).not.toHaveBeenCalled();
+  });
+
+  it('skips member branch enrichment for thin UI team data snapshots', async () => {
+    const getBranchSpy = vi.spyOn(gitIdentityResolver, 'getBranch').mockResolvedValue('main');
+    const harness = createGetTeamDataHarness({
+      config: buildDefaultTeamConfig({
+        projectPath: '/repo',
+        members: [
+          { name: 'team-lead', role: 'Lead', cwd: '/repo' },
+          { name: 'alice', role: 'Developer', cwd: '/repo-alice' },
+        ],
+      }),
+      resolveMembers: () => [
+        { ...buildResolvedMember('team-lead'), cwd: '/repo' },
+        { ...buildResolvedMember('alice'), cwd: '/repo-alice' },
+      ],
+    });
+
+    const data = await harness.service.getTeamData('my-team', {
+      includeMemberBranches: false,
+    });
+
+    expect(getBranchSpy).not.toHaveBeenCalled();
+    expect(data.members.find((member) => member.name === 'alice')?.gitBranch).toBeUndefined();
+  });
+
+  it('keeps member branch enrichment on by default for full UI team data snapshots', async () => {
+    const getBranchSpy = vi
+      .spyOn(gitIdentityResolver, 'getBranch')
+      .mockImplementation(async (cwd) => (cwd === '/repo-alice' ? 'feature/alice' : 'main'));
+    const harness = createGetTeamDataHarness({
+      config: buildDefaultTeamConfig({
+        projectPath: '/repo',
+        members: [
+          { name: 'team-lead', role: 'Lead', cwd: '/repo' },
+          { name: 'alice', role: 'Developer', cwd: '/repo-alice' },
+        ],
+      }),
+      resolveMembers: () => [
+        { ...buildResolvedMember('team-lead'), cwd: '/repo' },
+        { ...buildResolvedMember('alice'), cwd: '/repo-alice' },
+      ],
+    });
+
+    const data = await harness.service.getTeamData('my-team');
+
+    expect(getBranchSpy).toHaveBeenCalledWith('/repo');
+    expect(getBranchSpy).toHaveBeenCalledWith('/repo-alice');
+    expect(data.members.find((member) => member.name === 'alice')?.gitBranch).toBe(
+      'feature/alice'
+    );
+  });
+
+  it('keeps member branch enrichment on for explicit full UI team data snapshots', async () => {
+    const getBranchSpy = vi
+      .spyOn(gitIdentityResolver, 'getBranch')
+      .mockImplementation(async (cwd) => (cwd === '/repo-alice' ? 'feature/alice' : 'main'));
+    const harness = createGetTeamDataHarness({
+      config: buildDefaultTeamConfig({
+        projectPath: '/repo',
+        members: [
+          { name: 'team-lead', role: 'Lead', cwd: '/repo' },
+          { name: 'alice', role: 'Developer', cwd: '/repo-alice' },
+        ],
+      }),
+      resolveMembers: () => [
+        { ...buildResolvedMember('team-lead'), cwd: '/repo' },
+        { ...buildResolvedMember('alice'), cwd: '/repo-alice' },
+      ],
+    });
+
+    const data = await harness.service.getTeamData('my-team', {
+      includeMemberBranches: true,
+    });
+
+    expect(getBranchSpy).toHaveBeenCalledWith('/repo');
+    expect(getBranchSpy).toHaveBeenCalledWith('/repo-alice');
+    expect(data.members.find((member) => member.name === 'alice')?.gitBranch).toBe(
+      'feature/alice'
+    );
   });
 
   it('uses snapshot config reads for UI message feed snapshots', async () => {

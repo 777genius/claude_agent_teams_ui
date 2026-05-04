@@ -93,6 +93,80 @@ describe('TeamDataWorkerClient', () => {
     client.dispose();
   });
 
+  it('does not deduplicate thin and full getTeamData calls together', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+
+    await Promise.all([
+      client.getTeamData('my-team'),
+      client.getTeamData('my-team', { includeMemberBranches: false }),
+    ]);
+
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages).toHaveLength(2);
+    expect(hoisted.workers[0].messages[0]).toMatchObject({
+      op: 'getTeamData',
+      payload: { teamName: 'my-team' },
+    });
+    expect(hoisted.workers[0].messages[0]).not.toMatchObject({
+      payload: { options: expect.anything() },
+    });
+    expect(hoisted.workers[0].messages[1]).toMatchObject({
+      op: 'getTeamData',
+      payload: { teamName: 'my-team', options: { includeMemberBranches: false } },
+    });
+
+    client.dispose();
+  });
+
+  it('deduplicates explicit full getTeamData options with the default request', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+
+    await Promise.all([
+      client.getTeamData('my-team'),
+      client.getTeamData('my-team', { includeMemberBranches: true }),
+    ]);
+
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages).toHaveLength(1);
+    expect(hoisted.workers[0].messages[0]).toMatchObject({
+      op: 'getTeamData',
+      payload: { teamName: 'my-team' },
+    });
+    expect(hoisted.workers[0].messages[0]).not.toMatchObject({
+      payload: { options: expect.anything() },
+    });
+
+    client.dispose();
+  });
+
+  it('deduplicates concurrent thin getTeamData calls for the same team', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+
+    const [first, second] = await Promise.all([
+      client.getTeamData('my-team', { includeMemberBranches: false }),
+      client.getTeamData('my-team', { includeMemberBranches: false }),
+    ]);
+
+    expect(first).toEqual(second);
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages).toHaveLength(1);
+    expect(hoisted.workers[0].messages[0]).toMatchObject({
+      op: 'getTeamData',
+      payload: { teamName: 'my-team', options: { includeMemberBranches: false } },
+    });
+
+    client.dispose();
+  });
+
   it('does not queue warmup behind an already running worker', async () => {
     const { TeamDataWorkerClient } = await import(
       '../../../../src/main/services/team/TeamDataWorkerClient'
@@ -216,6 +290,70 @@ describe('TeamDataWorkerClient', () => {
       'invalidateTeamConfig',
       'getTeamData',
     ]);
+
+    client.dispose();
+  });
+
+  it('clears both thin and full getTeamData dedupe when invalidating team config', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    const client = new TeamDataWorkerClient();
+
+    const firstFull = client.getTeamData('my-team');
+    const firstThin = client.getTeamData('my-team', { includeMemberBranches: false });
+    client.invalidateTeamConfig('my-team');
+    const secondFull = client.getTeamData('my-team');
+    const secondThin = client.getTeamData('my-team', { includeMemberBranches: false });
+
+    await Promise.all([firstFull, firstThin, secondFull, secondThin]);
+
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages.map((message) => (message as { op: string }).op)).toEqual([
+      'getTeamData',
+      'getTeamData',
+      'invalidateTeamConfig',
+      'getTeamData',
+      'getTeamData',
+    ]);
+
+    const payloads = hoisted.workers[0].messages.map(
+      (message) => (message as { payload: unknown }).payload
+    );
+    expect(payloads).toEqual([
+      { teamName: 'my-team' },
+      { teamName: 'my-team', options: { includeMemberBranches: false } },
+      { teamName: 'my-team' },
+      { teamName: 'my-team' },
+      { teamName: 'my-team', options: { includeMemberBranches: false } },
+    ]);
+
+    client.dispose();
+  });
+
+  it('rejects and clears thin and full getTeamData requests on dispose', async () => {
+    const { TeamDataWorkerClient } = await import(
+      '../../../../src/main/services/team/TeamDataWorkerClient'
+    );
+    hoisted.skipResponsesForOps.add('getTeamData');
+    const client = new TeamDataWorkerClient();
+
+    const full = client.getTeamData('my-team');
+    const thin = client.getTeamData('my-team', { includeMemberBranches: false });
+
+    expect(hoisted.workers).toHaveLength(1);
+    expect(hoisted.workers[0].messages).toHaveLength(2);
+
+    client.dispose();
+
+    await expect(full).rejects.toThrow('Client disposed');
+    await expect(thin).rejects.toThrow('Client disposed');
+
+    hoisted.skipResponsesForOps.delete('getTeamData');
+
+    await client.getTeamData('my-team');
+    expect(hoisted.workers).toHaveLength(2);
+    expect(hoisted.workers[1].messages).toHaveLength(1);
 
     client.dispose();
   });

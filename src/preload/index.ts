@@ -307,6 +307,7 @@ import type {
   TeamCreateConfigRequest,
   TeamCreateRequest,
   TeamCreateResponse,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -844,8 +845,11 @@ const electronAPI: ElectronAPI = {
     list: async () => {
       return invokeIpcWithResult<TeamSummary[]>(TEAM_LIST);
     },
-    getData: async (teamName: string) => {
-      return invokeIpcWithResult<TeamViewSnapshot>(TEAM_GET_DATA, teamName);
+    getData: async (teamName: string, options?: TeamGetDataOptions) => {
+      if (options === undefined) {
+        return invokeIpcWithResult<TeamViewSnapshot>(TEAM_GET_DATA, teamName);
+      }
+      return invokeIpcWithResult<TeamViewSnapshot>(TEAM_GET_DATA, teamName, options);
     },
     getTaskChangePresence: async (teamName: string) => {
       return invokeIpcWithResult<Record<string, TaskChangePresenceState>>(

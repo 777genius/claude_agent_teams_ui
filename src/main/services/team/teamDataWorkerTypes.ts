@@ -5,6 +5,7 @@
 import type {
   MemberLogSummary,
   MessagesPage,
+  TeamGetDataOptions,
   TeamMemberActivityMeta,
   TeamViewSnapshot,
 } from '@shared/types';
@@ -13,6 +14,7 @@ import type {
 
 export interface GetTeamDataPayload {
   teamName: string;
+  options?: TeamGetDataOptions;
 }
 
 export interface GetMessagesPagePayload {
