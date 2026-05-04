@@ -296,6 +296,14 @@ export function initializeNotificationListeners(): () => void {
   const isProvisioningProgressActiveForProcessLite = (
     progress: Pick<TeamProvisioningProgress, 'state'> | null
   ): boolean => progress != null && ACTIVE_PROVISIONING_STATES_FOR_PROCESS_LITE.has(progress.state);
+  const hasActiveProvisioningRunForTeam = (teamName: string): boolean => {
+    return isProvisioningProgressActiveForProcessLite(
+      getCurrentProvisioningProgressForTeam(useStore.getState(), teamName)
+    );
+  };
+  const shouldDeferAutomaticTeamDataRefreshDuringLaunch = (teamName: string): boolean => {
+    return isTeamProcessLiteFanoutEnabled() && hasActiveProvisioningRunForTeam(teamName);
+  };
   const addPendingGlobalRefreshDiagnostic = (
     pending: Map<string, Set<string>>,
     teamName: string,
@@ -648,6 +656,9 @@ export function initializeNotificationListeners(): () => void {
       for (const teamName of visibleTeamNames) {
         const teamData = selectTeamDataForName(state, teamName);
         if (teamData?.teamName !== teamName) {
+          if (shouldDeferAutomaticTeamDataRefreshDuringLaunch(teamName)) {
+            continue;
+          }
           if (!isTeamDataRefreshPending(teamName)) {
             void state.refreshTeamData(teamName, { withDedup: true });
           }
@@ -679,6 +690,9 @@ export function initializeNotificationListeners(): () => void {
 
         const currentTeamData = selectTeamDataForName(current, teamName);
         if (currentTeamData?.teamName !== teamName) {
+          if (shouldDeferAutomaticTeamDataRefreshDuringLaunch(teamName)) {
+            continue;
+          }
           if (!isTeamDataRefreshPending(teamName)) {
             void current.refreshTeamData(teamName, { withDedup: true });
           }
@@ -917,7 +931,10 @@ export function initializeNotificationListeners(): () => void {
       activeTab: getFocusedVisibleTeamName() === event.teamName,
     });
   };
-  const cancelProcessLiteStructuralReconcile = (teamName: string): void => {
+  const cancelProcessLiteStructuralReconcile = (
+    teamName: string,
+    reason = 'event:process-lite:structural-reconcile:cancelled-by-structural'
+  ): void => {
     const existing = processLiteStructuralReconcileTimers.get(teamName);
     if (!existing) {
       return;
@@ -928,11 +945,59 @@ export function initializeNotificationListeners(): () => void {
       teamName,
       surface: 'team-change-listener',
       phase: 'skipped',
-      reason: 'event:process-lite:structural-reconcile:cancelled-by-structural',
+      reason,
       operation: 'refreshTeamData',
     });
   };
+  const shouldSuppressProcessLiteStructuralReconcileDuringLaunch = (teamName: string): boolean => {
+    return isTeamProcessLiteFanoutEnabled() && hasActiveProvisioningRunForTeam(teamName);
+  };
+  const noteProcessLiteStructuralReconcileSuppressedDuringLaunch = (teamName: string): void => {
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: 'skipped',
+      reason: 'event:process-lite:structural-reconcile:suppressed-during-launch',
+      operation: 'refreshTeamData',
+      visible: isTeamVisibleInAnyPane(teamName),
+      selected: useStore.getState().selectedTeamName === teamName,
+      activeTab: getFocusedVisibleTeamName() === teamName,
+    });
+  };
+  const shouldUseLaunchProcessRuntimeOnlyFanout = (
+    event: TeamChangeEvent,
+    isStaleRuntimeEvent: boolean
+  ): boolean => {
+    return (
+      event.type === 'process' &&
+      event.detail === 'processes.json' &&
+      !isStaleRuntimeEvent &&
+      isTeamVisibleInAnyPane(event.teamName) &&
+      shouldSuppressProcessLiteStructuralReconcileDuringLaunch(event.teamName)
+    );
+  };
+  const noteLaunchProcessStructuralSuppressed = (
+    teamName: string,
+    operation: 'fetchTeams' | 'refreshTeamData'
+  ): void => {
+    noteTeamRefreshFanout({
+      teamName,
+      surface: 'team-change-listener',
+      phase: 'skipped',
+      reason: 'event:process-lite:structural-suppressed-during-launch',
+      operation,
+      eventType: 'process',
+      selected: useStore.getState().selectedTeamName === teamName,
+      visible: true,
+      activeTab: getFocusedVisibleTeamName() === teamName,
+    });
+  };
   const runProcessLiteStructuralReconcile = (teamName: string): void => {
+    if (shouldSuppressProcessLiteStructuralReconcileDuringLaunch(teamName)) {
+      noteProcessLiteStructuralReconcileSuppressedDuringLaunch(teamName);
+      return;
+    }
+
     const current = useStore.getState();
     noteTeamRefreshFanout({
       teamName,
@@ -1036,6 +1101,10 @@ export function initializeNotificationListeners(): () => void {
     }
 
     if (isTeamDataRefreshPending(teamName)) {
+      return;
+    }
+
+    if (shouldDeferAutomaticTeamDataRefreshDuringLaunch(teamName)) {
       return;
     }
 
@@ -1575,6 +1644,20 @@ export function initializeNotificationListeners(): () => void {
       if (event.type === 'process') {
         const processDecision = buildProcessFanoutDecision(event, isStaleRuntimeEvent);
         recordProcessFanoutDecision(event, processDecision);
+        if (
+          isTeamProcessLiteFanoutEnabled() &&
+          shouldUseLaunchProcessRuntimeOnlyFanout(event, isStaleRuntimeEvent)
+        ) {
+          noteLaunchProcessStructuralSuppressed(event.teamName, 'fetchTeams');
+          noteLaunchProcessStructuralSuppressed(event.teamName, 'refreshTeamData');
+          scheduleProcessLiteRuntimeRefresh(event.teamName);
+          cancelProcessLiteStructuralReconcile(
+            event.teamName,
+            'event:process-lite:structural-reconcile:cancelled-during-launch'
+          );
+          noteProcessLiteStructuralReconcileSuppressedDuringLaunch(event.teamName);
+          return;
+        }
         if (processDecision.mode === 'process-lite' && isTeamProcessLiteFanoutEnabled()) {
           noteTeamRefreshFanout({
             teamName: event.teamName,

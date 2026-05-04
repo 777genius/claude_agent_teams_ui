@@ -107,6 +107,14 @@ describe('team change throttling', () => {
       selectedTeamName: null,
       selectedTeamData: null,
       teamDataCacheByName: {},
+      provisioningRuns: {},
+      currentProvisioningRunIdByTeam: {},
+      currentRuntimeRunIdByTeam: {},
+      ignoredProvisioningRunIds: {},
+      ignoredRuntimeRunIds: {},
+      memberSpawnStatusesByTeam: {},
+      memberSpawnSnapshotsByTeam: {},
+      teamAgentRuntimeByTeam: {},
       memberActivityMetaByTeam: {},
       paneLayout: {
         focusedPaneId: 'p1',
@@ -309,6 +317,7 @@ describe('team change throttling', () => {
     const state = useStore.getState();
     const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
     const fetchMemberSpawnStatusesSpy = vi.spyOn(state, 'fetchMemberSpawnStatuses');
+    const fetchTeamsSpy = vi.spyOn(state, 'fetchTeams');
 
     hoisted.onTeamChangeCb?.(
       {},
@@ -318,6 +327,187 @@ describe('team change throttling', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(fetchMemberSpawnStatusesSpy).toHaveBeenCalledWith('my-team');
     expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(fetchTeamsSpy).not.toHaveBeenCalled();
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    const summary = summarizeTeamRefreshFanout('my-team');
+    expect(summary.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'event:process-lite:structural-reconcile:suppressed-during-launch',
+          operation: 'refreshTeamData',
+          phase: 'skipped',
+        }),
+      ])
+    );
+  });
+
+  it('keeps active launch process file events runtime-only before team data hydrates', async () => {
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: null,
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-1' },
+      provisioningRuns: {
+        'run-1': {
+          runId: 'run-1',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: {},
+    } as never);
+
+    const state = useStore.getState();
+    const fetchTeamsSpy = vi.spyOn(state, 'fetchTeams');
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+    const fetchMemberSpawnStatusesSpy = vi.spyOn(state, 'fetchMemberSpawnStatuses');
+    const fetchTeamAgentRuntimeSpy = vi.spyOn(state, 'fetchTeamAgentRuntime');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'process', teamName: 'my-team', detail: 'processes.json' }
+    );
+
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(799);
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMemberSpawnStatusesSpy).toHaveBeenCalledWith('my-team');
+    expect(fetchTeamAgentRuntimeSpy).toHaveBeenCalledWith('my-team');
+    expect(useStore.getState().selectedTeamData).toBeNull();
+    expect(useStore.getState().teamDataCacheByName['my-team']).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(19_200);
+    expect(fetchTeamsSpy).not.toHaveBeenCalled();
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    const summary = summarizeTeamRefreshFanout('my-team');
+    expect(summary.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'dry-run:process-lite:missing-visible-team-data',
+          operation: 'wouldKeepStructuralProcess',
+          phase: 'skipped',
+        }),
+        expect.objectContaining({
+          reason: 'event:process-lite:structural-suppressed-during-launch',
+          operation: 'refreshTeamData',
+          phase: 'skipped',
+        }),
+      ])
+    );
+  });
+
+  it('keeps active launch process file events structural when process-lite is disabled', async () => {
+    window.localStorage.setItem('team:processLiteFanout', '0');
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: null,
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-1' },
+      provisioningRuns: {
+        'run-1': {
+          runId: 'run-1',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: {},
+    } as never);
+
+    const refreshTeamDataSpy = vi.spyOn(useStore.getState(), 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'process', teamName: 'my-team', detail: 'processes.json' }
+    );
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+  });
+
+  it('suppresses idle-watchdog structural refresh during active launch', async () => {
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: {
+        teamName: 'my-team',
+        config: { name: 'My Team', members: [], projectPath: '/repo' },
+        tasks: [],
+        members: [],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      },
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-1' },
+      provisioningRuns: {
+        'run-1': {
+          runId: 'run-1',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-1' },
+    } as never);
+
+    const refreshTeamDataSpy = vi.spyOn(useStore.getState(), 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'process', teamName: 'my-team', detail: 'processes.json', runId: 'run-1' }
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps idle-watchdog structural refresh available when process-lite is disabled', async () => {
+    window.localStorage.setItem('team:processLiteFanout', '0');
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: {
+        teamName: 'my-team',
+        config: { name: 'My Team', members: [], projectPath: '/repo' },
+        tasks: [],
+        members: [],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      },
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-1' },
+      provisioningRuns: {
+        'run-1': {
+          runId: 'run-1',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-1' },
+    } as never);
+
+    const refreshTeamDataSpy = vi.spyOn(useStore.getState(), 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'lead-activity', teamName: 'my-team', detail: 'active', runId: 'run-1' }
+    );
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
   });
 
   it('does not treat terminal or unknown provisioning states as process-lite active', async () => {
@@ -354,6 +544,53 @@ describe('team change throttling', () => {
 
     await vi.advanceTimersByTimeAsync(800);
     expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+  });
+
+  it('keeps unsafe process details structural during active launch', async () => {
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: {
+        teamName: 'my-team',
+        config: { name: 'My Team', members: [], projectPath: '/repo' },
+        tasks: [],
+        members: [],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      },
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-1' },
+      provisioningRuns: {
+        'run-1': {
+          runId: 'run-1',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-1' },
+    } as never);
+
+    const refreshTeamDataSpy = vi.spyOn(useStore.getState(), 'refreshTeamData');
+    const fetchMemberSpawnStatusesSpy = vi.spyOn(useStore.getState(), 'fetchMemberSpawnStatuses');
+
+    hoisted.onTeamChangeCb?.({}, { type: 'process', teamName: 'my-team', detail: 'failed' });
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchMemberSpawnStatusesSpy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+
+    const summary = summarizeTeamRefreshFanout('my-team');
+    expect(summary.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'dry-run:process-lite:unsafe-process-detail',
+          operation: 'wouldKeepStructuralProcess',
+          phase: 'skipped',
+        }),
+      ])
+    );
   });
 
   it('keeps strict process candidates on the structural path when process-lite is disabled', async () => {
@@ -436,6 +673,165 @@ describe('team change throttling', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(fetchTeamsSpy).toHaveBeenCalledTimes(1);
     expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels pending process-lite structural reconcile when launch becomes active', async () => {
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: {
+        teamName: 'my-team',
+        config: { name: 'My Team', members: [], projectPath: '/repo' },
+        tasks: [],
+        members: [],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-1' },
+    } as never);
+
+    const state = useStore.getState();
+    const fetchTeamsSpy = vi.spyOn(state, 'fetchTeams');
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'process', teamName: 'my-team', detail: 'processes.json' }
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    useStore.setState({
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-2' },
+      provisioningRuns: {
+        'run-2': {
+          runId: 'run-2',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-2' },
+    } as never);
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'process', teamName: 'my-team', detail: 'processes.json', runId: 'run-2' }
+    );
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(fetchTeamsSpy).not.toHaveBeenCalled();
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    const summary = summarizeTeamRefreshFanout('my-team');
+    expect(summary.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'event:process-lite:structural-reconcile:cancelled-during-launch',
+          operation: 'refreshTeamData',
+          phase: 'skipped',
+        }),
+      ])
+    );
+  });
+
+  it('skips pending process-lite structural reconcile if provisioning becomes active before the timer fires', async () => {
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: {
+        teamName: 'my-team',
+        config: { name: 'My Team', members: [], projectPath: '/repo' },
+        tasks: [],
+        members: [],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-1' },
+    } as never);
+
+    const state = useStore.getState();
+    const fetchTeamsSpy = vi.spyOn(state, 'fetchTeams');
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'process', teamName: 'my-team', detail: 'processes.json', runId: 'run-1' }
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    useStore.setState({
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-2' },
+      provisioningRuns: {
+        'run-2': {
+          runId: 'run-2',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-2' },
+    } as never);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(fetchTeamsSpy).not.toHaveBeenCalled();
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    const summary = summarizeTeamRefreshFanout('my-team');
+    expect(summary.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'event:process-lite:structural-reconcile:suppressed-during-launch',
+          operation: 'refreshTeamData',
+          phase: 'skipped',
+        }),
+      ])
+    );
+  });
+
+  it('keeps pending process-lite structural reconcile available when process-lite is disabled before the timer fires', async () => {
+    useStore.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: {
+        teamName: 'my-team',
+        config: { name: 'My Team', members: [], projectPath: '/repo' },
+        tasks: [],
+        members: [],
+        kanbanState: { teamName: 'my-team', reviewers: [], tasks: {} },
+        processes: [],
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-1' },
+    } as never);
+
+    const state = useStore.getState();
+    const fetchTeamsSpy = vi.spyOn(state, 'fetchTeams');
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      { type: 'process', teamName: 'my-team', detail: 'processes.json', runId: 'run-1' }
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    window.localStorage.setItem('team:processLiteFanout', '0');
+    useStore.setState({
+      currentProvisioningRunIdByTeam: { 'my-team': 'run-2' },
+      provisioningRuns: {
+        'run-2': {
+          runId: 'run-2',
+          teamName: 'my-team',
+          state: 'spawning',
+          message: 'Spawning',
+          startedAt: '2026-05-03T00:00:00.000Z',
+          updatedAt: '2026-05-03T00:00:00.000Z',
+        },
+      },
+      currentRuntimeRunIdByTeam: { 'my-team': 'run-2' },
+    } as never);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetchTeamsSpy).toHaveBeenCalledTimes(1);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
   });
 
   it('cancels pending process-lite reconcile when a normal structural event wins', async () => {
