@@ -282,3 +282,5 @@ export const ExecutionTrace: React.FC<ExecutionTraceProps> = React.memo(
     );
   }
 );
+
+ExecutionTrace.displayName = 'ExecutionTrace';

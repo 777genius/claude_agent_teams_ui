@@ -120,6 +120,7 @@ import {
 import { startEventLoopLagMonitor } from './services/infrastructure/EventLoopLagMonitor';
 import { HttpServer } from './services/infrastructure/HttpServer';
 import { clearAutoResumeService } from './services/team/AutoResumeService';
+import { LaunchIoGovernor } from './services/team/LaunchIoGovernor';
 import { OpenCodeBridgeCommandClient } from './services/team/opencode/bridge/OpenCodeBridgeCommandClient';
 import {
   createOpenCodeBridgeCommandLeaseStore,
@@ -136,16 +137,15 @@ import {
   clearTeamControlApiState,
   writeTeamControlApiState,
 } from './services/team/TeamControlApiState';
-import { TeamInboxReader } from './services/team/TeamInboxReader';
 import { getTeamDataWorkerClient } from './services/team/TeamDataWorkerClient';
 import { getTeamFsWorkerClient } from './services/team/TeamFsWorkerClient';
+import { TeamInboxReader } from './services/team/TeamInboxReader';
 import { TeamMemberRuntimeAdvisoryService } from './services/team/TeamMemberRuntimeAdvisoryService';
 import {
   createTeamReconcileDrainScheduler,
   type TeamReconcileTrigger,
 } from './services/team/TeamReconcileDrainScheduler';
 import { TeamSentMessagesStore } from './services/team/TeamSentMessagesStore';
-import { LaunchIoGovernor } from './services/team/LaunchIoGovernor';
 import { getAppIconPath } from './utils/appIcon';
 import {
   getClaudeBasePath,
@@ -647,7 +647,7 @@ async function runStartupJobsBounded<T>(
       if (isShutdownStarted()) {
         return;
       }
-      await run(items[index]!);
+      await run(items[index]);
     }
   });
   await Promise.allSettled(workers);

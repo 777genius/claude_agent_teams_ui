@@ -13,13 +13,13 @@ import {
   BOARD_TASK_CHANGES_DIRNAME,
   BOARD_TASK_LOG_FRESHNESS_DIRNAME,
   BOARD_TASK_LOG_FRESHNESS_FILE_SUFFIX,
-  MAX_PENDING_UNKNOWN_ROOT_REFRESH_ATTEMPTS,
-  MAX_PENDING_UNKNOWN_ROOT_SESSIONS,
-  PENDING_UNKNOWN_ROOT_SESSION_TTL_MS,
   classifyLogSourceWatcherEvent,
   getRelativeLogSourceParts,
   isAgentTranscriptFileName,
+  MAX_PENDING_UNKNOWN_ROOT_REFRESH_ATTEMPTS,
+  MAX_PENDING_UNKNOWN_ROOT_SESSIONS,
   normalizeLogSourceSessionId,
+  PENDING_UNKNOWN_ROOT_SESSION_TTL_MS,
 } from './teamLogSourceWatchScope';
 
 import type { TeamLogSourceLiveContext, TeamMemberLogsFinder } from './TeamMemberLogsFinder';
@@ -420,18 +420,21 @@ export class TeamLogSourceTracker {
       });
 
       if (action.kind === 'task-freshness') {
-        this.handleTaskFreshnessSignalChange(
-          teamName,
-          current.projectDir,
-          changedPath,
-          BOARD_TASK_LOG_FRESHNESS_DIRNAME
-        ) ||
+        if (
+          !this.handleTaskFreshnessSignalChange(
+            teamName,
+            current.projectDir,
+            changedPath,
+            BOARD_TASK_LOG_FRESHNESS_DIRNAME
+          )
+        ) {
           this.handleTaskFreshnessSignalChange(
             teamName,
             current.projectDir,
             changedPath,
             BOARD_TASK_CHANGE_FRESHNESS_DIRNAME
           );
+        }
         return;
       }
 

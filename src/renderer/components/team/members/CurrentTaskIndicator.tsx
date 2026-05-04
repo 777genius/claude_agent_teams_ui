@@ -58,3 +58,5 @@ export const CurrentTaskIndicator = memo(
     );
   }
 );
+
+CurrentTaskIndicator.displayName = 'CurrentTaskIndicator';

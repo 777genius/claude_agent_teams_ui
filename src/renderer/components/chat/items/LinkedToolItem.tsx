@@ -236,3 +236,5 @@ export const LinkedToolItem = memo(
     );
   }
 );
+
+LinkedToolItem.displayName = 'LinkedToolItem';

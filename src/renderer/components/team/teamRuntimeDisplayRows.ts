@@ -36,11 +36,11 @@ export interface TeamRuntimeDisplayRow {
   actionsAllowed: false;
 }
 
-type SpawnDegradation = {
+interface SpawnDegradation {
   reason: string;
   diagnostic?: string;
   diagnosticSeverity: TeamAgentRuntimeDiagnosticSeverity;
-};
+}
 
 const ACTIVE_SPAWN_STATUSES = new Set(['waiting', 'spawning']);
 

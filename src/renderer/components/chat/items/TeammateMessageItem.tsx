@@ -264,3 +264,5 @@ export const TeammateMessageItem = memo(
     );
   }
 );
+
+TeammateMessageItem.displayName = 'TeammateMessageItem';

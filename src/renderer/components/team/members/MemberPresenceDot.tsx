@@ -27,3 +27,5 @@ export const MemberPresenceDot = memo(
     );
   }
 );
+
+MemberPresenceDot.displayName = 'MemberPresenceDot';

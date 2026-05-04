@@ -60,7 +60,7 @@ export interface TeamRefreshFanoutStructuredCount {
   phase: TeamRefreshFanoutPhase;
 }
 
-export interface TeamRefreshFanoutSummaryRow extends TeamRefreshFanoutStructuredCount {}
+export type TeamRefreshFanoutSummaryRow = TeamRefreshFanoutStructuredCount;
 
 export interface TeamRefreshFanoutSummary {
   generatedAt: number;
@@ -92,7 +92,7 @@ function createEmptyBucket(): TeamRefreshFanoutBucket {
 
 function ensureTeamBucket(teamName: string): TeamRefreshFanoutBucket {
   if (!buckets.has(teamName) && buckets.size >= MAX_TEAM_REFRESH_DIAGNOSTIC_TEAMS) {
-    const oldestKey = buckets.keys().next().value as string | undefined;
+    const oldestKey = buckets.keys().next().value;
     if (oldestKey) {
       buckets.delete(oldestKey);
     }

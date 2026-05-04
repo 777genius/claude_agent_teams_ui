@@ -216,3 +216,5 @@ export const BaseItem = memo(
     );
   }
 );
+
+BaseItem.displayName = 'BaseItem';

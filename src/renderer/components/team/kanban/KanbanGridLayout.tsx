@@ -458,5 +458,7 @@ export const KanbanGridLayout = memo(
   }
 );
 
+KanbanGridLayout.displayName = 'KanbanGridLayout';
+
 export { SKELETON_HIDE_DELAY_MS, SKELETON_HIDE_DELAY_MS_ON_MODE_SWITCH };
 /* eslint-enable tailwindcss/no-custom-classname -- stable class hooks remain scoped to this file. */

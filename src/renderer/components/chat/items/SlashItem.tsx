@@ -81,3 +81,5 @@ export const SlashItem = memo(
     );
   }
 );
+
+SlashItem.displayName = 'SlashItem';

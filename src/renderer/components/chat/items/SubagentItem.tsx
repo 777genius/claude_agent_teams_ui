@@ -598,3 +598,5 @@ export const SubagentItem: React.FC<SubagentItemProps> = React.memo(
     );
   }
 );
+
+SubagentItem.displayName = 'SubagentItem';

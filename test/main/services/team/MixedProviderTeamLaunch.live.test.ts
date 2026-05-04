@@ -235,10 +235,7 @@ liveDescribe('Mixed provider team launch live e2e', () => {
 
       await waitUntilWithDiagnostics(async () => {
         const status = await harness!.svc.getMemberSpawnStatuses(teamName!);
-        if (
-          status.teamLaunchState === 'failed' ||
-          status.teamLaunchState === 'partial_failure'
-        ) {
+        if (status.teamLaunchState === 'partial_failure') {
           throw new Error(await formatMixedLaunchDiagnostics(harness!, teamName!, progressEvents));
         }
         for (const memberName of ['alice', 'cody', 'oscar'] as const) {
@@ -268,8 +265,8 @@ liveDescribe('Mixed provider team launch live e2e', () => {
 
       const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName);
       expect(
-        Object.values(laneIndex.lanes).some(
-          (lane) => lane.state === 'active' && lane.memberName === 'oscar'
+        Object.entries(laneIndex.lanes).some(
+          ([laneId, lane]) => lane.state === 'active' && laneId === 'secondary:opencode:oscar'
         )
       ).toBe(true);
     },

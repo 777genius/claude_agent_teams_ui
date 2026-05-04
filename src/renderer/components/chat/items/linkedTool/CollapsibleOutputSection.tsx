@@ -59,3 +59,5 @@ export const CollapsibleOutputSection = memo(
     );
   }
 );
+
+CollapsibleOutputSection.displayName = 'CollapsibleOutputSection';

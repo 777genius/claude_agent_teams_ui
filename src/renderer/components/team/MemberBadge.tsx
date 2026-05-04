@@ -117,3 +117,5 @@ export const MemberBadge = memo(
     );
   }
 );
+
+MemberBadge.displayName = 'MemberBadge';

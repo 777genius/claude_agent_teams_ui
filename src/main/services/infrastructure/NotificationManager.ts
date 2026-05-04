@@ -23,7 +23,7 @@ import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { getMemberColorByName, MEMBER_COLOR_HUE } from '@shared/constants/memberColors';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
-import { Notification as ElectronNotification, nativeImage } from 'electron';
+import { nativeImage, Notification as ElectronNotification } from 'electron';
 import { EventEmitter } from 'events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import * as fsp from 'fs/promises';
@@ -279,7 +279,7 @@ function truncateNotificationText(value: string, maxLength: number): string {
 }
 
 function extractTaskRef(summary: string): string | null {
-  const match = summary.match(/#([A-Za-z0-9][A-Za-z0-9-]*)/);
+  const match = /#([A-Za-z0-9][A-Za-z0-9-]*)/.exec(summary);
   return match ? `#${match[1]}` : null;
 }
 

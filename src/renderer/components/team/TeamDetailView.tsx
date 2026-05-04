@@ -128,12 +128,12 @@ import {
 } from './sidebar/teamSidebarUiState';
 import { ClaudeLogsSection } from './ClaudeLogsSection';
 import { CollapsibleTeamSection } from './CollapsibleTeamSection';
-import { ProcessesSection } from './ProcessesSection';
-import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from './provisioningSteps';
-import { TeamProvisioningBanner } from './TeamProvisioningBanner';
 import { deriveLeadContextButtonLabel } from './leadContextLoadGuards';
 import { LeadSessionDetailGate } from './LeadSessionDetailGate';
 import { LiveRuntimeStatusBridge } from './LiveRuntimeStatusBridge';
+import { ProcessesSection } from './ProcessesSection';
+import { getLaunchJoinMilestonesFromMembers, getLaunchJoinState } from './provisioningSteps';
+import { TeamProvisioningBanner } from './TeamProvisioningBanner';
 import { loadTeamSessionMetadata } from './teamSessionFetchGuards';
 import { TeamSessionsSection } from './TeamSessionsSection';
 
@@ -1847,7 +1847,7 @@ export const TeamDetailView = memo(function TeamDetailView({
   const pendingTeamSectionFocus = useStore((s) => s.pendingTeamSectionFocus);
   const clearTeamSectionFocus = useStore((s) => s.clearTeamSectionFocus);
   useEffect(() => {
-    if (!pendingTeamSectionFocus || pendingTeamSectionFocus.teamName !== teamName) return;
+    if (pendingTeamSectionFocus?.teamName !== teamName) return;
 
     const sectionId =
       pendingTeamSectionFocus.section === 'members'

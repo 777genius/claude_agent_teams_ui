@@ -126,6 +126,10 @@ import {
   planRateLimitAutoResume,
 } from '../services/team/AutoResumeService';
 import {
+  cloneLaunchIoGovernorPayload,
+  type LaunchIoGovernor,
+} from '../services/team/LaunchIoGovernor';
+import {
   buildReplaceMembersDiff,
   buildReplaceMembersSummaryMessage,
 } from '../services/team/memberUpdateNotifications';
@@ -136,10 +140,6 @@ import { TeamMetaStore } from '../services/team/TeamMetaStore';
 import { buildAddMemberSpawnMessage } from '../services/team/TeamProvisioningService';
 import { TeamTaskAttachmentStore } from '../services/team/TeamTaskAttachmentStore';
 import { TeamWorktreeGitService } from '../services/team/TeamWorktreeGitService';
-import {
-  cloneLaunchIoGovernorPayload,
-  type LaunchIoGovernor,
-} from '../services/team/LaunchIoGovernor';
 
 import {
   validateFromField,
@@ -983,7 +983,6 @@ async function handleGetData(
     } else {
       noteHeavyTeamDataWorkerFallback('teams:getData');
       data = await getTeamDataService().getTeamData(tn);
-      dataSource = 'main-unavailable';
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

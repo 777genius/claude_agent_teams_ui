@@ -1112,3 +1112,5 @@ export const DateGroupedSessions = memo((): React.JSX.Element => {
     </div>
   );
 });
+
+DateGroupedSessions.displayName = 'DateGroupedSessions';

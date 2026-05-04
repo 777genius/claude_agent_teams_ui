@@ -25,7 +25,7 @@ vi.mock('@main/services/team/ClaudeBinaryResolver', () => ({
 
 vi.mock('@main/utils/childProcess', () => ({
   execCli: vi.fn(async (_binaryPath: string | null, args: string[]) => {
-    if (args[0] === 'model') {
+    if (args.includes('model') && args.includes('list')) {
       return {
         stdout: JSON.stringify({
           schemaVersion: 1,
@@ -54,7 +54,7 @@ vi.mock('@main/utils/childProcess', () => ({
         stderr: '',
       };
     }
-    if (args[0] === 'runtime') {
+    if (args.includes('runtime') && args.includes('status')) {
       return {
         stdout: JSON.stringify({
           providers: {

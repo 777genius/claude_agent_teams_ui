@@ -109,20 +109,20 @@ import * as path from 'path';
 import pidusage from 'pidusage';
 import * as readline from 'readline';
 
-import { mergeJsonSettingsArgs, parseJsonSettingsObject } from '../runtime/cliSettingsArgs';
 import {
   ANTHROPIC_HELPER_MODE_COMPETING_AUTH_ENV_KEYS,
+  type AnthropicTeamApiKeyHelperMaterial,
   CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH_ENV,
   CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_API_KEY_HELPER,
   CLAUDE_TEAM_ANTHROPIC_AUTH_MODE_ENV,
-  DISABLE_ANTHROPIC_TEAM_API_KEY_HELPER_ENV,
   cleanupAnthropicTeamApiKeyHelperForTeam,
   cleanupAnthropicTeamApiKeyHelperMaterial,
   cleanupStaleAnthropicTeamApiKeyHelpers,
+  DISABLE_ANTHROPIC_TEAM_API_KEY_HELPER_ENV,
   materializeAnthropicTeamApiKeyHelper,
   verifyAnthropicTeamApiKeyHelperMaterial,
-  type AnthropicTeamApiKeyHelperMaterial,
 } from '../runtime/anthropicTeamApiKeyHelper';
+import { mergeJsonSettingsArgs, parseJsonSettingsObject } from '../runtime/cliSettingsArgs';
 import {
   type GeminiRuntimeAuthState,
   resolveGeminiRuntimeAuth,
@@ -359,9 +359,9 @@ import type {
   LeadContextUsage,
   MemberLaunchState,
   MemberSpawnLivenessSource,
-  MemberSpawnStatusesSnapshot,
   MemberSpawnStatus,
   MemberSpawnStatusEntry,
+  MemberSpawnStatusesSnapshot,
   PersistedTeamLaunchMemberState,
   PersistedTeamLaunchPhase,
   PersistedTeamLaunchSnapshot,
@@ -1100,22 +1100,26 @@ function filterOutSettingsPathArgs(
     return [...args];
   }
   const filtered: string[] = [];
-  for (let index = 0; index < args.length; index += 1) {
+  let index = 0;
+  while (index < args.length) {
     const arg = args[index];
     if (arg === '--settings' && args[index + 1] === settingsPath) {
-      index += 1;
+      index += 2;
       continue;
     }
     if (arg === `--settings=${settingsPath}`) {
+      index += 1;
       continue;
     }
     filtered.push(arg);
+    index += 1;
   }
   return filtered;
 }
 
 function hasPathBasedSettingsArgs(args: string[]): boolean {
-  for (let index = 0; index < args.length; index += 1) {
+  let index = 0;
+  while (index < args.length) {
     const arg = args[index];
     if (arg === '--settings') {
       const value = args[index + 1];
@@ -1123,17 +1127,20 @@ function hasPathBasedSettingsArgs(args: string[]): boolean {
         if (!parseJsonSettingsObject(value)) {
           return true;
         }
-        index += 1;
+        index += 2;
+        continue;
       }
       if (typeof value !== 'string') {
         return true;
       }
+      index += 1;
       continue;
     }
     const prefix = '--settings=';
     if (arg.startsWith(prefix) && !parseJsonSettingsObject(arg.slice(prefix.length))) {
       return true;
     }
+    index += 1;
   }
   return false;
 }
@@ -4989,6 +4996,10 @@ export class TeamProvisioningService {
     this.transcriptProjectResolver = new TeamTranscriptProjectResolver({
       getConfig: (teamName) => this.configReader.getConfigSnapshot(teamName),
     });
+    this.scheduleStaleAnthropicTeamApiKeyHelperCleanup();
+  }
+
+  private scheduleStaleAnthropicTeamApiKeyHelperCleanup(): void {
     void cleanupStaleAnthropicTeamApiKeyHelpers({
       baseClaudeDir: getClaudeBasePath(),
       maxAgeMs: 14 * 24 * 60 * 60 * 1000,
@@ -11090,8 +11101,7 @@ export class TeamProvisioningService {
 
     const existingRequest = this.memberSpawnStatusesInFlightByTeam.get(teamName);
     if (
-      existingRequest &&
-      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest?.generationAtStart === generationAtStart &&
       existingRequest.runIdAtStart === run.runId
     ) {
       const snapshot = await existingRequest.promise;
@@ -11201,8 +11211,7 @@ export class TeamProvisioningService {
     const generationAtStart = this.getRuntimeSnapshotCacheGeneration(teamName);
     const existingRequest = this.agentRuntimeSnapshotInFlightByTeam.get(teamName);
     if (
-      existingRequest &&
-      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest?.generationAtStart === generationAtStart &&
       existingRequest.runIdAtStart === runId
     ) {
       return existingRequest.promise;
@@ -18732,8 +18741,7 @@ export class TeamProvisioningService {
     const generationAtStart = this.getRuntimeSnapshotCacheGeneration(teamName);
     const existingRequest = this.liveTeamAgentRuntimeMetadataInFlightByTeam.get(teamName);
     if (
-      existingRequest &&
-      existingRequest.generationAtStart === generationAtStart &&
+      existingRequest?.generationAtStart === generationAtStart &&
       existingRequest.runIdAtStart === runId
     ) {
       return this.cloneLiveTeamAgentRuntimeMetadata(await existingRequest.promise);

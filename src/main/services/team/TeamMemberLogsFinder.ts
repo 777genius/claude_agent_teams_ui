@@ -11,15 +11,15 @@ import {
   lineHasAgentTeamsTaskBoundaryToolName,
 } from './agentTeamsToolNames';
 import {
-  readBootstrapLaunchSnapshot,
   choosePreferredLaunchSnapshot,
+  readBootstrapLaunchSnapshot,
 } from './TeamBootstrapStateReader';
 import { TeamConfigReader } from './TeamConfigReader';
 import { TeamInboxReader } from './TeamInboxReader';
 import { TeamLaunchStateStore } from './TeamLaunchStateStore';
+import { buildTeamLogWatchSessionIds, extractRuntimeSessionIds } from './teamLogSourceWatchScope';
 import { TeamMembersMetaStore } from './TeamMembersMetaStore';
 import { TeamTranscriptProjectResolver } from './TeamTranscriptProjectResolver';
-import { buildTeamLogWatchSessionIds, extractRuntimeSessionIds } from './teamLogSourceWatchScope';
 
 import type {
   MemberLogSummary,

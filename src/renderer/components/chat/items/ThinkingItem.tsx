@@ -82,3 +82,5 @@ export const ThinkingItem: React.FC<ThinkingItemProps> = React.memo(
     );
   }
 );
+
+ThinkingItem.displayName = 'ThinkingItem';

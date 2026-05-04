@@ -1,5 +1,5 @@
-import type { EnhancedChunk } from '@main/types';
 import type { NotificationTarget, TeamEventType } from './notifications';
+import type { EnhancedChunk } from '@main/types';
 
 export interface TeamMember {
   name: string;

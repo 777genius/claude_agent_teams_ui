@@ -148,8 +148,8 @@ interface TeamSummaryCacheEntry {
 }
 
 type CachedTaskReadResult =
-  | { task: Record<string, unknown>; skipReason?: undefined }
-  | { task?: undefined; skipReason: string };
+  | { task: Record<string, unknown>; skipReason?: never }
+  | { task?: never; skipReason: string };
 
 interface TaskFileCacheEntry {
   fingerprint: string;

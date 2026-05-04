@@ -48,6 +48,8 @@ import {
   isTeamDataRefreshPending,
   selectTeamDataForName,
 } from './slices/teamSlice';
+import { createUISlice } from './slices/uiSlice';
+import { createUpdateSlice } from './slices/updateSlice';
 import {
   decideProcessFanoutDryRun,
   decideProcessFanoutMode,
@@ -58,8 +60,6 @@ import {
   noteTeamRefreshFanout,
   type TeamRefreshFanoutOperation,
 } from './teamRefreshFanoutDiagnostics';
-import { createUISlice } from './slices/uiSlice';
-import { createUpdateSlice } from './slices/updateSlice';
 
 import type { DetectedError } from '../types/data';
 import type { AppState } from './types';

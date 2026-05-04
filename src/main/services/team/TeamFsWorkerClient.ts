@@ -198,12 +198,8 @@ export class TeamFsWorkerClient {
           )}`
         );
         this.failWorker(worker, timeoutError);
-        try {
-          // Terminate and recreate on next call - worker may be stuck in native IO.
-          worker.terminate().catch(() => undefined);
-        } catch {
-          // ignore
-        }
+        // Terminate and recreate on next call - worker may be stuck in native IO.
+        void worker.terminate().catch(() => undefined);
         reject(timeoutError);
       }, WORKER_CALL_TIMEOUT_MS);
 

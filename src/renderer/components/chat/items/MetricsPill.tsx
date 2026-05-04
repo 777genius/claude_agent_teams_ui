@@ -215,3 +215,5 @@ export const MetricsPill = memo(
     );
   }
 );
+
+MetricsPill.displayName = 'MetricsPill';

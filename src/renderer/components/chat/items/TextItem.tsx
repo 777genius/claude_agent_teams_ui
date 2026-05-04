@@ -82,3 +82,5 @@ export const TextItem: React.FC<TextItemProps> = React.memo(
     );
   }
 );
+
+TextItem.displayName = 'TextItem';

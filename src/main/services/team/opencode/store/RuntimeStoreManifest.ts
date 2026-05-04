@@ -3,9 +3,9 @@ import { createHash, randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
-import type { FileLockOptions } from '../../fileLock';
-
 import { VersionedJsonStore, VersionedJsonStoreError } from './VersionedJsonStore';
+
+import type { FileLockOptions } from '../../fileLock';
 
 export const OPENCODE_RUNTIME_STORE_MANIFEST_SCHEMA_VERSION = 1;
 export const OPENCODE_RUNTIME_STORE_RECEIPT_SCHEMA_VERSION = 1;

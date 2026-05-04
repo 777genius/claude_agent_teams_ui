@@ -1,6 +1,6 @@
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
 
 import { mergeJsonSettingsObjects, parseJsonSettingsObject } from './cliSettingsArgs';
 
@@ -24,7 +24,8 @@ export function splitSettingsJsonArgs(args: string[]): SplitSettingsJsonArgsResu
   const settingsFragments: TeamRuntimeSettingsJson[] = [];
   const passthroughArgs: string[] = [];
 
-  for (let index = 0; index < args.length; index += 1) {
+  let index = 0;
+  while (index < args.length) {
     const arg = args[index];
     if (arg === '--settings') {
       const value = args[index + 1];
@@ -32,11 +33,11 @@ export function splitSettingsJsonArgs(args: string[]): SplitSettingsJsonArgsResu
         const parsed = parseJsonSettingsObject(value);
         if (parsed) {
           settingsFragments.push(parsed);
-          index += 1;
+          index += 2;
           continue;
         }
         passthroughArgs.push(arg, value);
-        index += 1;
+        index += 2;
         continue;
       }
     }
@@ -52,6 +53,7 @@ export function splitSettingsJsonArgs(args: string[]): SplitSettingsJsonArgsResu
     }
 
     passthroughArgs.push(arg);
+    index += 1;
   }
 
   return { settingsFragments, passthroughArgs };
@@ -119,7 +121,7 @@ async function writeSettingsFile(
 export async function materializeTeamRuntimeSettingsBundle(input: {
   teamName: string;
   providerId: TeamProviderId;
-  baseSettings?: Array<TeamRuntimeSettingsJson | null | undefined>;
+  baseSettings?: (TeamRuntimeSettingsJson | null | undefined)[];
   anthropicHelper?: AnthropicTeamApiKeyHelperMaterial | null;
 }): Promise<TeamRuntimeSettingsBundle | null> {
   const fragments = [...(input.baseSettings ?? [])].filter(

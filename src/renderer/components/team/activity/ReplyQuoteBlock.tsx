@@ -79,3 +79,5 @@ export const ReplyQuoteBlock = memo(
     );
   }
 );
+
+ReplyQuoteBlock.displayName = 'ReplyQuoteBlock';
