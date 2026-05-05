@@ -165,6 +165,9 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   });
 
   afterAll(async () => {
+    if (process.env.MEMBER_WORK_SYNC_CLAUDE_KEEP_TEMP === '1') {
+      return;
+    }
     await cleanupScopedClaudeStopHookLiveTempDirs();
   });
 
