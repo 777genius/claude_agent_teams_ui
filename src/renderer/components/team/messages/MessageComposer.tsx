@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
 import { AttachmentPreviewList } from '@renderer/components/team/attachments/AttachmentPreviewList';
@@ -379,11 +379,14 @@ export const MessageComposer = ({
     selectedTeam,
     draft.attachments,
     draft.chips,
+    draft.text,
     taskSuggestions,
   ]);
 
-  // Clear draft only after send completes successfully (sending: true → false, no error)
-  useEffect(() => {
+  // Clear draft only after send completes successfully (sending: true -> false, no error).
+  // Layout effect prevents a visible paint where the optimistic message is already in the list
+  // but the submitted text is still shown in the composer.
+  useLayoutEffect(() => {
     if (!sending && pendingSendRef.current) {
       pendingSendRef.current = false;
       if (!sendError && sendDebugDetails?.delivered !== false) {
