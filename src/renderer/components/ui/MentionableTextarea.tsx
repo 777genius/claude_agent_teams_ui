@@ -954,6 +954,7 @@ export const MentionableTextarea = React.forwardRef<HTMLTextAreaElement, Mention
         effectiveSuggestions.length,
         effectiveSuggestions,
         handleActiveSelect,
+        dismiss,
       ]
     );
 
