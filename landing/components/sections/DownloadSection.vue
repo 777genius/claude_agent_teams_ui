@@ -491,6 +491,7 @@ const devBranchNote = computed(() =>
 
   .download-section__card {
     flex-direction: row;
+    flex-wrap: wrap;
     text-align: left;
     padding: 24px 28px;
     gap: 20px;
@@ -498,7 +499,6 @@ const devBranchNote = computed(() =>
 
   .download-section__card--active {
     transform: scale(1.03);
-    order: -1;
   }
 
   .download-section__card--active:hover {
@@ -519,10 +519,9 @@ const devBranchNote = computed(() =>
   }
 
   .download-section__card-indicator {
-    position: absolute;
-    top: 12px;
-    right: 16px;
-    margin-top: 0;
+    justify-content: center;
+    width: 100%;
+    margin-top: 2px;
   }
 
   .download-section__title {

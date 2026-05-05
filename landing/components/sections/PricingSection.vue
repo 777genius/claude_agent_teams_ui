@@ -243,6 +243,16 @@ function onGetStarted() {
   color: #475569;
 }
 
+.v-theme--light .pricing-section__note {
+  color: #56617c;
+  opacity: 1;
+}
+
+.v-theme--light .pricing-section__note-icon {
+  color: #12a150;
+  opacity: 1;
+}
+
 /* Responsive */
 @media (max-width: 960px) {
   .pricing-section__title {

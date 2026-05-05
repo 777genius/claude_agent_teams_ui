@@ -1,10 +1,10 @@
 :root {
   --vp-font-family-base: var(--at-font-sans);
   --vp-font-family-mono: var(--at-font-mono);
-  --vp-c-brand-1: var(--at-c-cyan);
-  --vp-c-brand-2: var(--at-c-cyan-strong);
-  --vp-c-brand-3: var(--at-c-cyan-deep);
-  --vp-c-brand-soft: rgba(0, 240, 255, 0.12);
+  --vp-c-brand-1: #007c8b;
+  --vp-c-brand-2: #009fb0;
+  --vp-c-brand-3: #005c66;
+  --vp-c-brand-soft: rgba(0, 128, 144, 0.12);
   --vp-c-bg: var(--at-c-light-2);
   --vp-c-bg-alt: var(--at-c-light-1);
   --vp-c-bg-elv: var(--at-c-light-0);
@@ -17,7 +17,7 @@
   --vp-nav-bg-color: rgba(255, 255, 255, 0.82);
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: linear-gradient(135deg, #111827 0%, #047f94 54%, #7c2d8f 100%);
-  --vp-button-brand-bg: var(--at-c-cyan);
+  --vp-button-brand-bg: #00d4e6;
   --vp-button-brand-text: var(--at-c-dark-1);
   --vp-button-brand-hover-bg: var(--at-c-green);
   --vp-button-alt-bg: rgba(255, 255, 255, 0.72);
@@ -28,6 +28,10 @@
 }
 
 .dark {
+  --vp-c-brand-1: var(--at-c-cyan);
+  --vp-c-brand-2: var(--at-c-cyan-strong);
+  --vp-c-brand-3: var(--at-c-cyan-deep);
+  --vp-c-brand-soft: rgba(0, 240, 255, 0.12);
   --vp-c-bg: var(--at-c-dark-1);
   --vp-c-bg-alt: var(--at-c-dark-2);
   --vp-c-bg-elv: rgba(18, 18, 26, 0.96);
@@ -41,6 +45,7 @@
   --vp-home-hero-name-background: var(--at-gradient-brand-text);
   --vp-button-alt-bg: rgba(0, 240, 255, 0.08);
   --vp-button-alt-hover-bg: rgba(0, 240, 255, 0.14);
+  --vp-button-brand-bg: var(--at-c-cyan);
   --vp-code-bg: rgba(0, 240, 255, 0.1);
   --vp-code-color: var(--at-c-cyan);
 }
@@ -198,6 +203,11 @@ body {
   box-shadow: var(--at-shadow-cyan-sm);
 }
 
+:root:not(.dark) .VPButton.brand {
+  border-color: rgba(0, 128, 144, 0.28) !important;
+  box-shadow: 0 4px 20px rgba(0, 128, 144, 0.18);
+}
+
 .VPButton.alt {
   color: var(--vp-c-text-1) !important;
   border-color: var(--vp-c-border) !important;
@@ -327,6 +337,17 @@ body {
   font-size: 12px;
   color: var(--at-c-cyan);
   background: rgba(0, 240, 255, 0.05);
+}
+
+:root:not(.dark) .vp-doc th,
+:root:not(.dark) .docs-card__icon,
+:root:not(.dark) .install-block span {
+  color: #007c8b;
+}
+
+:root:not(.dark) .VPFeature .box > .icon,
+:root:not(.dark) .docs-card__icon {
+  border-color: rgba(0, 128, 144, 0.18);
 }
 
 .vp-doc :not(pre) > code {
