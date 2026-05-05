@@ -52,7 +52,11 @@ export const PaneContent = ({ pane, isPaneFocused }: PaneContentProps): React.JS
             {tab.type === 'teams' && <TeamListView />}
             {tab.type === 'team' && (
               <TabUIProvider tabId={tab.id}>
-                <TeamDetailView teamName={tab.teamName ?? ''} isPaneFocused={isPaneFocused} />
+                <TeamDetailView
+                  teamName={tab.teamName ?? ''}
+                  isActive={isActive}
+                  isPaneFocused={isPaneFocused}
+                />
               </TabUIProvider>
             )}
             {tab.type === 'session' && (
