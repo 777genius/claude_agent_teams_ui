@@ -6558,6 +6558,12 @@ export class TeamProvisioningService {
     const toolNames = ledgerRecord?.observedToolCallNames ?? [];
     return toolNames.some((toolName) => {
       const normalized = this.normalizeOpenCodeObservedToolName(toolName);
+      if (
+        ledgerRecord?.messageKind === 'member_work_sync_nudge' &&
+        normalized === 'member_work_sync_report'
+      ) {
+        return true;
+      }
       return (
         normalized === 'task_start' ||
         normalized === 'task_add_comment' ||
@@ -6577,6 +6583,7 @@ export class TeamProvisioningService {
   private normalizeOpenCodeObservedToolName(toolName: string): string {
     return toolName
       .trim()
+      .toLowerCase()
       .replace(/^mcp__agent[-_]teams__/, '')
       .replace(/^agent[-_]teams_/, '')
       .replace(/^mcp__agent_teams__/, '')
@@ -7449,6 +7456,7 @@ export class TeamProvisioningService {
             source: 'watchdog',
             replyRecipient,
             actionMode: message.actionMode ?? null,
+            messageKind: message.messageKind ?? null,
             taskRefs: message.taskRefs ?? [],
             payloadHash: hashOpenCodePromptDeliveryPayload({
               text: message.text,
@@ -7500,6 +7508,7 @@ export class TeamProvisioningService {
       messageId?: string;
       replyRecipient?: string;
       actionMode?: AgentActionMode;
+      messageKind?: InboxMessage['messageKind'];
       taskRefs?: TaskRef[];
       source?: OpenCodeMemberInboxRelayOptions['source'];
       inboxTimestamp?: string;
@@ -7700,6 +7709,7 @@ export class TeamProvisioningService {
         messageId: input.messageId,
         replyRecipient: input.replyRecipient,
         actionMode: input.actionMode,
+        messageKind: input.messageKind,
         taskRefs: input.taskRefs,
       });
       await this.rememberOpenCodeRuntimePidFromBridge({
@@ -7806,6 +7816,7 @@ export class TeamProvisioningService {
           source: input.source ?? 'manual',
           replyRecipient: input.replyRecipient ?? 'user',
           actionMode: input.actionMode ?? null,
+          messageKind: input.messageKind ?? null,
           taskRefs: input.taskRefs ?? [],
           payloadHash: hashOpenCodePromptDeliveryPayload({
             text: input.text,
@@ -7943,6 +7954,7 @@ export class TeamProvisioningService {
           messageId,
           replyRecipient: input.replyRecipient,
           actionMode: input.actionMode,
+          messageKind: input.messageKind,
           taskRefs: input.taskRefs,
           prePromptCursor: ledgerRecord.prePromptCursor,
         });
@@ -8071,6 +8083,7 @@ export class TeamProvisioningService {
       messageId: input.messageId,
       replyRecipient: input.replyRecipient,
       actionMode: input.actionMode,
+      messageKind: input.messageKind,
       taskRefs: input.taskRefs,
     });
     await this.rememberOpenCodeRuntimePidFromBridge({
@@ -18484,6 +18497,7 @@ export class TeamProvisioningService {
             source: effectiveSource,
             replyRecipient: effectiveReplyRecipient,
             actionMode: effectiveActionMode,
+            messageKind: message.messageKind ?? null,
             taskRefs: effectiveTaskRefs,
             payloadHash: hashOpenCodePromptDeliveryPayload({
               text: message.text,
@@ -18524,6 +18538,7 @@ export class TeamProvisioningService {
           messageId: message.messageId,
           replyRecipient: effectiveReplyRecipient,
           actionMode: effectiveActionMode ?? undefined,
+          messageKind: message.messageKind,
           taskRefs: effectiveTaskRefs,
           source: effectiveSource,
           inboxTimestamp: message.timestamp,
@@ -18913,6 +18928,10 @@ export class TeamProvisioningService {
           ...(member.role?.trim() ? { role: member.role.trim() } : {}),
         }));
       const rosterContextBlock = buildLeadRosterContextBlock(teamName, leadName, teammateRoster);
+      const workSyncControlUrl = await this.resolveControlApiBaseUrl();
+      const workSyncControlUrlClause = workSyncControlUrl
+        ? `, controlUrl="${workSyncControlUrl}"`
+        : '';
       run.activeCrossTeamReplyHints = batch.flatMap((m) => {
         if (m.source !== 'cross_team') return [];
         const sourceTeam = m.from.includes('.') ? m.from.split('.', 1)[0] : '';
@@ -18937,6 +18956,7 @@ export class TeamProvisioningService {
             `For any MCP board tool call in this turn, teamName MUST be "${teamName}". Never use the lead/member name "${leadName}" as teamName.`,
             `Use task_create_from_message only for messages below that explicitly say "Eligible for task_create_from_message: yes" and provide a User MessageId. Never use task_create_from_message for teammate messages, system notifications, cross-team messages, or any inbox row that is not explicitly marked eligible.`,
             `If a message below is marked Source: system_notification and its summary looks like "Comment on #...", reply via task_add_comment only when you have a substantive board update (decision, blocker, clarification answer, review result, or concrete next-step change).`,
+            `If a message below has Message kind: member_work_sync_nudge, it is actionable work-sync control traffic, not routine notification noise. Do NOT ignore it as a pure system notification. Call member_work_sync_status with teamName="${teamName}", memberName="${leadName}"${workSyncControlUrlClause}, then call member_work_sync_report with the same teamName/memberName${workSyncControlUrlClause}, the returned agendaFingerprint/reportToken, and taskIds from the nudge task refs. Do not use provider names, runtime names, or team names as memberName. If the agenda still has actionable work you are continuing, use state "still_working"; if blocked, use state "blocked" and record the blocker on the task.`,
             `Do NOT post acknowledgement-only task comments such as "Принято", "Ок", "На связи", "Жду", or similar low-signal echoes. If the task comment notification is FYI and no durable update is needed, say nothing.`,
             `If a message below includes a hidden structured task-context block, treat that block as authoritative for teamName/taskId/commentId. Do NOT infer alternate ids or namespaces from visible prose.`,
             `If a message below is marked Source: cross_team, CALL the MCP tool named cross_team_send. Do NOT use SendMessage or message_send for cross-team replies.`,

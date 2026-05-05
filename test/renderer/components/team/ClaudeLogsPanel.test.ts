@@ -95,11 +95,13 @@ describe('ClaudeLogsPanel', () => {
       await Promise.resolve();
     });
 
-    expect(host.textContent).toContain('2 lines');
+    expect(host.textContent).toContain('2 raw lines');
     expect(host.textContent).toContain('first line');
     expect(host.textContent).not.toContain('Team is not running.');
     expect(host.querySelector('[data-testid="cli-logs-rich-view"]')).not.toBeNull();
-    expect(cliLogsRichViewState.calls.at(-1)?.cliLogsTail).toBe('[stdout]\nfirst line\nsecond line');
+    expect(cliLogsRichViewState.calls.at(-1)?.cliLogsTail).toBe(
+      '[stdout]\nfirst line\nsecond line'
+    );
 
     await act(async () => {
       root.unmount();

@@ -26,7 +26,7 @@ import type {
   TeamRuntimeStopInput,
   TeamRuntimeStopResult,
 } from './TeamRuntimeAdapter';
-import type { AgentActionMode, TaskRef } from '@shared/types/team';
+import type { AgentActionMode, InboxMessageKind, TaskRef } from '@shared/types/team';
 
 export interface OpenCodeTeamRuntimeBridgePort {
   checkOpenCodeTeamLaunchReadiness(input: {
@@ -58,6 +58,7 @@ export interface OpenCodeTeamRuntimeMessageInput {
   messageId?: string;
   replyRecipient?: string;
   actionMode?: AgentActionMode;
+  messageKind?: InboxMessageKind;
   taskRefs?: TaskRef[];
   bootstrapCheckinRetry?: {
     runtimeSessionId: string;
@@ -313,6 +314,7 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
       text: buildOpenCodeRuntimeMessageText(input),
       messageId: input.messageId,
       actionMode: input.actionMode,
+      messageKind: input.messageKind,
       taskRefs: input.taskRefs,
       agent: 'teammate',
     });
@@ -773,7 +775,7 @@ function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput)
 
   const replyRecipient = input.replyRecipient?.trim() || 'user';
   const deliveryContext =
-    input.messageId && input.taskRefs?.length
+    input.messageId && (input.taskRefs?.length || input.messageKind)
       ? JSON.stringify({
           schemaVersion: 1,
           kind: 'opencode-delivery-context',
@@ -781,9 +783,38 @@ function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput)
           laneId: input.laneId,
           memberName: input.memberName,
           inboundMessageId: input.messageId,
+          ...(input.messageKind ? { messageKind: input.messageKind } : {}),
           taskRefs: input.taskRefs,
         })
       : null;
+  const isWorkSyncNudge = input.messageKind === 'member_work_sync_nudge';
+  const taskIds =
+    input.taskRefs
+      ?.map((ref) => ref.taskId?.trim())
+      .filter((taskId): taskId is string => Boolean(taskId)) ?? [];
+  const responseInstructions = isWorkSyncNudge
+    ? [
+        'This delivered app message is a member-work-sync nudge.',
+        'A visible agent-teams_message_send reply is optional. Concrete task progress or agent-teams_member_work_sync_report (or mcp__agent-teams__member_work_sync_report) is sufficient response proof.',
+        `Call agent-teams_member_work_sync_status (or mcp__agent-teams__member_work_sync_status) with teamName="${input.teamName}" and memberName="${input.memberName}".`,
+        `Then call agent-teams_member_work_sync_report (or mcp__agent-teams__member_work_sync_report) with teamName="${input.teamName}", memberName="${input.memberName}", the returned agendaFingerprint/reportToken, and state "still_working" or "blocked".`,
+        taskIds.length
+          ? `When reporting, include taskIds: ${taskIds.map((id) => `"${id}"`).join(', ')}.`
+          : null,
+        `Do not use provider names, runtime names, or team names as memberName; use exactly "${input.memberName}".`,
+        'Do not reply only with acknowledgement.',
+      ]
+    : [
+        'To make your reply visible in the app Messages UI, call MCP tool agent-teams_message_send (or mcp__agent-teams__message_send if that is the exposed name).',
+        `Use teamName="${input.teamName}", to="${replyRecipient}", from="${input.memberName}", text, and summary.`,
+        'Include source="runtime_delivery" in that message_send call.',
+        input.messageId
+          ? `Include relayOfMessageId="${input.messageId}" in that message_send call.`
+          : null,
+        'After the message_send tool call succeeds, stop immediately. Do not send follow-up confirmations or repeat the same answer.',
+        'You must not end this turn empty.',
+        'Do not answer only with plain assistant text when agent-teams_message_send is available.',
+      ];
 
   return [
     '<opencode_app_message_delivery>',
@@ -791,16 +822,8 @@ function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput)
       ? `<opencode_delivery_context>${deliveryContext}</opencode_delivery_context>`
       : null,
     'You are running in OpenCode, not Claude Code or Codex native.',
-    'To make your reply visible in the app Messages UI, call MCP tool agent-teams_message_send (or mcp__agent-teams__message_send if that is the exposed name).',
-    `Use teamName="${input.teamName}", to="${replyRecipient}", from="${input.memberName}", text, and summary.`,
-    'Include source="runtime_delivery" in that message_send call.',
-    input.messageId
-      ? `Include relayOfMessageId="${input.messageId}" in that message_send call.`
-      : null,
-    'After the message_send tool call succeeds, stop immediately. Do not send follow-up confirmations or repeat the same answer.',
-    'You must not end this turn empty.',
+    ...responseInstructions,
     'Do not call runtime_bootstrap_checkin or member_briefing just to answer this delivered app message.',
-    'Do not answer only with plain assistant text when agent-teams_message_send is available.',
     'Do not use SendMessage or runtime_deliver_message for ordinary visible replies.',
     'Do not invent placeholder task labels. If no explicit taskRefs are provided and the reply is not about a real board task, do not prefix text or summary with a # task label; never use #00000000.',
     'The inbound app message follows. Treat it as the actual instruction to process now, not as background context.',

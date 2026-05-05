@@ -133,15 +133,63 @@ describe('OpenCodePromptDeliveryLedger', () => {
     await expect(store.list()).resolves.toHaveLength(1);
   });
 
+  it('upgrades legacy pending records with message kind without changing payload identity', async () => {
+    const store = createStore();
+    const payloadHash = hashOpenCodePromptDeliveryPayload({
+      text: 'Work sync check',
+      replyRecipient: 'team-lead',
+      actionMode: 'do',
+      source: 'watcher',
+    });
+
+    const legacy = await store.ensurePending({
+      teamName: 'team-a',
+      memberName: 'jack',
+      laneId: 'secondary:opencode:jack',
+      inboxMessageId: 'msg-work-sync',
+      inboxTimestamp: '2026-04-25T09:59:00.000Z',
+      source: 'watcher',
+      replyRecipient: 'team-lead',
+      actionMode: 'do',
+      taskRefs: [],
+      payloadHash,
+      now: '2026-04-25T10:00:00.000Z',
+    });
+    const envelope = JSON.parse(await fs.readFile(ledgerPath(), 'utf8')) as {
+      data: Record<string, unknown>[];
+    };
+    delete envelope.data[0].messageKind;
+    await fs.writeFile(ledgerPath(), `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
+
+    const upgraded = await store.ensurePending({
+      teamName: 'team-a',
+      memberName: 'jack',
+      laneId: 'secondary:opencode:jack',
+      inboxMessageId: 'msg-work-sync',
+      inboxTimestamp: '2026-04-25T09:59:00.000Z',
+      source: 'watcher',
+      messageKind: 'member_work_sync_nudge',
+      replyRecipient: 'team-lead',
+      actionMode: 'do',
+      taskRefs: [],
+      payloadHash,
+      now: '2026-04-25T10:00:30.000Z',
+    });
+
+    expect(upgraded.id).toBe(legacy.id);
+    expect(upgraded.messageKind).toBe('member_work_sync_nudge');
+    expect(upgraded.payloadHash).toBe(payloadHash);
+    expect(upgraded.attempts).toBe(0);
+    await expect(store.list()).resolves.toHaveLength(1);
+  });
+
   it.each(corruptionCases)('rejects corrupted persisted records with %s', async (_name, mutate) => {
     const store = await writeCorruptedLedgerRecord(mutate);
 
     await expect(store.list()).rejects.toMatchObject({
       reason: 'invalid_data',
     });
-    await expect(fs.readdir(tempDir)).resolves.toContain(
-      'opencode-prompt-delivery-ledger.json'
-    );
+    await expect(fs.readdir(tempDir)).resolves.toContain('opencode-prompt-delivery-ledger.json');
     expect((await fs.readdir(tempDir)).some((name) => name.includes('.invalid_data.'))).toBe(true);
   });
 
@@ -211,12 +259,12 @@ describe('OpenCodePromptDeliveryLedger', () => {
       reason: 'visible_reply_ack_only_still_requires_answer',
       scheduledAt: '2026-04-25T10:00:02.000Z',
     });
-    expect(isOpenCodePromptDeliveryAttemptDue(scheduled, Date.parse('2026-04-25T10:00:29.000Z'))).toBe(
-      false
-    );
-    expect(isOpenCodePromptDeliveryAttemptDue(scheduled, Date.parse('2026-04-25T10:00:30.000Z'))).toBe(
-      true
-    );
+    expect(
+      isOpenCodePromptDeliveryAttemptDue(scheduled, Date.parse('2026-04-25T10:00:29.000Z'))
+    ).toBe(false);
+    expect(
+      isOpenCodePromptDeliveryAttemptDue(scheduled, Date.parse('2026-04-25T10:00:30.000Z'))
+    ).toBe(true);
   });
 
   it('records empty assistant delivery results as unanswered and stores plain text previews', async () => {
@@ -353,11 +401,13 @@ describe('OpenCodePromptDeliveryLedger', () => {
     });
     expect(responded.status).toBe('responded');
 
-    await expect(store.getActiveForMember({
-      teamName: 'team-a',
-      memberName: 'jack',
-      laneId: 'secondary:opencode:jack',
-    })).resolves.toMatchObject({
+    await expect(
+      store.getActiveForMember({
+        teamName: 'team-a',
+        memberName: 'jack',
+        laneId: 'secondary:opencode:jack',
+      })
+    ).resolves.toMatchObject({
       id: record.id,
       responseState: 'responded_plain_text',
     });
@@ -376,11 +426,13 @@ describe('OpenCodePromptDeliveryLedger', () => {
       visibleReplyCorrelation: 'plain_assistant_text',
     });
 
-    await expect(store.getActiveForMember({
-      teamName: 'team-a',
-      memberName: 'jack',
-      laneId: 'secondary:opencode:jack',
-    })).resolves.toBeNull();
+    await expect(
+      store.getActiveForMember({
+        teamName: 'team-a',
+        memberName: 'jack',
+        laneId: 'secondary:opencode:jack',
+      })
+    ).resolves.toBeNull();
   });
 
   it('does not keep responded live deliveries active when no inbox commit is needed', async () => {
@@ -419,11 +471,13 @@ describe('OpenCodePromptDeliveryLedger', () => {
     expect(responded.status).toBe('responded');
     expect(responded.inboxReadCommittedAt).toBeNull();
 
-    await expect(store.getActiveForMember({
-      teamName: 'team-a',
-      memberName: 'bob',
-      laneId: 'secondary:opencode:bob',
-    })).resolves.toBeNull();
+    await expect(
+      store.getActiveForMember({
+        teamName: 'team-a',
+        memberName: 'bob',
+        laneId: 'secondary:opencode:bob',
+      })
+    ).resolves.toBeNull();
 
     const peer = await store.ensurePending({
       teamName: 'team-a',
@@ -439,11 +493,13 @@ describe('OpenCodePromptDeliveryLedger', () => {
       now: '2026-04-25T10:01:00.000Z',
     });
 
-    await expect(store.getActiveForMember({
-      teamName: 'team-a',
-      memberName: 'bob',
-      laneId: 'secondary:opencode:bob',
-    })).resolves.toMatchObject({
+    await expect(
+      store.getActiveForMember({
+        teamName: 'team-a',
+        memberName: 'bob',
+        laneId: 'secondary:opencode:bob',
+      })
+    ).resolves.toMatchObject({
       id: peer.id,
       inboxMessageId: 'peer-relay',
     });
@@ -585,21 +641,25 @@ describe('OpenCodePromptDeliveryLedger', () => {
       now: '2026-04-25T10:00:00.000Z',
     });
 
-    await expect(store.pruneTerminalRecords({
-      now: new Date('2026-04-25T10:00:20.000Z'),
-      respondedRetentionMs: 10_000,
-      failedRetentionMs: 30_000,
-    })).resolves.toEqual({ pruned: 1, remaining: 2 });
+    await expect(
+      store.pruneTerminalRecords({
+        now: new Date('2026-04-25T10:00:20.000Z'),
+        respondedRetentionMs: 10_000,
+        failedRetentionMs: 30_000,
+      })
+    ).resolves.toEqual({ pruned: 1, remaining: 2 });
     expect((await store.list()).map((record) => record.inboxMessageId).sort()).toEqual([
       active.inboxMessageId,
       failed.inboxMessageId,
     ]);
 
-    await expect(store.pruneTerminalRecords({
-      now: new Date('2026-04-25T10:00:40.000Z'),
-      respondedRetentionMs: 10_000,
-      failedRetentionMs: 30_000,
-    })).resolves.toEqual({ pruned: 1, remaining: 1 });
+    await expect(
+      store.pruneTerminalRecords({
+        now: new Date('2026-04-25T10:00:40.000Z'),
+        respondedRetentionMs: 10_000,
+        failedRetentionMs: 30_000,
+      })
+    ).resolves.toEqual({ pruned: 1, remaining: 1 });
     expect((await store.list()).map((record) => record.inboxMessageId)).toEqual([
       active.inboxMessageId,
     ]);

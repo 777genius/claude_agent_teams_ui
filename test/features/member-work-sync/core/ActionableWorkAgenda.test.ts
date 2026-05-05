@@ -113,12 +113,48 @@ describe('buildActionableWorkAgenda', () => {
     expect(agenda.items).toEqual([]);
   });
 
-  it('projects clarification and blocked dependency work for the owner', () => {
+  it('prefers current kanban reviewer over older review history while task remains in review', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'carol',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      members: [{ name: 'alice' }, { name: 'bob' }, { name: 'carol' }],
+      kanbanReviewersByTaskId: { 'task-1': 'carol' },
+      tasks: [
+        {
+          id: 'task-1',
+          subject: 'Review me',
+          status: 'in_progress',
+          owner: 'bob',
+          reviewState: 'review',
+          historyEvents: [
+            {
+              id: 'evt-1',
+              type: 'review_started',
+              timestamp: '2026-04-29T00:00:00.000Z',
+              actor: 'alice',
+            },
+          ],
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items).toHaveLength(1);
+    expect(agenda.items[0]).toMatchObject({
+      taskId: 'task-1',
+      kind: 'review',
+      assignee: 'carol',
+      evidence: { reviewer: 'carol' },
+    });
+  });
+
+  it('does not nudge owners while work is waiting on user or unfinished dependencies', () => {
     const agenda = buildActionableWorkAgenda({
       teamName: 'team-a',
       memberName: 'bob',
       generatedAt: '2026-04-29T00:00:00.000Z',
-      members: [{ name: 'bob' }],
+      members: [{ name: 'bob' }, { name: 'team-lead', agentType: 'team-lead' }],
       tasks: [
         {
           id: 'task-1',
@@ -128,19 +164,105 @@ describe('buildActionableWorkAgenda', () => {
           needsClarification: 'user',
         },
         {
+          id: 'task-3',
+          displayId: '#33333333',
+          subject: 'Dependency',
+          status: 'in_progress',
+          owner: 'alice',
+        },
+        {
           id: 'task-2',
-          subject: 'Blocked',
+          subject: 'Waiting dependency',
           status: 'in_progress',
           owner: 'bob',
-          blockedBy: ['task-3'],
+          blockedBy: ['#33333333'],
         },
       ],
       hash,
     });
 
-    expect(agenda.items.map((item) => [item.taskId, item.kind, item.priority])).toEqual([
-      ['task-1', 'clarification', 'needs_clarification'],
-      ['task-2', 'blocked_dependency', 'blocked'],
+    expect(agenda.items).toEqual([]);
+  });
+
+  it('does not project display-id dependencies as broken when the dependency exists', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'team-lead',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      members: [{ name: 'bob' }, { name: 'team-lead', agentType: 'team-lead' }],
+      tasks: [
+        {
+          id: 'task-dep',
+          displayId: '#33333333',
+          subject: 'Existing dependency',
+          status: 'in_progress',
+          owner: 'alice',
+        },
+        {
+          id: 'task-2',
+          subject: 'Waiting dependency',
+          status: 'in_progress',
+          owner: 'bob',
+          blockedBy: ['33333333'],
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items).toEqual([]);
+  });
+
+  it('projects lead-owned oversight for lead clarification and broken dependencies', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'team-lead',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      members: [{ name: 'bob' }, { name: 'team-lead', agentType: 'team-lead' }],
+      tasks: [
+        {
+          id: 'task-1',
+          subject: 'Need lead',
+          status: 'in_progress',
+          owner: 'bob',
+          needsClarification: 'lead',
+        },
+        {
+          id: 'task-2',
+          subject: 'Broken dependency',
+          status: 'in_progress',
+          owner: 'bob',
+          blockedBy: ['missing-task'],
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items.map((item) => [item.taskId, item.kind, item.reason])).toEqual([
+      ['task-1', 'clarification', 'task_needs_lead_clarification'],
+      ['task-2', 'blocked_dependency', 'task_has_broken_dependency'],
+    ]);
+  });
+
+  it('treats needsFix as owner work', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'bob',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      members: [{ name: 'bob' }],
+      tasks: [
+        {
+          id: 'task-1',
+          subject: 'Fix review',
+          status: 'in_progress',
+          owner: 'bob',
+          reviewState: 'needsFix',
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items.map((item) => [item.taskId, item.kind, item.reason])).toEqual([
+      ['task-1', 'work', 'review_changes_requested'],
     ]);
   });
 

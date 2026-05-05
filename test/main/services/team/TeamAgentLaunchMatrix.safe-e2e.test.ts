@@ -10135,7 +10135,11 @@ describe('Team agent launch matrix safe e2e', () => {
 
     expect(adapter.messageInputs).toHaveLength(2);
     expect(adapter.messageInputs[0]).toMatchObject({
-      runId: freshRun.runId,
+      runId: latestOpenCodeLaunchRunId(
+        adapter,
+        cancelledTeamName,
+        'secondary:opencode:bob'
+      ),
       teamName: cancelledTeamName,
       laneId: 'secondary:opencode:bob',
       memberName: 'bob',
@@ -10144,7 +10148,11 @@ describe('Team agent launch matrix safe e2e', () => {
       messageId: 'msg-fresh-mixed-opencode-after-cancelled-handoff',
     });
     expect(adapter.messageInputs[1]).toMatchObject({
-      runId: survivingRun.runId,
+      runId: latestOpenCodeLaunchRunId(
+        adapter,
+        survivingTeamName,
+        'secondary:opencode:tom'
+      ),
       teamName: survivingTeamName,
       laneId: 'secondary:opencode:tom',
       memberName: 'tom',
@@ -10247,7 +10255,11 @@ describe('Team agent launch matrix safe e2e', () => {
 
     expect(adapter.messageInputs).toHaveLength(1);
     expect(adapter.messageInputs[0]).toMatchObject({
-      runId: survivingRun.runId,
+      runId: latestOpenCodeLaunchRunId(
+        adapter,
+        survivingTeamName,
+        'secondary:opencode:bob'
+      ),
       teamName: survivingTeamName,
       laneId: 'secondary:opencode:bob',
       memberName: 'bob',
@@ -11818,7 +11830,7 @@ describe('Team agent launch matrix safe e2e', () => {
 
     expect(adapter.messageInputs).toHaveLength(1);
     expect(adapter.messageInputs[0]).toMatchObject({
-      runId: run.runId,
+      runId: latestOpenCodeLaunchRunId(adapter, teamName, 'secondary:opencode:tom'),
       teamName,
       laneId: 'secondary:opencode:tom',
       memberName: 'tom',
@@ -11861,7 +11873,7 @@ describe('Team agent launch matrix safe e2e', () => {
 
     expect(adapter.messageInputs).toHaveLength(1);
     expect(adapter.messageInputs[0]).toMatchObject({
-      runId: run.runId,
+      runId: latestOpenCodeLaunchRunId(adapter, teamName, 'secondary:opencode:bob'),
       teamName,
       laneId: 'secondary:opencode:bob',
       memberName: 'bob',
@@ -11932,7 +11944,7 @@ describe('Team agent launch matrix safe e2e', () => {
 
     expect(adapter.messageInputs).toHaveLength(1);
     expect(adapter.messageInputs[0]).toMatchObject({
-      runId: run.runId,
+      runId: latestOpenCodeLaunchRunId(adapter, teamName, 'secondary:opencode:tom'),
       teamName,
       laneId: 'secondary:opencode:tom',
       memberName: 'tom',
@@ -12009,7 +12021,7 @@ describe('Team agent launch matrix safe e2e', () => {
 
     expect(adapter.messageInputs).toHaveLength(1);
     expect(adapter.messageInputs[0]).toMatchObject({
-      runId: run.runId,
+      runId: latestOpenCodeLaunchRunId(adapter, teamName, 'secondary:opencode:bob'),
       teamName,
       laneId: 'secondary:opencode:bob',
       memberName: 'bob',
@@ -12099,7 +12111,11 @@ describe('Team agent launch matrix safe e2e', () => {
 
     expect(adapter.messageInputs).toHaveLength(2);
     expect(adapter.messageInputs[0]).toMatchObject({
-      runId: firstRun.runId,
+      runId: latestOpenCodeLaunchRunId(
+        adapter,
+        firstTeamName,
+        'secondary:opencode:bob'
+      ),
       teamName: firstTeamName,
       laneId: 'secondary:opencode:bob',
       memberName: 'bob',
@@ -12108,7 +12124,11 @@ describe('Team agent launch matrix safe e2e', () => {
       messageId: 'msg-cross-team-detach-first-bob',
     });
     expect(adapter.messageInputs[1]).toMatchObject({
-      runId: secondRun.runId,
+      runId: latestOpenCodeLaunchRunId(
+        adapter,
+        secondTeamName,
+        'secondary:opencode:tom'
+      ),
       teamName: secondTeamName,
       laneId: 'secondary:opencode:tom',
       memberName: 'tom',
@@ -17063,6 +17083,18 @@ class BlockingOpenCodeRuntimeAdapter extends FakeOpenCodeRuntimeAdapter {
   releaseLaunches(): void {
     this.releaseGate?.();
   }
+}
+
+function latestOpenCodeLaunchRunId(
+  adapter: { readonly launchInputs: readonly TeamRuntimeLaunchInput[] },
+  teamName: string,
+  laneId: string
+): string {
+  const launchInput = [...adapter.launchInputs]
+    .reverse()
+    .find((input) => input.teamName === teamName && input.laneId === laneId);
+  expect(launchInput?.runId).toBeTruthy();
+  return launchInput!.runId;
 }
 
 class BlockingStopOpenCodeRuntimeAdapter extends BlockingOpenCodeRuntimeAdapter {

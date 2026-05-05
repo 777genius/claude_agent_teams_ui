@@ -1,7 +1,7 @@
 # Member Work Sync Runtime Stop Hook Plan
 
-**Status:** design ready, not implemented
-**Scope:** `member-work-sync`, Claude runtime hook integration, future Codex hook adapter
+**Status:** implemented for provider-neutral spool/drain, Claude Stop hook settings, and Codex/OpenCode turn-settled adapters
+**Scope:** `member-work-sync`, Claude runtime hook integration, Codex/OpenCode runtime turn-settled adapters
 **Primary repo:** `claude_team`
 **Secondary dependency:** `agent_teams_orchestrator` runtime hook payload contract
 **Feature name:** `member-work-sync`
@@ -33,15 +33,15 @@ Recommended approach:
 Why this is the safest direction:
 
 - `Stop` is a useful "turn settled" signal, but not proof that work is complete.
-- `TeammateIdle` is not used as the base because it is Claude/team-specific and does not generalize to future Codex runtime hooks.
+- `TeammateIdle` is not used as the base because it is Claude/team-specific and does not generalize to Codex/OpenCode turn-settled adapters.
 - Hook execution must be fast, non-blocking, and fail-open.
 - The existing `member-work-sync` agenda fingerprint, lease, cooldown, busy signal, and watchdog separation remain authoritative.
-- Codex can be added later by implementing a second provider adapter that emits the same normalized event contract.
+- Codex/OpenCode use provider adapters that emit the same normalized event contract.
 
 Architecture checkpoint:
 
 - No blocker question is required before implementation. The safest defaults are clear.
-- The only intentionally deferred decision is production Codex installation. Codex receives a tested adapter seam, but no production launch behavior until its hook payload/config contract is verified.
+- Codex/OpenCode production wiring is fail-open: missing runtime turn-settled env disables telemetry for that provider process, but does not fail team launch or prompt delivery.
 - The implementation should be done as an extension of `member-work-sync`, not as ad hoc logic inside `TeamProvisioningService`.
 - The hook pipeline is an input signal. It must not become a second watchdog, a second delivery ledger, or a runtime liveness detector.
 
@@ -174,7 +174,7 @@ Reason:
 - Existing leases, fingerprints, cooldowns, and watchdog separation still decide behavior.
 - A flag would add another state combination without reducing the main risk, which is attribution correctness.
 
-If an emergency kill switch is needed later, prefer an internal config/env-only disable around hook settings generation, not branching inside the core policy.
+If emergency disable behavior is needed later, patch the narrow hook composition wiring directly rather than adding a permanent config/env flag or branching inside the core policy.
 
 ---
 

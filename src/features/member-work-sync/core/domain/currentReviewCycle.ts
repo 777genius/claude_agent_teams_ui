@@ -50,6 +50,14 @@ export function resolveCurrentReviewOwner(input: {
     return null;
   }
 
+  const kanbanReviewer = normalizeMemberName(input.kanbanReviewer);
+  if (kanbanReviewer) {
+    return {
+      reviewer: kanbanReviewer,
+      historyEventIds: [],
+    };
+  }
+
   const latestStarted = [...historyEvents]
     .reverse()
     .find((event) => event.type === 'review_started');
@@ -58,9 +66,7 @@ export function resolveCurrentReviewOwner(input: {
     .find((event) => event.type === 'review_requested');
 
   const reviewer =
-    normalizeMemberName(latestStarted?.actor) ||
-    normalizeMemberName(latestRequested?.reviewer) ||
-    normalizeMemberName(input.kanbanReviewer);
+    normalizeMemberName(latestStarted?.actor) || normalizeMemberName(latestRequested?.reviewer);
 
   if (!reviewer) {
     return null;

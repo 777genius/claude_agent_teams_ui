@@ -306,6 +306,48 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(service.getLiveLeadProcessMessages(teamName)).toHaveLength(1);
   });
 
+  it('treats member work sync nudges as actionable in lead relay prompt', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    service.setControlApiBaseUrlResolver(async () => 'http://127.0.0.1:43123');
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'system',
+        text: 'Work sync check: you have current actionable work assigned.',
+        timestamp: '2026-02-23T10:00:00.000Z',
+        read: false,
+        summary: 'Work sync check',
+        messageId: 'm-work-sync-1',
+        source: 'system_notification',
+        messageKind: 'member_work_sync_nudge',
+        taskRefs: [{ teamName, taskId: 'task-1', displayId: '11111111' }],
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    expect(run?.leadRelayCapture).toBeTruthy();
+
+    const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
+    expect(payload).toContain('Message kind: member_work_sync_nudge');
+    expect(payload).toContain('it is actionable work-sync control traffic');
+    expect(payload).toContain(
+      'Call member_work_sync_status with teamName=\\"my-team\\", memberName=\\"team-lead\\", controlUrl=\\"http://127.0.0.1:43123\\"'
+    );
+    expect(payload).toContain('call member_work_sync_report');
+    expect(payload).toContain('controlUrl=\\"http://127.0.0.1:43123\\"');
+    expect(payload).toContain('taskIds from the nudge task refs');
+    expect(payload).toContain(
+      'Do not use provider names, runtime names, or team names as memberName'
+    );
+    expect(payload).toContain('Do NOT ignore it as a pure system notification');
+
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+    await expect(relayPromise).resolves.toBe(1);
+  });
+
   it('uses snapshot config reads for lead inbox relay routing', async () => {
     const getConfig = vi.fn(async () => {
       throw new Error('verified config read should not be used for inbox relay routing');
@@ -2269,9 +2311,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
 
     expect(relay).toMatchObject({ kind: 'opencode_member', relayed: 1 });
     expect(recipientSpy).toHaveBeenCalledTimes(1);
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows[0].read).toBe(true);
   });
 

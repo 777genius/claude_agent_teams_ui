@@ -6,7 +6,7 @@ import type {
   OpenCodeDeliveryResponseState,
   OpenCodeDeliveryVisibleReplyCorrelation,
 } from '../bridge/OpenCodeBridgeCommandContract';
-import type { AgentActionMode, TaskRef } from '@shared/types/team';
+import type { AgentActionMode, InboxMessageKind, TaskRef } from '@shared/types/team';
 
 export const OPENCODE_PROMPT_DELIVERY_LEDGER_SCHEMA_VERSION = 1;
 export const OPENCODE_PROMPT_DELIVERY_RESPONDED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -32,6 +32,7 @@ export interface OpenCodePromptDeliveryLedgerRecord {
   inboxMessageId: string;
   inboxTimestamp: string;
   source: 'watcher' | 'ui-send' | 'manual' | 'watchdog';
+  messageKind: InboxMessageKind | null;
   replyRecipient: string;
   actionMode: AgentActionMode | null;
   taskRefs: TaskRef[];
@@ -117,6 +118,7 @@ export interface EnsureOpenCodePromptDeliveryInput {
   inboxMessageId: string;
   inboxTimestamp: string;
   source: OpenCodePromptDeliveryLedgerRecord['source'];
+  messageKind?: InboxMessageKind | null;
   replyRecipient: string;
   actionMode?: AgentActionMode | null;
   taskRefs?: TaskRef[];
@@ -175,6 +177,15 @@ export class OpenCodePromptDeliveryLedgerStore {
           result = updated;
           return records.map((record) => (record.id === existing.id ? updated : record));
         }
+        if (existing.messageKind == null && input.messageKind) {
+          const updated: OpenCodePromptDeliveryLedgerRecord = {
+            ...existing,
+            messageKind: input.messageKind,
+            updatedAt: input.now,
+          };
+          result = updated;
+          return records.map((record) => (record.id === existing.id ? updated : record));
+        }
         result = existing;
         return records;
       }
@@ -189,6 +200,7 @@ export class OpenCodePromptDeliveryLedgerStore {
         inboxMessageId: input.inboxMessageId,
         inboxTimestamp: input.inboxTimestamp,
         source: input.source,
+        messageKind: input.messageKind ?? null,
         replyRecipient: input.replyRecipient,
         actionMode: input.actionMode ?? null,
         taskRefs: input.taskRefs ?? [],
@@ -691,6 +703,7 @@ function isOpenCodePromptDeliveryLedgerRecord(
     typeof record.inboxMessageId === 'string' &&
     typeof record.inboxTimestamp === 'string' &&
     isOpenCodePromptDeliverySource(record.source) &&
+    isOptionalNullableInboxMessageKind(record.messageKind) &&
     typeof record.replyRecipient === 'string' &&
     isOptionalNullableActionMode(record.actionMode) &&
     isTaskRefArray(record.taskRefs) &&
@@ -766,6 +779,21 @@ function isOptionalNullableActionMode(value: unknown): value is AgentActionMode 
     value === undefined ||
     value === null ||
     (typeof value === 'string' && AGENT_ACTION_MODES.has(value as AgentActionMode))
+  );
+}
+
+function isOptionalNullableInboxMessageKind(
+  value: unknown
+): value is InboxMessageKind | null | undefined {
+  return (
+    value === undefined ||
+    value === null ||
+    value === 'default' ||
+    value === 'slash_command' ||
+    value === 'slash_command_result' ||
+    value === 'task_comment_notification' ||
+    value === 'member_work_sync_nudge' ||
+    value === 'agent_error'
   );
 }
 

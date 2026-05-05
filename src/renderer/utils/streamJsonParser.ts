@@ -64,6 +64,13 @@ interface CodexNativeJsonEvent {
     result?: unknown;
     error?: unknown;
     status?: string;
+    command?: string;
+    aggregated_output?: string;
+    output?: string;
+    stderr?: string;
+    exit_code?: number;
+    exitCode?: number;
+    changes?: unknown;
   };
   usage?: {
     input_tokens?: number;
@@ -165,7 +172,17 @@ function getCodexToolDisplayName(serverName: string, toolName: string): string {
   return serverName === 'agent-teams' ? `agent-teams_${toolName}` : `${serverName}_${toolName}`;
 }
 
-function createCodexToolItem(
+function readRawString(record: Record<string, unknown> | undefined, key: string): string | null {
+  const value = record?.[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function readFiniteNumber(record: Record<string, unknown> | undefined, key: string): number | null {
+  const value = record?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function createCodexMcpToolItem(
   event: CodexNativeJsonEvent,
   timestamp: Date,
   lineIndex: number
@@ -208,6 +225,141 @@ function createCodexToolItem(
   }
 
   return { type: 'tool', tool: linkedTool };
+}
+
+function createCodexCommandExecutionToolItem(
+  event: CodexNativeJsonEvent,
+  timestamp: Date,
+  lineIndex: number
+): AIGroupDisplayItem | null {
+  const item = event.item;
+  if (
+    (event.type !== 'item.started' && event.type !== 'item.completed') ||
+    item?.type !== 'command_execution'
+  ) {
+    return null;
+  }
+
+  const isCompleted = event.type === 'item.completed';
+  const itemRecord = asRecord(item) ?? {};
+  const command = readRawString(itemRecord, 'command') ?? '';
+  const status =
+    typeof item.status === 'string' && item.status.trim()
+      ? item.status
+      : isCompleted
+        ? 'unknown'
+        : 'in_progress';
+  const exitCode =
+    readFiniteNumber(itemRecord, 'exit_code') ?? readFiniteNumber(itemRecord, 'exitCode');
+  const output =
+    readRawString(itemRecord, 'aggregated_output') ??
+    readRawString(itemRecord, 'output') ??
+    readRawString(itemRecord, 'stderr') ??
+    '';
+  const input = { command };
+  const linkedTool: LinkedToolItem = {
+    id: item.id ?? `codex-command-L${lineIndex}`,
+    name: 'Bash',
+    input,
+    inputPreview: getToolSummary('Bash', input),
+    startTime: timestamp,
+    isOrphaned: !isCompleted,
+  };
+
+  if (isCompleted) {
+    const isError =
+      status === 'failed' || status === 'declined' || (exitCode !== null && exitCode !== 0);
+    linkedTool.endTime = timestamp;
+    linkedTool.isOrphaned = false;
+    linkedTool.result = {
+      content: output,
+      isError,
+    };
+    linkedTool.outputPreview = output || undefined;
+  }
+
+  return { type: 'tool', tool: linkedTool };
+}
+
+function getFirstFileChangePath(changes: unknown[]): string {
+  for (const change of changes) {
+    const record = asRecord(change);
+    if (typeof record?.path === 'string' && record.path.trim()) {
+      return record.path;
+    }
+  }
+  return '';
+}
+
+function formatFileChangesResult(changes: unknown[]): string {
+  const rows = changes.map((change) => {
+    const record = asRecord(change);
+    const path =
+      typeof record?.path === 'string' && record.path.trim() ? record.path : '(unknown path)';
+    const kind = typeof record?.kind === 'string' && record.kind.trim() ? record.kind : 'update';
+    return `- ${path} (${kind})`;
+  });
+  return ['File changes:', ...rows].join('\n');
+}
+
+function createCodexFileChangeToolItem(
+  event: CodexNativeJsonEvent,
+  timestamp: Date,
+  lineIndex: number
+): AIGroupDisplayItem | null {
+  const item = event.item;
+  if (
+    (event.type !== 'item.started' && event.type !== 'item.completed') ||
+    item?.type !== 'file_change'
+  ) {
+    return null;
+  }
+
+  const isCompleted = event.type === 'item.completed';
+  const changes = Array.isArray(item.changes) ? item.changes : [];
+  const input = {
+    file_path: getFirstFileChangePath(changes),
+    changes,
+  };
+  const status =
+    typeof item.status === 'string' && item.status.trim()
+      ? item.status
+      : isCompleted
+        ? 'unknown'
+        : 'in_progress';
+  const linkedTool: LinkedToolItem = {
+    id: item.id ?? `codex-file-change-L${lineIndex}`,
+    name: 'Edit',
+    input,
+    inputPreview: getToolSummary('Edit', input),
+    startTime: timestamp,
+    isOrphaned: !isCompleted,
+  };
+
+  if (isCompleted) {
+    const resultContent = formatFileChangesResult(changes);
+    linkedTool.endTime = timestamp;
+    linkedTool.isOrphaned = false;
+    linkedTool.result = {
+      content: resultContent,
+      isError: status === 'failed',
+    };
+    linkedTool.outputPreview = resultContent;
+  }
+
+  return { type: 'tool', tool: linkedTool };
+}
+
+function createCodexToolItem(
+  event: CodexNativeJsonEvent,
+  timestamp: Date,
+  lineIndex: number
+): AIGroupDisplayItem | null {
+  return (
+    createCodexMcpToolItem(event, timestamp, lineIndex) ??
+    createCodexCommandExecutionToolItem(event, timestamp, lineIndex) ??
+    createCodexFileChangeToolItem(event, timestamp, lineIndex)
+  );
 }
 
 function codexNativeEventToDisplayItems(

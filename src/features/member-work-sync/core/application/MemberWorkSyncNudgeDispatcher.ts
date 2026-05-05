@@ -1,4 +1,6 @@
 import { appendMemberWorkSyncAudit, reasonToAuditEvent } from './MemberWorkSyncAudit';
+import { finalizeMemberWorkSyncAgenda } from './MemberWorkSyncReconciler';
+import { decideMemberWorkSyncStatus } from '../domain';
 
 import type { MemberWorkSyncOutboxItem } from '../../contracts';
 import type { MemberWorkSyncAuditEventName, MemberWorkSyncUseCaseDeps } from './ports';
@@ -188,21 +190,41 @@ export class MemberWorkSyncNudgeDispatcher {
   ): Promise<
     { ok: true } | { ok: false; reason: string; retryable: boolean; nextAttemptAt?: string }
   > {
-    if (this.deps.lifecycle && !(await this.deps.lifecycle.isTeamActive(item.teamName))) {
+    const teamActive = this.deps.lifecycle
+      ? await this.deps.lifecycle.isTeamActive(item.teamName)
+      : true;
+    if (!teamActive) {
       return { ok: false, reason: 'team_inactive', retryable: false };
     }
 
-    const status = await this.deps.statusStore.read({
+    const previous = await this.deps.statusStore.read({
       teamName: item.teamName,
       memberName: item.memberName,
     });
-    if (!status) {
+    if (!previous) {
       return { ok: false, reason: 'status_missing', retryable: false };
     }
+
+    let source;
+    try {
+      source = await this.deps.agendaSource.loadAgenda({
+        teamName: item.teamName,
+        memberName: item.memberName,
+      });
+    } catch (error) {
+      return { ok: false, reason: `agenda_revalidation_failed:${String(error)}`, retryable: true };
+    }
+    const agenda = finalizeMemberWorkSyncAgenda(this.deps, source);
+    const decision = decideMemberWorkSyncStatus({
+      agenda,
+      latestAcceptedReport: previous.report?.accepted ? previous.report : null,
+      nowIso,
+      inactive: source.inactive || !teamActive,
+    });
     if (
-      status.state !== 'needs_sync' ||
-      status.shadow?.wouldNudge !== true ||
-      status.agenda.fingerprint !== item.agendaFingerprint
+      decision.state !== 'needs_sync' ||
+      agenda.items.length === 0 ||
+      agenda.fingerprint !== item.agendaFingerprint
     ) {
       return { ok: false, reason: 'status_no_longer_matches_outbox', retryable: false };
     }

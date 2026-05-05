@@ -24,18 +24,55 @@ export interface MemberWorkSyncQueueDiagnostics {
   reconciled: number;
   dropped: number;
   failed: number;
+  nextRunAt?: string;
+  oldestQueuedAgeMs?: number;
+  oldestRunningAgeMs?: number;
+  queuedItems: MemberWorkSyncQueuedItemDiagnostics[];
+  runningItems: MemberWorkSyncRunningItemDiagnostics[];
+}
+
+export interface MemberWorkSyncQueuedItemDiagnostics {
+  teamName: string;
+  memberName: string;
+  firstQueuedAt: string;
+  lastQueuedAt: string;
+  runAt: string;
+  maxRunAt: string;
+  triggerReasons: MemberWorkSyncTriggerReason[];
+  triggerReasonCounts: Partial<Record<MemberWorkSyncTriggerReason, number>>;
+}
+
+export interface MemberWorkSyncRunningItemDiagnostics {
+  teamName: string;
+  memberName: string;
+  startedAt: string;
+  ageMs: number;
+  rerunRequested: boolean;
+  triggerReasons: MemberWorkSyncTriggerReason[];
 }
 
 interface QueueItem {
   teamName: string;
   memberName: string;
+  firstQueuedAt: number;
+  lastQueuedAt: number;
   runAt: number;
+  maxRunAt: number;
   triggerReasons: Set<MemberWorkSyncTriggerReason>;
+  triggerReasonCounts: Map<MemberWorkSyncTriggerReason, number>;
 }
 
 interface RunningItem {
+  teamName: string;
+  memberName: string;
+  startedAt: number;
   rerunRequested: boolean;
   triggerReasons: Set<MemberWorkSyncTriggerReason>;
+}
+
+interface TriggerTimingPolicy {
+  runAfterMs: number;
+  maxCoalesceWaitMs: number;
 }
 
 export interface MemberWorkSyncEventQueueDeps {
@@ -45,6 +82,7 @@ export interface MemberWorkSyncEventQueueDeps {
   ): Promise<void>;
   isTeamActive(teamName: string): Promise<boolean> | boolean;
   quietWindowMs?: number;
+  triggerTiming?: Partial<Record<MemberWorkSyncTriggerReason, Partial<TriggerTimingPolicy>>>;
   concurrency?: number;
   now?: () => number;
   nowIso?: () => string;
@@ -85,6 +123,29 @@ export class MemberWorkSyncEventQueue {
     this.nowIso = deps.nowIso ?? (() => new Date().toISOString());
   }
 
+  private resolveTimingPolicy(
+    triggerReason: MemberWorkSyncTriggerReason,
+    explicitRunAfterMs?: number
+  ): TriggerTimingPolicy {
+    const custom = this.deps.triggerTiming?.[triggerReason];
+    const quietWindowFallback =
+      this.deps.quietWindowMs != null && triggerReason !== 'manual_refresh';
+    const runAfterMs = Math.max(
+      0,
+      explicitRunAfterMs ??
+        custom?.runAfterMs ??
+        (quietWindowFallback ? this.quietWindowMs : defaultRunAfterMs(triggerReason))
+    );
+    const maxCoalesceWaitMs = Math.max(
+      runAfterMs,
+      custom?.maxCoalesceWaitMs ??
+        (quietWindowFallback
+          ? Math.max(this.quietWindowMs, this.quietWindowMs * 5)
+          : defaultMaxCoalesceWaitMs(triggerReason))
+    );
+    return { runAfterMs, maxCoalesceWaitMs };
+  }
+
   enqueue(input: {
     teamName: string;
     memberName: string;
@@ -103,7 +164,9 @@ export class MemberWorkSyncEventQueue {
     }
 
     const key = keyOf(teamName, memberName);
-    const runAt = this.now() + (input.runAfterMs ?? this.quietWindowMs);
+    const now = this.now();
+    const timing = this.resolveTimingPolicy(input.triggerReason, input.runAfterMs);
+    const runAt = now + timing.runAfterMs;
     const running = this.running.get(key);
     if (running) {
       running.rerunRequested = true;
@@ -122,7 +185,20 @@ export class MemberWorkSyncEventQueue {
     const existing = this.items.get(key);
     if (existing) {
       existing.triggerReasons.add(input.triggerReason);
-      existing.runAt = Math.max(existing.runAt, runAt);
+      existing.lastQueuedAt = now;
+      existing.maxRunAt = Math.max(
+        existing.maxRunAt,
+        existing.firstQueuedAt + timing.maxCoalesceWaitMs
+      );
+      const preserveEarlierRun =
+        existing.runAt <= now ||
+        existing.triggerReasons.has('manual_refresh') ||
+        input.triggerReason === 'manual_refresh' ||
+        runAt < existing.runAt;
+      existing.runAt = preserveEarlierRun
+        ? Math.min(existing.runAt, runAt)
+        : Math.min(Math.max(existing.runAt, runAt), existing.maxRunAt);
+      incrementReasonCount(existing.triggerReasonCounts, input.triggerReason);
       this.counters.coalesced += 1;
       this.appendAudit({
         teamName,
@@ -138,8 +214,12 @@ export class MemberWorkSyncEventQueue {
     this.items.set(key, {
       teamName,
       memberName,
+      firstQueuedAt: now,
+      lastQueuedAt: now,
       runAt,
+      maxRunAt: now + timing.maxCoalesceWaitMs,
       triggerReasons: new Set([input.triggerReason]),
+      triggerReasonCounts: new Map([[input.triggerReason, 1]]),
     });
     this.counters.enqueued += 1;
     this.appendAudit({
@@ -163,10 +243,50 @@ export class MemberWorkSyncEventQueue {
   }
 
   getDiagnostics(): MemberWorkSyncQueueDiagnostics {
+    const now = this.now();
+    const queuedItems = [...this.items.values()]
+      .sort((left, right) => left.runAt - right.runAt)
+      .map((item) => ({
+        teamName: item.teamName,
+        memberName: item.memberName,
+        firstQueuedAt: new Date(item.firstQueuedAt).toISOString(),
+        lastQueuedAt: new Date(item.lastQueuedAt).toISOString(),
+        runAt: new Date(item.runAt).toISOString(),
+        maxRunAt: new Date(item.maxRunAt).toISOString(),
+        triggerReasons: [...item.triggerReasons].sort(),
+        triggerReasonCounts: Object.fromEntries(item.triggerReasonCounts),
+      }));
+    const runningItems = [...this.running.values()]
+      .sort((left, right) => left.startedAt - right.startedAt)
+      .map((item) => ({
+        teamName: item.teamName,
+        memberName: item.memberName,
+        startedAt: new Date(item.startedAt).toISOString(),
+        ageMs: Math.max(0, now - item.startedAt),
+        rerunRequested: item.rerunRequested,
+        triggerReasons: [...item.triggerReasons].sort(),
+      }));
+    const oldestQueuedAt =
+      queuedItems.length > 0
+        ? Math.min(...[...this.items.values()].map((item) => item.firstQueuedAt))
+        : null;
+    const oldestRunningAt =
+      runningItems.length > 0
+        ? Math.min(...[...this.running.values()].map((item) => item.startedAt))
+        : null;
+    const nextRunAt =
+      this.items.size > 0 ? Math.min(...[...this.items.values()].map((item) => item.runAt)) : null;
     return {
       queued: this.items.size,
       running: this.running.size,
       ...this.counters,
+      ...(nextRunAt != null ? { nextRunAt: new Date(nextRunAt).toISOString() } : {}),
+      ...(oldestQueuedAt != null ? { oldestQueuedAgeMs: Math.max(0, now - oldestQueuedAt) } : {}),
+      ...(oldestRunningAt != null
+        ? { oldestRunningAgeMs: Math.max(0, now - oldestRunningAt) }
+        : {}),
+      queuedItems,
+      runningItems,
     };
   }
 
@@ -226,6 +346,9 @@ export class MemberWorkSyncEventQueue {
 
   private runItem(key: string, item: QueueItem): void {
     const running: RunningItem = {
+      teamName: item.teamName,
+      memberName: item.memberName,
+      startedAt: this.now(),
       rerunRequested: false,
       triggerReasons: new Set(item.triggerReasons),
     };
@@ -244,18 +367,37 @@ export class MemberWorkSyncEventQueue {
         this.running.delete(key);
         this.inFlight.delete(promise);
         if (running.rerunRequested && !this.stopped) {
-          for (const reason of running.triggerReasons) {
-            this.enqueue({
-              teamName: item.teamName,
-              memberName: item.memberName,
-              triggerReason: reason,
-            });
-          }
+          this.enqueueFollowUp(item, running);
         }
         this.pump();
       });
 
     this.inFlight.add(promise);
+  }
+
+  private enqueueFollowUp(item: QueueItem, running: RunningItem): void {
+    const reasons = [...running.triggerReasons].sort();
+    const primaryReason =
+      reasons.find((reason) => reason === 'manual_refresh') ??
+      reasons.find((reason) => reason === 'turn_settled' || reason === 'tool_finished') ??
+      reasons[0] ??
+      'manual_refresh';
+    this.enqueue({
+      teamName: item.teamName,
+      memberName: item.memberName,
+      triggerReason: primaryReason,
+      runAfterMs: Math.min(this.resolveTimingPolicy(primaryReason).runAfterMs, 5_000),
+    });
+    const queued = this.items.get(keyOf(item.teamName, item.memberName));
+    if (!queued) {
+      return;
+    }
+    for (const reason of reasons) {
+      queued.triggerReasons.add(reason);
+      if (reason !== primaryReason) {
+        incrementReasonCount(queued.triggerReasonCounts, reason);
+      }
+    }
   }
 
   private async executeItem(_key: string, item: QueueItem, running: RunningItem): Promise<void> {
@@ -305,5 +447,48 @@ export class MemberWorkSyncEventQueue {
           error: String(error),
         });
       });
+  }
+}
+
+function incrementReasonCount(
+  counts: Map<MemberWorkSyncTriggerReason, number>,
+  reason: MemberWorkSyncTriggerReason
+): void {
+  counts.set(reason, (counts.get(reason) ?? 0) + 1);
+}
+
+function defaultRunAfterMs(reason: MemberWorkSyncTriggerReason): number {
+  switch (reason) {
+    case 'manual_refresh':
+      return 0;
+    case 'turn_settled':
+    case 'tool_finished':
+      return 5_000;
+    case 'task_changed':
+    case 'inbox_changed':
+    case 'runtime_activity':
+      return 15_000;
+    case 'startup_scan':
+    case 'config_changed':
+    case 'member_spawned':
+      return 30_000;
+  }
+}
+
+function defaultMaxCoalesceWaitMs(reason: MemberWorkSyncTriggerReason): number {
+  switch (reason) {
+    case 'manual_refresh':
+      return 0;
+    case 'turn_settled':
+    case 'tool_finished':
+      return 30_000;
+    case 'task_changed':
+    case 'inbox_changed':
+    case 'runtime_activity':
+      return 60_000;
+    case 'startup_scan':
+    case 'config_changed':
+    case 'member_spawned':
+      return 90_000;
   }
 }

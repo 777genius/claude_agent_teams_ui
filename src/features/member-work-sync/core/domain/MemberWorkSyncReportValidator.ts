@@ -38,13 +38,30 @@ function agendaHasBlockedEvidence(
   agenda: MemberWorkSyncAgenda,
   taskIds: string[] | undefined
 ): boolean {
-  const targetIds = new Set((taskIds ?? []).filter(Boolean));
+  const targetIds = new Set((taskIds ?? []).flatMap(taskReferenceKeys));
   return agenda.items.some((item) => {
-    if (targetIds.size > 0 && !targetIds.has(item.taskId)) {
+    if (
+      targetIds.size > 0 &&
+      !taskReferenceKeys(item).some((reference) => targetIds.has(reference))
+    ) {
       return false;
     }
     return item.kind === 'blocked_dependency' || item.priority === 'blocked';
   });
+}
+
+function taskReferenceKeys(
+  task: Pick<MemberWorkSyncAgenda['items'][number], 'taskId' | 'displayId'> | string
+): string[] {
+  const values = typeof task === 'string' ? [task] : [task.taskId, task.displayId];
+  return [
+    ...new Set(
+      values
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+        .flatMap((value) => [value, value.replace(/^#/, '')])
+    ),
+  ];
 }
 
 export function validateMemberWorkSyncReport(input: {
@@ -92,9 +109,9 @@ export function validateMemberWorkSyncReport(input: {
         };
   }
 
-  const agendaTaskIds = new Set(input.agenda.items.map((item) => item.taskId));
+  const agendaTaskIds = new Set(input.agenda.items.flatMap(taskReferenceKeys));
   for (const taskId of input.request.taskIds ?? []) {
-    if (!agendaTaskIds.has(taskId)) {
+    if (!taskReferenceKeys(taskId).some((reference) => agendaTaskIds.has(reference))) {
       return {
         ok: false,
         code: 'foreign_task_id',

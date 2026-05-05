@@ -1065,6 +1065,7 @@ export class FileWatcher extends EventEmitter {
       type: 'task',
       teamName,
       detail: relative,
+      taskId: relative.replace(/\.json$/i, ''),
     };
     this.emit('team-change', event);
   }

@@ -2,7 +2,9 @@ import type {
   MemberWorkSyncEventQueue,
   MemberWorkSyncTriggerReason,
 } from '../../infrastructure/MemberWorkSyncEventQueue';
+import type { MemberWorkSyncTaskImpactResolver } from './MemberWorkSyncTaskImpactResolver';
 import type { TeamChangeEvent, ToolActivityEventPayload } from '@shared/types';
+import { extractMemberWorkSyncTaskId } from './MemberWorkSyncTaskImpactResolver';
 
 interface MemberTurnSettledEventPayload {
   memberName?: string;
@@ -20,8 +22,6 @@ interface MemberWorkSyncMemberStorageMaterializer {
 
 const TEAM_WIDE_REASONS: Partial<Record<TeamChangeEvent['type'], MemberWorkSyncTriggerReason>> = {
   config: 'config_changed',
-  task: 'task_changed',
-  'task-log-change': 'runtime_activity',
   'log-source-change': 'runtime_activity',
   process: 'runtime_activity',
   'lead-activity': 'runtime_activity',
@@ -63,7 +63,8 @@ export class MemberWorkSyncTeamChangeRouter {
   constructor(
     private readonly rosterSource: MemberWorkSyncRosterSource,
     private readonly queue: MemberWorkSyncEventQueue,
-    private readonly materializer?: MemberWorkSyncMemberStorageMaterializer
+    private readonly materializer?: MemberWorkSyncMemberStorageMaterializer,
+    private readonly taskImpactResolver?: MemberWorkSyncTaskImpactResolver
   ) {}
 
   async enqueueStartupScan(teamNames: string[]): Promise<void> {
@@ -118,6 +119,14 @@ export class MemberWorkSyncTeamChangeRouter {
       return;
     }
 
+    if (event.type === 'task' || event.type === 'task-log-change') {
+      const triggerReason = event.type === 'task' ? 'task_changed' : 'runtime_activity';
+      void this.enqueueTaskRelatedMembers(event, triggerReason).catch(() =>
+        this.enqueueTeam(event.teamName, triggerReason).catch(() => undefined)
+      );
+      return;
+    }
+
     if (event.type === 'inbox' || event.type === 'lead-message') {
       const recipient = parseInboxRecipient(event.detail);
       if (recipient) {
@@ -150,6 +159,43 @@ export class MemberWorkSyncTeamChangeRouter {
     }
     for (const memberName of activeMembers) {
       this.queue.enqueue({ teamName, memberName, triggerReason, runAfterMs });
+    }
+  }
+
+  private async enqueueTaskRelatedMembers(
+    event: TeamChangeEvent,
+    triggerReason: MemberWorkSyncTriggerReason
+  ): Promise<void> {
+    const taskId = extractMemberWorkSyncTaskId({
+      taskId: event.taskId,
+      detail: event.detail,
+    });
+    if (!taskId || !this.taskImpactResolver) {
+      await this.enqueueTeam(event.teamName, triggerReason);
+      return;
+    }
+
+    const impact = await this.taskImpactResolver.resolve({
+      teamName: event.teamName,
+      taskId,
+    });
+    if (impact.fallbackTeamWide) {
+      await this.enqueueTeam(event.teamName, triggerReason);
+      return;
+    }
+    if (this.materializer) {
+      await Promise.allSettled(
+        impact.memberNames.map((memberName) =>
+          this.materializer?.materializeMember(event.teamName, memberName)
+        )
+      );
+    }
+    for (const memberName of impact.memberNames) {
+      this.queue.enqueue({
+        teamName: event.teamName,
+        memberName,
+        triggerReason,
+      });
     }
   }
 }

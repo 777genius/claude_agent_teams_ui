@@ -3,6 +3,7 @@ import { createLogger } from '@shared/utils/logger';
 import {
   MEMBER_WORK_SYNC_GET_METRICS,
   MEMBER_WORK_SYNC_GET_STATUS,
+  MEMBER_WORK_SYNC_REFRESH_STATUS,
   MEMBER_WORK_SYNC_REPORT,
   type MemberWorkSyncMetricsRequest,
   type MemberWorkSyncReportRequest,
@@ -46,6 +47,18 @@ export function registerMemberWorkSyncIpc(
   );
 
   ipcMain.handle(
+    MEMBER_WORK_SYNC_REFRESH_STATUS,
+    async (_event, request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus> => {
+      try {
+        return await feature.refreshStatus(request);
+      } catch (error) {
+        logger.error('Failed to refresh member work sync status', error);
+        throw error;
+      }
+    }
+  );
+
+  ipcMain.handle(
     MEMBER_WORK_SYNC_REPORT,
     async (_event, request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult> => {
       try {
@@ -60,6 +73,7 @@ export function registerMemberWorkSyncIpc(
 
 export function removeMemberWorkSyncIpc(ipcMain: IpcMain): void {
   ipcMain.removeHandler(MEMBER_WORK_SYNC_GET_STATUS);
+  ipcMain.removeHandler(MEMBER_WORK_SYNC_REFRESH_STATUS);
   ipcMain.removeHandler(MEMBER_WORK_SYNC_GET_METRICS);
   ipcMain.removeHandler(MEMBER_WORK_SYNC_REPORT);
 }

@@ -161,6 +161,13 @@ export interface OpenCodeSendMessageCommandBody {
   text: string;
   messageId?: string;
   actionMode?: 'do' | 'ask' | 'delegate';
+  messageKind?:
+    | 'default'
+    | 'slash_command'
+    | 'slash_command_result'
+    | 'task_comment_notification'
+    | 'member_work_sync_nudge'
+    | 'agent_error';
   taskRefs?: { taskId: string; displayId: string; teamName: string }[];
   agent?: string;
   noReply?: boolean;

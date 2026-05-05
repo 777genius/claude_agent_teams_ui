@@ -42,6 +42,21 @@ export async function startMemberWorkSyncControlServer(
       }
       if (
         request.method === 'POST' &&
+        parts.length === 6 &&
+        parts[0] === 'api' &&
+        parts[1] === 'teams' &&
+        parts[3] === 'member-work-sync' &&
+        parts[5] === 'refresh'
+      ) {
+        const payload = await feature.refreshStatus({
+          teamName: parts[2],
+          memberName: parts[4],
+        });
+        sendJson(response, 200, payload);
+        return;
+      }
+      if (
+        request.method === 'POST' &&
         parts.length === 5 &&
         parts[0] === 'api' &&
         parts[1] === 'teams' &&
@@ -152,9 +167,7 @@ export async function formatMemberWorkSyncDiagnostics(input: {
     input.feature.getMetrics({ teamName: input.teamName }),
     input.taskId ? new TeamTaskReader().getTasks(input.teamName) : Promise.resolve([]),
   ]);
-  const task = input.taskId
-    ? tasks.find((candidate) => candidate.id === input.taskId)
-    : undefined;
+  const task = input.taskId ? tasks.find((candidate) => candidate.id === input.taskId) : undefined;
   return [
     'Member work sync live diagnostics:',
     JSON.stringify(
@@ -240,12 +253,7 @@ export async function readRuntimeTurnSettledProcessedMetas(teamsBasePath: string
     meta: Record<string, unknown>;
   }>
 > {
-  const processedDir = path.join(
-    teamsBasePath,
-    '.member-work-sync',
-    'runtime-hooks',
-    'processed'
-  );
+  const processedDir = path.join(teamsBasePath, '.member-work-sync', 'runtime-hooks', 'processed');
   const entries = await fs.readdir(processedDir, { withFileTypes: true }).catch(() => []);
   const metas = await Promise.all(
     entries

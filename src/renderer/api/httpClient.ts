@@ -1310,6 +1310,13 @@ export class HttpAPIClient implements ElectronAPI {
           request.memberName
         )}`
       ),
+    refreshStatus: (request) =>
+      this.post(
+        `/api/teams/${encodeURIComponent(request.teamName)}/member-work-sync/${encodeURIComponent(
+          request.memberName
+        )}/refresh`,
+        {}
+      ),
     getMetrics: (request) =>
       this.get(`/api/teams/${encodeURIComponent(request.teamName)}/member-work-sync/metrics`),
     report: (request) =>
