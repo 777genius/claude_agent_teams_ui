@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { mdiRobotOutline, mdiViewDashboardOutline, mdiOpenSourceInitiative } from '@mdi/js';
+import {
+  mdiBookOpenPageVariantOutline,
+  mdiRobotOutline,
+  mdiViewDashboardOutline,
+  mdiOpenSourceInitiative,
+} from '@mdi/js';
 
 const { content } = useLandingContent();
 const { t, locale } = useI18n();
@@ -9,6 +14,7 @@ const workflowVideoSrc = 'https://github.com/user-attachments/assets/35e27989-72
 const downloadStore = useDownloadStore();
 const { resolve, data: releaseData } = useReleaseDownloads();
 const { repoUrl, latestReleaseUrl, releaseDownloadUrl } = useGithubRepo();
+const withBase = (path: string) => `${baseURL.replace(/\/?$/, '/')}${path.replace(/^\/+/, '')}`;
 
 const releaseVersion = computed(() => releaseData.value?.version || null);
 const releaseDate = computed(() => {
@@ -31,6 +37,7 @@ const heroDownloadUrl = computed(() => {
 });
 
 const devBranchUrl = computed(() => `${repoUrl.value}/tree/dev`);
+const docsHref = computed(() => withBase(locale.value === 'ru' ? 'docs/ru/' : 'docs/'));
 const devBranchNote = computed(() =>
   locale.value === 'ru'
     ? 'Самая свежая версия в ветке dev - можно развернуть локально.'
@@ -59,7 +66,7 @@ const devBranchNote = computed(() =>
     <v-container class="hero-section__container">
       <v-row align="center" justify="space-between">
         <!-- Left: Text content -->
-        <v-col cols="12" md="6" class="hero-section__content">
+        <v-col cols="12" md="7" class="hero-section__content">
           <h1 class="hero-section__title">
             <img
               :src="`${baseURL}logo-192.png`"
@@ -84,6 +91,15 @@ const devBranchNote = computed(() =>
               class="hero-section__btn-primary"
             >
               {{ t('hero.downloadNow') }}
+            </v-btn>
+            <v-btn
+              variant="outlined"
+              size="large"
+              :href="docsHref"
+              class="hero-section__btn-docs"
+              :prepend-icon="mdiBookOpenPageVariantOutline"
+            >
+              {{ t('hero.ctaDocs') }}
             </v-btn>
             <v-btn
               variant="outlined"
@@ -261,11 +277,18 @@ const devBranchNote = computed(() =>
 /* ─── Actions ─── */
 .hero-section__actions {
   display: flex;
-  gap: 14px;
+  gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 12px;
   animation: heroFadeIn 0.8s ease both;
   animation-delay: 0.4s;
+}
+
+.hero-section__actions :deep(.v-btn) {
+  min-width: 0 !important;
+  height: 44px !important;
+  padding-inline: 18px !important;
+  font-size: 0.92rem !important;
 }
 
 .hero-section__dev-note {
@@ -326,6 +349,29 @@ const devBranchNote = computed(() =>
 .hero-section__btn-secondary:hover {
   border-color: rgba(0, 240, 255, 0.5) !important;
   background: rgba(0, 240, 255, 0.06) !important;
+}
+
+.hero-section__btn-docs {
+  border-color: rgba(57, 255, 20, 0.38) !important;
+  color: #d6ffe1 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  background: rgba(57, 255, 20, 0.05) !important;
+  box-shadow: inset 0 0 0 1px rgba(57, 255, 20, 0.06) !important;
+  transition: all 0.3s ease !important;
+}
+
+.hero-section__btn-docs:hover {
+  border-color: rgba(57, 255, 20, 0.62) !important;
+  color: #39ff14 !important;
+  background: rgba(57, 255, 20, 0.09) !important;
+  transform: translateY(-1px) !important;
+}
+
+.v-theme--light .hero-section__btn-docs {
+  color: #0d5f2c !important;
+  border-color: rgba(13, 95, 44, 0.32) !important;
+  background: rgba(255, 255, 255, 0.6) !important;
 }
 
 /* ─── Trust indicators ─── */
@@ -517,7 +563,14 @@ const devBranchNote = computed(() =>
   }
 
   .hero-section__actions {
+    flex-direction: column;
+    align-items: stretch;
+    max-width: 320px;
     margin-bottom: 12px;
+  }
+
+  .hero-section__actions :deep(.v-btn) {
+    width: 100%;
   }
 
   .hero-section__dev-note {

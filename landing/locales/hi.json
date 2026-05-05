@@ -2,6 +2,7 @@
   "nav": {
     "features": "सुविधाएँ",
     "screenshots": "स्क्रीनशॉट",
+    "docs": "दस्तावेज़",
     "comparison": "तुलना",
     "download": "डाउनलोड",
     "pricing": "मुफ़्त",
@@ -13,6 +14,7 @@
     "downloadNow": "अभी डाउनलोड करें",
     "ctaPrimary": "{platform} के लिए डाउनलोड करें",
     "ctaSecondary": "तुलना करें",
+    "ctaDocs": "दस्तावेज़",
     "preview": "प्रोडक्ट प्रीव्यू",
     "trust": {
       "agentTeams": "एजेंट टीमें",

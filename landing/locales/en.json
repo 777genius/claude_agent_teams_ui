@@ -2,6 +2,7 @@
   "nav": {
     "features": "Features",
     "screenshots": "Screenshots",
+    "docs": "Documentation",
     "comparison": "Compare",
     "download": "Download",
     "pricing": "Free",
@@ -13,6 +14,7 @@
     "downloadNow": "Download Now",
     "ctaPrimary": "Download for {platform}",
     "ctaSecondary": "Compare",
+    "ctaDocs": "Documentation",
     "preview": "Product preview",
     "trust": {
       "agentTeams": "Agent Teams",

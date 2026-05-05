@@ -11,10 +11,10 @@ const docsHref = computed(() => withBase(locale.value === 'ru' ? 'docs/ru/' : 'd
 
 const navItems = computed(() => [
   { href: '#screenshots', label: t('nav.screenshots') },
+  { href: docsHref.value, label: t('nav.docs') },
   { href: '#download', label: t('nav.download') },
   { href: '#comparison', label: t('nav.comparison') },
   { href: '#pricing', label: t('nav.pricing') },
-  { href: docsHref.value, label: t('footer.links.docs') },
   { href: '#faq', label: t('nav.faq') },
 ]);
 </script>

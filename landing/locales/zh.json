@@ -2,6 +2,7 @@
   "nav": {
     "features": "功能",
     "screenshots": "截图",
+    "docs": "文档",
     "comparison": "对比",
     "download": "下载",
     "pricing": "免费",
@@ -13,6 +14,7 @@
     "downloadNow": "立即下载",
     "ctaPrimary": "下载 {platform} 版",
     "ctaSecondary": "对比",
+    "ctaDocs": "文档",
     "preview": "产品预览",
     "trust": {
       "agentTeams": "智能体团队",

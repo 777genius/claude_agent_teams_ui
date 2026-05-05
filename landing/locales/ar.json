@@ -2,6 +2,7 @@
   "nav": {
     "features": "المميزات",
     "screenshots": "لقطات الشاشة",
+    "docs": "التوثيق",
     "comparison": "المقارنة",
     "download": "تحميل",
     "pricing": "مجاني",
@@ -13,6 +14,7 @@
     "downloadNow": "حمّل الآن",
     "ctaPrimary": "تحميل لـ {platform}",
     "ctaSecondary": "مقارنة",
+    "ctaDocs": "التوثيق",
     "preview": "معاينة المنتج",
     "trust": {
       "agentTeams": "فرق الوكلاء",

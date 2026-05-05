@@ -2,6 +2,7 @@
   "nav": {
     "features": "Funktionen",
     "screenshots": "Screenshots",
+    "docs": "Dokumentation",
     "comparison": "Vergleich",
     "download": "Download",
     "pricing": "Kostenlos",
@@ -13,6 +14,7 @@
     "downloadNow": "Herunterladen",
     "ctaPrimary": "Für {platform} herunterladen",
     "ctaSecondary": "Vergleichen",
+    "ctaDocs": "Dokumentation",
     "preview": "Produktvorschau",
     "trust": {
       "agentTeams": "Agenten-Teams",
