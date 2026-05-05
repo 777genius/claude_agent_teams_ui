@@ -411,7 +411,7 @@ describe('agent-teams-mcp tools', () => {
     const calls: Array<{ method?: string; url?: string; body?: unknown }> = [];
     const server = await startControlServer(async ({ method, url, body }) => {
       calls.push({ method, url, body });
-      if (method === 'GET' && url === '/api/teams/alpha/member-work-sync/alice') {
+      if (method === 'POST' && url === '/api/teams/alpha/member-work-sync/alice/refresh') {
         return {
           body: {
             teamName: 'alpha',
@@ -467,9 +467,9 @@ describe('agent-teams-mcp tools', () => {
 
       expect(calls).toEqual([
         {
-          method: 'GET',
-          url: '/api/teams/alpha/member-work-sync/alice',
-          body: undefined,
+          method: 'POST',
+          url: '/api/teams/alpha/member-work-sync/alice/refresh',
+          body: {},
         },
         {
           method: 'POST',
