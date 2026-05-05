@@ -971,7 +971,6 @@ export const MessageComposer = ({
           minRows={isCompactLayout ? 1 : 2}
           maxRows={6}
           maxLength={MAX_TEXT_LENGTH}
-          disabled={sending}
           hintText={crossTeamHintText}
           showHint={!isCompactLayout}
           cornerActionInset={isCompactLayout ? 'compact' : 'default'}

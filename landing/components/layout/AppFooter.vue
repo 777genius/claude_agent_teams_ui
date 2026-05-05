@@ -73,6 +73,23 @@ const docsHref = computed(() => {
   border-top-color: var(--at-c-border);
 }
 
+.v-theme--light .app-footer__copy {
+  opacity: 0.72;
+}
+
+.v-theme--light .app-footer__link {
+  color: #007c8b;
+  opacity: 1;
+}
+
+.v-theme--light .app-footer__link:hover {
+  color: #005c66;
+}
+
+.v-theme--light .app-footer__divider {
+  background: rgba(0, 128, 144, 0.26);
+}
+
 @media (max-width: 600px) {
   .app-footer__inner {
     flex-direction: column;

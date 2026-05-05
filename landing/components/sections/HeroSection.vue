@@ -231,6 +231,10 @@ const devBranchNote = computed(() =>
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
 }
 
+.v-theme--light .hero-section__content {
+  text-shadow: 0 1px 16px rgba(255, 255, 255, 0.9);
+}
+
 /* ─── Title ─── */
 .hero-section__title {
   font-size: 3rem;
@@ -248,6 +252,12 @@ const devBranchNote = computed(() =>
   align-items: center;
   gap: 16px;
   white-space: nowrap;
+}
+
+.v-theme--light .hero-section__title {
+  background: linear-gradient(135deg, #185f73 0%, #009fb0 48%, #6448d8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 .hero-section__logo {
@@ -272,6 +282,12 @@ const devBranchNote = computed(() =>
   margin-bottom: 36px;
   animation: heroFadeIn 0.8s ease both;
   animation-delay: 0.3s;
+}
+
+.v-theme--light .hero-section__subtitle {
+  color: #34405e;
+  opacity: 1;
+  font-weight: 500;
 }
 
 /* ─── Actions ─── */
@@ -313,6 +329,15 @@ const devBranchNote = computed(() =>
   opacity: 1;
 }
 
+.v-theme--light .hero-section__dev-note {
+  color: #007c8b;
+  opacity: 1;
+}
+
+.v-theme--light .hero-section__dev-note:hover {
+  color: #0b6f32;
+}
+
 /* ─── Release badge ─── */
 .hero-section__release-badge {
   font-size: 0.78rem;
@@ -323,6 +348,13 @@ const devBranchNote = computed(() =>
   margin-bottom: 24px;
   animation: heroFadeIn 0.8s ease both;
   animation-delay: 0.45s;
+}
+
+.v-theme--light .hero-section__release-badge {
+  color: #34405e;
+  opacity: 1;
+  font-weight: 700;
+  text-shadow: 0 1px 12px rgba(255, 255, 255, 0.95);
 }
 
 .hero-section__btn-primary {
@@ -349,6 +381,18 @@ const devBranchNote = computed(() =>
 .hero-section__btn-secondary:hover {
   border-color: rgba(0, 240, 255, 0.5) !important;
   background: rgba(0, 240, 255, 0.06) !important;
+}
+
+.v-theme--light .hero-section__btn-secondary {
+  border-color: rgba(0, 128, 144, 0.34) !important;
+  color: #007c8b !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+}
+
+.v-theme--light .hero-section__btn-secondary:hover {
+  border-color: rgba(0, 128, 144, 0.58) !important;
+  color: #005c66 !important;
+  background: rgba(255, 255, 255, 0.72) !important;
 }
 
 .hero-section__btn-docs {
@@ -401,6 +445,19 @@ const devBranchNote = computed(() =>
   width: 1px;
   height: 16px;
   background: rgba(0, 240, 255, 0.2);
+}
+
+.v-theme--light .hero-section__trust-item {
+  color: #56617c;
+}
+
+.v-theme--light .hero-section__trust-icon {
+  color: #008ea0;
+  opacity: 1;
+}
+
+.v-theme--light .hero-section__trust-divider {
+  background: rgba(0, 128, 144, 0.26);
 }
 
 /* ─── Preview Card ─── */
