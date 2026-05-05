@@ -3,35 +3,45 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock idb-keyval before importing composerDraftStorage
 const store = new Map<string, unknown>();
 
-vi.mock('idb-keyval', () => ({
-  createStore: vi.fn(
-    () =>
-      async <T>(
-        _txMode: IDBTransactionMode,
-        callback: (objectStore: IDBObjectStore) => T | PromiseLike<T>
-      ): Promise<T> => {
-        const objectStore = {
-          transaction: {},
-          get: (key: string) => {
-            const request = {
-              result: store.get(key) ?? undefined,
-              error: null,
-              onsuccess: null as (() => void) | null,
-              onerror: null as (() => void) | null,
-            };
-            queueMicrotask(() => {
-              request.onsuccess?.();
-            });
-            return request;
-          },
-          delete: (key: string) => {
-            store.delete(key);
-          },
-        };
+interface MockIdbRequest {
+  result: unknown;
+  error: null;
+  onsuccess: (() => void) | null;
+  onerror: (() => void) | null;
+}
 
-        return callback(objectStore as unknown as IDBObjectStore);
-      }
-  ),
+function createMockGetRequest(result: unknown): MockIdbRequest {
+  const request: MockIdbRequest = {
+    result,
+    error: null,
+    onsuccess: null,
+    onerror: null,
+  };
+
+  queueMicrotask(() => {
+    request.onsuccess?.();
+  });
+
+  return request;
+}
+
+async function useMockObjectStore<T>(
+  _txMode: IDBTransactionMode,
+  callback: (objectStore: IDBObjectStore) => T | PromiseLike<T>
+): Promise<T> {
+  const objectStore = {
+    transaction: {},
+    get: (key: string) => createMockGetRequest(store.get(key) ?? undefined),
+    delete: (key: string) => {
+      store.delete(key);
+    },
+  };
+
+  return callback(objectStore as unknown as IDBObjectStore);
+}
+
+vi.mock('idb-keyval', () => ({
+  createStore: vi.fn(() => useMockObjectStore),
   promisifyRequest: vi.fn(() => Promise.resolve(undefined)),
   get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? undefined)),
   set: vi.fn((key: string, value: unknown) => {
