@@ -63,6 +63,20 @@ export interface UseComposerDraftResult {
 
   // Clear all
   clearDraft: () => void;
+  hideDraftForPendingSend: (content: ComposerDraftContent) => void;
+  finalizePendingSendClear: (
+    teamNameOverride?: string,
+    submittedContent?: ComposerDraftContent
+  ) => void;
+  restoreDraft: (content: ComposerDraftContent) => void;
+}
+
+export interface ComposerDraftContent {
+  text: string;
+  chips: InlineChip[];
+  attachments: AttachmentPayload[];
+  actionMode?: AgentActionMode;
+  pendingSendId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +84,26 @@ export interface UseComposerDraftResult {
 // ---------------------------------------------------------------------------
 
 const DEBOUNCE_MS = 400;
+
+function draftPayloadEquals(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function snapshotMatchesContent(
+  snapshot: ComposerDraftSnapshot | null,
+  content: ComposerDraftContent
+): boolean {
+  if (snapshot == null) return false;
+  if (content.pendingSendId != null) {
+    return snapshot.pendingSendId === content.pendingSendId;
+  }
+  if (snapshot.text !== content.text) return false;
+  if (content.actionMode != null && snapshot.actionMode !== content.actionMode) return false;
+  return (
+    draftPayloadEquals(snapshot.chips, content.chips) &&
+    draftPayloadEquals(snapshot.attachments, content.attachments)
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -98,6 +132,8 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
   // Debounce timer
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<{ teamName: string; snapshot: ComposerDraftSnapshot } | null>(null);
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const persistenceVersionRef = useRef(0);
 
   // Keep teamNameRef in sync
   useEffect(() => {
@@ -127,6 +163,12 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
     };
   }, []);
 
+  const enqueuePersist = useCallback((operation: () => Promise<void>): Promise<void> => {
+    const queued = persistQueueRef.current.catch(() => undefined).then(operation);
+    persistQueueRef.current = queued.catch(() => undefined);
+    return queued;
+  }, []);
+
   const flushPending = useCallback(() => {
     if (timerRef.current != null) {
       clearTimeout(timerRef.current);
@@ -140,16 +182,19 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
         pending.snapshot.chips.length === 0 &&
         pending.snapshot.attachments.length === 0;
       if (isEmpty) {
-        void composerDraftStorage.deleteSnapshot(pending.teamName);
+        void enqueuePersist(() => composerDraftStorage.deleteSnapshot(pending.teamName));
       } else {
-        void composerDraftStorage.saveSnapshot(pending.teamName, pending.snapshot);
+        void enqueuePersist(() =>
+          composerDraftStorage.saveSnapshot(pending.teamName, pending.snapshot)
+        );
       }
     }
-  }, []);
+  }, [enqueuePersist]);
 
   const scheduleSave = useCallback(() => {
     const snapshot = buildSnapshot();
     pendingRef.current = { teamName: teamNameRef.current, snapshot };
+    const persistenceVersion = ++persistenceVersionRef.current;
 
     if (timerRef.current != null) {
       clearTimeout(timerRef.current);
@@ -165,16 +210,18 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
         pending.snapshot.text.length === 0 &&
         pending.snapshot.chips.length === 0 &&
         pending.snapshot.attachments.length === 0;
-      if (isEmpty) {
-        void composerDraftStorage.deleteSnapshot(pending.teamName);
-        if (mountedRef.current) setIsSaved(true);
-      } else {
-        void composerDraftStorage.saveSnapshot(pending.teamName, pending.snapshot).then(() => {
-          if (mountedRef.current) setIsSaved(true);
-        });
-      }
+      const persist = enqueuePersist(() =>
+        isEmpty
+          ? composerDraftStorage.deleteSnapshot(pending.teamName)
+          : composerDraftStorage.saveSnapshot(pending.teamName, pending.snapshot)
+      );
+      void persist.then(() => {
+        if (mountedRef.current && persistenceVersionRef.current === persistenceVersion) {
+          setIsSaved(true);
+        }
+      });
     }, DEBOUNCE_MS);
-  }, [buildSnapshot]);
+  }, [buildSnapshot, enqueuePersist]);
 
   // ---------------------------------------------------------------------------
   // Apply snapshot to state
@@ -458,6 +505,19 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
   // Clear all
   // ---------------------------------------------------------------------------
 
+  const toSnapshot = useCallback((content: ComposerDraftContent): ComposerDraftSnapshot => {
+    return {
+      version: 1,
+      teamName: teamNameRef.current,
+      text: content.text,
+      chips: content.chips,
+      attachments: content.attachments,
+      actionMode: content.actionMode ?? actionModeRef.current,
+      ...(content.pendingSendId ? { pendingSendId: content.pendingSendId } : {}),
+      updatedAt: Date.now(),
+    };
+  }, []);
+
   const clearDraft = useCallback(() => {
     if (timerRef.current != null) {
       clearTimeout(timerRef.current);
@@ -476,8 +536,102 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
     setAttachmentError(null);
     setIsSaved(false);
 
-    void composerDraftStorage.deleteSnapshot(teamNameRef.current);
-  }, []);
+    ++persistenceVersionRef.current;
+    const teamNameForDelete = teamNameRef.current;
+    void enqueuePersist(() => composerDraftStorage.deleteSnapshot(teamNameForDelete));
+  }, [enqueuePersist]);
+
+  const hideDraftForPendingSend = useCallback(
+    (content: ComposerDraftContent) => {
+      if (timerRef.current != null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      pendingRef.current = null;
+
+      ++persistenceVersionRef.current;
+      const teamNameForSave = teamNameRef.current;
+      const snapshot = toSnapshot(content);
+      void enqueuePersist(() => composerDraftStorage.saveSnapshot(teamNameForSave, snapshot));
+
+      textRef.current = '';
+      chipsRef.current = [];
+      attachmentsRef.current = [];
+
+      setTextState('');
+      setChipsState([]);
+      setAttachmentsState([]);
+      setAttachmentError(null);
+      setIsSaved(false);
+    },
+    [enqueuePersist, toSnapshot]
+  );
+
+  const deleteSubmittedSnapshotIfCurrent = useCallback(
+    (teamNameForDelete: string, submittedContent?: ComposerDraftContent) =>
+      enqueuePersist(async () => {
+        if (submittedContent != null) {
+          const currentSnapshot = await composerDraftStorage.loadSnapshot(teamNameForDelete);
+          if (!snapshotMatchesContent(currentSnapshot, submittedContent)) {
+            return;
+          }
+        }
+        await composerDraftStorage.deleteSnapshot(teamNameForDelete);
+      }),
+    [enqueuePersist]
+  );
+
+  const finalizePendingSendClear = useCallback(
+    (teamNameOverride?: string, submittedContent?: ComposerDraftContent) => {
+      const currentTeamName = teamNameRef.current;
+      const teamNameForPersist = teamNameOverride ?? currentTeamName;
+      const isCurrentTeam = teamNameForPersist === currentTeamName;
+
+      if (!isCurrentTeam) {
+        void deleteSubmittedSnapshotIfCurrent(teamNameForPersist, submittedContent);
+        return;
+      }
+
+      if (timerRef.current != null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      pendingRef.current = null;
+      const persistenceVersion = ++persistenceVersionRef.current;
+
+      const isEmpty =
+        textRef.current.length === 0 &&
+        chipsRef.current.length === 0 &&
+        attachmentsRef.current.length === 0;
+      if (isEmpty) {
+        void deleteSubmittedSnapshotIfCurrent(teamNameForPersist, submittedContent);
+        setIsSaved(false);
+        return;
+      }
+
+      const snapshot = buildSnapshot();
+      void enqueuePersist(() =>
+        composerDraftStorage.saveSnapshot(teamNameForPersist, snapshot)
+      ).then(() => {
+        if (mountedRef.current && persistenceVersionRef.current === persistenceVersion) {
+          setIsSaved(true);
+        }
+      });
+    },
+    [buildSnapshot, deleteSubmittedSnapshotIfCurrent, enqueuePersist]
+  );
+
+  const restoreDraft = useCallback(
+    (content: ComposerDraftContent) => {
+      userTouchedRef.current = true;
+      const snapshot = toSnapshot(content);
+      applySnapshot(snapshot);
+      setAttachmentError(null);
+      setIsSaved(false);
+      scheduleSave();
+    },
+    [applySnapshot, scheduleSave, toSnapshot]
+  );
 
   return {
     text,
@@ -499,5 +653,8 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
     isSaved,
     isLoaded,
     clearDraft,
+    hideDraftForPendingSend,
+    finalizePendingSendClear,
+    restoreDraft,
   };
 }

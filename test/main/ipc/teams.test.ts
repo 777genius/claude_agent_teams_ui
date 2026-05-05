@@ -250,6 +250,7 @@ describe('ipc teams handlers', () => {
     addTaskRelationship: vi.fn(async () => undefined),
     removeTaskRelationship: vi.fn(async () => undefined),
     replaceMembers: vi.fn(async () => undefined),
+    invalidateMessageFeed: vi.fn(() => undefined),
     createTeamConfig: vi.fn(async () => undefined),
     getSavedRequest: vi.fn(async (): Promise<TeamCreateRequest | null> => null),
   };

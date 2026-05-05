@@ -25,6 +25,7 @@ export interface ComposerDraftSnapshot {
   chips: InlineChip[];
   attachments: AttachmentPayload[];
   actionMode?: AgentActionMode;
+  pendingSendId?: string;
   updatedAt: number;
 }
 

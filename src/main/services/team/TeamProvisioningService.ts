@@ -365,6 +365,7 @@ import type {
   MemberSpawnStatus,
   MemberSpawnStatusEntry,
   MemberSpawnStatusesSnapshot,
+  OpenCodeRuntimeDeliveryStatus,
   PersistedTeamLaunchMemberState,
   PersistedTeamLaunchPhase,
   PersistedTeamLaunchSnapshot,
@@ -3577,7 +3578,8 @@ function buildMemberSpawnPrompt(
   member: TeamCreateRequest['members'][number],
   displayName: string,
   teamName: string,
-  leadName: string
+  leadName: string,
+  options?: { restart?: boolean }
 ): string {
   const role = member.role?.trim() || 'team member';
   const providerLine =
@@ -3591,10 +3593,13 @@ function buildMemberSpawnPrompt(
   const workflowBlock = member.workflow?.trim()
     ? `\n\nYour workflow and how you should behave:${formatWorkflowBlock(member.workflow, '')}`
     : '';
+  const restartContext = options?.restart
+    ? '\n\nThe team has already been reconnected and you are being re-attached as a persistent teammate.\nThis is a teammate restart. Repeat bootstrap exactly once, then wait for normal work instructions.'
+    : '';
   const actionModeProtocol = protocols.buildActionModeProtocolText(
     protocols.MEMBER_DELEGATE_DESCRIPTION
   );
-  return `You are ${member.name}, a ${role} on team "${displayName}" (${teamName}).${providerLine}${modelLine}${effortLine}${workflowBlock}
+  return `You are ${member.name}, a ${role} on team "${displayName}" (${teamName}).${providerLine}${modelLine}${effortLine}${workflowBlock}${restartContext}
 
 ${getAgentLanguageInstruction()}
 Your FIRST action: call MCP tool member_briefing with:
@@ -10642,6 +10647,59 @@ export class TeamProvisioningService {
     });
   }
 
+  async getOpenCodeRuntimeDeliveryStatus(
+    teamName: string,
+    messageId: string
+  ): Promise<OpenCodeRuntimeDeliveryStatus | null> {
+    const normalizedMessageId = messageId.trim();
+    if (!normalizedMessageId) {
+      return null;
+    }
+    const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName).catch(
+      () => null
+    );
+    const laneIds = [
+      ...new Set(
+        Object.values(laneIndex?.lanes ?? {})
+          .map((entry) => entry.laneId.trim())
+          .filter(Boolean)
+      ),
+    ];
+    for (const laneId of laneIds) {
+      const records = await this.createOpenCodePromptDeliveryLedger(teamName, laneId)
+        .list()
+        .catch(() => []);
+      const record = records.find((candidate) => candidate.inboxMessageId === normalizedMessageId);
+      if (record) {
+        return this.toOpenCodeRuntimeDeliveryStatus(record);
+      }
+    }
+    return null;
+  }
+
+  private toOpenCodeRuntimeDeliveryStatus(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): OpenCodeRuntimeDeliveryStatus {
+    const failed = record.status === 'failed_terminal';
+    const responded =
+      record.status === 'responded' &&
+      Boolean(record.inboxReadCommittedAt || record.visibleReplyMessageId);
+    return {
+      messageId: record.inboxMessageId,
+      providerId: 'opencode',
+      attempted: true,
+      delivered: !failed,
+      responsePending: !failed && !responded,
+      responseState: record.responseState,
+      ledgerStatus: record.status,
+      visibleReplyMessageId: record.visibleReplyMessageId ?? undefined,
+      visibleReplyCorrelation: record.visibleReplyCorrelation ?? undefined,
+      acceptanceUnknown: record.acceptanceUnknown,
+      reason: record.lastReason ?? undefined,
+      diagnostics: record.diagnostics,
+    };
+  }
+
   private createOpenCodeRuntimeDeliveryPorts(): RuntimeDeliveryDestinationPort[] {
     const userMessagesPort: RuntimeDeliveryDestinationPort = {
       kind: 'user_sent_messages',
@@ -12088,6 +12146,37 @@ export class TeamProvisioningService {
     });
   }
 
+  private persistOpenCodeMemberRestartSystemMessage(input: {
+    teamName: string;
+    leadName: string;
+    leadSessionId: string | null;
+    displayName: string;
+    member: TeamCreateRequest['members'][number];
+    reason: 'manual_restart' | 'member_updated';
+  }): void {
+    const timestamp = nowIso();
+    const prompt = buildMemberSpawnPrompt(
+      input.member,
+      input.displayName,
+      input.teamName,
+      input.leadName,
+      { restart: true }
+    );
+    const reasonSummary =
+      input.reason === 'member_updated' ? 'after member settings update' : 'by user request';
+    this.persistSentMessage(input.teamName, {
+      from: input.leadName,
+      to: input.member.name,
+      text: prompt,
+      timestamp,
+      read: true,
+      source: 'system_notification',
+      leadSessionId: input.leadSessionId ?? undefined,
+      messageId: `member-restart:${input.teamName}:${input.member.name}:${randomUUID()}`,
+      summary: `Restarting ${input.member.name} ${reasonSummary}`,
+    });
+  }
+
   private async launchDirectTmuxMemberRestart(input: {
     run: ProvisioningRun;
     teamName: string;
@@ -12165,7 +12254,8 @@ export class TeamProvisioningService {
       },
       input.displayName,
       input.teamName,
-      input.leadName
+      input.leadName,
+      { restart: true }
     );
     const bootstrapExpectedAfter = nowIso();
     const runtimeArgsPlan = await this.buildTeamRuntimeLaunchArgsPlan({
@@ -13166,6 +13256,17 @@ export class TeamProvisioningService {
     this.resetRuntimeToolActivity(run, memberName);
     this.clearMemberSpawnToolTracking(run, memberName);
     run.pendingMemberRestarts.delete(memberName);
+
+    if (options?.reason === 'manual_restart' || options?.reason === 'member_updated') {
+      this.persistOpenCodeMemberRestartSystemMessage({
+        teamName,
+        leadName: this.getRunLeadName(run),
+        leadSessionId: run.detectedSessionId?.trim() || config.leadSessionId?.trim() || run.runId,
+        displayName: config.description?.trim() || config.name,
+        member: this.buildConfiguredProvisioningMember(configuredMember),
+        reason: options.reason,
+      });
+    }
 
     await this.launchSingleMixedSecondaryLane(run, laneState);
   }

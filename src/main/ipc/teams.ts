@@ -29,6 +29,7 @@ import {
   TEAM_GET_MEMBER_LOGS,
   TEAM_GET_MEMBER_STATS,
   TEAM_GET_MESSAGES_PAGE,
+  TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS,
   TEAM_GET_PROJECT_BRANCH,
   TEAM_GET_SAVED_REQUEST,
   TEAM_GET_TASK_ACTIVITY,
@@ -189,6 +190,7 @@ import type {
   MemberLogSummary,
   MemberSpawnStatusesSnapshot,
   MessagesPage,
+  OpenCodeRuntimeDeliveryStatus,
   RetryFailedOpenCodeSecondaryLanesResult,
   SendMessageRequest,
   SendMessageResult,
@@ -686,6 +688,7 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_PROVISIONING_STATUS, handleProvisioningStatus);
   ipcMain.handle(TEAM_CANCEL_PROVISIONING, handleCancelProvisioning);
   ipcMain.handle(TEAM_SEND_MESSAGE, handleSendMessage);
+  ipcMain.handle(TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS, handleGetOpenCodeRuntimeDeliveryStatus);
   ipcMain.handle(TEAM_GET_MESSAGES_PAGE, handleGetMessagesPage);
   ipcMain.handle(TEAM_GET_MEMBER_ACTIVITY_META, handleGetMemberActivityMeta);
   ipcMain.handle(TEAM_CREATE_TASK, handleCreateTask);
@@ -771,6 +774,7 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_PROVISIONING_STATUS);
   ipcMain.removeHandler(TEAM_CANCEL_PROVISIONING);
   ipcMain.removeHandler(TEAM_SEND_MESSAGE);
+  ipcMain.removeHandler(TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS);
   ipcMain.removeHandler(TEAM_GET_MESSAGES_PAGE);
   ipcMain.removeHandler(TEAM_GET_MEMBER_ACTIVITY_META);
   ipcMain.removeHandler(TEAM_CREATE_TASK);
@@ -3034,6 +3038,30 @@ async function handleSendMessage(
   });
 }
 
+async function handleGetOpenCodeRuntimeDeliveryStatus(
+  _event: IpcMainInvokeEvent,
+  teamName: unknown,
+  messageId: unknown
+): Promise<IpcResult<OpenCodeRuntimeDeliveryStatus | null>> {
+  const validatedTeamName = validateTeamName(teamName);
+  if (!validatedTeamName.valid) {
+    return { success: false, error: validatedTeamName.error ?? 'Invalid teamName' };
+  }
+  if (typeof messageId !== 'string' || messageId.trim().length === 0) {
+    return { success: false, error: 'messageId must be a non-empty string' };
+  }
+  const safeMessageId = messageId.trim();
+  if (safeMessageId.includes('/') || safeMessageId.includes('\\') || safeMessageId.includes('..')) {
+    return { success: false, error: 'Invalid messageId' };
+  }
+  return wrapTeamHandler('getOpenCodeRuntimeDeliveryStatus', async () =>
+    getTeamProvisioningService().getOpenCodeRuntimeDeliveryStatus(
+      validatedTeamName.value!,
+      safeMessageId
+    )
+  );
+}
+
 async function handleCreateTask(
   _event: IpcMainInvokeEvent,
   teamName: unknown,
@@ -3899,9 +3927,16 @@ async function handleRestartMember(
   if (!validatedMemberName.valid) {
     return { success: false, error: validatedMemberName.error ?? 'Invalid memberName' };
   }
-  return wrapTeamHandler('restartMember', async () =>
-    getTeamProvisioningService().restartMember(validatedTeamName.value!, validatedMemberName.value!)
-  );
+  return wrapTeamHandler('restartMember', async () => {
+    try {
+      await getTeamProvisioningService().restartMember(
+        validatedTeamName.value!,
+        validatedMemberName.value!
+      );
+    } finally {
+      getTeamDataService().invalidateMessageFeed(validatedTeamName.value!);
+    }
+  });
 }
 
 async function handleRetryFailedOpenCodeSecondaryLanes(
@@ -4297,6 +4332,7 @@ async function handleReplaceMembers(
       : [];
 
     await teamDataService.replaceMembers(tn, { members });
+    teamDataService.invalidateMessageFeed(tn);
 
     if (!isTeamAlive) {
       return;

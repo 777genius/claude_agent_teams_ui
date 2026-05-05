@@ -58,6 +58,7 @@ import type {
   MemberLogSummary,
   MemberSpawnStatusesSnapshot,
   MessagesPage,
+  OpenCodeRuntimeDeliveryStatus,
   ProjectBranchChangeEvent,
   ReplaceMembersRequest,
   RetryFailedOpenCodeSecondaryLanesResult,
@@ -468,6 +469,10 @@ export interface TeamsAPI {
   getProvisioningStatus: (runId: string) => Promise<TeamProvisioningProgress>;
   cancelProvisioning: (runId: string) => Promise<void>;
   sendMessage: (teamName: string, request: SendMessageRequest) => Promise<SendMessageResult>;
+  getOpenCodeRuntimeDeliveryStatus: (
+    teamName: string,
+    messageId: string
+  ) => Promise<OpenCodeRuntimeDeliveryStatus | null>;
   getMessagesPage: (
     teamName: string,
     options?: { cursor?: string | null; limit?: number }

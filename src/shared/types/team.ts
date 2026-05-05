@@ -736,6 +736,10 @@ export interface SendMessageResult {
   };
 }
 
+export type OpenCodeRuntimeDeliveryStatus = NonNullable<SendMessageResult['runtimeDelivery']> & {
+  messageId: string;
+};
+
 export interface AddTaskCommentRequest {
   text: string;
   attachments?: CommentAttachmentPayload[];

@@ -14,6 +14,7 @@ interface ActionModeSelectorProps {
   value: ActionMode;
   onChange: (mode: ActionMode) => void;
   showDelegate: boolean;
+  disabled?: boolean;
 }
 
 const MODE_CONFIG: {
@@ -50,6 +51,7 @@ export const ActionModeSelector = ({
   value,
   onChange,
   showDelegate,
+  disabled = false,
 }: ActionModeSelectorProps): React.JSX.Element => {
   const modes = showDelegate ? MODE_CONFIG : MODE_CONFIG.filter((m) => m.mode !== 'delegate');
 
@@ -76,10 +78,12 @@ export const ActionModeSelector = ({
                     'px-2 py-0.5 text-[10px] font-medium transition-colors',
                     isFirst && 'rounded-l-full',
                     isLast && 'rounded-r-full',
+                    disabled && 'cursor-not-allowed opacity-50',
                     isActive
                       ? cfg.activeClass
                       : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
                   )}
+                  disabled={disabled}
                   onClick={() => onChange(cfg.mode)}
                 >
                   {cfg.label}

@@ -1,10 +1,13 @@
 import { isTeamEffortLevel } from '@shared/utils/effortLevels';
+import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 
 import type { MemberDraft } from '@renderer/components/team/members/membersEditorTypes';
 import type {
   EffortLevel,
   ResolvedTeamMember,
+  TeamFastMode,
+  TeamProviderBackendId,
   TeamProviderId,
   TeamProvisioningMemberInput,
 } from '@shared/types';
@@ -127,18 +130,22 @@ function normalizeEditableMemberSnapshot(member: {
   role?: string;
   workflow?: string;
   providerId?: string;
+  providerBackendId?: string;
   model?: string;
   effort?: string;
   isolation?: string;
+  fastMode?: string;
   removedAt?: number | string | null;
 }): {
   name: string;
   role?: string;
   workflow?: string;
   providerId?: TeamProviderId;
+  providerBackendId?: TeamProviderBackendId;
   model?: string;
   effort?: EffortLevel;
   isolation?: 'worktree';
+  fastMode?: TeamFastMode;
 } | null {
   if (member.removedAt) {
     return null;
@@ -147,12 +154,33 @@ function normalizeEditableMemberSnapshot(member: {
   if (!name || name.toLowerCase() === 'team-lead') {
     return null;
   }
+  const runtime = normalizeRestartSensitiveMemberContract(member);
   return {
     name,
     role: member.role?.trim() || undefined,
     workflow: member.workflow?.trim() || undefined,
-    ...normalizeRestartSensitiveMemberContract(member),
+    providerBackendId: migrateProviderBackendId(runtime.providerId, member.providerBackendId),
+    fastMode:
+      member.fastMode === 'inherit' || member.fastMode === 'on' || member.fastMode === 'off'
+        ? member.fastMode
+        : undefined,
+    ...runtime,
   };
+}
+
+export function buildEditTeamMemberRosterSnapshot(members: readonly ResolvedTeamMember[]): string;
+export function buildEditTeamMemberRosterSnapshot(
+  members: readonly TeamProvisioningMemberInput[]
+): string;
+export function buildEditTeamMemberRosterSnapshot(
+  members: readonly (ResolvedTeamMember | TeamProvisioningMemberInput)[]
+): string {
+  const normalizedMembers = members
+    .map(normalizeEditableMemberSnapshot)
+    .filter((member): member is NonNullable<typeof member> => member !== null)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return JSON.stringify(normalizedMembers);
 }
 
 export function buildEditTeamSourceSnapshot(params: {
@@ -161,10 +189,7 @@ export function buildEditTeamSourceSnapshot(params: {
   color: string;
   members: readonly ResolvedTeamMember[];
 }): string {
-  const members = params.members
-    .map(normalizeEditableMemberSnapshot)
-    .filter((member): member is NonNullable<typeof member> => member !== null)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const members = JSON.parse(buildEditTeamMemberRosterSnapshot(params.members)) as unknown;
 
   return JSON.stringify({
     name: params.name.trim(),

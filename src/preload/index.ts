@@ -136,6 +136,7 @@ import {
   TEAM_GET_MEMBER_LOGS,
   TEAM_GET_MEMBER_STATS,
   TEAM_GET_MESSAGES_PAGE,
+  TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS,
   TEAM_GET_PROJECT_BRANCH,
   TEAM_GET_SAVED_REQUEST,
   TEAM_GET_TASK_ACTIVITY,
@@ -281,6 +282,7 @@ import type {
   MemberSpawnStatusesSnapshot,
   MessagesPage,
   NotificationTrigger,
+  OpenCodeRuntimeDeliveryStatus,
   ProjectBranchChangeEvent,
   RejectResult,
   ReplaceMembersRequest,
@@ -933,6 +935,13 @@ const electronAPI: ElectronAPI = {
     },
     sendMessage: async (teamName: string, request: SendMessageRequest) => {
       return invokeIpcWithResult<SendMessageResult>(TEAM_SEND_MESSAGE, teamName, request);
+    },
+    getOpenCodeRuntimeDeliveryStatus: async (teamName: string, messageId: string) => {
+      return invokeIpcWithResult<OpenCodeRuntimeDeliveryStatus | null>(
+        TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS,
+        teamName,
+        messageId
+      );
     },
     getMessagesPage: async (
       teamName: string,

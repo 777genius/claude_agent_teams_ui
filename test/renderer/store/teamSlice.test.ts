@@ -34,6 +34,7 @@ const hoisted = vi.hoisted(() => ({
   restoreTeam: vi.fn(),
   permanentlyDeleteTeam: vi.fn(),
   sendMessage: vi.fn(),
+  getOpenCodeRuntimeDeliveryStatus: vi.fn(),
   retryFailedOpenCodeSecondaryLanes: vi.fn(),
   restartMember: vi.fn(),
   skipMemberForLaunch: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock('@renderer/api', () => ({
       restoreTeam: hoisted.restoreTeam,
       permanentlyDeleteTeam: hoisted.permanentlyDeleteTeam,
       sendMessage: hoisted.sendMessage,
+      getOpenCodeRuntimeDeliveryStatus: hoisted.getOpenCodeRuntimeDeliveryStatus,
       retryFailedOpenCodeSecondaryLanes: hoisted.retryFailedOpenCodeSecondaryLanes,
       restartMember: hoisted.restartMember,
       skipMemberForLaunch: hoisted.skipMemberForLaunch,
@@ -309,6 +311,7 @@ describe('teamSlice actions', () => {
       feedRevision: 'rev-1',
     });
     hoisted.sendMessage.mockResolvedValue({ deliveredToInbox: true, messageId: 'm1' });
+    hoisted.getOpenCodeRuntimeDeliveryStatus.mockResolvedValue(null);
     hoisted.requestReview.mockResolvedValue(undefined);
     hoisted.updateKanban.mockResolvedValue(undefined);
     hoisted.createTeam.mockResolvedValue({ runId: 'run-1' });
@@ -484,6 +487,58 @@ describe('teamSlice actions', () => {
       acceptanceUnknown: false,
       reason: 'assistant_response_pending',
       diagnostics: ['assistant_response_pending'],
+    });
+  });
+
+  it('updates pending OpenCode runtime diagnostics when delivery becomes terminal', async () => {
+    const store = createSliceStore();
+    hoisted.sendMessage.mockResolvedValue({
+      deliveredToInbox: true,
+      messageId: 'm-opencode-pending',
+      runtimeDelivery: {
+        providerId: 'opencode',
+        attempted: true,
+        delivered: true,
+        responsePending: true,
+        responseState: 'pending',
+        ledgerStatus: 'accepted',
+        acceptanceUnknown: false,
+        reason: 'assistant_response_pending',
+        diagnostics: ['assistant_response_pending'],
+      },
+    });
+    hoisted.getOpenCodeRuntimeDeliveryStatus.mockResolvedValue({
+      messageId: 'm-opencode-pending',
+      providerId: 'opencode',
+      attempted: true,
+      delivered: false,
+      responsePending: false,
+      responseState: 'empty_assistant_turn',
+      ledgerStatus: 'failed_terminal',
+      acceptanceUnknown: false,
+      reason: 'empty_assistant_turn',
+      diagnostics: ['empty_assistant_turn'],
+    });
+
+    await store.getState().sendTeamMessage('my-team', {
+      member: 'bob',
+      text: 'hello',
+    });
+    await store
+      .getState()
+      .refreshSendMessageRuntimeDeliveryStatus('my-team', 'm-opencode-pending');
+
+    expect(store.getState().sendMessageWarning).toBe(
+      'OpenCode runtime delivery failed. Message was saved to inbox, but live delivery did not complete. Reason: OpenCode returned an empty assistant turn.'
+    );
+    expect(store.getState().sendMessageDebugDetails).toMatchObject({
+      messageId: 'm-opencode-pending',
+      delivered: false,
+      responsePending: false,
+      responseState: 'empty_assistant_turn',
+      ledgerStatus: 'failed_terminal',
+      reason: 'empty_assistant_turn',
+      diagnostics: ['empty_assistant_turn'],
     });
   });
 

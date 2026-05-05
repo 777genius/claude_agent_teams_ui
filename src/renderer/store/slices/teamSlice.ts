@@ -2367,6 +2367,7 @@ export interface TeamSlice {
   sendMessageDebugDetails: OpenCodeRuntimeDeliveryDebugDetails | null;
   lastSendMessageResult: SendMessageResult | null;
   clearSendMessageRuntimeDiagnostics: (messageId?: string | null) => void;
+  refreshSendMessageRuntimeDeliveryStatus: (teamName: string, messageId: string) => Promise<void>;
   reviewActionError: string | null;
   provisioningRuns: Record<string, TeamProvisioningProgress>;
   /** Synthetic TeamSummary snapshots for teams currently being provisioned (before config.json exists). */
@@ -4502,6 +4503,30 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     });
   },
 
+  refreshSendMessageRuntimeDeliveryStatus: async (teamName: string, messageId: string) => {
+    const normalizedMessageId = messageId.trim();
+    if (!normalizedMessageId) return;
+    if (get().sendMessageDebugDetails?.messageId !== normalizedMessageId) return;
+    const status = await unwrapIpc('team:getOpenCodeRuntimeDeliveryStatus', () =>
+      api.teams.getOpenCodeRuntimeDeliveryStatus(teamName, normalizedMessageId)
+    );
+    if (!status) return;
+    const diagnostics = buildOpenCodeRuntimeDeliveryDiagnostics({
+      deliveredToInbox: true,
+      messageId: normalizedMessageId,
+      runtimeDelivery: status,
+    });
+    set((state) => {
+      if (state.sendMessageDebugDetails?.messageId !== normalizedMessageId) {
+        return {};
+      }
+      return {
+        sendMessageWarning: diagnostics.warning,
+        sendMessageDebugDetails: diagnostics.debugDetails,
+      };
+    });
+  },
+
   fetchCrossTeamTargets: async () => {
     set({ crossTeamTargetsLoading: true });
     try {
@@ -4677,6 +4702,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
       await unwrapIpc('team:restartMember', () => api.teams.restartMember(teamName, memberName));
     } finally {
       await Promise.allSettled([
+        get().refreshTeamMessagesHead(teamName),
         get().fetchMemberSpawnStatuses(teamName),
         get().fetchTeamAgentRuntime(teamName),
       ]);

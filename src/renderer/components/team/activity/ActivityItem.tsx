@@ -381,6 +381,7 @@ const PassiveIdlePeerSummaryRow = ({
 
 const BootstrapSystemRow = ({
   teamName,
+  eventKind,
   senderName,
   recipientName,
   runtime,
@@ -390,6 +391,7 @@ const BootstrapSystemRow = ({
   onMemberNameClick,
 }: {
   teamName: string;
+  eventKind: 'start' | 'restart';
   senderName: string;
   recipientName: string;
   runtime?: string;
@@ -397,34 +399,41 @@ const BootstrapSystemRow = ({
   recipientColor?: string;
   timestamp: string;
   onMemberNameClick?: (memberName: string) => void;
-}): React.JSX.Element => (
-  <div className="flex items-center gap-2 px-3 py-2" style={{ opacity: 0.82 }}>
-    <span className="bg-sky-500/12 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-300">
-      start
-    </span>
-    <MemberBadge
-      name={senderName}
-      color={senderColor}
-      teamName={teamName}
-      hideAvatar
-      onClick={onMemberNameClick}
-    />
-    <MoveRight size={10} style={{ color: CARD_ICON_MUTED }} className="shrink-0" />
-    <MemberBadge
-      name={recipientName}
-      color={recipientColor}
-      teamName={teamName}
-      hideAvatar
-      onClick={onMemberNameClick}
-    />
-    <span className="min-w-0 flex-1 truncate text-[11px]" style={{ color: CARD_ICON_MUTED }}>
-      {runtime || 'Starting teammate'}
-    </span>
-    <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
-      {timestamp}
-    </span>
-  </div>
-);
+}): React.JSX.Element => {
+  const isRestart = eventKind === 'restart';
+  return (
+    <div className="flex items-center gap-2 px-3 py-2" style={{ opacity: 0.82 }}>
+      <span
+        className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+          isRestart ? 'bg-amber-500/12 text-amber-300' : 'bg-sky-500/12 text-sky-300'
+        }`}
+      >
+        {isRestart ? 'restart' : 'start'}
+      </span>
+      <MemberBadge
+        name={senderName}
+        color={senderColor}
+        teamName={teamName}
+        hideAvatar
+        onClick={onMemberNameClick}
+      />
+      <MoveRight size={10} style={{ color: CARD_ICON_MUTED }} className="shrink-0" />
+      <MemberBadge
+        name={recipientName}
+        color={recipientColor}
+        teamName={teamName}
+        hideAvatar
+        onClick={onMemberNameClick}
+      />
+      <span className="min-w-0 flex-1 truncate text-[11px]" style={{ color: CARD_ICON_MUTED }}>
+        {runtime || (isRestart ? 'Restarting teammate' : 'Starting teammate')}
+      </span>
+      <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+        {timestamp}
+      </span>
+    </div>
+  );
+};
 
 const BootstrapAcknowledgementRow = ({
   teamName,
@@ -921,6 +930,7 @@ export const ActivityItem = memo(
       return (
         <BootstrapSystemRow
           teamName={teamName}
+          eventKind={bootstrapDisplay.eventKind}
           senderName={senderName}
           recipientName={bootstrapDisplay.teammateName ?? message.to ?? 'teammate'}
           runtime={bootstrapDisplay.runtime}

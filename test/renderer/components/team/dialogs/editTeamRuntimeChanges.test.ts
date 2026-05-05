@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildEditTeamMemberRosterSnapshot,
   buildEditTeamSourceSnapshot,
   getLiveRosterIdentityChanges,
   getMembersRequiringRuntimeRestart,
@@ -207,6 +208,57 @@ describe('getMembersRequiringRuntimeRestart', () => {
     });
 
     expect(refreshed).toBe(base);
+  });
+
+  it('matches equivalent current and built roster snapshots', () => {
+    const current = buildEditTeamMemberRosterSnapshot([
+      {
+        name: 'alice',
+        role: 'Reviewer',
+        providerId: 'codex',
+        providerBackendId: 'api',
+        model: 'gpt-5.4-mini',
+        effort: 'medium',
+        status: 'online',
+      } as any,
+    ]);
+
+    const built = buildEditTeamMemberRosterSnapshot([
+      {
+        name: 'alice',
+        role: 'Reviewer',
+        providerId: 'codex',
+        model: 'gpt-5.4-mini',
+        effort: 'medium',
+      },
+    ]);
+
+    expect(built).toBe(current);
+  });
+
+  it('keeps provider backend and fast mode in the edit roster snapshot', () => {
+    const base = buildEditTeamMemberRosterSnapshot([
+      {
+        name: 'alice',
+        role: 'Reviewer',
+        providerId: 'codex',
+        model: 'gpt-5.4-mini',
+        fastMode: 'inherit',
+      } as any,
+    ]);
+
+    const changed = buildEditTeamMemberRosterSnapshot([
+      {
+        name: 'alice',
+        role: 'Reviewer',
+        providerId: 'codex',
+        providerBackendId: 'codex-native',
+        model: 'gpt-5.4-mini',
+        fastMode: 'off',
+      } as any,
+    ]);
+
+    expect(changed).not.toBe(base);
   });
 
   it('keeps worktree isolation in the edit source snapshot', () => {

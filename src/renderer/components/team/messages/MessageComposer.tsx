@@ -37,6 +37,7 @@ import { AlertCircle, Check, ChevronDown, Mic, Paperclip, Search, Send } from 'l
 import { useShallow } from 'zustand/react/shallow';
 
 import type { ActionMode } from '@renderer/components/team/messages/ActionModeSelector';
+import type { ComposerDraftContent } from '@renderer/hooks/useComposerDraft';
 import type { MentionSuggestion } from '@renderer/types/mention';
 import type { OpenCodeRuntimeDeliveryDebugDetails } from '@renderer/utils/openCodeRuntimeDeliveryDiagnostics';
 import type {
@@ -73,6 +74,24 @@ interface MessageComposerProps {
     actionMode?: ActionMode,
     taskRefs?: TaskRef[]
   ) => void;
+}
+
+interface PendingSendState {
+  teamName: string;
+  snapshot: ComposerDraftContent;
+  previousDebugDetails: OpenCodeRuntimeDeliveryDebugDetails | null | undefined;
+  previousLastResult: SendMessageResult | null | undefined;
+  observedSending: boolean;
+  optimisticallyCleared: boolean;
+}
+
+let pendingSendIdCounter = 0;
+
+function createPendingSendId(): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  if (randomId) return randomId;
+  pendingSendIdCounter += 1;
+  return `${Date.now()}-${pendingSendIdCounter}`;
 }
 
 export const MessageComposer = ({
@@ -310,14 +329,18 @@ export const MessageComposer = ({
   //   isLeadAgentRecipient ? s.leadContextByTeam[teamName] : undefined
   // );
   const supportsAttachments = isLeadRecipient && !isCrossTeam && !!isTeamAlive;
-  const canAttach = supportsAttachments && draft.canAddMore;
+  const canAttach = supportsAttachments && draft.canAddMore && !sending;
   const attachmentRestrictionReason = !supportsAttachments
     ? isCrossTeam
       ? 'File attachments are not supported for cross-team messages'
       : !isLeadRecipient
         ? 'Files can only be sent to the team lead'
         : 'Team must be online to attach files'
-    : undefined;
+    : sending
+      ? 'Wait for current message to finish sending before adding files'
+      : !draft.canAddMore
+        ? 'Maximum attachments reached'
+        : undefined;
   const attachmentsBlocked = draft.attachments.length > 0 && !supportsAttachments;
   const slashCommandRestrictionReason = standaloneSlashCommand
     ? draft.attachments.length > 0
@@ -340,19 +363,32 @@ export const MessageComposer = ({
     !slashCommandRestrictionReason &&
     (!isCrossTeam || onCrossTeamSend !== undefined);
 
-  // Track whether we initiated a send — clear draft only on confirmed success
-  const pendingSendRef = useRef(false);
+  const pendingSendRef = useRef<PendingSendState | null>(null);
 
   const handleCycleActionMode = useCallback(() => {
+    if (sending) return;
     const modes: ActionMode[] = canDelegate ? ['do', 'ask', 'delegate'] : ['do', 'ask'];
     const idx = modes.indexOf(actionMode);
     setActionMode(modes[(idx + 1) % modes.length]);
-  }, [actionMode, canDelegate, setActionMode]);
+  }, [actionMode, canDelegate, sending, setActionMode]);
 
   const handleSend = useCallback(() => {
     if (!canSend) return;
     dismissMentionsRef.current?.();
-    pendingSendRef.current = true;
+    pendingSendRef.current = {
+      teamName,
+      snapshot: {
+        text: draft.text,
+        chips: draft.chips,
+        attachments: draft.attachments,
+        actionMode,
+        pendingSendId: createPendingSendId(),
+      },
+      previousDebugDetails: sendDebugDetails,
+      previousLastResult: lastResult,
+      observedSending: false,
+      optimisticallyCleared: false,
+    };
     const taskRefs = extractTaskRefsFromText(draft.text, taskSuggestions);
     const serialized = serializeChipsWithText(trimmed, draft.chips);
     if (isCrossTeam && selectedTeam && onCrossTeamSend) {
@@ -377,35 +413,67 @@ export const MessageComposer = ({
     onCrossTeamSend,
     isCrossTeam,
     selectedTeam,
+    sendDebugDetails,
     draft.attachments,
     draft.chips,
     draft.text,
+    lastResult,
     taskSuggestions,
+    teamName,
   ]);
 
-  // Clear draft only after send completes successfully (sending: true -> false, no error).
-  // Layout effect prevents a visible paint where the optimistic message is already in the list
-  // but the submitted text is still shown in the composer.
+  // Clear once the send starts, not after the IPC finishes. For OpenCode teammates the message
+  // can already be visible from inbox refresh while runtime delivery diagnostics are still pending.
   useLayoutEffect(() => {
-    if (!sending && pendingSendRef.current) {
-      pendingSendRef.current = false;
-      if (!sendError && sendDebugDetails?.delivered !== false) {
-        draft.clearDraft();
-      }
-    }
-  }, [sending, sendError, sendDebugDetails, draft]);
+    const pending = pendingSendRef.current;
+    if (!pending) return;
+    const isPendingCurrentTeam = pending.teamName === teamName;
 
-  const { addFiles: draftAddFiles } = draft;
-  const handleFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const input = e.target;
-      if (input.files?.length) {
-        void draftAddFiles(input.files);
+    if (sending) {
+      pending.observedSending = true;
+      if (isPendingCurrentTeam && !pending.optimisticallyCleared) {
+        pending.optimisticallyCleared = true;
+        draft.hideDraftForPendingSend(pending.snapshot);
       }
-      input.value = '';
-    },
-    [draftAddFiles]
-  );
+      return;
+    }
+
+    const hasNewResult =
+      lastResult?.messageId != null &&
+      lastResult.messageId !== pending.previousLastResult?.messageId;
+    const hasNewDebugDetails =
+      sendDebugDetails?.messageId != null &&
+      sendDebugDetails.messageId !== pending.previousDebugDetails?.messageId;
+    const hasCompletionSignal =
+      pending.observedSending || sendError !== null || hasNewResult || hasNewDebugDetails;
+    if (!hasCompletionSignal) return;
+
+    pendingSendRef.current = null;
+    const failed = sendError !== null || sendDebugDetails?.delivered === false;
+    if (failed) {
+      if (!isPendingCurrentTeam) return;
+      const currentDraftIsEmpty =
+        draft.text.length === 0 && draft.chips.length === 0 && draft.attachments.length === 0;
+      if (pending.optimisticallyCleared && currentDraftIsEmpty) {
+        draft.restoreDraft(pending.snapshot);
+      } else if (!currentDraftIsEmpty) {
+        draft.finalizePendingSendClear(undefined, pending.snapshot);
+      }
+      return;
+    }
+
+    if (!isPendingCurrentTeam) {
+      draft.finalizePendingSendClear(pending.teamName, pending.snapshot);
+      return;
+    }
+
+    if (!pending.optimisticallyCleared) {
+      draft.clearDraft();
+      return;
+    }
+
+    draft.finalizePendingSendClear(undefined, pending.snapshot);
+  }, [teamName, sending, sendError, sendDebugDetails, lastResult, draft]);
 
   const showFileRestrictionError = useCallback(() => {
     setFileRestrictionError(
@@ -416,6 +484,23 @@ export const MessageComposer = ({
       setFileRestrictionError(null);
     }, 4000);
   }, [attachmentRestrictionReason]);
+
+  const { addFiles: draftAddFiles } = draft;
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const input = e.target;
+      if (input.files?.length) {
+        if (!canAttach) {
+          showFileRestrictionError();
+          input.value = '';
+          return;
+        }
+        void draftAddFiles(input.files);
+      }
+      input.value = '';
+    },
+    [canAttach, draftAddFiles, showFileRestrictionError]
+  );
 
   // Cleanup restriction error timer on unmount
   useEffect(() => {
@@ -448,7 +533,7 @@ export const MessageComposer = ({
       e.preventDefault();
       dragCounterRef.current = 0;
       setIsDragOver(false);
-      if (!supportsAttachments) {
+      if (!canAttach) {
         const files = e.dataTransfer?.files;
         if (files?.length) {
           showFileRestrictionError();
@@ -457,13 +542,13 @@ export const MessageComposer = ({
       }
       draftHandleDrop(e);
     },
-    [supportsAttachments, draftHandleDrop, showFileRestrictionError]
+    [canAttach, draftHandleDrop, showFileRestrictionError]
   );
 
   const { handlePaste: draftHandlePaste } = draft;
   const handlePasteWrapper = useCallback(
     (e: React.ClipboardEvent) => {
-      if (!supportsAttachments) {
+      if (!canAttach) {
         const hasFiles = Array.from(e.clipboardData.items).some((item) => item.kind === 'file');
         if (hasFiles) {
           e.preventDefault();
@@ -473,7 +558,7 @@ export const MessageComposer = ({
       }
       draftHandlePaste(e);
     },
-    [supportsAttachments, draftHandlePaste, showFileRestrictionError]
+    [canAttach, draftHandlePaste, showFileRestrictionError]
   );
 
   const remaining = MAX_TEXT_LENGTH - trimmed.length;
@@ -546,9 +631,11 @@ export const MessageComposer = ({
                 <TooltipContent side="top">
                   {!isTeamAlive
                     ? 'Team must be online to attach files'
-                    : !draft.canAddMore
-                      ? 'Maximum attachments reached'
-                      : 'Attach files (paste or drag & drop)'}
+                    : sending
+                      ? 'Wait for current message to finish sending'
+                      : !draft.canAddMore
+                        ? 'Maximum attachments reached'
+                        : 'Attach files (paste or drag & drop)'}
                 </TooltipContent>
               </Tooltip>
             </>
@@ -850,7 +937,7 @@ export const MessageComposer = ({
       <div className="relative">
         <DropZoneOverlay
           active={isDragOver}
-          rejected={!supportsAttachments}
+          rejected={!canAttach}
           rejectionReason={attachmentRestrictionReason}
         />
         <MentionableTextarea
@@ -893,6 +980,7 @@ export const MessageComposer = ({
               value={actionMode}
               onChange={setActionMode}
               showDelegate={canDelegate}
+              disabled={sending}
             />
           }
           cornerAction={

@@ -234,6 +234,9 @@ export const TEAM_UPDATE_KANBAN_COLUMN_ORDER = 'team:updateKanbanColumnOrder';
 /** Send inbox message to team member */
 export const TEAM_SEND_MESSAGE = 'team:sendMessage';
 
+/** Read latest OpenCode runtime delivery status for a sent inbox message */
+export const TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS = 'team:getOpenCodeRuntimeDeliveryStatus';
+
 /** Paginated messages for timeline/messages panel */
 export const TEAM_GET_MESSAGES_PAGE = 'team:getMessagesPage';
 

@@ -35,6 +35,7 @@ import type {
   KanbanColumnId,
   NotificationsAPI,
   NotificationTrigger,
+  OpenCodeRuntimeDeliveryStatus,
   PaginatedSessionsResult,
   Project,
   RepositoryGroup,
@@ -793,6 +794,12 @@ export class HttpAPIClient implements ElectronAPI {
       _request: SendMessageRequest
     ): Promise<SendMessageResult> => {
       throw new Error('Team messaging is not available in browser mode');
+    },
+    getOpenCodeRuntimeDeliveryStatus: async (
+      _teamName: string,
+      _messageId: string
+    ): Promise<OpenCodeRuntimeDeliveryStatus | null> => {
+      throw new Error('OpenCode runtime delivery status is not available in browser mode');
     },
     getMessagesPage: async () => {
       return { messages: [], nextCursor: null, hasMore: false, feedRevision: 'empty' };

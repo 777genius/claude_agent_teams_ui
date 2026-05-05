@@ -14,6 +14,7 @@ const storeState = {
   sendMessageDebugDetails: null as OpenCodeRuntimeDeliveryDebugDetails | null,
   lastSendMessageResult: null as unknown,
   clearSendMessageRuntimeDiagnostics: vi.fn(),
+  refreshSendMessageRuntimeDeliveryStatus: vi.fn().mockResolvedValue(undefined),
   teams: [],
   openTeamTab: vi.fn(),
   loadOlderTeamMessages: vi.fn().mockResolvedValue(undefined),
@@ -191,6 +192,7 @@ function makeMessage(overrides: Partial<InboxMessage> = {}): InboxMessage {
 describe('MessagesPanel idle summary invariants', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -204,6 +206,7 @@ describe('MessagesPanel idle summary invariants', () => {
     storeState.sendCrossTeamMessage.mockClear();
     storeState.openTeamTab.mockClear();
     storeState.clearSendMessageRuntimeDiagnostics.mockClear();
+    storeState.refreshSendMessageRuntimeDeliveryStatus.mockClear();
     storeState.loadOlderTeamMessages.mockClear();
     storeState.refreshTeamMessagesHead.mockClear();
     storeState.sendingMessage = false;
@@ -604,6 +607,80 @@ describe('MessagesPanel idle summary invariants', () => {
       root.unmount();
       await Promise.resolve();
     });
+  });
+
+  it('refreshes pending OpenCode runtime diagnostics after send timeout', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    storeState.sendMessageWarning =
+      'OpenCode runtime delivery is still being checked. Message was saved and will be retried if needed.';
+    storeState.sendMessageDebugDetails = {
+      messageId: 'user-send',
+      providerId: 'opencode',
+      delivered: true,
+      responsePending: true,
+      responseState: 'pending',
+      ledgerStatus: 'accepted',
+      acceptanceUnknown: false,
+      reason: 'assistant_response_pending',
+      diagnostics: ['assistant_response_pending'],
+    };
+
+    await act(async () => {
+      storeState.teamMessagesByName['atlas-hq'] = {
+        canonicalMessages: [
+          makeMessage({
+            messageId: 'user-send',
+            from: 'user',
+            to: 'tom',
+            source: 'user_sent',
+            timestamp: '2026-04-08T12:00:00.000Z',
+            text: 'Тут?',
+          }),
+        ],
+        optimisticMessages: [],
+        feedRevision: 'rev-1',
+        nextCursor: null,
+        hasMore: false,
+        lastFetchedAt: Date.now(),
+        loadingHead: false,
+        loadingOlder: false,
+        headHydrated: true,
+      };
+      root.render(
+        React.createElement(MessagesPanel, {
+          teamName: 'atlas-hq',
+          position: 'sidebar',
+          onPositionChange: vi.fn(),
+          members: [],
+          tasks: [],
+          timeWindow: null,
+          pendingRepliesByMember: {},
+          onPendingReplyChange: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+      await Promise.resolve();
+    });
+
+    expect(storeState.refreshSendMessageRuntimeDeliveryStatus).toHaveBeenCalledWith(
+      'atlas-hq',
+      'user-send'
+    );
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+    vi.useRealTimers();
   });
 
   it('renders the bottom-sheet composer before the status block so input stays pinned near the header', async () => {
