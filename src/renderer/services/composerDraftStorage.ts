@@ -6,7 +6,7 @@
  * Drafts persist until explicitly cleared (on send or manual action).
  */
 
-import { del, get, set } from 'idb-keyval';
+import { createStore, del, get, promisifyRequest, set } from 'idb-keyval';
 
 import type { InlineChip } from '@renderer/types/inlineChip';
 import type { AgentActionMode, AttachmentPayload } from '@shared/types';
@@ -34,6 +34,7 @@ export interface ComposerDraftSnapshot {
 // ---------------------------------------------------------------------------
 
 const KEY_PREFIX = 'composer:';
+const keyvalStore = createStore('keyval-store', 'keyval');
 
 function storageKey(teamName: string): string {
   return `${KEY_PREFIX}${teamName}`;
@@ -83,6 +84,43 @@ function markIdbUnavailable(): void {
   idbUnavailable = true;
 }
 
+function toError(error: unknown, fallbackMessage: string): Error {
+  return error instanceof Error ? error : new Error(fallbackMessage);
+}
+
+function deleteMatchingSnapshotInStore(
+  store: IDBObjectStore,
+  key: string,
+  predicate: (snapshot: ComposerDraftSnapshot | null) => boolean
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const request = store.get(key);
+
+    request.onerror = () => {
+      reject(toError(request.error, 'Failed to read composer draft snapshot.'));
+    };
+
+    request.onsuccess = () => {
+      try {
+        const raw = request.result as unknown;
+        const snapshot = raw == null ? null : isValidSnapshot(raw) ? raw : null;
+        const shouldDelete = (raw != null && snapshot == null) || predicate(snapshot);
+
+        if (shouldDelete) {
+          store.delete(key);
+        }
+
+        void promisifyRequest(store.transaction).then(
+          () => resolve(),
+          (error) => reject(toError(error, 'Failed to delete composer draft snapshot.'))
+        );
+      } catch (error) {
+        reject(toError(error, 'Failed to evaluate composer draft snapshot.'));
+      }
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Core API
 // ---------------------------------------------------------------------------
@@ -130,6 +168,26 @@ async function deleteSnapshot(teamName: string): Promise<void> {
   } catch {
     markIdbUnavailable();
     fallbackStore.delete(key);
+  }
+}
+
+async function deleteSnapshotIfMatches(
+  teamName: string,
+  predicate: (snapshot: ComposerDraftSnapshot | null) => boolean
+): Promise<void> {
+  const key = storageKey(teamName);
+  if (idbUnavailable) {
+    const snapshot = fallbackStore.get(key) ?? null;
+    if (predicate(snapshot)) fallbackStore.delete(key);
+    return;
+  }
+
+  try {
+    await keyvalStore('readwrite', (store) => deleteMatchingSnapshotInStore(store, key, predicate));
+  } catch {
+    markIdbUnavailable();
+    const snapshot = fallbackStore.get(key) ?? null;
+    if (predicate(snapshot)) fallbackStore.delete(key);
   }
 }
 
@@ -267,6 +325,7 @@ export const composerDraftStorage = {
   saveSnapshot,
   loadSnapshot,
   deleteSnapshot,
+  deleteSnapshotIfMatches,
   migrateLegacy,
   emptySnapshot,
 };

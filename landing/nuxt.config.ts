@@ -8,6 +8,7 @@ const siteUrl = process.env.NUXT_PUBLIC_SITE_URL || "https://777genius.github.io
 const githubRepo = process.env.NUXT_PUBLIC_GITHUB_REPO || "777genius/claude_agent_teams_ui";
 const githubReleasesUrl = `https://github.com/${githubRepo}/releases`;
 const baseURL = process.env.NUXT_APP_BASE_URL || "/";
+const basePrefixedDocsPath = `${baseURL.replace(/\/?$/, "/")}docs`;
 
 export default defineNuxtConfig({
   compatibilityDate: "2026-01-19",
@@ -57,7 +58,9 @@ export default defineNuxtConfig({
     prerender: {
       ignore: [
         "/docs",
-        "/docs/**"
+        "/docs/**",
+        basePrefixedDocsPath,
+        `${basePrefixedDocsPath}/**`
       ],
       routes: [
         ...generateI18nRoutes(),

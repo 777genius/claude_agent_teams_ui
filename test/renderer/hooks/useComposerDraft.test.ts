@@ -4,6 +4,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const store = new Map<string, unknown>();
 
 vi.mock('idb-keyval', () => ({
+  createStore: vi.fn(
+    () =>
+      async <T>(
+        _txMode: IDBTransactionMode,
+        callback: (objectStore: IDBObjectStore) => T | PromiseLike<T>
+      ): Promise<T> => {
+        const objectStore = {
+          transaction: {},
+          get: (key: string) => {
+            const request = {
+              result: store.get(key) ?? undefined,
+              error: null,
+              onsuccess: null as (() => void) | null,
+              onerror: null as (() => void) | null,
+            };
+            queueMicrotask(() => {
+              request.onsuccess?.();
+            });
+            return request;
+          },
+          delete: (key: string) => {
+            store.delete(key);
+          },
+        };
+
+        return callback(objectStore as unknown as IDBObjectStore);
+      }
+  ),
+  promisifyRequest: vi.fn(() => Promise.resolve(undefined)),
   get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? undefined)),
   set: vi.fn((key: string, value: unknown) => {
     store.set(key, value);
@@ -88,6 +117,34 @@ describe('composerDraftStorage', () => {
 
     it('should not throw when deleting non-existent snapshot', async () => {
       await expect(composerDraftStorage.deleteSnapshot('nonexistent')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('deleteSnapshotIfMatches', () => {
+    it('should delete a snapshot when the predicate matches', async () => {
+      await composerDraftStorage.saveSnapshot(
+        'team-a',
+        makeSnapshot('team-a', { pendingSendId: 'send-1' })
+      );
+
+      await composerDraftStorage.deleteSnapshotIfMatches(
+        'team-a',
+        (snapshot) => snapshot?.pendingSendId === 'send-1'
+      );
+
+      expect(await composerDraftStorage.loadSnapshot('team-a')).toBeNull();
+    });
+
+    it('should keep a snapshot when the predicate does not match', async () => {
+      const snap = makeSnapshot('team-a', { pendingSendId: 'newer-send' });
+      await composerDraftStorage.saveSnapshot('team-a', snap);
+
+      await composerDraftStorage.deleteSnapshotIfMatches(
+        'team-a',
+        (snapshot) => snapshot?.pendingSendId === 'older-send'
+      );
+
+      expect(await composerDraftStorage.loadSnapshot('team-a')).toEqual(snap);
     });
   });
 
