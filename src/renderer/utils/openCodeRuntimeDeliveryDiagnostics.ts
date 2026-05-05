@@ -30,6 +30,9 @@ function formatOpenCodeRuntimeDeliveryFailureReason(reason: string | null | unde
   if (normalized === 'empty_assistant_turn') {
     return 'OpenCode returned an empty assistant turn.';
   }
+  if (normalized === 'prompt_delivered_no_assistant_message') {
+    return 'OpenCode accepted the prompt, but no assistant turn was recorded.';
+  }
   return '';
 }
 

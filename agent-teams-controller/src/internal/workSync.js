@@ -94,20 +94,28 @@ async function requestJsonWithFallback(baseUrls, pathname, options = {}) {
 }
 
 function compactReportBody(context, memberName, flags = {}) {
+  const taskIds = normalizeTaskIds(
+    Array.isArray(flags['task-ids']) ? flags['task-ids'] : flags.taskIds
+  );
   return {
     teamName: context.teamName,
     memberName,
     state: flags.state,
     agendaFingerprint: flags.agendaFingerprint || flags['agenda-fingerprint'],
     reportToken: flags.reportToken || flags['report-token'],
-    ...(Array.isArray(flags.taskIds) ? { taskIds: flags.taskIds } : {}),
-    ...(Array.isArray(flags['task-ids']) ? { taskIds: flags['task-ids'] } : {}),
+    ...(taskIds.length > 0 ? { taskIds } : {}),
     ...(typeof flags.note === 'string' && flags.note.trim() ? { note: flags.note.trim() } : {}),
     ...(typeof flags.reportedAt === 'string' && flags.reportedAt.trim()
       ? { reportedAt: flags.reportedAt.trim() }
       : {}),
     ...(typeof flags.leaseTtlMs === 'number' ? { leaseTtlMs: flags.leaseTtlMs } : {}),
   };
+}
+
+function normalizeTaskIds(value) {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.map((taskId) => String(taskId).trim()).filter(Boolean)))
+    : [];
 }
 
 function stableStringify(value) {
@@ -125,7 +133,9 @@ function stableStringify(value) {
 
 function buildPendingIntentId(body) {
   const taskIds = Array.isArray(body.taskIds)
-    ? Array.from(new Set(body.taskIds.map((taskId) => String(taskId)).filter(Boolean))).sort()
+    ? Array.from(
+        new Set(body.taskIds.map((taskId) => String(taskId).trim()).filter(Boolean))
+      ).sort()
     : [];
   const payload = {
     teamName: body.teamName,
@@ -229,8 +239,12 @@ async function memberWorkSyncStatus(context, flags = {}) {
     baseUrls,
     `/api/teams/${encodeURIComponent(context.teamName)}/member-work-sync/${encodeURIComponent(
       memberName
-    )}`,
-    { timeoutMs: normalizeTimeoutMs(flags.waitTimeoutMs || flags['wait-timeout-ms']) }
+    )}/refresh`,
+    {
+      method: 'POST',
+      body: {},
+      timeoutMs: normalizeTimeoutMs(flags.waitTimeoutMs || flags['wait-timeout-ms']),
+    }
   );
 }
 

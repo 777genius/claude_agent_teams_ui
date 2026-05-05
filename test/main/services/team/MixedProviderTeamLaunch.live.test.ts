@@ -46,7 +46,6 @@ liveDescribe('Mixed provider team launch live e2e', () => {
   let projectPath: string;
   let previousCliPath: string | undefined;
   let previousCliFlavor: string | undefined;
-  let previousNudgeFlag: string | undefined;
   let previousCodexHome: string | undefined;
   let previousHome: string | undefined;
   let previousUserProfile: string | undefined;
@@ -78,7 +77,6 @@ liveDescribe('Mixed provider team launch live e2e', () => {
 
     previousCliPath = process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH;
     previousCliFlavor = process.env.CLAUDE_TEAM_CLI_FLAVOR;
-    previousNudgeFlag = process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED;
     previousCodexHome = process.env.CODEX_HOME;
     previousHome = process.env.HOME;
     previousUserProfile = process.env.USERPROFILE;
@@ -89,7 +87,6 @@ liveDescribe('Mixed provider team launch live e2e', () => {
     process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH =
       process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
     process.env.CLAUDE_TEAM_CLI_FLAVOR = 'agent_teams_orchestrator';
-    process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED = '0';
     process.env.CODEX_HOME = resolveConnectedCodexHome(previousCodexHome);
     process.env.HOME = tempHome;
     process.env.USERPROFILE = tempHome;
@@ -118,7 +115,6 @@ liveDescribe('Mixed provider team launch live e2e', () => {
 
     restoreEnv('CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH', previousCliPath);
     restoreEnv('CLAUDE_TEAM_CLI_FLAVOR', previousCliFlavor);
-    restoreEnv('CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED', previousNudgeFlag);
     restoreEnv('CODEX_HOME', previousCodexHome);
     restoreEnv('HOME', previousHome);
     restoreEnv('USERPROFILE', previousUserProfile);

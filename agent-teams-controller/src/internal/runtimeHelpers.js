@@ -253,11 +253,13 @@ function formatAllowedTaskCommentAuthors(paths, explicitMembers, options = {}) {
     }
   }
 
-  const leadName = inferLeadName(paths);
-  const leadKey = normalizeMemberKey(leadName);
-  if (leadKey && explicitMembers.membersByKey.has(leadKey)) {
-    allowed.add('lead');
-    allowed.add('team-lead');
+  if (options.allowLeadAliases !== false) {
+    const leadName = inferLeadName(paths);
+    const leadKey = normalizeMemberKey(leadName);
+    if (leadKey && explicitMembers.membersByKey.has(leadKey)) {
+      allowed.add('lead');
+      allowed.add('team-lead');
+    }
   }
 
   return Array.from(allowed).sort((a, b) => a.localeCompare(b)).join(', ');
@@ -285,14 +287,18 @@ function resolveTaskCommentAuthorName(paths, candidate, label = 'task comment au
     return directMember.name;
   }
 
-  const leadAlias = resolveExplicitTeamMemberName(paths, normalized, { allowLeadAliases: true });
+  const leadAlias = resolveExplicitTeamMemberName(paths, normalized, {
+    allowLeadAliases: options.allowLeadAliases !== false,
+  });
   if (leadAlias) {
     return leadAlias;
   }
 
-  const { leadName, keys } = getLeadProviderKeys(paths, explicit);
-  if (leadName && keys.has(key)) {
-    return leadName;
+  if (options.allowProviderAliases !== false) {
+    const { leadName, keys } = getLeadProviderKeys(paths, explicit);
+    if (leadName && keys.has(key)) {
+      return leadName;
+    }
   }
 
   throw new Error(

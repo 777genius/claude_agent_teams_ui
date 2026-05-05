@@ -58,6 +58,22 @@ function getActiveMemberNames(members: MemberWorkSyncMemberLike[]): Set<string> 
   );
 }
 
+function isLeadLike(member: MemberWorkSyncMemberLike): boolean {
+  const name = normalizeMemberName(member.name);
+  const agentType = typeof member.agentType === 'string' ? member.agentType : '';
+  return (
+    name === 'team-lead' ||
+    agentType === 'team-lead' ||
+    agentType === 'lead' ||
+    agentType === 'orchestrator'
+  );
+}
+
+function getActiveLeadName(members: MemberWorkSyncMemberLike[]): string | null {
+  const lead = members.find((member) => !member.removedAt && isLeadLike(member));
+  return lead ? normalizeMemberName(lead.name) : null;
+}
+
 function buildBaseItem(
   task: MemberWorkSyncTaskLike,
   memberName: string
@@ -70,12 +86,23 @@ function buildBaseItem(
   };
 }
 
+function taskReferenceKeys(task: Pick<MemberWorkSyncTaskLike, 'id' | 'displayId'>): string[] {
+  const keys = [task.id, task.displayId]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return [...new Set(keys.flatMap((value) => [value, value.replace(/^#/, '')]))];
+}
+
 export function buildActionableWorkAgenda(
   input: BuildActionableWorkAgendaInput
 ): MemberWorkSyncAgenda {
   const memberName = normalizeMemberName(input.memberName);
   const diagnostics: string[] = [];
   const activeMemberNames = getActiveMemberNames(input.members);
+  const activeLeadName = getActiveLeadName(input.members);
+  const tasksByReference = new Map(
+    input.tasks.flatMap((task) => taskReferenceKeys(task).map((key) => [key, task] as const))
+  );
 
   if (!memberName || isReservedMemberName(memberName)) {
     diagnostics.push('member_invalid_or_reserved');
@@ -95,6 +122,57 @@ export function buildActionableWorkAgenda(
       const base = buildBaseItem(task, memberName);
       const blockedBy = [...(task.blockedBy ?? [])].filter(Boolean).sort();
       const blocks = [...(task.blocks ?? [])].filter(Boolean).sort();
+      const brokenDependencyIds: string[] = [];
+      const waitingDependencyIds: string[] = [];
+      for (const dependencyId of blockedBy) {
+        const dependency = tasksByReference.get(dependencyId) ?? null;
+        if (!dependency || dependency.status === 'deleted' || dependency.deletedAt) {
+          brokenDependencyIds.push(dependencyId);
+        } else if (dependency.status !== 'completed') {
+          waitingDependencyIds.push(dependencyId);
+        }
+      }
+
+      if (
+        activeLeadName &&
+        sameMemberName(activeLeadName, memberName) &&
+        task.needsClarification === 'lead'
+      ) {
+        items.push({
+          ...base,
+          kind: 'clarification',
+          priority: 'needs_clarification',
+          reason: 'task_needs_lead_clarification',
+          evidence: {
+            status: task.status,
+            ...(owner ? { owner } : {}),
+            ...(task.reviewState ? { reviewState: task.reviewState } : {}),
+            needsClarification: 'lead',
+          },
+        });
+        continue;
+      }
+
+      if (
+        activeLeadName &&
+        sameMemberName(activeLeadName, memberName) &&
+        brokenDependencyIds.length > 0
+      ) {
+        items.push({
+          ...base,
+          kind: 'blocked_dependency',
+          priority: 'blocked',
+          reason: 'task_has_broken_dependency',
+          evidence: {
+            status: task.status,
+            ...(owner ? { owner } : {}),
+            ...(task.reviewState ? { reviewState: task.reviewState } : {}),
+            blockedByTaskIds: brokenDependencyIds,
+            ...(blocks.length > 0 ? { blockerTaskIds: blocks } : {}),
+          },
+        });
+        continue;
+      }
 
       const reviewOwner = resolveCurrentReviewOwner({
         reviewState: task.reviewState,
@@ -126,44 +204,28 @@ export function buildActionableWorkAgenda(
       }
 
       if (task.needsClarification === 'lead' || task.needsClarification === 'user') {
-        items.push({
-          ...base,
-          kind: 'clarification',
-          priority: 'needs_clarification',
-          reason: `task_needs_${task.needsClarification}_clarification`,
-          evidence: {
-            status: task.status,
-            owner: memberName,
-            ...(task.reviewState ? { reviewState: task.reviewState } : {}),
-            needsClarification: task.needsClarification,
-          },
-        });
         continue;
       }
 
-      if (blockedBy.length > 0) {
-        items.push({
-          ...base,
-          kind: 'blocked_dependency',
-          priority: 'blocked',
-          reason: 'owned_task_has_blocked_dependency',
-          evidence: {
-            status: task.status,
-            owner: memberName,
-            ...(task.reviewState ? { reviewState: task.reviewState } : {}),
-            blockedByTaskIds: blockedBy,
-            ...(blocks.length > 0 ? { blockerTaskIds: blocks } : {}),
-          },
-        });
+      if (waitingDependencyIds.length > 0 || brokenDependencyIds.length > 0) {
         continue;
       }
 
-      if (task.status === 'pending' || task.status === 'in_progress') {
+      if (
+        task.status === 'pending' ||
+        task.status === 'in_progress' ||
+        task.reviewState === 'needsFix'
+      ) {
         items.push({
           ...base,
           kind: 'work',
           priority: 'normal',
-          reason: task.status === 'pending' ? 'owned_pending_task' : 'owned_in_progress_task',
+          reason:
+            task.reviewState === 'needsFix'
+              ? 'review_changes_requested'
+              : task.status === 'pending'
+                ? 'owned_pending_task'
+                : 'owned_in_progress_task',
           evidence: {
             status: task.status,
             owner: memberName,

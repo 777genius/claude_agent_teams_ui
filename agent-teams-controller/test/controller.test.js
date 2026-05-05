@@ -1228,6 +1228,67 @@ describe('agent-teams-controller API', () => {
     expect(fromSystem.comment.author).toBe('system');
   });
 
+  it('rejects provider and lead aliases for agent-facing task comments', () => {
+    const claudeDir = makeClaudeDir();
+    fs.writeFileSync(
+      path.join(claudeDir, 'teams', 'my-team', 'config.json'),
+      JSON.stringify(
+        {
+          name: 'my-team',
+          leadSessionId: 'lead-session-1',
+          members: [
+            { name: 'team-lead', role: 'team-lead', providerId: 'codex', provider: 'codex' },
+            { name: 'bob', role: 'developer' },
+          ],
+        },
+        null,
+        2
+      )
+    );
+
+    const appController = createController({ teamName: 'my-team', claudeDir });
+    const agentController = createController({
+      teamName: 'my-team',
+      claudeDir,
+      allowUserMessageSender: false,
+    });
+    const task = appController.tasks.createTask({
+      subject: 'Reject agent aliases',
+      owner: 'bob',
+      notifyOwner: false,
+    });
+
+    expect(() =>
+      agentController.tasks.addTaskComment(task.id, {
+        from: 'codex',
+        text: 'Provider alias should not be accepted from MCP.',
+      })
+    ).toThrow('Unknown task comment author: codex');
+
+    expect(() =>
+      agentController.tasks.addTaskComment(task.id, {
+        from: 'lead',
+        text: 'Lead alias should not be accepted from MCP.',
+      })
+    ).toThrow('Unknown task comment author: lead');
+
+    let unknownAuthorError;
+    try {
+      agentController.tasks.addTaskComment(task.id, {
+        from: 'Codex',
+        text: 'Provider alias case should not be accepted from MCP.',
+      });
+    } catch (error) {
+      unknownAuthorError = error;
+    }
+    expect(unknownAuthorError.message).toContain('Unknown task comment author: Codex');
+    expect(unknownAuthorError.message).toContain('Use one of: bob, team-lead');
+    expect(unknownAuthorError.message).not.toContain('user');
+    expect(unknownAuthorError.message).not.toContain('system');
+
+    expect(appController.tasks.getTask(task.id).comments || []).toEqual([]);
+  });
+
   it('does not map a real teammate named like the lead provider id to the lead', () => {
     const claudeDir = makeClaudeDir();
     fs.writeFileSync(
@@ -1255,6 +1316,18 @@ describe('agent-teams-controller API', () => {
     });
 
     expect(commented.comment.author).toBe('codex');
+
+    const agentController = createController({
+      teamName: 'my-team',
+      claudeDir,
+      allowUserMessageSender: false,
+    });
+    const agentCommented = agentController.tasks.addTaskComment(task.id, {
+      from: 'codex',
+      text: 'Agent-facing real teammate comment.',
+    });
+
+    expect(agentCommented.comment.author).toBe('codex');
   });
 
   it('rejects task comments from unknown authors', () => {
@@ -2445,7 +2518,7 @@ describe('agent-teams-controller API', () => {
 
     const server = await startControlServer(async ({ method, url, body }) => {
       calls.push({ method, url, body });
-      if (method === 'GET' && url === '/api/teams/my-team/member-work-sync/bob') {
+      if (method === 'POST' && url === '/api/teams/my-team/member-work-sync/bob/refresh') {
         return {
           body: {
             teamName: 'my-team',
@@ -2483,7 +2556,7 @@ describe('agent-teams-controller API', () => {
         state: 'still_working',
         agendaFingerprint: 'agenda:v1:abc',
         reportToken: 'wrs:v1.test.token',
-        taskIds: ['task-1'],
+        taskIds: [' task-1 ', '', 'task-1'],
         note: 'Continuing work',
         leaseTtlMs: 120000,
       });
@@ -2492,9 +2565,9 @@ describe('agent-teams-controller API', () => {
       expect(report.accepted).toBe(true);
       expect(calls).toEqual([
         {
-          method: 'GET',
-          url: '/api/teams/my-team/member-work-sync/bob',
-          body: undefined,
+          method: 'POST',
+          url: '/api/teams/my-team/member-work-sync/bob/refresh',
+          body: {},
         },
         {
           method: 'POST',

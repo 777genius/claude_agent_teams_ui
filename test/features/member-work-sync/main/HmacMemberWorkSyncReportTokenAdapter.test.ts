@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -9,11 +9,13 @@ import { MemberWorkSyncStorePaths } from '@features/member-work-sync/main/infras
 
 describe('HmacMemberWorkSyncReportTokenAdapter', () => {
   let root: string;
+  let paths: MemberWorkSyncStorePaths;
   let adapter: HmacMemberWorkSyncReportTokenAdapter;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'member-work-sync-token-'));
-    adapter = new HmacMemberWorkSyncReportTokenAdapter(new MemberWorkSyncStorePaths(root));
+    paths = new MemberWorkSyncStorePaths(root);
+    adapter = new HmacMemberWorkSyncReportTokenAdapter(paths);
   });
 
   afterEach(async () => {
@@ -75,5 +77,56 @@ describe('HmacMemberWorkSyncReportTokenAdapter', () => {
         nowIso: '2026-04-29T00:15:00.000Z',
       })
     ).resolves.toEqual({ ok: false, reason: 'expired' });
+  });
+
+  it('recovers from a corrupt token secret file', async () => {
+    await mkdir(paths.getTeamDir('team-a'), { recursive: true });
+    await writeFile(paths.getReportTokenSecretPath('team-a'), '{broken', 'utf8');
+
+    const issued = await adapter.create({
+      teamName: 'team-a',
+      memberName: 'bob',
+      agendaFingerprint: 'agenda:v1:abc',
+      issuedAt: '2026-04-29T00:00:00.000Z',
+    });
+
+    const secretFile = JSON.parse(await readFile(paths.getReportTokenSecretPath('team-a'), 'utf8'));
+    expect(secretFile.schemaVersion).toBe(1);
+    expect(typeof secretFile.secret).toBe('string');
+    await expect(
+      adapter.verify({
+        token: issued.token,
+        teamName: 'team-a',
+        memberName: 'bob',
+        agendaFingerprint: 'agenda:v1:abc',
+        nowIso: '2026-04-29T00:01:00.000Z',
+      })
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it('does not cache a failed token secret load forever', async () => {
+    const secretPath = paths.getReportTokenSecretPath('team-a');
+    await mkdir(secretPath, { recursive: true });
+
+    await expect(
+      adapter.create({
+        teamName: 'team-a',
+        memberName: 'bob',
+        agendaFingerprint: 'agenda:v1:abc',
+        issuedAt: '2026-04-29T00:00:00.000Z',
+      })
+    ).rejects.toBeTruthy();
+
+    await rm(secretPath, { recursive: true, force: true });
+    await expect(
+      adapter.create({
+        teamName: 'team-a',
+        memberName: 'bob',
+        agendaFingerprint: 'agenda:v1:abc',
+        issuedAt: '2026-04-29T00:00:00.000Z',
+      })
+    ).resolves.toMatchObject({
+      expiresAt: '2026-04-29T00:15:00.000Z',
+    });
   });
 });

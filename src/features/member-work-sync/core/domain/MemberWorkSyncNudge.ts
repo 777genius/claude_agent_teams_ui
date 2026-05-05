@@ -38,7 +38,9 @@ export function buildMemberWorkSyncNudgeId(input: {
   ].join(':');
 }
 
-export function buildMemberWorkSyncNudgePayload(status: MemberWorkSyncStatus): MemberWorkSyncNudgePayload {
+export function buildMemberWorkSyncNudgePayload(
+  status: MemberWorkSyncStatus
+): MemberWorkSyncNudgePayload {
   const taskRefs = status.agenda.items.map((item) => ({
     teamName: status.teamName,
     taskId: item.taskId,
@@ -48,6 +50,7 @@ export function buildMemberWorkSyncNudgePayload(status: MemberWorkSyncStatus): M
     .slice(0, 3)
     .map((item) => `${item.displayId ?? item.taskId.slice(0, 8)} ${item.subject}`)
     .join('; ');
+  const taskIds = status.agenda.items.map((item) => item.taskId).filter(Boolean);
 
   return {
     from: 'system',
@@ -59,7 +62,13 @@ export function buildMemberWorkSyncNudgePayload(status: MemberWorkSyncStatus): M
     text: [
       'Work sync check: you have current actionable work assigned.',
       preview ? `Current agenda: ${preview}.` : '',
-      'Continue concrete task work, report a real blocker with task tools, or call member_work_sync_report for the current fingerprint.',
+      `Required sync action: call member_work_sync_status with teamName "${status.teamName}" and memberName "${status.memberName}", then call member_work_sync_report with the same teamName/memberName and the returned agendaFingerprint and reportToken.`,
+      taskIds.length
+        ? `When reporting, include taskIds: ${taskIds.map((id) => `"${id}"`).join(', ')}.`
+        : '',
+      `Do not use provider names, runtime names, or team names as memberName; use exactly "${status.memberName}".`,
+      'If you are still working, report state "still_working"; if you are blocked, report state "blocked" and record the blocker on the task.',
+      'Continue concrete task work, report a real blocker with task tools, or sync your current fingerprint before going idle.',
       'Do not reply only with acknowledgement.',
     ]
       .filter(Boolean)

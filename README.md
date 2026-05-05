@@ -170,27 +170,31 @@ For feature architecture and implementation guidance:
 
 ## Comparison
 
-| Feature | Agent Teams | Vibe Kanban | Aperant | Cursor | Claude Code CLI |
+| Feature | Agent Teams | Gastown | Paperclip | Cursor | Claude Code CLI |
 |---|---|---|---|---|---|
-| **Cross-team communication** | ✅ | ❌ | ❌ | — | ❌ |
-| **Agent-to-agent messaging** | ✅ Native real-time mailbox | ❌ Agents are independent | ❌ Fixed pipeline | ❌ | ✅⚠️ Built-in (no UI) |
-| **Linked tasks** | ✅ Cross-references in messages | ⚠️ Subtasks only | ❌ | ❌ | ❌ |
-| **Session analysis** | ✅ 6-category token tracking | ❌ | ⚠️ Execution logs | ❌ | ❌ |
-| **Task attachments** | ✅ Auto-attach, agents read & attach files | ❌ | ✅ Images + files | ⚠️ Chat session only | ❌ |
-| **Hunk-level review** | ✅ Accept / reject individual hunks | ❌ | ❌ | ✅ | ❌ |
-| **Built-in code editor** | ✅ With Git support | ❌ | ❌ | ✅ Full IDE | ❌ |
-| **Full autonomy** | ✅ Agents create, assign, review tasks end-to-end | ❌ Human manages tasks | ❌ Fixed pipeline | ⚠️ Isolated tasks only | ✅⚠️ (no UI) |
-| **Task dependencies (blocked by)** | ✅ Guaranteed ordering | ❌ | ⚠️ Within plan only | ❌ | ✅⚠️ (no UI, no notifications) |
-| **Review workflow** | ✅ Agents review each other | ❌ | ⚠️ Auto QA pipeline | ❌ | ✅⚠️ (no UI) |
-| **Zero setup** | ✅ | ❌ Config required | ❌ Config required | ✅ | ⚠️ CLI install required |
-| **Kanban board** | ✅ 5 columns, real-time | ✅ | ✅ 6 columns (pipeline) | ❌ | ❌ |
-| **Execution log viewer** | ✅ Tool calls, reasoning, timeline | ❌ | ✅ Phase-based logs | ✅ | ❌ |
-| **Live processes** | ✅ View, stop, open URLs in browser | ❌ | ❌ | ✅ | ❌ |
-| **Per-task code review** | ✅ Accept / reject / comment | ⚠️ PR-level only | ⚠️ File-level only | ✅ BugBot on PRs | ❌ |
-| **Flexible autonomy** | ✅ Granular settings, per-action approval, notifications | ❌ | ⚠️ Plan approval only | ✅ | ✅ |
-| **Git worktree isolation** | ✅ Optional | ⚠️ Mandatory | ⚠️ Mandatory | ✅ | ✅ |
-| **Multi-agent backend** | ✅ Codex, Claude, and 75+ providers | ✅ 6+ agents | ✅ 11 providers | ✅ Multi-model | — |
-| **Price** | **Free** | Free / $30 user/mo | Free | $0–$200/mo | Provider subscription |
+| **Cross-team communication** | ✅ Native cross-team messages | ⚠️ Cross-rig coordination | ⚠️ Company-scoped org work | N/A | ❌ |
+| **Agent-to-agent messaging** | ✅ Native real-time mailbox | ✅ Mailboxes + handoffs | ⚠️ Comments + @mentions | ❌ | ✅ Team mailbox, no UI |
+| **Linked tasks** | ✅ Cross-refs + dependencies | ⚠️ Beads deps + convoys | ✅ Goals, parents, blockers | ❌ | ✅ Shared task list |
+| **Session analysis** | ✅ Task logs + token tracking | ⚠️ Session recall, feed, OTEL | ⚠️ Run transcripts + cost audit | ❌ | ⚠️ Usage command, no UI |
+| **Task attachments** | ✅ Auto-attach, agents read & attach files | ❌ Not task-level | ✅ Docs, attachments, work products | ⚠️ Chat session only | ⚠️ Chat images only |
+| **Hunk-level review** | ✅ Accept / reject individual hunks | ❌ | ❌ Bring your own review | ✅ | ❌ |
+| **Built-in code editor** | ✅ With Git support | ❌ | ❌ Control plane, not editor | ✅ Full IDE | ❌ |
+| **Full autonomy** | ✅ Agents create, assign, review tasks end-to-end | ✅ Mayor, convoys, recovery | ✅ Heartbeats + governance | ⚠️ Background agents, not teams | ✅ Experimental CLI teams |
+| **Task dependencies (blocked by)** | ✅ Guaranteed ordering | ✅ DAG waves via Beads | ✅ Blockers + execution locks | ❌ | ✅ Team task deps, no UI |
+| **Review workflow** | ✅ Agents review each other + human review UI | ⚠️ Refinery merge queue | ✅ Approvals + governance | ⚠️ PR/BugBot only | ✅ Team review, no UI |
+| **Zero setup** | ✅ Guided runtime setup | ❌ Go/Git/Dolt/Beads/tmux | ⚠️ `npx` + embedded Postgres | ✅ | ⚠️ CLI + env flag |
+| **Kanban board** | ✅ 5 columns, real-time | ❌ Dashboard, not Kanban | ✅ 7 columns, drag-and-drop | ❌ | ❌ |
+| **Execution log viewer** | ✅ Tool calls, reasoning, timeline | ⚠️ Feed, OTEL, dashboard | ✅ Run transcripts + ledger | ⚠️ Agent chat + terminal | ❌ |
+| **Live processes** | ✅ View, stop, open URLs in browser | ⚠️ Agent health dashboard | ⚠️ Manual services + previews | ⚠️ Native terminal only | ❌ |
+| **Per-task code review** | ✅ Accept / reject / comment | ⚠️ Merge queue, no diff UI | ⚠️ PR/work products, no inline diff | ✅ BugBot on PRs | ❌ |
+| **Flexible autonomy** | ✅ Per-action approvals + notifications | ✅ Gates, escalation, recovery | ✅ Board approvals, pause, terminate | ⚠️ BG agents auto-run commands | ✅ Permissions + hooks |
+| **Git worktree isolation** | ✅ Optional | ✅ Core primitive | ✅ Worktrees / branches | ⚠️ Background branches/VMs | ⚠️ Manual worktrees |
+| **Multi-agent backend** | ✅ Claude, Codex + OpenCode teammates | ✅ Claude, Codex, Gemini, Copilot + more | ✅ BYO agents: Claude, Codex, Cursor/OpenCode, HTTP | ⚠️ Multi-model agents, no team backend | ⚠️ Claude-only experimental teams |
+| **Org chart / governance** | ⚠️ Roles + approvals, no org chart | ⚠️ Roles + escalation | ✅ Org chart + board governance | ⚠️ Team admin only | ❌ |
+| **Budget controls** | ⚠️ Cost/token visibility, no hard caps | ⚠️ Cost tiers + digest, no hard caps | ✅ Per-agent budgets + hard stops | ⚠️ Usage + BG spend limits | ⚠️ `/cost` + workspace limits |
+| **Price** | **Free OSS UI**, provider access needed | Free OSS, runtime plans needed | Free OSS, self-hosted + infra | Free + paid usage | Claude plan or API usage |
+
+Fact sources checked on May 5, 2026: [detailed research notes](docs/research/gastown-paperclip-comparison-2026-05-05.md), [Gastown README](https://github.com/gastownhall/gastown), [Gastown provider guide](https://github.com/gastownhall/gastown/blob/main/docs/agent-provider-integration.md), [Gastown scheduler](https://github.com/gastownhall/gastown/blob/main/docs/design/scheduler.md), [Paperclip README](https://github.com/paperclipai/paperclip), [Paperclip adapters](https://github.com/paperclipai/paperclip/blob/master/docs/adapters/overview.md), [Paperclip budgets](https://github.com/paperclipai/paperclip/blob/master/docs/guides/board-operator/costs-and-budgets.md), [Paperclip runtime services](https://github.com/paperclipai/paperclip/blob/master/docs/guides/board-operator/execution-workspaces-and-runtime-services.md), [Paperclip Kanban source](https://github.com/paperclipai/paperclip/blob/master/ui/src/components/KanbanBoard.tsx), [Cursor Background Agents](https://docs.cursor.com/en/background-agents), [Cursor Diffs & Review](https://docs.cursor.com/en/agent/review), [Cursor Bugbot](https://docs.cursor.com/en/bugbot), [Cursor pricing](https://docs.cursor.com/en/account/usage), [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams), [Claude Code subagents](https://code.claude.com/docs/en/sub-agents), [Claude Code workflows](https://code.claude.com/docs/en/common-workflows), [Claude Code costs](https://code.claude.com/docs/en/costs), [Claude pricing](https://claude.com/pricing).
 
 ---
 

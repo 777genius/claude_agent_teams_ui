@@ -531,6 +531,7 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     expect(sentText).toContain('Include source="runtime_delivery"');
     expect(sentText).toContain('Include relayOfMessageId="msg-1"');
     expect(sentText).toContain('Action mode for this message: delegate.');
+    expect(sentText).toContain('You must not end this turn empty.');
     expect(sentText).toContain('<opencode_delivery_context>');
     expect(sentText).toContain('"kind":"opencode-delivery-context"');
     expect(sentText).toContain('"inboundMessageId":"msg-1"');
@@ -538,6 +539,57 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     expect(sentText).not.toContain('The inbound app messageId is');
     expect(sentText).toContain('Do not use SendMessage or runtime_deliver_message');
     expect(sentText).toContain('never use #00000000');
+  });
+
+  it('sends member work sync nudges with report-oriented response instructions', async () => {
+    const sendOpenCodeTeamMessage = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['sendOpenCodeTeamMessage']>
+    >(async () => ({
+      accepted: true,
+      sessionId: 'oc-session-bob',
+      memberName: 'bob',
+      diagnostics: [],
+    }));
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), {
+        sendOpenCodeTeamMessage,
+      })
+    );
+
+    await adapter.sendMessageToMember({
+      runId: 'run-1',
+      teamName: 'team-a',
+      laneId: 'secondary:opencode:bob',
+      memberName: 'bob',
+      cwd: '/repo',
+      text: 'Work sync check',
+      messageId: 'msg-work-sync',
+      replyRecipient: 'team-lead',
+      actionMode: 'do',
+      messageKind: 'member_work_sync_nudge',
+      taskRefs: [{ taskId: 'task-1', displayId: 'abcd1234', teamName: 'team-a' }],
+    });
+
+    expect(sendOpenCodeTeamMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageKind: 'member_work_sync_nudge',
+        actionMode: 'do',
+      })
+    );
+    const sentText = sendOpenCodeTeamMessage.mock.calls[0]?.[0]?.text ?? '';
+    expect(sentText).toContain('"messageKind":"member_work_sync_nudge"');
+    expect(sentText).toContain('This delivered app message is a member-work-sync nudge.');
+    expect(sentText).toContain('agent-teams_member_work_sync_status');
+    expect(sentText).toContain('agent-teams_member_work_sync_report');
+    expect(sentText).toContain('mcp__agent-teams__member_work_sync_report');
+    expect(sentText).toContain('teamName="team-a"');
+    expect(sentText).toContain('memberName="bob"');
+    expect(sentText).toContain('taskIds: "task-1"');
+    expect(sentText).toContain(
+      'Do not use provider names, runtime names, or team names as memberName'
+    );
+    expect(sentText).not.toContain('Include relayOfMessageId="msg-work-sync"');
+    expect(sentText).not.toContain('You must not end this turn empty.');
   });
 
   it('does not parse legacy native SendMessage wording to infer OpenCode reply recipient', async () => {
@@ -567,7 +619,9 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
 
     const sentText = sendOpenCodeTeamMessage.mock.calls[0]?.[0]?.text ?? '';
     expect(sentText).toContain('Use teamName="team-a", to="user", from="bob", text, and summary.');
-    expect(sentText).not.toContain('Use teamName="team-a", to="alice", from="bob", text, and summary.');
+    expect(sentText).not.toContain(
+      'Use teamName="team-a", to="alice", from="bob", text, and summary.'
+    );
   });
 
   it('keeps missing bridge members pending while reconcile is still launching', async () => {

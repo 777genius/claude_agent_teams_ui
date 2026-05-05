@@ -40,9 +40,11 @@ vi.mock('../../../../src/main/services/infrastructure/NotificationManager', () =
   },
 }));
 
+const allowConnectedClaudeAccount =
+  process.env.MEMBER_WORK_SYNC_CLAUDE_ALLOW_CONNECTED_ACCOUNT === '1';
 const liveDescribe =
   process.env.MEMBER_WORK_SYNC_CLAUDE_STOP_HOOK_LIVE === '1' &&
-  Boolean(process.env.ANTHROPIC_API_KEY?.trim())
+  (hasLiveAnthropicApiKey() || allowConnectedClaudeAccount)
     ? describe
     : describe.skip;
 
@@ -90,7 +92,6 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   let previousCliPath: string | undefined;
   let previousCliFlavor: string | undefined;
   let previousControlUrl: string | undefined;
-  let previousNudgeFlag: string | undefined;
   let previousDisableAppBootstrap: string | undefined;
   let previousDisableRuntimeBootstrap: string | undefined;
   let previousHome: string | undefined;
@@ -104,20 +105,23 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'member-work-sync-claude-stop-live-'));
     tempClaudeRoot = path.join(tempDir, '.claude');
-    tempHome = path.join(tempDir, 'home');
     await fs.mkdir(tempClaudeRoot, { recursive: true });
-    await fs.mkdir(tempHome, { recursive: true });
     setClaudeBasePathOverride(tempClaudeRoot);
 
     previousCliPath = process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH;
     previousCliFlavor = process.env.CLAUDE_TEAM_CLI_FLAVOR;
     previousControlUrl = process.env.CLAUDE_TEAM_CONTROL_URL;
-    previousNudgeFlag = process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED;
     previousDisableAppBootstrap = process.env.CLAUDE_APP_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP;
     previousDisableRuntimeBootstrap = process.env.CLAUDE_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP;
     previousHome = process.env.HOME;
     previousHistFile = process.env.HISTFILE;
     previousUserProfile = process.env.USERPROFILE;
+
+    const shouldUseConnectedAccountHome = allowConnectedClaudeAccount && !hasLiveAnthropicApiKey();
+    tempHome = shouldUseConnectedAccountHome
+      ? resolveConnectedClaudeHome(previousHome)
+      : path.join(tempDir, 'home');
+    await fs.mkdir(tempHome, { recursive: true });
 
     process.env.HOME = tempHome;
     process.env.HISTFILE = '/dev/null';
@@ -125,7 +129,6 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH =
       process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
     process.env.CLAUDE_TEAM_CLI_FLAVOR = 'agent_teams_orchestrator';
-    process.env.CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED = '0';
     delete process.env.CLAUDE_APP_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP;
     delete process.env.CLAUDE_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP;
 
@@ -148,7 +151,6 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     restoreEnv('CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH', previousCliPath);
     restoreEnv('CLAUDE_TEAM_CLI_FLAVOR', previousCliFlavor);
     restoreEnv('CLAUDE_TEAM_CONTROL_URL', previousControlUrl);
-    restoreEnv('CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED', previousNudgeFlag);
     restoreEnv('CLAUDE_APP_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP', previousDisableAppBootstrap);
     restoreEnv('CLAUDE_DISABLE_DETERMINISTIC_TEAM_BOOTSTRAP', previousDisableRuntimeBootstrap);
     restoreEnv('HOME', previousHome);
@@ -163,6 +165,9 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   });
 
   afterAll(async () => {
+    if (process.env.MEMBER_WORK_SYNC_CLAUDE_KEEP_TEMP === '1') {
+      return;
+    }
     await cleanupScopedClaudeStopHookLiveTempDirs();
   });
 
@@ -200,7 +205,6 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
       isTeamActive: (name) =>
         activeService.isTeamAlive(name) || activeService.hasProvisioningRun(name),
       listLifecycleActiveTeamNames: async () => [teamName!],
-      nudgeSideEffectsEnabled: false,
       queueQuietWindowMs: 500,
       // Native Claude teammates are registered by the real lead process, but in this
       // headless harness their bootstrap turn can finish before there is a durable
@@ -535,4 +539,20 @@ async function cleanupScopedClaudeStopHookLiveTempDirs(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
   }
+}
+
+function hasLiveAnthropicApiKey(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+}
+
+function resolveConnectedClaudeHome(previousHome: string | undefined): string {
+  const explicit = process.env.MEMBER_WORK_SYNC_CLAUDE_CONNECTED_HOME?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+  const previous = previousHome?.trim();
+  if (previous) {
+    return path.resolve(previous);
+  }
+  return os.userInfo().homedir;
 }

@@ -624,6 +624,7 @@ export interface TeamsAPI {
 
 export interface MemberWorkSyncElectronApi {
   getStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
+  refreshStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
   getMetrics(request: MemberWorkSyncMetricsRequest): Promise<MemberWorkSyncTeamMetrics>;
   report(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult>;
 }

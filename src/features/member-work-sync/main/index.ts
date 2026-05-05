@@ -7,6 +7,4 @@ export type { MemberWorkSyncFeatureFacade } from './composition/createMemberWork
 export {
   buildMemberWorkSyncRuntimeTurnSettledEnvironment,
   createMemberWorkSyncFeature,
-  MEMBER_WORK_SYNC_NUDGE_SIDE_EFFECTS_ENV,
-  resolveMemberWorkSyncNudgeSideEffectsEnabled,
 } from './composition/createMemberWorkSyncFeature';

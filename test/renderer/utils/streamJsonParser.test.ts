@@ -17,7 +17,10 @@ describe('parseStreamJsonToGroups', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.items).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: 'output', content: 'Codex native thread started: thread-1.' }),
+        expect.objectContaining({
+          type: 'output',
+          content: 'Codex native thread started: thread-1.',
+        }),
         expect.objectContaining({ type: 'output', content: 'Codex turn started.' }),
         expect.objectContaining({ type: 'output', content: 'Lead response ready.' }),
         expect.objectContaining({
@@ -47,6 +50,46 @@ describe('parseStreamJsonToGroups', () => {
         isOrphaned: false,
         result: {
           content: 'sent',
+          isError: false,
+        },
+      },
+    });
+  });
+
+  it('renders Codex native command execution and file change events from live JSONL logs', () => {
+    const groups = parseStreamJsonToGroups(
+      [
+        '{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"pwd","status":"in_progress"}}',
+        '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"pwd","aggregated_output":"/repo\\n","exit_code":0,"status":"completed"}}',
+        '{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"/repo/src/a.ts","kind":"update"}],"status":"completed"}}',
+      ].join('\n')
+    );
+
+    const tools = groups.flatMap((group) => group.items).filter((item) => item.type === 'tool');
+
+    expect(tools).toHaveLength(2);
+    expect(tools[0]).toMatchObject({
+      type: 'tool',
+      tool: {
+        id: 'item_1',
+        name: 'Bash',
+        input: { command: 'pwd' },
+        isOrphaned: false,
+        result: {
+          content: '/repo\n',
+          isError: false,
+        },
+      },
+    });
+    expect(tools[1]).toMatchObject({
+      type: 'tool',
+      tool: {
+        id: 'item_2',
+        name: 'Edit',
+        input: { file_path: '/repo/src/a.ts' },
+        isOrphaned: false,
+        result: {
+          content: 'File changes:\n- /repo/src/a.ts (update)',
           isError: false,
         },
       },

@@ -135,8 +135,11 @@ function buildRuntimeBackedDisplayRow(
   const hasErrorDiagnostic = runtime.runtimeDiagnosticSeverity === 'error';
   const spawnDegradation = getSpawnDegradation(spawn);
   const state = getRuntimeBackedState(runtime, hasErrorDiagnostic, spawnDegradation != null);
+  const degradedReason = spawnDegradation
+    ? withLiveProcessContext(spawnDegradation.reason, runtime)
+    : undefined;
   const stateReason =
-    spawnDegradation?.reason ??
+    degradedReason ??
     runtime.runtimeDiagnostic ??
     (runtime.alive === true ? 'Runtime heartbeat is alive' : 'Runtime heartbeat is not alive');
 
@@ -151,7 +154,10 @@ function buildRuntimeBackedDisplayRow(
     laneId: runtime.laneId,
     laneKind: runtime.laneKind,
     runtimeModel: runtime.runtimeModel,
-    diagnostic: spawnDegradation?.diagnostic ?? runtime.runtimeDiagnostic,
+    diagnostic:
+      spawnDegradation && degradedReason
+        ? withLiveProcessContext(spawnDegradation.diagnostic ?? degradedReason, runtime)
+        : runtime.runtimeDiagnostic,
     diagnosticSeverity: spawnDegradation?.diagnosticSeverity ?? runtime.runtimeDiagnosticSeverity,
     pidLabel: formatRuntimePidLabel(runtime),
     actionsAllowed: false,
@@ -211,6 +217,13 @@ function getRuntimeBackedState(
   }
 
   return runtime.alive === true ? 'running' : 'stopped';
+}
+
+function withLiveProcessContext(reason: string, runtime: TeamAgentRuntimeEntry): string {
+  if (runtime.alive !== true || /process is still alive/i.test(reason)) {
+    return reason;
+  }
+  return `${reason}. Process is still alive.`;
 }
 
 function buildSpawnBackedDisplayRow(

@@ -49,7 +49,7 @@ export const TeamGraphTab = ({
   isActive = true,
   isPaneFocused = false,
 }: TeamGraphTabProps): React.JSX.Element => {
-  const graphData = useTeamGraphAdapter(teamName);
+  const graphData = useTeamGraphAdapter(teamName, { active: isActive });
   const { openTeamPage, commitOwnerSlotDrop, commitOwnerGridOrderDrop, setLayoutMode } =
     useTeamGraphSurfaceActions(teamName);
   const [fullscreen, setFullscreen] = useState(false);

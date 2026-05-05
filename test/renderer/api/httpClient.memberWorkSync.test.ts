@@ -29,12 +29,16 @@ describe('HttpAPIClient memberWorkSync', () => {
     const client = new HttpAPIClient('http://127.0.0.1:53123');
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ state: 'needs_sync' }))
+      .mockResolvedValueOnce(jsonResponse({ state: 'still_working' }))
       .mockResolvedValueOnce(jsonResponse({ memberCount: 1 }))
       .mockResolvedValueOnce(jsonResponse({ accepted: true }));
 
     await expect(
       client.memberWorkSync.getStatus({ teamName: 'demo team', memberName: 'bob/qa' })
     ).resolves.toEqual({ state: 'needs_sync' });
+    await expect(
+      client.memberWorkSync.refreshStatus({ teamName: 'demo team', memberName: 'bob/qa' })
+    ).resolves.toEqual({ state: 'still_working' });
     await expect(client.memberWorkSync.getMetrics({ teamName: 'demo team' })).resolves.toEqual({
       memberCount: 1,
     });
@@ -57,11 +61,21 @@ describe('HttpAPIClient memberWorkSync', () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
+      'http://127.0.0.1:53123/api/teams/demo%20team/member-work-sync/bob%2Fqa/refresh',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        signal: expect.any(AbortSignal),
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
       'http://127.0.0.1:53123/api/teams/demo%20team/member-work-sync/metrics',
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
+      4,
       'http://127.0.0.1:53123/api/teams/demo%20team/member-work-sync/report',
       expect.objectContaining({
         method: 'POST',

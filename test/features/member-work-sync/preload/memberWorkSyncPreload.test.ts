@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   MEMBER_WORK_SYNC_GET_METRICS,
   MEMBER_WORK_SYNC_GET_STATUS,
+  MEMBER_WORK_SYNC_REFRESH_STATUS,
   MEMBER_WORK_SYNC_REPORT,
 } from '@features/member-work-sync/contracts';
 import { createMemberWorkSyncBridge } from '@features/member-work-sync/preload';
@@ -41,6 +42,19 @@ describe('createMemberWorkSyncBridge', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(MEMBER_WORK_SYNC_GET_METRICS, request);
   });
 
+  it('invokes the refresh status channel without changing the request payload', async () => {
+    const request: MemberWorkSyncStatusRequest = { teamName: 'team-a', memberName: 'bob' };
+    const response = { ok: true };
+    const ipcRenderer = {
+      invoke: vi.fn(async () => response),
+    } as unknown as IpcRenderer;
+    const bridge = createMemberWorkSyncBridge(ipcRenderer);
+
+    await expect(bridge.refreshStatus(request)).resolves.toBe(response);
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(MEMBER_WORK_SYNC_REFRESH_STATUS, request);
+  });
+
   it('invokes the report channel without changing the request payload', async () => {
     const request: MemberWorkSyncReportRequest = {
       teamName: 'team-a',
@@ -71,8 +85,6 @@ describe('createMemberWorkSyncBridge', () => {
     } as unknown as IpcRenderer;
     const bridge = createMemberWorkSyncBridge(ipcRenderer);
 
-    await expect(bridge.getStatus({ teamName: 'team-a', memberName: 'bob' })).rejects.toBe(
-      failure
-    );
+    await expect(bridge.getStatus({ teamName: 'team-a', memberName: 'bob' })).rejects.toBe(failure);
   });
 });

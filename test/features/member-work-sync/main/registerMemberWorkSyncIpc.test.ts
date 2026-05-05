@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   MEMBER_WORK_SYNC_GET_METRICS,
   MEMBER_WORK_SYNC_GET_STATUS,
+  MEMBER_WORK_SYNC_REFRESH_STATUS,
   MEMBER_WORK_SYNC_REPORT,
 } from '@features/member-work-sync/contracts';
-import { registerMemberWorkSyncIpc, removeMemberWorkSyncIpc } from '@features/member-work-sync/main';
+import {
+  registerMemberWorkSyncIpc,
+  removeMemberWorkSyncIpc,
+} from '@features/member-work-sync/main';
 
 import type {
   MemberWorkSyncMetricsRequest,
@@ -46,6 +50,21 @@ function makeFeature(): MemberWorkSyncFeatureFacade {
       teamName: request.teamName,
       memberName: request.memberName,
       state: 'unknown' as const,
+      agenda: {
+        teamName: request.teamName,
+        memberName: request.memberName,
+        generatedAt: '2026-04-29T00:00:00.000Z',
+        fingerprint: 'agenda:v1:test',
+        items: [],
+        diagnostics: [],
+      },
+      evaluatedAt: '2026-04-29T00:00:00.000Z',
+      diagnostics: [],
+    })),
+    refreshStatus: vi.fn(async (request) => ({
+      teamName: request.teamName,
+      memberName: request.memberName,
+      state: 'needs_sync' as const,
       agenda: {
         teamName: request.teamName,
         memberName: request.memberName,
@@ -135,9 +154,14 @@ describe('registerMemberWorkSyncIpc', () => {
 
     registerMemberWorkSyncIpc(ipcMain, feature);
 
-    expect(ipcMain.handle).toHaveBeenCalledTimes(3);
+    expect(ipcMain.handle).toHaveBeenCalledTimes(4);
     expect([...handlers.keys()].sort()).toEqual(
-      [MEMBER_WORK_SYNC_GET_METRICS, MEMBER_WORK_SYNC_GET_STATUS, MEMBER_WORK_SYNC_REPORT].sort()
+      [
+        MEMBER_WORK_SYNC_GET_METRICS,
+        MEMBER_WORK_SYNC_GET_STATUS,
+        MEMBER_WORK_SYNC_REFRESH_STATUS,
+        MEMBER_WORK_SYNC_REPORT,
+      ].sort()
     );
 
     const statusRequest: MemberWorkSyncStatusRequest = { teamName: 'team-a', memberName: 'bob' };
@@ -153,6 +177,9 @@ describe('registerMemberWorkSyncIpc', () => {
       handlers.get(MEMBER_WORK_SYNC_GET_STATUS)?.({}, statusRequest)
     ).resolves.toMatchObject({ teamName: 'team-a', memberName: 'bob' });
     await expect(
+      handlers.get(MEMBER_WORK_SYNC_REFRESH_STATUS)?.({}, statusRequest)
+    ).resolves.toMatchObject({ teamName: 'team-a', memberName: 'bob', state: 'needs_sync' });
+    await expect(
       handlers.get(MEMBER_WORK_SYNC_GET_METRICS)?.({}, metricsRequest)
     ).resolves.toMatchObject({ teamName: 'team-a' });
     await expect(handlers.get(MEMBER_WORK_SYNC_REPORT)?.({}, reportRequest)).resolves.toMatchObject(
@@ -160,6 +187,7 @@ describe('registerMemberWorkSyncIpc', () => {
     );
 
     expect(feature.getStatus).toHaveBeenCalledWith(statusRequest);
+    expect(feature.refreshStatus).toHaveBeenCalledWith(statusRequest);
     expect(feature.getMetrics).toHaveBeenCalledWith(metricsRequest);
     expect(feature.report).toHaveBeenCalledWith(reportRequest);
   });
@@ -209,8 +237,9 @@ describe('registerMemberWorkSyncIpc', () => {
 
     removeMemberWorkSyncIpc(ipcMain);
 
-    expect(ipcMain.removeHandler).toHaveBeenCalledTimes(3);
+    expect(ipcMain.removeHandler).toHaveBeenCalledTimes(4);
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(MEMBER_WORK_SYNC_GET_STATUS);
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith(MEMBER_WORK_SYNC_REFRESH_STATUS);
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(MEMBER_WORK_SYNC_GET_METRICS);
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(MEMBER_WORK_SYNC_REPORT);
     expect([...handlers.keys()]).toEqual(['unrelated:channel']);

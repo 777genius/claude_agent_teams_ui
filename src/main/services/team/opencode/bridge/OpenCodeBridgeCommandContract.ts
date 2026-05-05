@@ -161,6 +161,13 @@ export interface OpenCodeSendMessageCommandBody {
   text: string;
   messageId?: string;
   actionMode?: 'do' | 'ask' | 'delegate';
+  messageKind?:
+    | 'default'
+    | 'slash_command'
+    | 'slash_command_result'
+    | 'task_comment_notification'
+    | 'member_work_sync_nudge'
+    | 'agent_error';
   taskRefs?: { taskId: string; displayId: string; teamName: string }[];
   agent?: string;
   noReply?: boolean;
@@ -177,6 +184,7 @@ export type OpenCodeDeliveryResponseState =
   | 'permission_blocked'
   | 'tool_error'
   | 'empty_assistant_turn'
+  | 'prompt_delivered_no_assistant_message'
   | 'session_stale'
   | 'session_error'
   | 'reconcile_failed';

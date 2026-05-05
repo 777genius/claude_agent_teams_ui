@@ -158,7 +158,7 @@ describe('buildTeamRuntimeDisplayRows', () => {
       memberName: 'alice',
       state: 'degraded',
       source: 'mixed',
-      stateReason: 'Bootstrap command failed',
+      stateReason: 'Bootstrap command failed. Process is still alive.',
       actionsAllowed: false,
     });
   });

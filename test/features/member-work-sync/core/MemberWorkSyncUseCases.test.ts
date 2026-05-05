@@ -210,10 +210,7 @@ class InMemoryOutboxStore implements MemberWorkSyncOutboxStorePort {
     }
   }
 
-  async countRecentDelivered(input: {
-    memberName: string;
-    sinceIso: string;
-  }): Promise<number> {
+  async countRecentDelivered(input: { memberName: string; sinceIso: string }): Promise<number> {
     return [...this.items.values()].filter(
       (item) =>
         item.status === 'delivered' &&
@@ -300,7 +297,7 @@ function createDeps(options?: {
 describe('MemberWorkSync use cases', () => {
   it('reconciles actionable work into needs_sync without side effects', async () => {
     const { auditEvents, deps, store } = createDeps();
-    const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
+    const status = await new MemberWorkSyncReconciler(deps).execute({
       teamName: 'team-a',
       memberName: 'bob',
     });
@@ -324,7 +321,7 @@ describe('MemberWorkSync use cases', () => {
 
   it('accepts still_working as a bounded lease for the current fingerprint', async () => {
     const { auditEvents, clock, deps } = createDeps();
-    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reader = new MemberWorkSyncReconciler(deps);
     const reporter = new MemberWorkSyncReporter(deps);
     const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
 
@@ -357,7 +354,7 @@ describe('MemberWorkSync use cases', () => {
 
   it('uses app clock instead of model supplied reportedAt for lease timing', async () => {
     const { deps } = createDeps();
-    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reader = new MemberWorkSyncReconciler(deps);
     const reporter = new MemberWorkSyncReporter(deps);
     const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
 
@@ -409,7 +406,7 @@ describe('MemberWorkSync use cases', () => {
 
   it('accepts caught_up only when the app-side agenda is empty', async () => {
     const { deps } = createDeps({ items: [] });
-    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reader = new MemberWorkSyncReconciler(deps);
     const reporter = new MemberWorkSyncReporter(deps);
     const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
 
@@ -428,7 +425,7 @@ describe('MemberWorkSync use cases', () => {
 
   it('marks status inactive when the team runtime is not active', async () => {
     const { deps } = createDeps({ teamActive: false });
-    const status = await new MemberWorkSyncDiagnosticsReader(deps).execute({
+    const status = await new MemberWorkSyncReconciler(deps).execute({
       teamName: 'team-a',
       memberName: 'bob',
     });
@@ -440,7 +437,7 @@ describe('MemberWorkSync use cases', () => {
 
   it('records fingerprint transitions without treating them as progress proof', async () => {
     const { deps, source } = createDeps();
-    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reader = new MemberWorkSyncReconciler(deps);
     await reader.execute({ teamName: 'team-a', memberName: 'bob' });
 
     source.agenda.items = [
@@ -487,6 +484,7 @@ describe('MemberWorkSync use cases', () => {
     });
 
     expect(outbox.ensures).toEqual([]);
+    expect(store.writes).toEqual([]);
   });
 
   it('creates one idempotent outbox nudge intent when Phase 2 readiness is green', async () => {
@@ -517,6 +515,15 @@ describe('MemberWorkSync use cases', () => {
         taskRefs: [{ teamName: 'team-a', taskId: 'task-1', displayId: '11111111' }],
       },
     });
+    const nudgeText = outbox.ensures[0]?.payload.text ?? '';
+    expect(nudgeText).toContain(
+      'member_work_sync_status with teamName "team-a" and memberName "bob"'
+    );
+    expect(nudgeText).toContain('member_work_sync_report with the same teamName/memberName');
+    expect(nudgeText).toContain('taskIds: "task-1"');
+    expect(nudgeText).toContain(
+      'Do not use provider names, runtime names, or team names as memberName'
+    );
   });
 
   it('dispatches due nudges only after revalidating current status and readiness', async () => {
@@ -544,9 +551,38 @@ describe('MemberWorkSync use cases', () => {
       memberName: 'bob',
       messageId: `member-work-sync:team-a:bob:${status.agenda.fingerprint}`,
     });
-    expect(outbox.items.get(`member-work-sync:team-a:bob:${status.agenda.fingerprint}`)).toMatchObject({
+    expect(
+      outbox.items.get(`member-work-sync:team-a:bob:${status.agenda.fingerprint}`)
+    ).toMatchObject({
       status: 'delivered',
       deliveredMessageId: `member-work-sync:team-a:bob:${status.agenda.fingerprint}`,
+    });
+  });
+
+  it('recomputes agenda before dispatch and supersedes stale outbox fingerprints', async () => {
+    const outbox = new InMemoryOutboxStore();
+    const inbox = new InMemoryInboxNudge();
+    const { deps, source, store } = createDeps({ outboxStore: outbox, inboxNudge: inbox });
+    store.phase2ReadinessState = 'shadow_ready';
+
+    const status = await new MemberWorkSyncReconciler(deps).execute(
+      { teamName: 'team-a', memberName: 'bob' },
+      { reconciledBy: 'queue', triggerReasons: ['task_changed'] }
+    );
+    source.agenda.items = [];
+
+    const summary = await new MemberWorkSyncNudgeDispatcher(deps).dispatchDue({
+      teamNames: ['team-a'],
+      claimedBy: 'test-dispatcher',
+    });
+
+    expect(summary).toMatchObject({ claimed: 1, delivered: 0, superseded: 1 });
+    expect(inbox.inserted).toEqual([]);
+    expect(
+      outbox.items.get(`member-work-sync:team-a:bob:${status.agenda.fingerprint}`)
+    ).toMatchObject({
+      status: 'superseded',
+      lastError: 'status_no_longer_matches_outbox',
     });
   });
 
@@ -579,7 +615,9 @@ describe('MemberWorkSync use cases', () => {
 
     expect(summary).toMatchObject({ claimed: 1, delivered: 0, superseded: 1 });
     expect(inbox.inserted).toEqual([]);
-    expect(outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)).toMatchObject({
+    expect(
+      outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)
+    ).toMatchObject({
       status: 'superseded',
       lastError: 'status_no_longer_matches_outbox',
     });
@@ -630,7 +668,9 @@ describe('MemberWorkSync use cases', () => {
 
     expect(summary).toMatchObject({ claimed: 1, delivered: 0, retryable: 1 });
     expect(inbox.inserted).toEqual([]);
-    expect(outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)).toMatchObject({
+    expect(
+      outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)
+    ).toMatchObject({
       status: 'failed_retryable',
       lastError: 'member_nudge_rate_limited',
       nextAttemptAt: '2026-04-29T01:00:00.000Z',
@@ -667,7 +707,9 @@ describe('MemberWorkSync use cases', () => {
 
     expect(summary).toMatchObject({ claimed: 1, delivered: 0, retryable: 1 });
     expect(inbox.inserted).toEqual([]);
-    expect(outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)).toMatchObject({
+    expect(
+      outbox.items.get(`member-work-sync:team-a:bob:${current.agenda.fingerprint}`)
+    ).toMatchObject({
       status: 'failed_retryable',
       lastError: 'member_busy:active_tool_activity',
       nextAttemptAt: '2026-04-29T00:02:00.000Z',
@@ -717,7 +759,7 @@ describe('MemberWorkSync use cases', () => {
 
   it('rejects invalid report tokens without recording replayable intents', async () => {
     const { deps, store } = createDeps();
-    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reader = new MemberWorkSyncReconciler(deps);
     const reporter = new MemberWorkSyncReporter(deps);
     const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
 
@@ -741,7 +783,7 @@ describe('MemberWorkSync use cases', () => {
 
   it('replays pending controller intents through the same app validator', async () => {
     const { deps, store } = createDeps();
-    const reader = new MemberWorkSyncDiagnosticsReader(deps);
+    const reader = new MemberWorkSyncReconciler(deps);
     const current = await reader.execute({ teamName: 'team-a', memberName: 'bob' });
     store.pendingIntents.set('intent-1', {
       id: 'intent-1',

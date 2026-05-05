@@ -248,7 +248,7 @@ Rules:
 - turn-settled does not directly nudge;
 - turn-settled does not count as meaningful task progress;
 - watchdog cooldowns still prevent duplicate nudges;
-- existing `member-work-sync` nudge side-effects gate remains the only way to deliver sync nudges.
+- `member-work-sync` dispatcher remains the only path that can deliver sync nudges, and it must pass its internal guards first.
 
 ---
 
@@ -2039,7 +2039,7 @@ More reconcile triggers could expose existing Phase 2 nudges.
 
 Mitigation:
 
-- current nudge side effects remain gated by `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED`;
+- nudges are active by default, but delivery remains bounded by dispatcher guards;
 - queue quiet window debounces events;
 - outbox has one item per fingerprint;
 - dispatcher revalidates busy/watchdog cooldown before delivery.
@@ -2472,7 +2472,7 @@ and a valid OpenCode turn-settled event file
 when drainRuntimeTurnSettledEvents runs
 then queue receives member-turn-settled
 and member-work-sync status is recomputed
-and no direct nudge is sent unless existing nudge side-effects are enabled
+and no direct nudge is sent outside the existing outbox/dispatcher path
 ```
 
 ### 13.4 Live E2E Prototype Test

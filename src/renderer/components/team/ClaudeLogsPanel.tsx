@@ -72,7 +72,8 @@ export const ClaudeLogsPanel = ({
         <span className="text-[11px] text-[var(--color-text-muted)]">
           {data.total > 0 ? (
             <>
-              <span className="font-mono">{data.total}</span> lines
+              <span className="font-mono">{data.total}</span> raw line
+              {data.total === 1 ? '' : 's'}
             </>
           ) : isAlive ? (
             'No logs yet.'

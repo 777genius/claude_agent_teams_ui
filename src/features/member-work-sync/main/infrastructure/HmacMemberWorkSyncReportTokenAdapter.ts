@@ -139,7 +139,10 @@ export class HmacMemberWorkSyncReportTokenAdapter implements MemberWorkSyncRepor
       return existing;
     }
 
-    const next = this.loadOrCreateSecret(teamName);
+    const next = this.loadOrCreateSecret(teamName).catch((error: unknown) => {
+      this.secretCache.delete(teamName);
+      throw error;
+    });
     this.secretCache.set(teamName, next);
     return next;
   }
@@ -153,7 +156,8 @@ export class HmacMemberWorkSyncReportTokenAdapter implements MemberWorkSyncRepor
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
+        // A corrupt token secret only affects short-lived proof tokens. Regenerate it so
+        // member work sync can recover without requiring an app restart.
       }
     }
 

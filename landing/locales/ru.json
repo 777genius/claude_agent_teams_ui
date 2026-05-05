@@ -83,6 +83,8 @@
       "flexAutonomy": "Гибкая автономность",
       "worktree": "Изоляция Git worktree",
       "multiAgent": "Мультиагентный бэкенд",
+      "orgGovernance": "Оргструктура / управление",
+      "budgetControls": "Бюджетные лимиты",
       "price": "Цена"
     }
   },

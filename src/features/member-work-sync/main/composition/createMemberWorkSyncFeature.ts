@@ -13,6 +13,7 @@ import {
   type RuntimeTurnSettledTargetResolverPort,
 } from '../../core/application';
 import { MemberWorkSyncTeamChangeRouter } from '../adapters/input/MemberWorkSyncTeamChangeRouter';
+import { MemberWorkSyncTaskImpactResolver } from '../adapters/input/MemberWorkSyncTaskImpactResolver';
 import { TeamInboxMemberWorkSyncNudgeSink } from '../adapters/output/TeamInboxMemberWorkSyncNudgeSink';
 import { TeamRuntimeTurnSettledTargetResolver } from '../adapters/output/TeamRuntimeTurnSettledTargetResolver';
 import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
@@ -53,34 +54,6 @@ import type { TeamMembersMetaStore } from '@main/services/team/TeamMembersMetaSt
 import type { TeamTaskReader } from '@main/services/team/TeamTaskReader';
 import type { TeamChangeEvent } from '@shared/types';
 
-export const MEMBER_WORK_SYNC_NUDGE_SIDE_EFFECTS_ENV =
-  'CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED';
-
-const TRUE_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
-const FALSE_ENV_VALUES = new Set(['0', 'false', 'no', 'off', '']);
-
-function emptyNudgeDispatchSummary(): MemberWorkSyncNudgeDispatchSummary {
-  return { claimed: 0, delivered: 0, superseded: 0, retryable: 0, terminal: 0 };
-}
-
-export function resolveMemberWorkSyncNudgeSideEffectsEnabled(
-  env: Record<string, string | undefined> = process.env
-): boolean {
-  const rawValue = env[MEMBER_WORK_SYNC_NUDGE_SIDE_EFFECTS_ENV];
-  if (rawValue == null) {
-    return false;
-  }
-
-  const value = rawValue.trim().toLowerCase();
-  if (TRUE_ENV_VALUES.has(value)) {
-    return true;
-  }
-  if (FALSE_ENV_VALUES.has(value)) {
-    return false;
-  }
-  return false;
-}
-
 export function buildMemberWorkSyncRuntimeTurnSettledEnvironment(input: {
   teamsBasePath: string;
   provider: RuntimeTurnSettledProvider;
@@ -92,6 +65,7 @@ export function buildMemberWorkSyncRuntimeTurnSettledEnvironment(input: {
 
 export interface MemberWorkSyncFeatureFacade {
   getStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
+  refreshStatus(request: MemberWorkSyncStatusRequest): Promise<MemberWorkSyncStatus>;
   getMetrics(request: MemberWorkSyncMetricsRequest): Promise<MemberWorkSyncTeamMetrics>;
   report(request: MemberWorkSyncReportRequest): Promise<MemberWorkSyncReportResult>;
   noteTeamChange(event: TeamChangeEvent): void;
@@ -117,7 +91,6 @@ export function createMemberWorkSyncFeature(deps: {
   membersMetaStore: TeamMembersMetaStore;
   isTeamActive?: (teamName: string) => Promise<boolean> | boolean;
   listLifecycleActiveTeamNames?: () => Promise<string[]>;
-  nudgeSideEffectsEnabled?: boolean;
   queueQuietWindowMs?: number;
   runtimeTurnSettledTargetResolver?: RuntimeTurnSettledTargetResolverPort;
   logger?: MemberWorkSyncLoggerPort;
@@ -166,17 +139,15 @@ export function createMemberWorkSyncFeature(deps: {
   const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);
   const watchdogCooldown = new TeamTaskStallJournalWorkSyncCooldown(deps.teamsBasePath);
   const busySignal = new MemberWorkSyncToolActivityBusySignal();
-  const nudgeSideEffectsEnabled =
-    deps.nudgeSideEffectsEnabled ?? resolveMemberWorkSyncNudgeSideEffectsEnabled();
-  const inboxNudge = nudgeSideEffectsEnabled ? new TeamInboxMemberWorkSyncNudgeSink() : null;
+  const inboxNudge = new TeamInboxMemberWorkSyncNudgeSink();
   const useCaseDeps = {
     clock,
     hash,
     agendaSource,
     statusStore: store,
     reportStore: store,
-    ...(nudgeSideEffectsEnabled ? { outboxStore: store } : {}),
-    ...(inboxNudge ? { inboxNudge } : {}),
+    outboxStore: store,
+    inboxNudge,
     watchdogCooldown,
     busySignal,
     reportToken,
@@ -193,22 +164,30 @@ export function createMemberWorkSyncFeature(deps: {
   const queue = new MemberWorkSyncEventQueue({
     reconcile: async (request, context: MemberWorkSyncReconcileContext) => {
       await reconciler.execute(request, context);
-      if (nudgeSideEffectsEnabled) {
-        await nudgeDispatcher.dispatchDue({
-          teamNames: [request.teamName],
-          claimedBy: `member-work-sync:${process.pid}`,
-        });
-      }
+      await nudgeDispatcher.dispatchDue({
+        teamNames: [request.teamName],
+        claimedBy: `member-work-sync:${process.pid}`,
+      });
     },
     isTeamActive: deps.isTeamActive ?? (() => true),
     ...(deps.queueQuietWindowMs != null ? { quietWindowMs: deps.queueQuietWindowMs } : {}),
     auditJournal,
     logger: deps.logger,
   });
-  const router = new MemberWorkSyncTeamChangeRouter(agendaSource, queue, {
-    materializeMember: (teamName, memberName) =>
-      storePaths.ensureMemberWorkSyncDir(teamName, memberName),
+  const taskImpactResolver = new MemberWorkSyncTaskImpactResolver({
+    taskReader: deps.taskReader,
+    kanbanManager: deps.kanbanManager,
+    activeMemberSource: agendaSource,
   });
+  const router = new MemberWorkSyncTeamChangeRouter(
+    agendaSource,
+    queue,
+    {
+      materializeMember: (teamName, memberName) =>
+        storePaths.ensureMemberWorkSyncDir(teamName, memberName),
+    },
+    taskImpactResolver
+  );
   const runtimeTurnSettledIngestor = new RuntimeTurnSettledIngestor({
     eventStore: runtimeTurnSettledStore,
     normalizer: runtimeTurnSettledNormalizer,
@@ -234,23 +213,23 @@ export function createMemberWorkSyncFeature(deps: {
     drain: () => runtimeTurnSettledIngestor.drainPending(),
     logger: deps.logger,
   });
-  const nudgeDispatchScheduler =
-    nudgeSideEffectsEnabled && deps.listLifecycleActiveTeamNames
-      ? new MemberWorkSyncNudgeDispatchScheduler({
-          listLifecycleActiveTeamNames: deps.listLifecycleActiveTeamNames,
-          dispatchDue: (teamNames) =>
-            nudgeDispatcher.dispatchDue({
-              teamNames,
-              claimedBy: `member-work-sync:${process.pid}:scheduled`,
-            }),
-          logger: deps.logger,
-        })
-      : null;
+  const nudgeDispatchScheduler = deps.listLifecycleActiveTeamNames
+    ? new MemberWorkSyncNudgeDispatchScheduler({
+        listLifecycleActiveTeamNames: deps.listLifecycleActiveTeamNames,
+        dispatchDue: (teamNames) =>
+          nudgeDispatcher.dispatchDue({
+            teamNames,
+            claimedBy: `member-work-sync:${process.pid}:scheduled`,
+          }),
+        logger: deps.logger,
+      })
+    : null;
   runtimeTurnSettledDrainScheduler.start();
   nudgeDispatchScheduler?.start();
 
   return {
     getStatus: (request) => diagnosticsReader.execute(request),
+    refreshStatus: (request) => reconciler.execute(request, { reconciledBy: 'request' }),
     getMetrics: (request) => metricsReader.execute(request),
     report: (request) => reporter.execute(request),
     noteTeamChange: (event) => {
@@ -277,12 +256,10 @@ export function createMemberWorkSyncFeature(deps: {
       );
     },
     dispatchDueNudges: (teamNames) =>
-      nudgeSideEffectsEnabled
-        ? nudgeDispatcher.dispatchDue({
-            teamNames,
-            claimedBy: `member-work-sync:${process.pid}`,
-          })
-        : Promise.resolve(emptyNudgeDispatchSummary()),
+      nudgeDispatcher.dispatchDue({
+        teamNames,
+        claimedBy: `member-work-sync:${process.pid}`,
+      }),
     buildRuntimeTurnSettledHookSettings: async ({ provider }) =>
       runtimeTurnSettledSpool.buildHookSettings({ provider }),
     buildRuntimeTurnSettledEnvironment: async ({ provider }) =>

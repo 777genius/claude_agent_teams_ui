@@ -1,6 +1,6 @@
 # Member Work Sync Control Plane Plan
 
-**Status:** Phase 1, Phase 1.5 observability, minimal read-only member details surface, and opt-in Phase 2 nudge outbox/dispatcher/scheduler implemented
+**Status:** Phase 1, Phase 1.5 observability, minimal read-only member details surface, and active-by-default Phase 2 nudge outbox/dispatcher/scheduler implemented
 **Scope:** Team management, task work synchronization, agent work coordination  
 **Primary repo:** `claude_team`  
 **Secondary write-boundary repo:** `agent_teams_orchestrator` / `agent-teams-controller`  
@@ -35,11 +35,11 @@ Current implementation note:
 - Phase 1 does not insert inbox messages, send nudges, mark tasks/messages read, or change `TeamTaskStallMonitor` semantics.
 - Phase 1.5 exposes a machine-readable `phase2Readiness` assessment from shadow metrics. It can say `collecting_shadow_data`, `blocked`, or `shadow_ready`; it still does not dispatch nudges.
 - Phase 2 storage foundation is implemented as a durable outbox: idempotency key, payload hash conflict checks, claim generation fencing, retry/terminal states.
-- Queue reconciles can plan a Phase 2 outbox item only when `phase2Readiness=shadow_ready`; read-only diagnostics never create outbox intents. This preserves the anti-spam gate and keeps UI/status reads passive.
-- Phase 2 nudge side effects are additionally disabled by default in production composition. Set `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED=1` only for isolated live validation. This keeps status/report/metrics active while guaranteeing that shadow-ready metrics cannot start inbox nudges by accident.
-- Dispatcher use case can run after queued reconcile and is also exposed through the facade when nudge side effects are explicitly enabled. It claims due outbox rows, revalidates active team/status/current fingerprint/readiness/busy/watchdog cooldown, then writes one idempotent inbox nudge through a narrow port.
+- Queue reconciles can plan a Phase 2 outbox item only when `phase2Readiness=shadow_ready`; read-only diagnostics never create outbox intents. This preserves the anti-spam guard and keeps UI/status reads passive.
+- Phase 2 nudge delivery is active by default in production composition. Safety is provided by internal guards: `shadow_ready`, current fingerprint, active team, busy signal, watchdog cooldown, rate limit, and idempotent outbox.
+- Dispatcher use case runs after queued reconcile and is also exposed through the facade. It claims due outbox rows, revalidates active team/status/current fingerprint/readiness/busy/watchdog cooldown, then writes one idempotent inbox nudge through a narrow port.
 - Production busy revalidation is wired through a tool-activity busy signal adapter. Active or recently finished tool calls defer Phase 2 nudges instead of interrupting work.
-- A feature-owned dispatch scheduler wakes due retryable outbox items for lifecycle-active teams only when nudge side effects are enabled. It is bounded, unref'ed, and still relies on dispatcher revalidation before any inbox write.
+- A feature-owned dispatch scheduler wakes due retryable outbox items for lifecycle-active teams when a lifecycle-active team source is available. It is bounded, unref'ed, and still relies on dispatcher revalidation before any inbox write.
 - Dispatcher applies per-member hourly rate limiting and bounded deterministic retry backoff with jitter before retrying failed nudge attempts.
 - Superseded-but-undelivered outbox items can be revived by a fresh queued reconcile for the same agenda fingerprint. Delivered nudges remain one-per-fingerprint.
 - Phase 2 dispatch stays blocked until real shadow metrics confirm that `needs_sync` churn and false positives are acceptably low.
@@ -378,7 +378,7 @@ Pre-coding hardening checklist:
 - Add identity tests before report persistence. `from` is not authority unless runtime context or report token proves it.
 - Treat every app restart as a replay scenario. Pending intents, queued reconciles, and stale reports must be safe to process again.
 - Make every Phase 2 side effect idempotent before adding the dispatcher.
-- Add one explicit kill switch per side-effect class: reconcile/status, report acceptance, and nudges.
+- Keep side effects bounded by internal guards and narrow ports. Do not add permanent product switches for reconcile/status, report acceptance, or nudges.
 - Do not merge watchdog and work-sync concepts. Work-sync is agenda observation; watchdog is semantic progress.
 
 Failure-mode matrix:
@@ -801,7 +801,7 @@ It should not mean:
 - a delivery retry marker was appended;
 - a status condition timestamp changed.
 
-Phase 1 must track `fingerprintChangeCount` and store the last few fingerprint transition reasons. If this count rises without visible agenda changes, do not enable Phase 2 nudges.
+Phase 1 must track `fingerprintChangeCount` and store the last few fingerprint transition reasons. If this count rises without visible agenda changes, keep `phase2Readiness` blocked until the source of churn is fixed.
 
 Recommended transition diagnostic:
 
@@ -1364,7 +1364,7 @@ Expired leases are ignored by `SyncDecisionPolicy`.
 
 ### 10.4 Shadow Would-Nudge Semantics
 
-Phase 1 may compute `wouldNudgeCount`, but must not enqueue or send. Production composition enforces this by default by not wiring `outboxStore`/`inboxNudge` unless `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED=1`.
+Read-only status and diagnostics may compute `wouldNudgeCount`, but must not enqueue or send. Production composition always wires the outbox and inbox nudge sink; side effects stay limited to queued reconcile planning and dispatcher delivery guards.
 
 `wouldNudge` is true only when all are true:
 
@@ -1911,7 +1911,7 @@ Preferred Phase 1 read surface:
 - extend `task_briefing` with a compact `workSync` block;
 - include current `agendaFingerprint`;
 - include a short actionable agenda preview;
-- include report instructions only when the feature is enabled.
+- include report instructions only when the report tool is available.
 
 Example `task_briefing` addition:
 
@@ -2235,7 +2235,7 @@ Dispatcher revalidation:
 
 Before inserting an inbox nudge, dispatcher must re-read:
 
-- feature gate state;
+- current `phase2Readiness`;
 - current roster membership;
 - current agenda fingerprint;
 - latest accepted report;
@@ -2729,9 +2729,9 @@ busy suppressions: 8
 
 ### 18.1 Phase 2 Entry Thresholds
 
-Do not enable nudges until shadow metrics are stable.
+Do not let nudges deliver until shadow metrics are stable and `phase2Readiness=shadow_ready`.
 
-Recommended gates:
+Recommended guardrails:
 
 | Metric | Target before Phase 2 |
 |---|---:|
@@ -2742,7 +2742,7 @@ Recommended gates:
 | busy suppression correctness | no known prompt during active tool/runtime turn |
 | report intent replay errors | 0 lost accepted reports |
 
-If a metric misses the target, keep Phase 2 disabled and fix the specific source of noise. Do not compensate with a shorter lease or more nudges.
+If a metric misses the target, keep `phase2Readiness` blocked/collecting and fix the specific source of noise. Do not compensate with a shorter lease or more nudges.
 
 ---
 
@@ -3039,7 +3039,8 @@ No accelerator is proof.
 Current implementation:
 
 - tool-finish enqueue and tool-activity busy suppression are implemented through `TeamChangeEvent` and the feature-owned busy signal;
-- Claude Stop hook and OpenCode turn-settled hooks are intentionally not wired yet because the current feature boundary does not expose one authoritative cross-provider "turn settled and idle" signal. Adding an adapter around prompt text, idle notifications, or provider-specific transcript heuristics would be less reliable than the current tool-finish + scheduled reconcile path;
+- Claude Stop hook settings are wired through the `member-work-sync` feature facade into `TeamProvisioningService`, then merged into Anthropic launch settings;
+- Codex native and OpenCode turn-settled signals are wired through provider-specific runtime env/spool emitters, shared payload normalization, `RuntimeTurnSettledIngestor`, and the feature-owned drain scheduler. OpenCode bridge env receives the spool root before `OpenCodeBridgeCommandClient` construction;
 - manual "sync now" remains optional because details/status reads are passive by design, and explicit manual nudges should reuse the existing outbox/dispatcher instead of bypassing readiness guards.
 
 ---
@@ -3070,7 +3071,7 @@ Do not add:
 
 - `CLAUDE_TEAM_MEMBER_WORK_SYNC_ENABLED`
 - `CLAUDE_TEAM_MEMBER_WORK_SYNC_SHADOW_ONLY`
-- `CLAUDE_TEAM_MEMBER_WORK_SYNC_NUDGES_ENABLED`
+- any new member-work-sync nudge env or feature flag
 
 If Phase 1 needs to be disabled during development, revert or patch the narrow composition wiring. Do not add a permanent product branch for a passive feature.
 
@@ -3088,7 +3089,7 @@ const MEMBER_WORK_SYNC_STILL_WORKING_LEASE_MS = 10 * 60_000;
 const MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR = 2;
 ```
 
-If we ever need an emergency kill switch for production nudges, it must only wrap the Phase 2 dispatcher. It must not disable agenda/status/report validation.
+No config/env kill switch is part of the design. Production nudge safety must come from dispatcher guards and typed runtime defaults, without disabling agenda/status/report validation.
 
 ---
 
@@ -3238,7 +3239,7 @@ Phase 2 must not start if any of these are true:
 - report validation can accept leases with claimed `from` only and no trusted identity/report token;
 - queue can run more than one reconcile for the same member concurrently;
 - watchdog cooldown integration is untested;
-- outbox dispatcher can send while feature is disabled;
+- outbox dispatcher can send without `shadow_ready`;
 - outbox dispatcher can send for a stopped/cancelled team;
 - pending intent replay can turn stale reports into accepted leases;
 - fingerprint transition diagnostics are missing;
@@ -3379,8 +3380,8 @@ Step order:
    - Writes status only through `MemberWorkSyncStatusStorePort`.
    - Does not send any message or call runtime delivery.
 
-10. Add shadow trigger wiring behind feature gate.
-    - Default shadow status can be on, but all side effects are status-only.
+10. Add shadow trigger wiring without an env gate.
+    - Default shadow status is on, while read-only status/diagnostics stay passive.
     - Use quiet-window queue and bounded concurrency.
     - Wire broad team/task change events only after domain tests are green.
     - Drop queued entries when team/member is removed or stopped.
@@ -3536,12 +3537,12 @@ Cut 3 stop criteria:
 
 ### 27.4 Phase 2: Nudges Later, Separate Work
 
-Do not start Phase 2 until shadow metrics prove low noise.
+Do not rely on Phase 2 delivery until shadow metrics prove low noise.
 
 Phase 2 sequence:
 
 1. Add outbox schema and idempotency key.
-2. Add dispatcher with feature gate default off.
+2. Add dispatcher active by default behind internal guards.
 3. Add stale revalidation before dispatch.
 4. Add watchdog cooldown integration.
 5. Add one-in-flight per `(teamName, memberName, fingerprint)`.

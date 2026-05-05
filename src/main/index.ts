@@ -834,7 +834,6 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       const teamName = row.teamName.trim();
       const detail = typeof row.detail === 'string' ? row.detail : '';
       launchIoGovernor?.noteTeamChange(row as TeamChangeEvent);
-      memberWorkSyncFeature?.noteTeamChange(row as TeamChangeEvent);
 
       if (row.type === 'config') {
         if (detail === 'config.json') {
@@ -849,6 +848,8 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       if (row.type === 'task') {
         TeamTaskReader.invalidateAllTasksCache();
       }
+
+      memberWorkSyncFeature?.noteTeamChange(row as TeamChangeEvent);
 
       if (
         teamDataService &&

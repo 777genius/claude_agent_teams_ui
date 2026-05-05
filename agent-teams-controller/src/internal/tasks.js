@@ -518,7 +518,11 @@ function addTaskCommentWithOptions(context, taskId, flags, options = {}) {
         context.paths,
         commentFlags.from,
         'task comment author',
-        { allowReservedAuthors: !fromRequiredForAgentTool }
+        {
+            allowReservedAuthors: !fromRequiredForAgentTool,
+            allowLeadAliases: !fromRequiredForAgentTool,
+            allowProviderAliases: !fromRequiredForAgentTool,
+        }
     );
     const result = withTeamBoardLock(context.paths, () =>
         taskStore.addTaskComment(context.paths, taskId, commentFlags.text, {

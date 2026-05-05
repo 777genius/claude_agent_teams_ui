@@ -90,6 +90,7 @@ export function isOpenCodePromptDeliveryRetryableResponseState(
 ): boolean {
   return (
     state === 'empty_assistant_turn' ||
+    state === 'prompt_delivered_no_assistant_message' ||
     state === 'tool_error' ||
     state === 'reconcile_failed' ||
     state === 'not_observed' ||

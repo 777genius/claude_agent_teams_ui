@@ -45,6 +45,108 @@ describe('MemberWorkSyncEventQueue', () => {
     await queue.stop();
   });
 
+  it('bounds coalescing so noisy event streams cannot starve reconcile forever', async () => {
+    const reconciles: unknown[] = [];
+    const queue = new MemberWorkSyncEventQueue({
+      quietWindowMs: 100,
+      triggerTiming: {
+        task_changed: { runAfterMs: 100, maxCoalesceWaitMs: 250 },
+      },
+      reconcile: async (request, context) => {
+        reconciles.push({ request, context });
+      },
+      isTeamActive: () => true,
+    });
+
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'task_changed' });
+    await vi.advanceTimersByTimeAsync(90);
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'task_changed' });
+    await vi.advanceTimersByTimeAsync(90);
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'task_changed' });
+    await vi.advanceTimersByTimeAsync(69);
+
+    expect(reconciles).toHaveLength(0);
+    expect(queue.getDiagnostics()).toMatchObject({
+      queued: 1,
+      queuedItems: [
+        {
+          memberName: 'bob',
+          triggerReasonCounts: { task_changed: 3 },
+        },
+      ],
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconciles).toHaveLength(1);
+    await queue.stop();
+  });
+
+  it('lets manual refresh expedite an already queued delayed reconcile', async () => {
+    const reconciles: unknown[] = [];
+    const queue = new MemberWorkSyncEventQueue({
+      triggerTiming: {
+        task_changed: { runAfterMs: 1_000, maxCoalesceWaitMs: 5_000 },
+        manual_refresh: { runAfterMs: 0, maxCoalesceWaitMs: 0 },
+      },
+      reconcile: async (request, context) => {
+        reconciles.push({ request, context });
+      },
+      isTeamActive: () => true,
+    });
+
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'task_changed' });
+    await vi.advanceTimersByTimeAsync(100);
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'manual_refresh' });
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconciles).toHaveLength(1);
+    expect(reconciles[0]).toMatchObject({
+      context: { triggerReasons: ['manual_refresh', 'task_changed'] },
+    });
+    await queue.stop();
+  });
+
+  it('does not let legacy quiet window override delay manual refresh', async () => {
+    const reconciles: unknown[] = [];
+    const queue = new MemberWorkSyncEventQueue({
+      quietWindowMs: 10_000,
+      reconcile: async (request, context) => {
+        reconciles.push({ request, context });
+      },
+      isTeamActive: () => true,
+    });
+
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'manual_refresh' });
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconciles).toHaveLength(1);
+    await queue.stop();
+  });
+
+  it('does not let a later quiet-window event delay a queued manual refresh', async () => {
+    const reconciles: unknown[] = [];
+    const queue = new MemberWorkSyncEventQueue({
+      triggerTiming: {
+        task_changed: { runAfterMs: 1_000, maxCoalesceWaitMs: 5_000 },
+      },
+      reconcile: async (request, context) => {
+        reconciles.push({ request, context });
+      },
+      isTeamActive: () => true,
+    });
+
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'manual_refresh' });
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'task_changed' });
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconciles).toHaveLength(1);
+    expect(reconciles[0]).toMatchObject({
+      context: { triggerReasons: ['manual_refresh', 'task_changed'] },
+    });
+    await queue.stop();
+  });
+
   it('drops queued work for inactive teams without reconciling', async () => {
     const reconcile = vi.fn();
     const queue = new MemberWorkSyncEventQueue({
@@ -89,6 +191,80 @@ describe('MemberWorkSyncEventQueue', () => {
     expect(reconciles).toHaveLength(2);
     expect(reconciles[1]).toMatchObject({
       context: { reconciledBy: 'queue', triggerReasons: ['task_changed', 'tool_finished'] },
+    });
+    await queue.stop();
+  });
+
+  it('lets manual refresh request an immediate follow-up after an active reconcile', async () => {
+    let release: () => void = () => {
+      throw new Error('reconcile did not start');
+    };
+    const reconciles: unknown[] = [];
+    const queue = new MemberWorkSyncEventQueue({
+      reconcile: async (request, context) => {
+        reconciles.push({ request, context });
+        if (reconciles.length === 1) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+      },
+      isTeamActive: () => true,
+    });
+
+    queue.enqueue({
+      teamName: 'team-a',
+      memberName: 'bob',
+      triggerReason: 'config_changed',
+      runAfterMs: 0,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'manual_refresh' });
+
+    release();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconciles).toHaveLength(2);
+    expect(reconciles[1]).toMatchObject({
+      context: { triggerReasons: ['config_changed', 'manual_refresh'] },
+    });
+    await queue.stop();
+  });
+
+  it('does not let a later event delay a due item waiting behind concurrency', async () => {
+    let release: () => void = () => {
+      throw new Error('reconcile did not start');
+    };
+    const reconciles: unknown[] = [];
+    const queue = new MemberWorkSyncEventQueue({
+      concurrency: 1,
+      triggerTiming: {
+        task_changed: { runAfterMs: 0, maxCoalesceWaitMs: 5_000 },
+        inbox_changed: { runAfterMs: 1_000, maxCoalesceWaitMs: 5_000 },
+      },
+      reconcile: async (request, context) => {
+        reconciles.push({ request, context });
+        if (reconciles.length === 1) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+      },
+      isTeamActive: () => true,
+    });
+
+    queue.enqueue({ teamName: 'team-a', memberName: 'alice', triggerReason: 'task_changed' });
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'task_changed' });
+    await vi.advanceTimersByTimeAsync(0);
+
+    queue.enqueue({ teamName: 'team-a', memberName: 'bob', triggerReason: 'inbox_changed' });
+    release();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconciles).toHaveLength(2);
+    expect(reconciles[1]).toMatchObject({
+      request: { memberName: 'bob' },
+      context: { triggerReasons: ['inbox_changed', 'task_changed'] },
     });
     await queue.stop();
   });

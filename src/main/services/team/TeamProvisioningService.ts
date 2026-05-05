@@ -305,6 +305,9 @@ interface PersistedRuntimeMemberLike {
   backendType?: string;
   providerId?: string;
   cwd?: string;
+  bootstrapExpectedAfter?: string;
+  bootstrapProofToken?: string;
+  bootstrapRuntimeEventsPath?: string;
   runtimePid?: number;
   runtimeSessionId?: string;
 }
@@ -337,6 +340,40 @@ interface LaunchStateWriteResult {
 }
 
 type BootstrapTranscriptSuccessSource = 'member_briefing' | 'assistant_text';
+
+const BOOTSTRAP_RUNTIME_PROOF_SOURCE = 'member_briefing_tool_success';
+const BOOTSTRAP_RUNTIME_PROOF_TAIL_BYTES = 256 * 1024;
+
+function sanitizeRuntimeEventFilePrefix(value: string): string {
+  return String(value || 'default')
+    .replace(/[^a-zA-Z0-9]/g, '-')
+    .toLowerCase();
+}
+
+function parseRuntimeBootstrapProofDetail(detail: unknown): Record<string, unknown> {
+  if (typeof detail !== 'string' || detail.trim().length === 0) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(detail) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getRuntimeBootstrapProofString(
+  event: Record<string, unknown>,
+  detail: Record<string, unknown>,
+  field: 'source' | 'bootstrapProofToken'
+): string | undefined {
+  const direct = event[field];
+  if (typeof direct === 'string' && direct.trim().length > 0) {
+    return direct.trim();
+  }
+  const nested = detail[field];
+  return typeof nested === 'string' && nested.trim().length > 0 ? nested.trim() : undefined;
+}
 
 type BootstrapTranscriptOutcome =
   | {
@@ -2658,6 +2695,14 @@ function isBootstrapMcpResourceReadFailureReason(reason?: string): boolean {
   );
 }
 
+function isBootstrapCheckInTimeoutFailureReason(reason?: string): boolean {
+  return reason?.trim() === 'Teammate was registered but did not bootstrap-confirm before timeout.';
+}
+
+function isBootstrapInstructionPromptFailureReason(reason?: string): boolean {
+  return typeof reason === 'string' && isBootstrapInstructionPrompt(reason);
+}
+
 function isTmuxNoServerRunningError(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error ?? '');
   return (
@@ -2673,7 +2718,9 @@ function isAutoClearableLaunchFailureReason(reason?: string): boolean {
     isConfigRegistrationFailureReason(reason) ||
     isRegisteredRuntimeMetadataFailureReason(reason) ||
     isOpenCodeBridgeLaunchFailureReason(reason) ||
-    isBootstrapMcpResourceReadFailureReason(reason)
+    isBootstrapMcpResourceReadFailureReason(reason) ||
+    isBootstrapCheckInTimeoutFailureReason(reason) ||
+    isBootstrapInstructionPromptFailureReason(reason)
   );
 }
 
@@ -6511,6 +6558,12 @@ export class TeamProvisioningService {
     const toolNames = ledgerRecord?.observedToolCallNames ?? [];
     return toolNames.some((toolName) => {
       const normalized = this.normalizeOpenCodeObservedToolName(toolName);
+      if (
+        ledgerRecord?.messageKind === 'member_work_sync_nudge' &&
+        normalized === 'member_work_sync_report'
+      ) {
+        return true;
+      }
       return (
         normalized === 'task_start' ||
         normalized === 'task_add_comment' ||
@@ -6530,6 +6583,7 @@ export class TeamProvisioningService {
   private normalizeOpenCodeObservedToolName(toolName: string): string {
     return toolName
       .trim()
+      .toLowerCase()
       .replace(/^mcp__agent[-_]teams__/, '')
       .replace(/^agent[-_]teams_/, '')
       .replace(/^mcp__agent_teams__/, '')
@@ -6605,7 +6659,32 @@ export class TeamProvisioningService {
     if (state === 'empty_assistant_turn') {
       return 'empty_assistant_turn';
     }
+    if (state === 'prompt_delivered_no_assistant_message') {
+      return 'prompt_delivered_no_assistant_message';
+    }
     return record?.lastReason ?? 'opencode_delivery_response_pending';
+  }
+
+  private normalizeOpenCodeDeliveryResponseObservation(
+    observation?: NonNullable<OpenCodeTeamRuntimeMessageResult['responseObservation']>
+  ): NonNullable<OpenCodeTeamRuntimeMessageResult['responseObservation']> | undefined {
+    if (
+      observation?.state !== 'empty_assistant_turn' ||
+      !observation.deliveredUserMessageId ||
+      observation.assistantMessageId ||
+      observation.latestAssistantPreview?.trim() ||
+      observation.toolCallNames.length > 0 ||
+      observation.visibleMessageToolCallId ||
+      observation.visibleReplyMessageId
+    ) {
+      return observation;
+    }
+
+    return {
+      ...observation,
+      state: 'prompt_delivered_no_assistant_message',
+      reason: 'prompt_delivered_no_assistant_message',
+    };
   }
 
   private isOpenCodeDeliveryRetryablePendingResponse(input: {
@@ -7377,6 +7456,7 @@ export class TeamProvisioningService {
             source: 'watchdog',
             replyRecipient,
             actionMode: message.actionMode ?? null,
+            messageKind: message.messageKind ?? null,
             taskRefs: message.taskRefs ?? [],
             payloadHash: hashOpenCodePromptDeliveryPayload({
               text: message.text,
@@ -7428,6 +7508,7 @@ export class TeamProvisioningService {
       messageId?: string;
       replyRecipient?: string;
       actionMode?: AgentActionMode;
+      messageKind?: InboxMessage['messageKind'];
       taskRefs?: TaskRef[];
       source?: OpenCodeMemberInboxRelayOptions['source'];
       inboxTimestamp?: string;
@@ -7494,7 +7575,7 @@ export class TeamProvisioningService {
           lane.member.name.trim().toLowerCase() === normalizedMemberName.toLowerCase()
       );
       trackedSecondaryLanePresent = liveLane != null;
-      liveSecondaryLaneRunId = liveLane ? trackedRunId : null;
+      liveSecondaryLaneRunId = liveLane?.runId?.trim() || null;
       const liveLaneMember = liveLane
         ? (liveLane.result?.members?.[canonicalMemberName] ??
           liveLane.result?.members?.[liveLane.member.name])
@@ -7628,6 +7709,7 @@ export class TeamProvisioningService {
         messageId: input.messageId,
         replyRecipient: input.replyRecipient,
         actionMode: input.actionMode,
+        messageKind: input.messageKind,
         taskRefs: input.taskRefs,
       });
       await this.rememberOpenCodeRuntimePidFromBridge({
@@ -7639,11 +7721,14 @@ export class TeamProvisioningService {
         runtimePid: result.runtimePid,
         reason: 'opencode_delivery_runtime_pid_observed',
       });
+      const responseObservation = this.normalizeOpenCodeDeliveryResponseObservation(
+        result.responseObservation
+      );
       return {
         delivered: result.ok,
         accepted: result.ok,
         responsePending: false,
-        responseState: result.responseObservation?.state,
+        responseState: responseObservation?.state,
         ...(result.ok
           ? {}
           : { reason: result.diagnostics[0] ?? 'opencode_message_delivery_failed' }),
@@ -7731,6 +7816,7 @@ export class TeamProvisioningService {
           source: input.source ?? 'manual',
           replyRecipient: input.replyRecipient ?? 'user',
           actionMode: input.actionMode ?? null,
+          messageKind: input.messageKind ?? null,
           taskRefs: input.taskRefs ?? [],
           payloadHash: hashOpenCodePromptDeliveryPayload({
             text: input.text,
@@ -7868,6 +7954,7 @@ export class TeamProvisioningService {
           messageId,
           replyRecipient: input.replyRecipient,
           actionMode: input.actionMode,
+          messageKind: input.messageKind,
           taskRefs: input.taskRefs,
           prePromptCursor: ledgerRecord.prePromptCursor,
         });
@@ -7880,9 +7967,12 @@ export class TeamProvisioningService {
           runtimePid: observed.runtimePid,
           reason: 'opencode_delivery_observe_runtime_pid_observed',
         });
+        const responseObservation = this.normalizeOpenCodeDeliveryResponseObservation(
+          observed.responseObservation
+        );
         ledgerRecord = await ledger.applyObservation({
           id: ledgerRecord.id,
-          responseObservation: observed.responseObservation ?? {
+          responseObservation: responseObservation ?? {
             state: observed.ok ? 'not_observed' : 'reconcile_failed',
             deliveredUserMessageId: null,
             assistantMessageId: null,
@@ -7993,6 +8083,7 @@ export class TeamProvisioningService {
       messageId: input.messageId,
       replyRecipient: input.replyRecipient,
       actionMode: input.actionMode,
+      messageKind: input.messageKind,
       taskRefs: input.taskRefs,
     });
     await this.rememberOpenCodeRuntimePidFromBridge({
@@ -8004,16 +8095,19 @@ export class TeamProvisioningService {
       runtimePid: result.runtimePid,
       reason: 'opencode_delivery_runtime_pid_observed',
     });
+    const responseObservation = this.normalizeOpenCodeDeliveryResponseObservation(
+      result.responseObservation
+    );
     if (ledgerRecord && ledger) {
       ledgerRecord = await ledger.applyDeliveryResult({
         id: ledgerRecord.id,
         accepted: result.ok,
         attempted: true,
-        responseObservation: result.responseObservation,
+        responseObservation,
         sessionId: result.sessionId,
         prePromptCursor: result.prePromptCursor,
         diagnostics: result.diagnostics,
-        reason: result.ok ? result.responseObservation?.reason : result.diagnostics[0],
+        reason: result.ok ? responseObservation?.reason : result.diagnostics[0],
         now: nowIso(),
       });
       let proof = await this.applyOpenCodeVisibleDestinationProof({
@@ -8044,7 +8138,7 @@ export class TeamProvisioningService {
         { accepted: result.ok, reason: ledgerRecord.lastReason ?? result.diagnostics[0] ?? null }
       );
     }
-    const responseState = ledgerRecord?.responseState ?? result.responseObservation?.state;
+    const responseState = ledgerRecord?.responseState ?? responseObservation?.state;
     const visibleReply = ledgerRecord
       ? await this.findOpenCodeVisibleReplyByRelayOfMessageId({
           teamName,
@@ -8139,15 +8233,15 @@ export class TeamProvisioningService {
     }
     const responseVisibleReplyMessageId =
       ledgerRecord?.visibleReplyMessageId ??
-      result.responseObservation?.visibleReplyMessageId ??
+      responseObservation?.visibleReplyMessageId ??
       undefined;
     const responseVisibleReplyCorrelation =
       ledgerRecord?.visibleReplyCorrelation ??
-      result.responseObservation?.visibleReplyCorrelation ??
+      responseObservation?.visibleReplyCorrelation ??
       undefined;
     const acceptanceUnknown = Boolean(ledgerRecord?.acceptanceUnknown && !result.ok);
     const responsePending =
-      acceptanceUnknown || (result.ok && Boolean(ledgerRecord || result.responseObservation))
+      acceptanceUnknown || (result.ok && Boolean(ledgerRecord || responseObservation))
         ? !readAllowed
         : false;
     const pendingReason =
@@ -8162,8 +8256,8 @@ export class TeamProvisioningService {
           : result.diagnostics;
     return {
       delivered: result.ok || acceptanceUnknown,
-      ...(ledgerRecord || result.responseObservation ? { accepted: result.ok } : {}),
-      ...(ledgerRecord || result.responseObservation ? { responsePending } : {}),
+      ...(ledgerRecord || responseObservation ? { accepted: result.ok } : {}),
+      ...(ledgerRecord || responseObservation ? { responsePending } : {}),
       ...(acceptanceUnknown ? { acceptanceUnknown: true } : {}),
       ...(ledgerRecord
         ? {
@@ -11521,7 +11615,8 @@ export class TeamProvisioningService {
   private confirmMemberSpawnStatusFromTranscript(
     run: ProvisioningRun,
     memberName: string,
-    observedAt: string
+    observedAt: string,
+    source: 'transcript' | 'runtime-proof' = 'transcript'
   ): void {
     const prev = run.memberSpawnStatuses.get(memberName) ?? createInitialMemberSpawnStatusEntry();
     const updatedAt = nowIso();
@@ -11530,7 +11625,7 @@ export class TeamProvisioningService {
       status: 'online',
       updatedAt,
       agentToolAccepted: true,
-      runtimeAlive: prev.runtimeAlive === true,
+      runtimeAlive: source === 'runtime-proof' ? true : prev.runtimeAlive === true,
       bootstrapConfirmed: true,
       hardFailure: false,
       bootstrapStalled: undefined,
@@ -11564,7 +11659,13 @@ export class TeamProvisioningService {
     run.memberSpawnStatuses.set(memberName, next);
     run.pendingMemberRestarts?.delete(memberName);
     this.syncMemberLaunchGraceCheck(run, memberName, next);
-    this.appendMemberBootstrapDiagnostic(run, memberName, 'bootstrap confirmed via transcript');
+    this.appendMemberBootstrapDiagnostic(
+      run,
+      memberName,
+      source === 'runtime-proof'
+        ? 'bootstrap confirmed via runtime proof'
+        : 'bootstrap confirmed via transcript'
+    );
     if (!this.isCurrentTrackedRun(run)) return;
     this.emitMemberSpawnChange(run, memberName);
     if (run.isLaunch) {
@@ -13914,12 +14015,26 @@ export class TeamProvisioningService {
         (current.launchState === 'failed_to_start' && !canClearFailedBootstrap) ||
         current.launchState === 'confirmed_alive' ||
         current.bootstrapConfirmed === true ||
-        current.agentToolAccepted !== true
+        (current.agentToolAccepted !== true && !canClearFailedBootstrap)
       ) {
         continue;
       }
       const acceptedAtMs =
         current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+      const runtimeProofObservedAt = await this.findBootstrapRuntimeProofObservedAt(
+        run.teamName,
+        memberName,
+        current
+      );
+      if (runtimeProofObservedAt) {
+        this.confirmMemberSpawnStatusFromTranscript(
+          run,
+          memberName,
+          runtimeProofObservedAt,
+          'runtime-proof'
+        );
+        continue;
+      }
       const transcriptOutcome = await this.findBootstrapTranscriptOutcome(
         run.teamName,
         memberName,
@@ -18382,6 +18497,7 @@ export class TeamProvisioningService {
             source: effectiveSource,
             replyRecipient: effectiveReplyRecipient,
             actionMode: effectiveActionMode,
+            messageKind: message.messageKind ?? null,
             taskRefs: effectiveTaskRefs,
             payloadHash: hashOpenCodePromptDeliveryPayload({
               text: message.text,
@@ -18422,6 +18538,7 @@ export class TeamProvisioningService {
           messageId: message.messageId,
           replyRecipient: effectiveReplyRecipient,
           actionMode: effectiveActionMode ?? undefined,
+          messageKind: message.messageKind,
           taskRefs: effectiveTaskRefs,
           source: effectiveSource,
           inboxTimestamp: message.timestamp,
@@ -18811,6 +18928,10 @@ export class TeamProvisioningService {
           ...(member.role?.trim() ? { role: member.role.trim() } : {}),
         }));
       const rosterContextBlock = buildLeadRosterContextBlock(teamName, leadName, teammateRoster);
+      const workSyncControlUrl = await this.resolveControlApiBaseUrl();
+      const workSyncControlUrlClause = workSyncControlUrl
+        ? `, controlUrl="${workSyncControlUrl}"`
+        : '';
       run.activeCrossTeamReplyHints = batch.flatMap((m) => {
         if (m.source !== 'cross_team') return [];
         const sourceTeam = m.from.includes('.') ? m.from.split('.', 1)[0] : '';
@@ -18835,6 +18956,7 @@ export class TeamProvisioningService {
             `For any MCP board tool call in this turn, teamName MUST be "${teamName}". Never use the lead/member name "${leadName}" as teamName.`,
             `Use task_create_from_message only for messages below that explicitly say "Eligible for task_create_from_message: yes" and provide a User MessageId. Never use task_create_from_message for teammate messages, system notifications, cross-team messages, or any inbox row that is not explicitly marked eligible.`,
             `If a message below is marked Source: system_notification and its summary looks like "Comment on #...", reply via task_add_comment only when you have a substantive board update (decision, blocker, clarification answer, review result, or concrete next-step change).`,
+            `If a message below has Message kind: member_work_sync_nudge, it is actionable work-sync control traffic, not routine notification noise. Do NOT ignore it as a pure system notification. Call member_work_sync_status with teamName="${teamName}", memberName="${leadName}"${workSyncControlUrlClause}, then call member_work_sync_report with the same teamName/memberName${workSyncControlUrlClause}, the returned agendaFingerprint/reportToken, and taskIds from the nudge task refs. Do not use provider names, runtime names, or team names as memberName. If the agenda still has actionable work you are continuing, use state "still_working"; if blocked, use state "blocked" and record the blocker on the task.`,
             `Do NOT post acknowledgement-only task comments such as "Принято", "Ок", "На связи", "Жду", or similar low-signal echoes. If the task comment notification is FYI and no durable update is needed, say nothing.`,
             `If a message below includes a hidden structured task-context block, treat that block as authoritative for teamName/taskId/commentId. Do NOT infer alternate ids or namespaces from visible prose.`,
             `If a message below is marked Source: cross_team, CALL the MCP tool named cross_team_send. Do NOT use SendMessage or message_send for cross-team replies.`,
@@ -22658,6 +22780,19 @@ export class TeamProvisioningService {
       }
       const acceptedAtMs =
         current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+      if (
+        current.launchState !== 'failed_to_start' ||
+        isAutoClearableLaunchFailureReason(current.hardFailureReason ?? current.runtimeDiagnostic)
+      ) {
+        const runtimeProofObservedAt = await this.findBootstrapRuntimeProofObservedAt(
+          snapshot.teamName,
+          expected,
+          current
+        );
+        if (runtimeProofObservedAt) {
+          return true;
+        }
+      }
       const transcriptOutcome = await this.findBootstrapTranscriptOutcome(
         snapshot.teamName,
         expected,
@@ -22671,6 +22806,159 @@ export class TeamProvisioningService {
       }
     }
     return false;
+  }
+
+  private resolveBootstrapRuntimeMember(
+    teamName: string,
+    memberName: string
+  ): PersistedRuntimeMemberLike | undefined {
+    return this.readPersistedRuntimeMembers(teamName).find((member) => {
+      const candidateName = typeof member.name === 'string' ? member.name.trim() : '';
+      return candidateName.length > 0 && matchesMemberNameOrBase(candidateName, memberName);
+    });
+  }
+
+  private getBootstrapRuntimeEventsPath(
+    teamName: string,
+    memberName: string,
+    runtimeMember: PersistedRuntimeMemberLike | undefined
+  ): string {
+    const configuredPath = runtimeMember?.bootstrapRuntimeEventsPath?.trim();
+    if (configuredPath) {
+      return configuredPath;
+    }
+    const filePrefix = sanitizeRuntimeEventFilePrefix(runtimeMember?.name ?? memberName);
+    return path.join(getTeamsBasePath(), teamName, 'runtime', `${filePrefix}.runtime.jsonl`);
+  }
+
+  private async readRuntimeBootstrapProofEvents(
+    eventsPath: string
+  ): Promise<Record<string, unknown>[]> {
+    let handle: fs.promises.FileHandle | null = null;
+    try {
+      handle = await fs.promises.open(eventsPath, 'r');
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size <= 0) {
+        return [];
+      }
+      const start = Math.max(0, stat.size - BOOTSTRAP_RUNTIME_PROOF_TAIL_BYTES);
+      const buffer = Buffer.alloc(stat.size - start);
+      if (buffer.length === 0) {
+        return [];
+      }
+      await handle.read(buffer, 0, buffer.length, start);
+      const lines = buffer.toString('utf8').split('\n');
+      if (start > 0) {
+        lines.shift();
+      }
+      const events: Record<string, unknown>[] = [];
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        try {
+          const parsed = JSON.parse(line) as unknown;
+          if (
+            parsed &&
+            typeof parsed === 'object' &&
+            (parsed as { version?: unknown }).version === 1 &&
+            typeof (parsed as { type?: unknown }).type === 'string' &&
+            typeof (parsed as { timestamp?: unknown }).timestamp === 'string'
+          ) {
+            events.push(parsed as Record<string, unknown>);
+          }
+        } catch {
+          // Ignore partial lines from concurrently written runtime event files.
+        }
+      }
+      return events;
+    } catch {
+      return [];
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+  }
+
+  private isRuntimeBootstrapProofEventValid(input: {
+    event: Record<string, unknown>;
+    detail: Record<string, unknown>;
+    teamName: string;
+    memberName: string;
+    runtimeMember?: PersistedRuntimeMemberLike;
+    boundaryMs: number;
+  }): boolean {
+    const { event, detail, teamName, memberName, runtimeMember, boundaryMs } = input;
+    if (event.type !== 'bootstrap_confirmed') {
+      return false;
+    }
+    if (typeof event.teamName === 'string' && event.teamName.trim() !== teamName) {
+      return false;
+    }
+    const source = getRuntimeBootstrapProofString(event, detail, 'source');
+    if (source !== BOOTSTRAP_RUNTIME_PROOF_SOURCE) {
+      return false;
+    }
+    const timestamp = typeof event.timestamp === 'string' ? event.timestamp : '';
+    const eventMs = Date.parse(timestamp);
+    if (Number.isFinite(boundaryMs) && (!Number.isFinite(eventMs) || eventMs < boundaryMs)) {
+      return false;
+    }
+    const expectedToken = runtimeMember?.bootstrapProofToken?.trim();
+    const eventToken = getRuntimeBootstrapProofString(event, detail, 'bootstrapProofToken');
+    if (expectedToken && eventToken !== expectedToken) {
+      return false;
+    }
+    const eventAgentName = typeof event.agentName === 'string' ? event.agentName.trim() : '';
+    const eventAgentId = typeof event.agentId === 'string' ? event.agentId.trim() : '';
+    const runtimeName = runtimeMember?.name?.trim() ?? '';
+    const runtimeAgentId = runtimeMember?.agentId?.trim() ?? '';
+    return (
+      (eventAgentName.length > 0 &&
+        (matchesMemberNameOrBase(eventAgentName, memberName) ||
+          (runtimeName.length > 0 && matchesTeamMemberIdentity(eventAgentName, runtimeName)))) ||
+      (eventAgentId.length > 0 && runtimeAgentId.length > 0 && eventAgentId === runtimeAgentId)
+    );
+  }
+
+  private async findBootstrapRuntimeProofObservedAt(
+    teamName: string,
+    memberName: string,
+    member: Pick<
+      PersistedTeamLaunchMemberState,
+      'firstSpawnAcceptedAt' | 'launchState' | 'hardFailureReason'
+    >
+  ): Promise<string | null> {
+    const runtimeMember = this.resolveBootstrapRuntimeMember(teamName, memberName);
+    const boundaryText = member.firstSpawnAcceptedAt ?? runtimeMember?.bootstrapExpectedAfter;
+    const boundaryMs = boundaryText ? Date.parse(boundaryText) : Number.NaN;
+    if (!runtimeMember?.bootstrapProofToken && !Number.isFinite(boundaryMs)) {
+      return null;
+    }
+    const eventsPath = this.getBootstrapRuntimeEventsPath(teamName, memberName, runtimeMember);
+    const events = await this.readRuntimeBootstrapProofEvents(eventsPath);
+    let latest: string | null = null;
+    let latestMs = Number.NEGATIVE_INFINITY;
+    for (const event of events) {
+      const detail = parseRuntimeBootstrapProofDetail(event.detail);
+      if (
+        !this.isRuntimeBootstrapProofEventValid({
+          event,
+          detail,
+          teamName,
+          memberName,
+          runtimeMember,
+          boundaryMs,
+        })
+      ) {
+        continue;
+      }
+      const timestamp = typeof event.timestamp === 'string' ? event.timestamp : '';
+      const timestampMs = Date.parse(timestamp);
+      if (Number.isFinite(timestampMs) && timestampMs >= latestMs) {
+        latest = timestamp;
+        latestMs = timestampMs;
+      }
+    }
+    return latest;
   }
 
   private async applyBootstrapTranscriptEvidenceOverlay(
@@ -22691,15 +22979,30 @@ export class TeamProvisioningService {
       ) {
         continue;
       }
+      const failureReason = current.hardFailureReason ?? current.runtimeDiagnostic;
+      const canClearFailedBootstrap =
+        current.launchState !== 'failed_to_start' ||
+        isAutoClearableLaunchFailureReason(failureReason);
+      if (!canClearFailedBootstrap) {
+        continue;
+      }
 
       const acceptedAtMs =
         current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+      const runtimeProofObservedAt = await this.findBootstrapRuntimeProofObservedAt(
+        snapshot.teamName,
+        expected,
+        current
+      );
       const transcriptOutcome = await this.findBootstrapTranscriptOutcome(
         snapshot.teamName,
         expected,
         Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
       );
-      if (transcriptOutcome?.kind !== 'success') {
+      const observedAt =
+        runtimeProofObservedAt ??
+        (transcriptOutcome?.kind === 'success' ? transcriptOutcome.observedAt : null);
+      if (!observedAt) {
         continue;
       }
 
@@ -22707,9 +23010,13 @@ export class TeamProvisioningService {
         ...current,
         agentToolAccepted: true,
         bootstrapConfirmed: true,
+        runtimeAlive: runtimeProofObservedAt ? true : current.runtimeAlive === true,
         hardFailure: false,
         hardFailureReason: undefined,
-        lastHeartbeatAt: current.lastHeartbeatAt ?? transcriptOutcome.observedAt,
+        lastHeartbeatAt: current.lastHeartbeatAt ?? observedAt,
+        lastRuntimeAliveAt: runtimeProofObservedAt
+          ? (current.lastRuntimeAliveAt ?? observedAt)
+          : current.lastRuntimeAliveAt,
         lastEvaluatedAt: nowIso(),
         sources: {
           ...(current.sources ?? {}),
@@ -22997,6 +23304,8 @@ export class TeamProvisioningService {
         : null;
       const acceptedAtMs =
         current.firstSpawnAcceptedAt != null ? Date.parse(current.firstSpawnAcceptedAt) : NaN;
+      const initialFailureReason = current.hardFailureReason ?? current.runtimeDiagnostic;
+      const hadAutoClearableFailure = isAutoClearableLaunchFailureReason(initialFailureReason);
       current.runtimeAlive = observedRuntimeAlive;
       current.lastRuntimeAliveAt = observedRuntimeAlive ? now : current.lastRuntimeAliveAt;
       current.livenessKind = runtimeMetadata?.[1].livenessKind;
@@ -23019,7 +23328,7 @@ export class TeamProvisioningService {
       const currentProvesSpawnAcceptance =
         current.agentToolAccepted === true || typeof current.firstSpawnAcceptedAt === 'string';
       if (
-        isAutoClearableLaunchFailureReason(current.hardFailureReason) &&
+        hadAutoClearableFailure &&
         (bootstrapProvesSpawnAcceptance || currentProvesSpawnAcceptance)
       ) {
         current.hardFailure = false;
@@ -23049,15 +23358,34 @@ export class TeamProvisioningService {
         current.hardFailure = false;
         current.hardFailureReason = undefined;
       }
-      if (!current.bootstrapConfirmed) {
-        const transcriptOutcome = await this.findBootstrapTranscriptOutcome(
-          teamName,
-          expected,
-          Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
-        );
-        if (transcriptOutcome?.kind === 'success' && !isOpenCodeSecondaryLaneMember) {
+      const canApplyBootstrapSuccess =
+        !heartbeatReason &&
+        (current.launchState !== 'failed_to_start' ||
+          hadAutoClearableFailure ||
+          isAutoClearableLaunchFailureReason(
+            current.hardFailureReason ?? current.runtimeDiagnostic
+          ));
+      if (!current.bootstrapConfirmed && canApplyBootstrapSuccess) {
+        const runtimeProofObservedAt = !isOpenCodeSecondaryLaneMember
+          ? await this.findBootstrapRuntimeProofObservedAt(teamName, expected, current)
+          : null;
+        const transcriptOutcome = runtimeProofObservedAt
+          ? null
+          : await this.findBootstrapTranscriptOutcome(
+              teamName,
+              expected,
+              Number.isFinite(acceptedAtMs) ? acceptedAtMs : null
+            );
+        const bootstrapObservedAt =
+          runtimeProofObservedAt ??
+          (transcriptOutcome?.kind === 'success' ? transcriptOutcome.observedAt : null);
+        if (bootstrapObservedAt && !isOpenCodeSecondaryLaneMember) {
           current.bootstrapConfirmed = true;
-          current.lastHeartbeatAt = current.lastHeartbeatAt ?? transcriptOutcome.observedAt;
+          current.lastHeartbeatAt = current.lastHeartbeatAt ?? bootstrapObservedAt;
+          current.runtimeAlive = runtimeProofObservedAt ? true : current.runtimeAlive === true;
+          current.lastRuntimeAliveAt = runtimeProofObservedAt
+            ? (current.lastRuntimeAliveAt ?? bootstrapObservedAt)
+            : current.lastRuntimeAliveAt;
           current.hardFailure = false;
           current.hardFailureReason = undefined;
           if (current.sources) {

@@ -15,7 +15,35 @@ function agendaWithWork() {
     memberName: 'bob',
     generatedAt: nowIso,
     members: [{ name: 'bob' }],
-    tasks: [{ id: 'task-1', subject: 'Work', status: 'pending', owner: 'bob' }],
+    tasks: [
+      {
+        id: 'task-1',
+        displayId: '#11111111',
+        subject: 'Work',
+        status: 'pending',
+        owner: 'bob',
+      },
+    ],
+    hash,
+  });
+}
+
+function leadAgendaWithBrokenDependency() {
+  return buildActionableWorkAgenda({
+    teamName: 'team-a',
+    memberName: 'team-lead',
+    generatedAt: nowIso,
+    members: [{ name: 'team-lead', agentType: 'team-lead' }, { name: 'bob' }],
+    tasks: [
+      {
+        id: 'task-2',
+        displayId: '#22222222',
+        subject: 'Blocked work',
+        status: 'pending',
+        owner: 'bob',
+        blockedBy: ['missing-task'],
+      },
+    ],
     hash,
   });
 }
@@ -38,6 +66,39 @@ describe('validateMemberWorkSyncReport', () => {
 
     expect(result.ok).toBe(true);
     expect(result.expiresAt).toBe('2026-04-29T00:15:00.000Z');
+  });
+
+  it('accepts display task ids for current agenda references', () => {
+    const agenda = agendaWithWork();
+    const withHash = validateMemberWorkSyncReport({
+      request: {
+        teamName: 'team-a',
+        memberName: 'bob',
+        state: 'still_working',
+        agendaFingerprint: agenda.fingerprint,
+        taskIds: ['#11111111'],
+      },
+      agenda,
+      nowIso,
+      activeMemberNames: ['bob'],
+      tokenValidation: validToken,
+    });
+    const withoutHash = validateMemberWorkSyncReport({
+      request: {
+        teamName: 'team-a',
+        memberName: 'bob',
+        state: 'still_working',
+        agendaFingerprint: agenda.fingerprint,
+        taskIds: ['11111111'],
+      },
+      agenda,
+      nowIso,
+      activeMemberNames: ['bob'],
+      tokenValidation: validToken,
+    });
+
+    expect(withHash.ok).toBe(true);
+    expect(withoutHash.ok).toBe(true);
   });
 
   it('rejects caught_up while actionable work remains', () => {
@@ -77,6 +138,26 @@ describe('validateMemberWorkSyncReport', () => {
     });
 
     expect(result).toMatchObject({ ok: false, code: 'blocked_without_evidence' });
+  });
+
+  it('accepts blocked reports when blocker evidence is referenced by display id', () => {
+    const agenda = leadAgendaWithBrokenDependency();
+    const result = validateMemberWorkSyncReport({
+      request: {
+        teamName: 'team-a',
+        memberName: 'team-lead',
+        state: 'blocked',
+        agendaFingerprint: agenda.fingerprint,
+        taskIds: ['22222222'],
+      },
+      agenda,
+      nowIso,
+      activeMemberNames: ['team-lead', 'bob'],
+      tokenValidation: validToken,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.expiresAt).toBe('2026-04-29T00:30:00.000Z');
   });
 
   it('rejects stale fingerprints and foreign task ids', () => {

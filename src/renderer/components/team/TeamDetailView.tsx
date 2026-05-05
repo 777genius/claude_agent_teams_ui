@@ -157,6 +157,7 @@ import type { ContextUsageLike } from '@shared/utils/contextMetrics';
 
 interface TeamDetailViewProps {
   teamName: string;
+  isActive?: boolean;
   isPaneFocused?: boolean;
 }
 
@@ -344,6 +345,33 @@ interface LeadContextBridgeProps {
   isThisTabActive: boolean;
 }
 
+const EMPTY_MESSAGES_PANEL_TASKS: TeamTaskWithKanban[] = [];
+
+function buildMessagesPanelTasksSignature(tasks: readonly TeamTaskWithKanban[]): string {
+  return JSON.stringify(
+    tasks.map((task) => [
+      task.id,
+      task.displayId ?? '',
+      task.subject,
+      task.owner ?? '',
+      task.reviewer ?? '',
+      task.status,
+      task.reviewState ?? '',
+      task.kanbanColumn ?? '',
+    ])
+  );
+}
+
+function useStableMessagesPanelTasks(
+  tasks: TeamTaskWithKanban[] | undefined
+): TeamTaskWithKanban[] {
+  const sourceTasks = tasks ?? EMPTY_MESSAGES_PANEL_TASKS;
+  const signature = useMemo(() => buildMessagesPanelTasksSignature(sourceTasks), [sourceTasks]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sourceTasks identity is gated by render-relevant task fields.
+  return useMemo(() => sourceTasks, [signature]);
+}
+
 // Codex/OpenCode lead sessions do not expose the Claude-style context data this panel expects yet.
 const LEAD_CONTEXT_UNSUPPORTED_PROVIDER_IDS = new Set<TeamProviderId>(['codex', 'opencode']);
 
@@ -377,10 +405,12 @@ const TeamSpawnStatusWatcher = memo(function TeamSpawnStatusWatcher({
   teamName,
   isTeamProvisioning,
   isTeamAlive,
+  isThisTabActive,
 }: {
   teamName: string;
   isTeamProvisioning: boolean;
   isTeamAlive?: boolean;
+  isThisTabActive: boolean;
 }): null {
   const { leadActivity, memberSpawnStatuses, memberSpawnSnapshot, fetchMemberSpawnStatuses } =
     useStore(
@@ -393,6 +423,8 @@ const TeamSpawnStatusWatcher = memo(function TeamSpawnStatusWatcher({
     );
 
   useEffect(() => {
+    if (!isThisTabActive) return;
+
     const hasUnresolvedSpawn = hasUnresolvedMemberSpawnStatus(
       memberSpawnStatuses,
       memberSpawnSnapshot
@@ -420,6 +452,7 @@ const TeamSpawnStatusWatcher = memo(function TeamSpawnStatusWatcher({
     fetchMemberSpawnStatuses,
     isTeamAlive,
     isTeamProvisioning,
+    isThisTabActive,
     leadActivity,
     memberSpawnSnapshot,
     memberSpawnStatuses,
@@ -888,6 +921,7 @@ const TeamMemberDetailDialogBridge = memo(function TeamMemberDetailDialogBridge(
 
 export const TeamDetailView = memo(function TeamDetailView({
   teamName,
+  isActive = true,
   isPaneFocused = false,
 }: TeamDetailViewProps): React.JSX.Element {
   const { isLight } = useTheme();
@@ -1279,8 +1313,7 @@ export const TeamDetailView = memo(function TeamDetailView({
   );
 
   const tabId = useTabIdOptional();
-  const activeTabId = useStore((s) => s.activeTabId);
-  const isThisTabActive = tabId ? activeTabId === tabId : false;
+  const isThisTabActive = isActive;
   const wasInteractiveRef = useRef(false);
 
   // Messages panel resize
@@ -1324,33 +1357,32 @@ export const TeamDetailView = memo(function TeamDetailView({
   useEffect(() => {
     const wasProvisioning = wasProvisioningRef.current;
     wasProvisioningRef.current = isTeamProvisioning;
+    if (!isThisTabActive) return;
     if (!wasProvisioning && isTeamProvisioning) {
       provisioningBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  }, [isTeamProvisioning]);
+  }, [isTeamProvisioning, isThisTabActive]);
 
   const [kanbanSearch, setKanbanSearch] = useState('');
 
   // Open editor overlay when a file reveal is requested (e.g. from chip click)
   const pendingRevealFile = useStore((s) => s.editorPendingRevealFile);
   useEffect(() => {
+    if (!isThisTabActive) return;
     if (pendingRevealFile && data?.config.projectPath) {
       setEditorOpen(true);
     }
-  }, [pendingRevealFile, data?.config.projectPath]);
+  }, [isThisTabActive, pendingRevealFile, data?.config.projectPath]);
 
   useEffect(() => {
-    if (!teamName) {
+    if (!isThisTabActive || !teamName) {
       return;
     }
     void selectTeam(teamName);
     void fetchDeletedTasks(teamName);
-  }, [teamName, selectTeam, fetchDeletedTasks]);
+  }, [isThisTabActive, teamName, selectTeam, fetchDeletedTasks]);
 
-  // Recovery: after HMR, all mounted TeamDetailView effects re-run simultaneously.
-  // With CSS display-toggle (all tabs stay mounted), the last selectTeam() call wins
-  // and other tabs get stuck with mismatched data (permanent skeleton).
-  // Re-trigger selectTeam when this tab becomes active and store data is stale.
+  // Re-trigger selectTeam when this visible tab becomes active and store data is stale.
   const storedTeamName = data?.teamName;
   useEffect(() => {
     if (!isThisTabActive || !teamName || loading) return;
@@ -1387,7 +1419,7 @@ export const TeamDetailView = memo(function TeamDetailView({
 
   // Fetch active teams when launch dialog opens (for conflict warning)
   useEffect(() => {
-    if (!launchDialogOpen) return;
+    if (!isThisTabActive || !launchDialogOpen) return;
     let cancelled = false;
     const teamsSnapshot = useStore.getState().teams;
     void (async () => {
@@ -1410,7 +1442,7 @@ export const TeamDetailView = memo(function TeamDetailView({
     return () => {
       cancelled = true;
     };
-  }, [launchDialogOpen]);
+  }, [isThisTabActive, launchDialogOpen]);
 
   useEffect(() => {
     if (kanbanFilterQuery) {
@@ -1456,7 +1488,7 @@ export const TeamDetailView = memo(function TeamDetailView({
   ]);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!isThisTabActive || !projectId) return;
 
     let cancelled = false;
     setSessionsLoading(true);
@@ -1485,7 +1517,7 @@ export const TeamDetailView = memo(function TeamDetailView({
     return () => {
       cancelled = true;
     };
-  }, [data?.config.leadSessionId, projectId, sessionHistoryKey]);
+  }, [data?.config.leadSessionId, isThisTabActive, projectId, sessionHistoryKey]);
 
   // Live git branch tracking for the lead project and member worktrees
   const teamProjectPath = data?.config.projectPath?.trim() ?? null;
@@ -1510,7 +1542,11 @@ export const TeamDetailView = memo(function TeamDetailView({
 
     return Array.from(uniquePaths.values());
   }, [members, leadProjectPath]);
-  useBranchSync(branchSyncPaths, { live: true });
+  const activeBranchSyncPaths = useMemo(
+    () => (isThisTabActive ? branchSyncPaths : []),
+    [branchSyncPaths, isThisTabActive]
+  );
+  useBranchSync(activeBranchSyncPaths, { live: isThisTabActive });
   const trackedBranches = useStore(
     useShallow((s) =>
       Object.fromEntries(
@@ -1626,11 +1662,12 @@ export const TeamDetailView = memo(function TeamDetailView({
 
   const activeMembers = useStableActiveMembers(membersWithLiveBranches);
 
+  const kanbanSearchQuery = kanbanSearch.trim();
+  const isKanbanSearchActive = kanbanSearchQuery.length > 0;
   const kanbanDisplayTasks = useMemo(() => {
-    const query = kanbanSearch.trim();
-    if (!query) return filteredTasks;
-    return filterKanbanTasks(filteredTasks, query);
-  }, [filteredTasks, kanbanSearch]);
+    if (!kanbanSearchQuery) return filteredTasks;
+    return filterKanbanTasks(filteredTasks, kanbanSearchQuery);
+  }, [filteredTasks, kanbanSearchQuery]);
 
   const activeTeammateCount = useMemo(
     () => activeMembers.filter((m) => !isLeadMember(m)).length,
@@ -1773,9 +1810,12 @@ export const TeamDetailView = memo(function TeamDetailView({
     }
   }, []);
 
-  const handleOpenTask = useCallback((task: TeamTaskWithKanban) => {
-    setSelectedTask(task);
-  }, []);
+  const handleOpenMessagePanelTask = useCallback(
+    (task: TeamTaskWithKanban) => {
+      handleOpenTaskById(task.id);
+    },
+    [handleOpenTaskById]
+  );
 
   const handleTaskIdClick = useCallback(
     (taskId: string) => {
@@ -1830,6 +1870,7 @@ export const TeamDetailView = memo(function TeamDetailView({
 
   // Pick up pending review request from GlobalTaskDetailDialog
   useEffect(() => {
+    if (!isThisTabActive) return;
     if (!pendingReviewRequest) return;
     setReviewDialogState({
       open: true,
@@ -1842,11 +1883,12 @@ export const TeamDetailView = memo(function TeamDetailView({
       selectReviewFile(pendingReviewRequest.filePath);
     }
     setPendingReviewRequest(null);
-  }, [pendingReviewRequest, selectReviewFile, setPendingReviewRequest]);
+  }, [isThisTabActive, pendingReviewRequest, selectReviewFile, setPendingReviewRequest]);
 
   const pendingTeamSectionFocus = useStore((s) => s.pendingTeamSectionFocus);
   const clearTeamSectionFocus = useStore((s) => s.clearTeamSectionFocus);
   useEffect(() => {
+    if (!isThisTabActive) return;
     if (pendingTeamSectionFocus?.teamName !== teamName) return;
 
     const sectionId =
@@ -1868,11 +1910,12 @@ export const TeamDetailView = memo(function TeamDetailView({
     if (!section) return;
     section.dispatchEvent(new CustomEvent('team-section-navigate'));
     clearTeamSectionFocus();
-  }, [pendingTeamSectionFocus, clearTeamSectionFocus, teamName, data]);
+  }, [pendingTeamSectionFocus, clearTeamSectionFocus, isThisTabActive, teamName, data]);
 
   // Pick up pending member profile request from MemberHoverCard
   const pendingMemberProfile = useStore((s) => s.pendingMemberProfile);
   useEffect(() => {
+    if (!isThisTabActive) return;
     if (!pendingMemberProfile || !data) return;
     if (pendingMemberProfile.teamName && pendingMemberProfile.teamName !== teamName) return;
 
@@ -1889,7 +1932,7 @@ export const TeamDetailView = memo(function TeamDetailView({
       });
     }
     useStore.getState().closeMemberProfile();
-  }, [pendingMemberProfile, membersWithLiveBranches, teamName, data]);
+  }, [isThisTabActive, pendingMemberProfile, membersWithLiveBranches, teamName, data]);
 
   const handleDeleteTask = useCallback(
     (taskId: string) => {
@@ -2004,21 +2047,22 @@ export const TeamDetailView = memo(function TeamDetailView({
     })();
   };
 
+  const messagesPanelTasks = useStableMessagesPanelTasks(data?.tasks);
+
   const sharedMessagesPanelProps = useMemo<SharedTeamMessagesPanelProps>(
     () => ({
       teamName,
       onPositionChange: changeMessagesPanelMode,
       mountPoint: messagesPanelMountPoint,
       members: activeMembers,
-      tasks: data?.tasks ?? [],
+      tasks: messagesPanelTasks,
       isTeamAlive: data?.isAlive,
       timeWindow,
-      teamSessionIds,
       currentLeadSessionId: data?.config.leadSessionId,
       pendingRepliesByMember,
       onPendingReplyChange: setPendingRepliesByMember,
       onMemberClick: handleSelectMember,
-      onTaskClick: handleOpenTask,
+      onTaskClick: handleOpenMessagePanelTask,
       onCreateTaskFromMessage: handleCreateTaskFromMessage,
       onReplyToMessage: handleReplyToMessage,
       onRestartTeam: handleRestartTeam,
@@ -2029,17 +2073,16 @@ export const TeamDetailView = memo(function TeamDetailView({
       activeMembers,
       data?.config.leadSessionId,
       data?.isAlive,
-      data?.tasks,
       handleCreateTaskFromMessage,
-      handleOpenTask,
+      handleOpenMessagePanelTask,
       handleReplyToMessage,
       handleRestartTeam,
       handleSelectMember,
       handleTaskIdClick,
+      messagesPanelTasks,
       messagesPanelMountPoint,
       pendingRepliesByMember,
       teamName,
-      teamSessionIds,
       timeWindow,
       changeMessagesPanelMode,
     ]
@@ -2058,6 +2101,7 @@ export const TeamDetailView = memo(function TeamDetailView({
       teamName={teamName}
       isTeamProvisioning={isTeamProvisioning}
       isTeamAlive={data?.isAlive}
+      isThisTabActive={isThisTabActive}
     />
   );
   const teamAgentRuntimeWatcher = (
@@ -2485,7 +2529,7 @@ export const TeamDetailView = memo(function TeamDetailView({
                 icon={<Columns3 size={14} />}
                 badge={filteredTasks.length}
                 defaultOpen
-                forceOpen={kanbanSearch.trim().length > 0}
+                forceOpen={isKanbanSearchActive}
                 action={
                   <Button
                     variant="ghost"
@@ -2510,6 +2554,7 @@ export const TeamDetailView = memo(function TeamDetailView({
                   sessions={teamSessions}
                   leadSessionId={data.config.leadSessionId}
                   members={activeMembers}
+                  forceShowAllTasks={isKanbanSearchActive}
                   onFilterChange={setKanbanFilter}
                   onSortChange={setKanbanSort}
                   toolbarLeft={

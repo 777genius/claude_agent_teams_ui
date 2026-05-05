@@ -1,5 +1,7 @@
 # Реальные конкуренты для Comparison в README
 
+> ⚠️ Update 2026-05-05: публичная таблица README/landing теперь сравнивает нас с `Gastown` и `Paperclip`, а не с `Claude Code Agent Teams` и `GoClaw`. Актуальная research-опора: [gastown-paperclip-comparison-2026-05-05.md](gastown-paperclip-comparison-2026-05-05.md). Ниже оставлен старый broader draft как исторический контекст.
+
 > Дата проверки: 2026-04-13  
 > Статус: внутренний comparison draft  
 > Цель: заменить в нашем внутреннем thinking `Vibe Kanban` и `Aperant` на реальные ориентиры - `Gastown`, `Claude Code Agent Teams`, `GoClaw`
@@ -55,7 +57,7 @@
 | **Per-task code review** | ✅ Per-task diff review with accept / reject / comment flow | ❌ | ❌ | ⚠️ Task approval exists, but not inline code diff review |
 | **Flexible autonomy** | ✅ Granular approvals, notifications, autonomy controls | ✅ Strong human gates, escalation and intervention, mostly via CLI/TUI | ⚠️ Plan approval, hooks and permissions exist, but control plane is thin | ✅ Team settings, approval workflows, exec approval, task approval |
 | **Git worktree isolation** | ✅ Optional per-agent worktree strategy | ✅ Core architectural primitive | ⚠️ Manual worktrees exist in Claude Code, but not as the native team model | ❌ Not a core team isolation model |
-| **Multi-agent backend** | ⚠️ Claude is mature; Codex/Gemini plumbing exists in code but is still emerging as product surface | ✅ Claude Code, Codex, Gemini, Copilot and other runtimes | ❌ Claude-first only, models per teammate but no real multi-provider backend | ✅ 20+ providers including Claude CLI and ChatGPT OAuth |
+| **Multi-agent backend** | ⚠️ Claude is mature; Codex/OpenCode plumbing exists in code but is still emerging as product surface | ✅ Claude Code, Codex, Gemini, Copilot and other runtimes | ❌ Claude-first only, models per teammate but no real multi-provider backend | ✅ 20+ providers including Claude CLI and ChatGPT OAuth |
 | **Price** | Free OSS UI, but a Claude Code plan is still needed today | Free OSS, but you still pay for the underlying runtime plans/seats you use | Claude subscription | Free self-hosted OSS, but infra + provider/API/subscription costs remain |
 
 ## Самые важные выводы по matrix
@@ -435,7 +437,7 @@ GoClaw выигрывает у нас по:
 
 ## Места, где надо быть особенно честными про нас
 
-- `Multi-agent backend` у нас пока не так зрел, как это можно прочитать из одной строки README. В коде есть мосты и статусы для `Anthropic`, `Codex`, `Gemini`, но продуктово основной путь всё ещё Claude-first.
+- `Multi-agent backend` у нас пока не так зрел, как это можно прочитать из одной строки README. В коде есть мосты и статусы для `Anthropic`, `Codex`, `OpenCode`, но продуктово основной путь всё ещё Claude-first.
 - `Zero setup` у нас честно сильный именно для Claude Code path.
 - `Cross-team communication` у нас сильнее, чем у этих конкурентов, но cross-team attachments не выглядят как полностью общий happy path.
 

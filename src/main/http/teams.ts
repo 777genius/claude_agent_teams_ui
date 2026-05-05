@@ -754,6 +754,34 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
   );
 
   app.get<{ Params: { teamName: string } }>(
+    '/api/teams/:teamName/member-work-sync/diagnostics',
+    async (request, reply) => {
+      try {
+        const validatedTeamName = validateTeamName(request.params.teamName);
+        if (!validatedTeamName.valid) {
+          return reply.status(400).send({ error: validatedTeamName.error });
+        }
+        const feature = getMemberWorkSyncFeature(services);
+        const metrics = await feature.getMetrics({ teamName: validatedTeamName.value! });
+        return reply.send({
+          teamName: validatedTeamName.value!,
+          generatedAt: new Date().toISOString(),
+          queue: feature.getQueueDiagnostics(),
+          metrics,
+        });
+      } catch (error) {
+        if (shouldLogError(error)) {
+          logger.error(
+            `Error in GET /api/teams/${request.params.teamName}/member-work-sync/diagnostics:`,
+            getErrorMessage(error)
+          );
+        }
+        return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+      }
+    }
+  );
+
+  app.get<{ Params: { teamName: string } }>(
     '/api/teams/:teamName/member-work-sync/metrics',
     async (request, reply) => {
       try {
@@ -808,6 +836,36 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
     }
   );
 
+  app.post<{ Params: { teamName: string; memberName: string } }>(
+    '/api/teams/:teamName/member-work-sync/:memberName/refresh',
+    async (request, reply) => {
+      try {
+        const validatedTeamName = validateTeamName(request.params.teamName);
+        if (!validatedTeamName.valid) {
+          return reply.status(400).send({ error: validatedTeamName.error });
+        }
+        const memberName = request.params.memberName?.trim();
+        if (!memberName) {
+          return reply.status(400).send({ error: 'memberName is required' });
+        }
+        return reply.send(
+          await getMemberWorkSyncFeature(services).refreshStatus({
+            teamName: validatedTeamName.value!,
+            memberName,
+          })
+        );
+      } catch (error) {
+        if (shouldLogError(error)) {
+          logger.error(
+            `Error in POST /api/teams/${request.params.teamName}/member-work-sync/${request.params.memberName}/refresh:`,
+            getErrorMessage(error)
+          );
+        }
+        return reply.status(getStatusCode(error)).send({ error: getErrorMessage(error) });
+      }
+    }
+  );
+
   app.post<{ Params: { teamName: string }; Body: Record<string, unknown> }>(
     '/api/teams/:teamName/member-work-sync/report',
     async (request, reply) => {
@@ -832,7 +890,14 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
             .send({ error: 'state must be still_working, blocked, or caught_up' });
         }
         const taskIds = Array.isArray(payload.taskIds)
-          ? payload.taskIds.filter((taskId): taskId is string => typeof taskId === 'string')
+          ? [
+              ...new Set(
+                payload.taskIds
+                  .filter((taskId): taskId is string => typeof taskId === 'string')
+                  .map((taskId) => taskId.trim())
+                  .filter(Boolean)
+              ),
+            ]
           : undefined;
         return reply.send(
           await getMemberWorkSyncFeature(services).report({
@@ -843,7 +908,7 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
             ...(typeof payload.reportToken === 'string'
               ? { reportToken: payload.reportToken }
               : {}),
-            ...(taskIds ? { taskIds } : {}),
+            ...(taskIds?.length ? { taskIds } : {}),
             ...(typeof payload.note === 'string' ? { note: payload.note } : {}),
             ...(typeof payload.reportedAt === 'string' ? { reportedAt: payload.reportedAt } : {}),
             ...(typeof payload.leaseTtlMs === 'number' ? { leaseTtlMs: payload.leaseTtlMs } : {}),
