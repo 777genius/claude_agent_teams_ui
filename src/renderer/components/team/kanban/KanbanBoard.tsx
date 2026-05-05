@@ -11,6 +11,7 @@ import { cn } from '@renderer/lib/utils';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import {
   CheckCircle2,
+  ChevronDown,
   ClipboardList,
   Columns3,
   Eye,
@@ -77,6 +78,8 @@ interface KanbanBoardProps {
   sessions: Session[];
   leadSessionId?: string;
   members: ResolvedTeamMember[];
+  /** Shows all cards when another UI flow, such as search, must not hide matches. */
+  forceShowAllTasks?: boolean;
   onFilterChange: (filter: KanbanFilterState) => void;
   onSortChange: (sort: KanbanSortState) => void;
   onRequestReview: (taskId: string) => void;
@@ -107,6 +110,8 @@ interface KanbanBoardProps {
 type KanbanViewMode = 'grid' | 'columns';
 
 const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
+const INITIAL_VISIBLE_TASKS_PER_COLUMN = 20;
+const LOAD_MORE_TASKS_PER_COLUMN = 20;
 
 const COLUMNS: { id: KanbanColumnId; title: string }[] = [
   { id: 'todo', title: 'TODO' },
@@ -320,6 +325,7 @@ export const KanbanBoard = memo(function KanbanBoard({
   sessions,
   leadSessionId,
   members,
+  forceShowAllTasks = false,
   onFilterChange,
   onSortChange,
   onRequestReview,
@@ -344,9 +350,13 @@ export const KanbanBoard = memo(function KanbanBoard({
   const [viewMode, setViewMode] = useState<KanbanViewMode>('grid');
   const [gridPrimaryColumnWidth, setGridPrimaryColumnWidth] = useState<number | null>(null);
   const [gridSkeletonDelayMs, setGridSkeletonDelayMs] = useState(SKELETON_HIDE_DELAY_MS);
+  const [visibleTaskLimitsByColumn, setVisibleTaskLimitsByColumn] = useState<
+    Partial<Record<KanbanColumnId, number>>
+  >({});
   const hasReviewers = kanbanState.reviewers.length > 0;
   const enableTaskSorting =
     viewMode === 'columns' && !!onColumnOrderChange && sort.field === 'manual';
+  const shouldLimitTaskCards = !forceShowAllTasks && !enableTaskSorting;
 
   const stableTaskMapRef = useRef<{
     signatures: string[];
@@ -392,6 +402,90 @@ export const KanbanBoard = memo(function KanbanBoard({
     }
     return result;
   }, [grouped, kanbanState.columnOrder, sort.field]);
+
+  const filterOwnerKey = useMemo(
+    () =>
+      Array.from(filter.selectedOwners)
+        .sort((a, b) => a.localeCompare(b))
+        .join('\0'),
+    [filter.selectedOwners]
+  );
+  const filterColumnKey = useMemo(
+    () =>
+      Array.from(filter.columns)
+        .sort((a, b) => a.localeCompare(b))
+        .join('\0'),
+    [filter.columns]
+  );
+
+  useEffect(() => {
+    setVisibleTaskLimitsByColumn({});
+  }, [teamName, viewMode, sort.field, filter.sessionId, filterOwnerKey, filterColumnKey]);
+
+  const getVisibleTaskLimit = useCallback(
+    (columnId: KanbanColumnId) =>
+      visibleTaskLimitsByColumn[columnId] ?? INITIAL_VISIBLE_TASKS_PER_COLUMN,
+    [visibleTaskLimitsByColumn]
+  );
+
+  const revealNextTasks = useCallback((columnId: KanbanColumnId, totalTasks: number) => {
+    setVisibleTaskLimitsByColumn((prev) => {
+      const current = prev[columnId] ?? INITIAL_VISIBLE_TASKS_PER_COLUMN;
+      return {
+        ...prev,
+        [columnId]: Math.min(current + LOAD_MORE_TASKS_PER_COLUMN, totalTasks),
+      };
+    });
+  }, []);
+
+  const renderableColumnTasks = useCallback(
+    (columnId: KanbanColumnId, columnTasks: TeamTask[]) => {
+      if (!shouldLimitTaskCards) {
+        return columnTasks;
+      }
+      return columnTasks.slice(0, getVisibleTaskLimit(columnId));
+    },
+    [getVisibleTaskLimit, shouldLimitTaskCards]
+  );
+
+  const handleScrollToTask = useCallback(
+    (taskId: string) => {
+      if (!onScrollToTask) {
+        return;
+      }
+
+      if (!shouldLimitTaskCards) {
+        onScrollToTask(taskId);
+        return;
+      }
+
+      for (const column of COLUMNS) {
+        const columnTasks = groupedOrdered.get(column.id) ?? [];
+        const taskIndex = columnTasks.findIndex((task) => task.id === taskId);
+        if (taskIndex === -1) {
+          continue;
+        }
+
+        const currentLimit = getVisibleTaskLimit(column.id);
+        if (taskIndex < currentLimit) {
+          onScrollToTask(taskId);
+          return;
+        }
+
+        setVisibleTaskLimitsByColumn((prev) => ({
+          ...prev,
+          [column.id]: Math.max(prev[column.id] ?? INITIAL_VISIBLE_TASKS_PER_COLUMN, taskIndex + 1),
+        }));
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => onScrollToTask(taskId));
+        });
+        return;
+      }
+
+      onScrollToTask(taskId);
+    },
+    [getVisibleTaskLimit, groupedOrdered, onScrollToTask, shouldLimitTaskCards]
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -451,12 +545,30 @@ export const KanbanBoard = memo(function KanbanBoard({
           )
         );
       }
+      const visibleTasks = renderableColumnTasks(columnId, columnTasks);
+      const hiddenTaskCount = Math.max(0, columnTasks.length - visibleTasks.length);
+      const nextRevealCount = Math.min(LOAD_MORE_TASKS_PER_COLUMN, hiddenTaskCount);
+      const showMoreButton =
+        hiddenTaskCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => revealNextTasks(columnId, columnTasks.length)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-xs text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border-emphasis)] hover:text-[var(--color-text-secondary)]"
+          >
+            <ChevronDown size={13} />
+            Show {nextRevealCount} more
+            <span className="text-[10px] text-[var(--color-text-muted)]">
+              {hiddenTaskCount} hidden
+            </span>
+          </button>
+        ) : null;
+
       if (enableTaskSorting) {
-        const itemIds = columnTasks.map((t) => t.id);
+        const itemIds = visibleTasks.map((t) => t.id);
         return (
           <>
             <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-              {columnTasks.map((task) => (
+              {visibleTasks.map((task) => (
                 <SortableKanbanTaskCard
                   key={task.id}
                   task={task}
@@ -473,20 +585,21 @@ export const KanbanBoard = memo(function KanbanBoard({
                   onStartTask={onStartTask}
                   onCompleteTask={onCompleteTask}
                   onCancelTask={onCancelTask}
-                  onScrollToTask={onScrollToTask}
+                  onScrollToTask={handleScrollToTask}
                   onTaskClick={onTaskClick}
                   onViewChanges={onViewChanges}
                   onDeleteTask={onDeleteTask}
                 />
               ))}
             </SortableContext>
+            {showMoreButton}
             {addButton}
           </>
         );
       }
       return (
         <>
-          {columnTasks.map((task) => (
+          {visibleTasks.map((task) => (
             <KanbanTaskCard
               key={task.id}
               task={task}
@@ -504,18 +617,20 @@ export const KanbanBoard = memo(function KanbanBoard({
               onStartTask={onStartTask}
               onCompleteTask={onCompleteTask}
               onCancelTask={onCancelTask}
-              onScrollToTask={onScrollToTask}
+              onScrollToTask={handleScrollToTask}
               onTaskClick={onTaskClick}
               onViewChanges={onViewChanges}
               onDeleteTask={onDeleteTask}
             />
           ))}
+          {showMoreButton}
           {addButton}
         </>
       );
     },
     [
       enableTaskSorting,
+      handleScrollToTask,
       hasReviewers,
       kanbanState,
       memberColorMap,
@@ -527,10 +642,11 @@ export const KanbanBoard = memo(function KanbanBoard({
       onMoveBackToDone,
       onRequestChanges,
       onRequestReview,
-      onScrollToTask,
       onStartTask,
       onTaskClick,
       onViewChanges,
+      renderableColumnTasks,
+      revealNextTasks,
       taskMap,
       teamName,
     ]
@@ -623,13 +739,21 @@ export const KanbanBoard = memo(function KanbanBoard({
           bodyBg: accent.bodyBg,
           content: renderCards(column.id, columnTasks),
           showAddButton: columnSupportsAddButton(column.id, onAddTask),
-          skeletonCards: columnTasks.map((task) => ({
+          skeletonCards: renderableColumnTasks(column.id, columnTasks).map((task) => ({
             key: task.id,
             height: estimateGridSkeletonCardHeight(task, column.id, kanbanState, hasReviewers),
           })),
         };
       }),
-    [visibleColumns, groupedOrdered, renderCards, onAddTask, kanbanState, hasReviewers]
+    [
+      visibleColumns,
+      groupedOrdered,
+      renderCards,
+      onAddTask,
+      renderableColumnTasks,
+      kanbanState,
+      hasReviewers,
+    ]
   );
 
   const boardContent = (

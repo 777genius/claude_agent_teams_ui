@@ -1635,11 +1635,12 @@ export const TeamDetailView = memo(function TeamDetailView({
 
   const activeMembers = useStableActiveMembers(membersWithLiveBranches);
 
+  const kanbanSearchQuery = kanbanSearch.trim();
+  const isKanbanSearchActive = kanbanSearchQuery.length > 0;
   const kanbanDisplayTasks = useMemo(() => {
-    const query = kanbanSearch.trim();
-    if (!query) return filteredTasks;
-    return filterKanbanTasks(filteredTasks, query);
-  }, [filteredTasks, kanbanSearch]);
+    if (!kanbanSearchQuery) return filteredTasks;
+    return filterKanbanTasks(filteredTasks, kanbanSearchQuery);
+  }, [filteredTasks, kanbanSearchQuery]);
 
   const activeTeammateCount = useMemo(
     () => activeMembers.filter((m) => !isLeadMember(m)).length,
@@ -2498,7 +2499,7 @@ export const TeamDetailView = memo(function TeamDetailView({
                 icon={<Columns3 size={14} />}
                 badge={filteredTasks.length}
                 defaultOpen
-                forceOpen={kanbanSearch.trim().length > 0}
+                forceOpen={isKanbanSearchActive}
                 action={
                   <Button
                     variant="ghost"
@@ -2523,6 +2524,7 @@ export const TeamDetailView = memo(function TeamDetailView({
                   sessions={teamSessions}
                   leadSessionId={data.config.leadSessionId}
                   members={activeMembers}
+                  forceShowAllTasks={isKanbanSearchActive}
                   onFilterChange={setKanbanFilter}
                   onSortChange={setKanbanSort}
                   toolbarLeft={
