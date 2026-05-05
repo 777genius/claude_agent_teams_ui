@@ -247,6 +247,14 @@ function getSendButton(host: HTMLElement): HTMLButtonElement {
   return button;
 }
 
+function getTextarea(host: HTMLElement): HTMLTextAreaElement {
+  const textarea = host.querySelector('textarea[aria-label="Message"]');
+  if (!(textarea instanceof HTMLTextAreaElement)) {
+    throw new Error('Message textarea not found');
+  }
+  return textarea;
+}
+
 describe('MessageComposer pending send lifecycle', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -285,6 +293,8 @@ describe('MessageComposer pending send lifecycle', () => {
       })
     );
     expect(draftHarness.state.text).toBe('');
+    expect(getTextarea(host).disabled).toBe(false);
+    expect(getSendButton(host).disabled).toBe(true);
 
     render({ sending: false });
 
