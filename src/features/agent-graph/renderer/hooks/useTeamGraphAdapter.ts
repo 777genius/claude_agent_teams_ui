@@ -21,9 +21,38 @@ import { TeamGraphAdapter } from '../adapters/TeamGraphAdapter';
 
 import type { TeamGraphData } from '../adapters/TeamGraphAdapter';
 import type { GraphDataPort } from '@claude-teams/agent-graph';
+import type { InboxMessage, ResolvedTeamMember, ToolApprovalRequest } from '@shared/types/team';
 
-export function useTeamGraphAdapter(teamName: string): GraphDataPort {
+interface UseTeamGraphAdapterOptions {
+  active?: boolean;
+}
+
+const EMPTY_MEMBERS: ResolvedTeamMember[] = [];
+const EMPTY_MESSAGES: InboxMessage[] = [];
+const EMPTY_PENDING_APPROVALS: ToolApprovalRequest[] = [];
+const EMPTY_PENDING_APPROVAL_AGENTS = new Set<string>();
+const EMPTY_COMMENT_READ_STATE: Record<string, unknown> = {};
+
+function getEmptyCommentReadState(): Record<string, unknown> {
+  return EMPTY_COMMENT_READ_STATE;
+}
+
+function subscribeNoop(): () => void {
+  return () => undefined;
+}
+
+function emptyGraphData(teamName: string): GraphDataPort {
+  return { nodes: [], edges: [], particles: [], teamName, isAlive: false };
+}
+
+export function useTeamGraphAdapter(
+  teamName: string,
+  options?: UseTeamGraphAdapterOptions
+): GraphDataPort {
+  const isActive = options?.active ?? true;
   const adapterRef = useRef<TeamGraphAdapter>(TeamGraphAdapter.create());
+  const inactiveGraphData = useMemo(() => emptyGraphData(teamName), [teamName]);
+  const lastActiveGraphDataRef = useRef<GraphDataPort>(inactiveGraphData);
 
   const {
     teamSnapshot,
@@ -45,27 +74,32 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
     ensureTeamGraphSlotAssignments,
   } = useStore(
     useShallow((s) => ({
-      teamSnapshot: selectTeamDataForName(s, teamName),
-      members: selectResolvedMembersForTeamName(s, teamName),
-      messages: selectTeamMessages(s, teamName),
-      spawnStatuses: teamName ? s.memberSpawnStatusesByTeam[teamName] : undefined,
-      leadActivity: teamName ? s.leadActivityByTeam[teamName] : undefined,
-      leadContext: teamName ? s.leadContextByTeam[teamName] : undefined,
-      pendingApprovals: s.pendingApprovals,
-      activeTools: teamName ? s.activeToolsByTeam[teamName] : undefined,
-      finishedVisible: teamName ? s.finishedVisibleByTeam[teamName] : undefined,
-      toolHistory: teamName ? s.toolHistoryByTeam[teamName] : undefined,
-      provisioningProgress: teamName ? getCurrentProvisioningProgressForTeam(s, teamName) : null,
-      memberSpawnSnapshot: teamName ? s.memberSpawnSnapshotsByTeam[teamName] : undefined,
-      graphLayoutMode: teamName ? s.graphLayoutModeByTeam[teamName] : undefined,
-      gridOwnerOrder: teamName ? s.gridOwnerOrderByTeam[teamName] : undefined,
-      slotAssignments: teamName ? s.slotAssignmentsByTeam[teamName] : undefined,
-      graphLayoutSession: teamName ? s.graphLayoutSessionByTeam[teamName] : undefined,
+      teamSnapshot: isActive ? selectTeamDataForName(s, teamName) : null,
+      members: isActive ? selectResolvedMembersForTeamName(s, teamName) : EMPTY_MEMBERS,
+      messages: isActive ? selectTeamMessages(s, teamName) : EMPTY_MESSAGES,
+      spawnStatuses: isActive && teamName ? s.memberSpawnStatusesByTeam[teamName] : undefined,
+      leadActivity: isActive && teamName ? s.leadActivityByTeam[teamName] : undefined,
+      leadContext: isActive && teamName ? s.leadContextByTeam[teamName] : undefined,
+      pendingApprovals: isActive ? s.pendingApprovals : EMPTY_PENDING_APPROVALS,
+      activeTools: isActive && teamName ? s.activeToolsByTeam[teamName] : undefined,
+      finishedVisible: isActive && teamName ? s.finishedVisibleByTeam[teamName] : undefined,
+      toolHistory: isActive && teamName ? s.toolHistoryByTeam[teamName] : undefined,
+      provisioningProgress:
+        isActive && teamName ? getCurrentProvisioningProgressForTeam(s, teamName) : null,
+      memberSpawnSnapshot:
+        isActive && teamName ? s.memberSpawnSnapshotsByTeam[teamName] : undefined,
+      graphLayoutMode: isActive && teamName ? s.graphLayoutModeByTeam[teamName] : undefined,
+      gridOwnerOrder: isActive && teamName ? s.gridOwnerOrderByTeam[teamName] : undefined,
+      slotAssignments: isActive && teamName ? s.slotAssignmentsByTeam[teamName] : undefined,
+      graphLayoutSession: isActive && teamName ? s.graphLayoutSessionByTeam[teamName] : undefined,
       ensureTeamGraphSlotAssignments: s.ensureTeamGraphSlotAssignments,
     }))
   );
 
   const pendingApprovalAgents = useMemo(() => {
+    if (!isActive) {
+      return EMPTY_PENDING_APPROVAL_AGENTS;
+    }
     const agents = new Set<string>();
     for (const a of pendingApprovals) {
       if (a.teamName === teamName) {
@@ -73,7 +107,7 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
       }
     }
     return agents;
-  }, [pendingApprovals, teamName]);
+  }, [isActive, pendingApprovals, teamName]);
 
   const teamData = useMemo<TeamGraphData | null>(() => {
     if (!teamSnapshot) {
@@ -86,7 +120,10 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
     };
   }, [members, messages, teamSnapshot]);
 
-  const commentReadState = useSyncExternalStore(subscribe, getSnapshot);
+  const commentReadState = useSyncExternalStore(
+    isActive ? subscribe : subscribeNoop,
+    isActive ? getSnapshot : getEmptyCommentReadState
+  );
 
   const effectiveSlotAssignments = useMemo(() => {
     if (!teamData) {
@@ -127,32 +164,17 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
   }, [graphLayoutSession, slotAssignments, teamData]);
 
   useLayoutEffect(() => {
-    if (!teamName || !teamData) {
+    if (!isActive || !teamName || !teamData) {
       return;
     }
     ensureTeamGraphSlotAssignments(teamName, teamData.members, teamData.config.members ?? []);
-  }, [ensureTeamGraphSlotAssignments, teamData, teamName]);
+  }, [ensureTeamGraphSlotAssignments, isActive, teamData, teamName]);
 
-  return useMemo(
-    () =>
-      adapterRef.current.adapt(
-        teamData,
-        teamName,
-        spawnStatuses,
-        leadActivity,
-        leadContext,
-        pendingApprovalAgents,
-        activeTools,
-        finishedVisible,
-        toolHistory,
-        commentReadState,
-        provisioningProgress,
-        memberSpawnSnapshot,
-        effectiveSlotAssignments,
-        graphLayoutMode ?? 'radial',
-        gridOwnerOrder
-      ),
-    [
+  const activeGraphData = useMemo(() => {
+    if (!isActive) {
+      return null;
+    }
+    return adapterRef.current.adapt(
       teamData,
       teamName,
       spawnStatuses,
@@ -166,8 +188,38 @@ export function useTeamGraphAdapter(teamName: string): GraphDataPort {
       provisioningProgress,
       memberSpawnSnapshot,
       effectiveSlotAssignments,
-      graphLayoutMode,
-      gridOwnerOrder,
-    ]
-  );
+      graphLayoutMode ?? 'radial',
+      gridOwnerOrder
+    );
+  }, [
+    isActive,
+    teamData,
+    teamName,
+    spawnStatuses,
+    leadActivity,
+    leadContext,
+    pendingApprovalAgents,
+    activeTools,
+    finishedVisible,
+    toolHistory,
+    commentReadState,
+    provisioningProgress,
+    memberSpawnSnapshot,
+    effectiveSlotAssignments,
+    graphLayoutMode,
+    gridOwnerOrder,
+  ]);
+
+  useLayoutEffect(() => {
+    if (activeGraphData) {
+      lastActiveGraphDataRef.current = activeGraphData;
+    }
+  }, [activeGraphData]);
+
+  if (!isActive) {
+    const lastActiveGraphData = lastActiveGraphDataRef.current;
+    return lastActiveGraphData.teamName === teamName ? lastActiveGraphData : inactiveGraphData;
+  }
+
+  return activeGraphData ?? inactiveGraphData;
 }
