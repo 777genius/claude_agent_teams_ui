@@ -1,5 +1,5 @@
 /* eslint-disable tailwindcss/no-custom-classname -- this adapter needs stable non-Tailwind class hooks for react-grid-layout handles. */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactGridLayout, { WidthProvider } from 'react-grid-layout/legacy';
 
 import { usePersistedGridLayout } from '@renderer/hooks/usePersistedGridLayout';
@@ -387,74 +387,78 @@ const LoadedKanbanGridLayout = ({
   );
 };
 
-export const KanbanGridLayout = ({
-  columns,
-  allColumnIds,
-  primaryColumnId,
-  onPrimaryColumnWidthChange,
-  skeletonDelayMs = SKELETON_HIDE_DELAY_MS,
-}: KanbanGridLayoutProps): React.JSX.Element => {
-  const visibleColumnIds = useMemo(() => columns.map((column) => column.id), [columns]);
-  const { visibleItems, applyVisibleItems, isLoaded } = usePersistedGridLayout({
-    scopeKey: GRID_SCOPE_KEY,
-    allItemIds: allColumnIds,
-    visibleItemIds: visibleColumnIds,
-    cols: GRID_COLS,
-    repository: browserGridLayoutRepository,
-    buildDefaultItems,
-  });
-  const [showResolvedLayout, setShowResolvedLayout] = useState(false);
+export const KanbanGridLayout = memo(
+  ({
+    columns,
+    allColumnIds,
+    primaryColumnId,
+    onPrimaryColumnWidthChange,
+    skeletonDelayMs = SKELETON_HIDE_DELAY_MS,
+  }: KanbanGridLayoutProps): React.JSX.Element => {
+    const visibleColumnIds = useMemo(() => columns.map((column) => column.id), [columns]);
+    const { visibleItems, applyVisibleItems, isLoaded } = usePersistedGridLayout({
+      scopeKey: GRID_SCOPE_KEY,
+      allItemIds: allColumnIds,
+      visibleItemIds: visibleColumnIds,
+      cols: GRID_COLS,
+      repository: browserGridLayoutRepository,
+      buildDefaultItems,
+    });
+    const [showResolvedLayout, setShowResolvedLayout] = useState(false);
 
-  useEffect(() => {
-    if (showResolvedLayout) return;
+    useEffect(() => {
+      if (showResolvedLayout) return;
 
-    const timeoutId = window.setTimeout(() => {
-      setShowResolvedLayout(true);
-    }, skeletonDelayMs);
+      const timeoutId = window.setTimeout(() => {
+        setShowResolvedLayout(true);
+      }, skeletonDelayMs);
 
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [showResolvedLayout, skeletonDelayMs]);
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }, [showResolvedLayout, skeletonDelayMs]);
 
-  const applyReactGridLayout = useCallback(
-    (layout: Layout, options?: { persist?: boolean }) => {
-      if (options?.persist) {
-        applyVisibleItems(fromReactGridLayout(layout), options);
-      }
-    },
-    [applyVisibleItems]
-  );
-  const showSkeletonOverlay = !showResolvedLayout || !isLoaded;
+    const applyReactGridLayout = useCallback(
+      (layout: Layout, options?: { persist?: boolean }) => {
+        if (options?.persist) {
+          applyVisibleItems(fromReactGridLayout(layout), options);
+        }
+      },
+      [applyVisibleItems]
+    );
+    const showSkeletonOverlay = !showResolvedLayout || !isLoaded;
 
-  const gridKey = visibleItems.map((item) => item.id).join('|');
+    const gridKey = visibleItems.map((item) => item.id).join('|');
 
-  return (
-    <div className="relative min-w-0 max-w-full">
-      <LoadedKanbanGridLayout
-        key={gridKey}
-        columns={columns}
-        visibleItems={visibleItems}
-        onPersistLayout={applyReactGridLayout}
-        primaryColumnId={primaryColumnId}
-        onPrimaryColumnWidthChange={onPrimaryColumnWidthChange}
-        className={cn(
-          'transition-opacity duration-150',
-          showSkeletonOverlay ? 'pointer-events-none opacity-0' : 'opacity-100'
-        )}
-      />
-      {showSkeletonOverlay ? (
-        <LoadingKanbanGridLayout
+    return (
+      <div className="relative min-w-0 max-w-full">
+        <LoadedKanbanGridLayout
+          key={gridKey}
           columns={columns}
           visibleItems={visibleItems}
+          onPersistLayout={applyReactGridLayout}
           primaryColumnId={primaryColumnId}
           onPrimaryColumnWidthChange={onPrimaryColumnWidthChange}
-          className="pointer-events-none absolute inset-0 z-10"
+          className={cn(
+            'transition-opacity duration-150',
+            showSkeletonOverlay ? 'pointer-events-none opacity-0' : 'opacity-100'
+          )}
         />
-      ) : null}
-    </div>
-  );
-};
+        {showSkeletonOverlay ? (
+          <LoadingKanbanGridLayout
+            columns={columns}
+            visibleItems={visibleItems}
+            primaryColumnId={primaryColumnId}
+            onPrimaryColumnWidthChange={onPrimaryColumnWidthChange}
+            className="pointer-events-none absolute inset-0 z-10"
+          />
+        ) : null}
+      </div>
+    );
+  }
+);
+
+KanbanGridLayout.displayName = 'KanbanGridLayout';
 
 export { SKELETON_HIDE_DELAY_MS, SKELETON_HIDE_DELAY_MS_ON_MODE_SWITCH };
 /* eslint-enable tailwindcss/no-custom-classname -- stable class hooks remain scoped to this file. */

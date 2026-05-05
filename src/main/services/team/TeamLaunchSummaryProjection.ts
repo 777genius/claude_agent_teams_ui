@@ -7,6 +7,7 @@ import { hasMixedPersistedLaunchMetadata } from './TeamLaunchStateEvaluator';
 import type { PersistedTeamLaunchSnapshot, TeamProviderId, TeamSummary } from '@shared/types';
 
 export const TEAM_LAUNCH_SUMMARY_FILE = 'launch-summary.json';
+const STALE_PENDING_SUMMARY_GRACE_MS = 5 * 60 * 1000;
 
 export interface LaunchStateSummary {
   partialLaunchFailure?: true;
@@ -32,6 +33,7 @@ export interface PersistedTeamLaunchSummaryProjection extends LaunchStateSummary
   version: 1;
   teamName: string;
   updatedAt: string;
+  launchPhase?: PersistedTeamLaunchSnapshot['launchPhase'];
   mixedAware?: true;
 }
 
@@ -101,6 +103,7 @@ export function createPersistedLaunchSummaryProjection(
     version: 1,
     teamName: snapshot.teamName,
     updatedAt: snapshot.updatedAt,
+    launchPhase: snapshot.launchPhase,
     ...(hasMixedPersistedLaunchMetadata(snapshot) ? { mixedAware: true as const } : {}),
     ...createLaunchStateSummary(snapshot),
   };
@@ -128,6 +131,13 @@ export function normalizePersistedLaunchSummaryProjection(
     updatedAt,
     ...(record.mixedAware === true ? { mixedAware: true as const } : {}),
   };
+  if (
+    record.launchPhase === 'active' ||
+    record.launchPhase === 'finished' ||
+    record.launchPhase === 'reconciled'
+  ) {
+    normalized.launchPhase = record.launchPhase;
+  }
 
   if (record.partialLaunchFailure === true) {
     normalized.partialLaunchFailure = true;
@@ -202,17 +212,55 @@ export function normalizePersistedLaunchSummaryProjection(
   return normalized;
 }
 
+function shouldIgnoreStalePendingSummaryProjection(
+  projection: PersistedTeamLaunchSummaryProjection,
+  nowMs: number = Date.now()
+): boolean {
+  if (projection.teamLaunchState !== 'partial_pending') {
+    return false;
+  }
+  if ((projection.permissionPendingCount ?? 0) > 0) {
+    return false;
+  }
+
+  const updatedAtMs = toMillis(projection.launchUpdatedAt ?? projection.updatedAt);
+  return Number.isFinite(updatedAtMs) && nowMs - updatedAtMs >= STALE_PENDING_SUMMARY_GRACE_MS;
+}
+
+function shouldIgnoreStalePendingLaunchSnapshotSummary(
+  snapshot: PersistedTeamLaunchSnapshot,
+  nowMs: number = Date.now()
+): boolean {
+  if (snapshot.teamLaunchState !== 'partial_pending') {
+    return false;
+  }
+  if ((snapshot.summary.permissionPendingCount ?? 0) > 0) {
+    return false;
+  }
+
+  const updatedAtMs = toMillis(snapshot.updatedAt);
+  return Number.isFinite(updatedAtMs) && nowMs - updatedAtMs >= STALE_PENDING_SUMMARY_GRACE_MS;
+}
+
 export function choosePreferredLaunchStateSummary(params: {
   bootstrapSnapshot?: PersistedTeamLaunchSnapshot | null;
   launchSnapshot?: PersistedTeamLaunchSnapshot | null;
   launchSummaryProjection?: PersistedTeamLaunchSummaryProjection | null;
 }): LaunchStateSummary | null {
-  if (params.launchSnapshot) {
-    return createLaunchStateSummary(params.launchSnapshot);
+  const launchSnapshot =
+    params.launchSnapshot && shouldIgnoreStalePendingLaunchSnapshotSummary(params.launchSnapshot)
+      ? null
+      : (params.launchSnapshot ?? null);
+  if (launchSnapshot) {
+    return createLaunchStateSummary(launchSnapshot);
   }
 
   const bootstrapSnapshot = params.bootstrapSnapshot ?? null;
-  const projection = params.launchSummaryProjection ?? null;
+  const projection =
+    params.launchSummaryProjection &&
+    shouldIgnoreStalePendingSummaryProjection(params.launchSummaryProjection)
+      ? null
+      : (params.launchSummaryProjection ?? null);
   if (!bootstrapSnapshot) {
     return projection;
   }

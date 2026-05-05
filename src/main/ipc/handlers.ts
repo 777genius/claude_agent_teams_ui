@@ -123,6 +123,7 @@ import type { McpHealthDiagnosticsService } from '../services/extensions/state/M
 import type { HttpServer } from '../services/infrastructure/HttpServer';
 import type { SchedulerService } from '../services/schedule/SchedulerService';
 import type { CrossTeamService } from '../services/team/CrossTeamService';
+import type { LaunchIoGovernor } from '../services/team/LaunchIoGovernor';
 import type { TeamBackupService } from '../services/team/TeamBackupService';
 
 /**
@@ -169,7 +170,8 @@ export function initializeIpcHandlers(
   skillsMutationService?: SkillsMutationService,
   skillsWatcherService?: SkillsWatcherService,
   crossTeamService?: CrossTeamService,
-  teamBackupService?: TeamBackupService
+  teamBackupService?: TeamBackupService,
+  launchIoGovernor?: LaunchIoGovernor
 ): void {
   // Initialize domain handlers with registry
   initializeProjectHandlers(registry);
@@ -192,7 +194,8 @@ export function initializeIpcHandlers(
     boardTaskActivityDetailService,
     boardTaskLogStreamService,
     boardTaskExactLogsService,
-    boardTaskExactLogDetailService
+    boardTaskExactLogDetailService,
+    launchIoGovernor
   );
   initializeConfigHandlers({
     onClaudeRootPathUpdated: contextCallbacks.onClaudeRootPathUpdated,

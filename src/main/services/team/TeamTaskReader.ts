@@ -21,11 +21,16 @@ import type {
 
 const logger = createLogger('Service:TeamTaskReader');
 const MAX_TASK_FILE_BYTES = 2 * 1024 * 1024;
-const ALL_TASKS_CACHE_TTL_MS = 500;
+const ALL_TASKS_CACHE_TTL_MS = 5_000;
 
 interface CachedAllTasks {
   value: (TeamTask & { teamName: string })[];
   expiresAt: number;
+}
+
+interface InFlightAllTasks {
+  promise: Promise<(TeamTask & { teamName: string })[]>;
+  generationAtStart: number;
 }
 
 function cloneTasks<T>(tasks: T[]): T[] {
@@ -74,7 +79,13 @@ function normalizeTaskRefs(value: unknown): TaskRef[] | undefined {
 
 export class TeamTaskReader {
   private static allTasksCache: CachedAllTasks | null = null;
-  private static allTasksInFlight: Promise<(TeamTask & { teamName: string })[]> | null = null;
+  private static allTasksInFlight: InFlightAllTasks | null = null;
+  private static allTasksGeneration = 0;
+
+  static invalidateAllTasksCache(): void {
+    TeamTaskReader.allTasksCache = null;
+    TeamTaskReader.allTasksGeneration += 1;
+  }
 
   /**
    * Returns the next available numeric task ID by scanning ALL task files
@@ -446,26 +457,55 @@ export class TeamTaskReader {
   }
 
   async getAllTasks(): Promise<(TeamTask & { teamName: string })[]> {
+    const startedAt = Date.now();
     const cached = TeamTaskReader.allTasksCache;
     if (cached && cached.expiresAt > Date.now()) {
-      return cloneTasks(cached.value);
+      const cloned = cloneTasks(cached.value);
+      const ms = Date.now() - startedAt;
+      if (ms >= 1500) {
+        logger.warn(`[getAllTasks] cache clone slow ms=${ms} tasks=${cloned.length}`);
+      }
+      return cloned;
     }
 
-    if (TeamTaskReader.allTasksInFlight) {
-      return cloneTasks(await TeamTaskReader.allTasksInFlight);
+    if (
+      TeamTaskReader.allTasksInFlight &&
+      TeamTaskReader.allTasksInFlight.generationAtStart === TeamTaskReader.allTasksGeneration
+    ) {
+      const waitedAt = Date.now();
+      const tasks = await TeamTaskReader.allTasksInFlight.promise;
+      const cloned = cloneTasks(tasks);
+      const ms = Date.now() - startedAt;
+      if (ms >= 1500) {
+        logger.warn(
+          `[getAllTasks] in-flight wait slow ms=${ms} waitMs=${Date.now() - waitedAt} tasks=${cloned.length}`
+        );
+      }
+      return cloned;
     }
 
     const request = this.readAllTasksUncached();
-    TeamTaskReader.allTasksInFlight = request;
+    const generationAtStart = TeamTaskReader.allTasksGeneration;
+    TeamTaskReader.allTasksInFlight = {
+      promise: request,
+      generationAtStart,
+    };
     try {
       const tasks = await request;
-      TeamTaskReader.allTasksCache = {
-        value: cloneTasks(tasks),
-        expiresAt: Date.now() + ALL_TASKS_CACHE_TTL_MS,
-      };
-      return cloneTasks(tasks);
+      if (TeamTaskReader.allTasksGeneration === generationAtStart) {
+        TeamTaskReader.allTasksCache = {
+          value: cloneTasks(tasks),
+          expiresAt: Date.now() + ALL_TASKS_CACHE_TTL_MS,
+        };
+      }
+      const cloned = cloneTasks(tasks);
+      const ms = Date.now() - startedAt;
+      if (ms >= 1500) {
+        logger.warn(`[getAllTasks] total slow ms=${ms} tasks=${cloned.length}`);
+      }
+      return cloned;
     } finally {
-      if (TeamTaskReader.allTasksInFlight === request) {
+      if (TeamTaskReader.allTasksInFlight?.promise === request) {
         TeamTaskReader.allTasksInFlight = null;
       }
     }

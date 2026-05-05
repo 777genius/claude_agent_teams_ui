@@ -4,7 +4,7 @@
  * Renders the Skill tool with its instructions in a code block viewer style.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 
 import { CodeBlockViewer } from '@renderer/components/chat/viewers';
 
@@ -14,7 +14,7 @@ interface SkillToolViewerProps {
   linkedTool: LinkedToolItem;
 }
 
-export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool }) => {
+export const SkillToolViewer = memo(function SkillToolViewer({ linkedTool }: SkillToolViewerProps) {
   const skillInstructions = linkedTool.skillInstructions;
   const skillName = (linkedTool.input.skill as string) || 'Unknown Skill';
 
@@ -64,4 +64,4 @@ export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool }) 
       )}
     </div>
   );
-};
+});

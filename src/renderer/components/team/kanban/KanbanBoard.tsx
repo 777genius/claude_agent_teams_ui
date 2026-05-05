@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
@@ -311,7 +311,7 @@ const SortableKanbanTaskCard = ({
   );
 };
 
-export const KanbanBoard = ({
+export const KanbanBoard = memo(function KanbanBoard({
   tasks,
   teamName,
   kanbanState,
@@ -338,7 +338,7 @@ export const KanbanBoard = ({
   onDeleteTask,
   deletedTaskCount,
   onOpenTrash,
-}: KanbanBoardProps): React.JSX.Element => {
+}: KanbanBoardProps): React.JSX.Element {
   const boardRef = useRef<HTMLDivElement>(null);
   const scrollRestoreTimeoutsRef = useRef<number[]>([]);
   const [viewMode, setViewMode] = useState<KanbanViewMode>('grid');
@@ -422,101 +422,119 @@ export const KanbanBoard = ({
     [onColumnOrderChange, groupedOrdered]
   );
 
-  const renderCards = (
-    columnId: KanbanColumnId,
-    columnTasks: TeamTask[],
-    compact?: boolean
-  ): React.JSX.Element => {
-    const addHandler =
-      onAddTask && columnId === 'todo'
-        ? () => onAddTask(false)
-        : onAddTask && columnId === 'in_progress'
-          ? () => onAddTask(true)
-          : undefined;
+  const renderCards = useCallback(
+    (columnId: KanbanColumnId, columnTasks: TeamTask[], compact?: boolean): React.JSX.Element => {
+      const addHandler =
+        onAddTask && columnId === 'todo'
+          ? () => onAddTask(false)
+          : onAddTask && columnId === 'in_progress'
+            ? () => onAddTask(true)
+            : undefined;
 
-    const addButton = addHandler ? (
-      <button
-        type="button"
-        onClick={addHandler}
-        className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border-emphasis)] hover:text-[var(--color-text-secondary)]"
-      >
-        <Plus size={13} />
-        Add task
-      </button>
-    ) : null;
+      const addButton = addHandler ? (
+        <button
+          type="button"
+          onClick={addHandler}
+          className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border-emphasis)] hover:text-[var(--color-text-secondary)]"
+        >
+          <Plus size={13} />
+          Add task
+        </button>
+      ) : null;
 
-    if (columnTasks.length === 0) {
-      return (
-        addButton ?? (
-          <div className="rounded-md border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)]">
-            No tasks
-          </div>
-        )
-      );
-    }
-    if (enableTaskSorting) {
-      const itemIds = columnTasks.map((t) => t.id);
+      if (columnTasks.length === 0) {
+        return (
+          addButton ?? (
+            <div className="rounded-md border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-text-muted)]">
+              No tasks
+            </div>
+          )
+        );
+      }
+      if (enableTaskSorting) {
+        const itemIds = columnTasks.map((t) => t.id);
+        return (
+          <>
+            <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+              {columnTasks.map((task) => (
+                <SortableKanbanTaskCard
+                  key={task.id}
+                  task={task}
+                  columnId={columnId}
+                  teamName={teamName}
+                  kanbanState={kanbanState}
+                  compact={compact}
+                  taskMap={taskMap}
+                  memberColorMap={memberColorMap}
+                  onRequestReview={onRequestReview}
+                  onApprove={onApprove}
+                  onRequestChanges={onRequestChanges}
+                  onMoveBackToDone={onMoveBackToDone}
+                  onStartTask={onStartTask}
+                  onCompleteTask={onCompleteTask}
+                  onCancelTask={onCancelTask}
+                  onScrollToTask={onScrollToTask}
+                  onTaskClick={onTaskClick}
+                  onViewChanges={onViewChanges}
+                  onDeleteTask={onDeleteTask}
+                />
+              ))}
+            </SortableContext>
+            {addButton}
+          </>
+        );
+      }
       return (
         <>
-          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            {columnTasks.map((task) => (
-              <SortableKanbanTaskCard
-                key={task.id}
-                task={task}
-                columnId={columnId}
-                teamName={teamName}
-                kanbanState={kanbanState}
-                compact={compact}
-                taskMap={taskMap}
-                memberColorMap={memberColorMap}
-                onRequestReview={onRequestReview}
-                onApprove={onApprove}
-                onRequestChanges={onRequestChanges}
-                onMoveBackToDone={onMoveBackToDone}
-                onStartTask={onStartTask}
-                onCompleteTask={onCompleteTask}
-                onCancelTask={onCancelTask}
-                onScrollToTask={onScrollToTask}
-                onTaskClick={onTaskClick}
-                onViewChanges={onViewChanges}
-                onDeleteTask={onDeleteTask}
-              />
-            ))}
-          </SortableContext>
+          {columnTasks.map((task) => (
+            <KanbanTaskCard
+              key={task.id}
+              task={task}
+              teamName={teamName}
+              columnId={columnId}
+              kanbanTaskState={kanbanState.tasks[task.id]}
+              hasReviewers={hasReviewers}
+              compact={compact}
+              taskMap={taskMap}
+              memberColorMap={memberColorMap}
+              onRequestReview={onRequestReview}
+              onApprove={onApprove}
+              onRequestChanges={onRequestChanges}
+              onMoveBackToDone={onMoveBackToDone}
+              onStartTask={onStartTask}
+              onCompleteTask={onCompleteTask}
+              onCancelTask={onCancelTask}
+              onScrollToTask={onScrollToTask}
+              onTaskClick={onTaskClick}
+              onViewChanges={onViewChanges}
+              onDeleteTask={onDeleteTask}
+            />
+          ))}
           {addButton}
         </>
       );
-    }
-    return (
-      <>
-        {columnTasks.map((task) => (
-          <KanbanTaskCard
-            key={task.id}
-            task={task}
-            teamName={teamName}
-            columnId={columnId}
-            kanbanTaskState={kanbanState.tasks[task.id]}
-            hasReviewers={hasReviewers}
-            compact={compact}
-            taskMap={taskMap}
-            memberColorMap={memberColorMap}
-            onRequestReview={onRequestReview}
-            onApprove={onApprove}
-            onRequestChanges={onRequestChanges}
-            onMoveBackToDone={onMoveBackToDone}
-            onStartTask={onStartTask}
-            onCompleteTask={onCompleteTask}
-            onCancelTask={onCancelTask}
-            onScrollToTask={onScrollToTask}
-            onTaskClick={onTaskClick}
-            onViewChanges={onViewChanges}
-            onDeleteTask={onDeleteTask}
-          />
-        ))}
-        {addButton}
-      </>
-    );
-  };
+    },
+    [
+      enableTaskSorting,
+      hasReviewers,
+      kanbanState,
+      memberColorMap,
+      onAddTask,
+      onApprove,
+      onCancelTask,
+      onCompleteTask,
+      onDeleteTask,
+      onMoveBackToDone,
+      onRequestChanges,
+      onRequestReview,
+      onScrollToTask,
+      onStartTask,
+      onTaskClick,
+      onViewChanges,
+      taskMap,
+      teamName,
+    ]
+  );
 
   const visibleColumns = useMemo(
     () => (filter.columns.size > 0 ? COLUMNS.filter((c) => filter.columns.has(c.id)) : COLUMNS),
@@ -589,6 +607,29 @@ export const KanbanBoard = ({
       setViewMode(nextViewMode);
     },
     [scheduleScrollRestore, viewMode]
+  );
+
+  const gridColumns = useMemo(
+    () =>
+      visibleColumns.map((column) => {
+        const columnTasks = groupedOrdered.get(column.id) ?? [];
+        const accent = COLUMN_ACCENTS[column.id];
+        return {
+          id: column.id,
+          title: column.title,
+          count: columnTasks.length,
+          icon: accent.icon,
+          headerBg: accent.headerBg,
+          bodyBg: accent.bodyBg,
+          content: renderCards(column.id, columnTasks),
+          showAddButton: columnSupportsAddButton(column.id, onAddTask),
+          skeletonCards: columnTasks.map((task) => ({
+            key: task.id,
+            height: estimateGridSkeletonCardHeight(task, column.id, kanbanState, hasReviewers),
+          })),
+        };
+      }),
+    [visibleColumns, groupedOrdered, renderCards, onAddTask, kanbanState, hasReviewers]
   );
 
   const boardContent = (
@@ -682,25 +723,7 @@ export const KanbanBoard = ({
           primaryColumnId={primaryVisibleColumnId}
           onPrimaryColumnWidthChange={setGridPrimaryColumnWidth}
           skeletonDelayMs={gridSkeletonDelayMs}
-          columns={visibleColumns.map((column) => {
-            const columnTasks = groupedOrdered.get(column.id) ?? [];
-            const accent = COLUMN_ACCENTS[column.id];
-
-            return {
-              id: column.id,
-              title: column.title,
-              count: columnTasks.length,
-              icon: accent.icon,
-              headerBg: accent.headerBg,
-              bodyBg: accent.bodyBg,
-              content: renderCards(column.id, columnTasks),
-              showAddButton: columnSupportsAddButton(column.id, onAddTask),
-              skeletonCards: columnTasks.map((task) => ({
-                key: task.id,
-                height: estimateGridSkeletonCardHeight(task, column.id, kanbanState, hasReviewers),
-              })),
-            };
-          })}
+          columns={gridColumns}
         />
       ) : (
         <div className="w-full min-w-0 max-w-full overflow-x-auto overflow-y-hidden px-1 pb-6 pr-4 pt-2">
@@ -752,4 +775,4 @@ export const KanbanBoard = ({
   }
 
   return boardContent;
-};
+});

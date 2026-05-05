@@ -22,6 +22,17 @@ const PENDING_WARNING =
 const FAILED_WARNING =
   'OpenCode runtime delivery failed. Message was saved to inbox, but live delivery did not complete.';
 
+function formatOpenCodeRuntimeDeliveryFailureReason(reason: string | null | undefined): string {
+  const normalized = reason?.trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized === 'empty_assistant_turn') {
+    return 'OpenCode returned an empty assistant turn.';
+  }
+  return '';
+}
+
 export function buildOpenCodeRuntimeDeliveryDiagnostics(
   result: SendMessageResult
 ): OpenCodeRuntimeDeliveryDiagnostics {
@@ -36,8 +47,19 @@ export function buildOpenCodeRuntimeDeliveryDiagnostics(
     return { warning: null, debugDetails: null };
   }
 
+  const failureReason = isFailed
+    ? formatOpenCodeRuntimeDeliveryFailureReason(
+        runtimeDelivery.reason ?? runtimeDelivery.diagnostics?.[0]
+      )
+    : '';
+
   return {
-    warning: isFailed ? FAILED_WARNING : PENDING_WARNING,
+    warning:
+      isFailed && failureReason
+        ? `${FAILED_WARNING} Reason: ${failureReason}`
+        : isFailed
+          ? FAILED_WARNING
+          : PENDING_WARNING,
     debugDetails: {
       messageId: result.messageId,
       providerId: runtimeDelivery.providerId,

@@ -4,6 +4,7 @@ import {
   getLaunchJoinMilestonesFromMembers,
   getLaunchJoinState,
 } from '@renderer/components/team/provisioningSteps';
+import { isLeadMember } from '@shared/utils/leadDetection';
 
 import type {
   MemberSpawnStatusEntry,
@@ -42,6 +43,7 @@ interface SkippedSpawnDetail {
 }
 
 type PendingDiagnosticBucket =
+  | 'bootstrapStalled'
   | 'shellOnly'
   | 'runtimeProcess'
   | 'runtimeCandidate'
@@ -66,6 +68,42 @@ function isFailedSpawnEntry(entry: MemberSpawnStatusEntry | undefined): boolean 
 
 function isSkippedSpawnEntry(entry: MemberSpawnStatusEntry | undefined): boolean {
   return entry?.launchState === 'skipped_for_launch' || entry?.skippedForLaunch === true;
+}
+
+function isOpenCodeSecondaryRetryCandidate(params: {
+  member: ProvisioningMemberLike | undefined;
+  entry: MemberSpawnStatusEntry | undefined;
+}): boolean {
+  const { member, entry } = params;
+  if (!member || !entry) {
+    return false;
+  }
+  if (member.providerId !== 'opencode' || member.removedAt) {
+    return false;
+  }
+  if (isLeadMember({ name: member.name, agentType: member.agentType })) {
+    return false;
+  }
+  if (member.laneKind && member.laneKind !== 'secondary') {
+    return false;
+  }
+  if (member.laneOwnerProviderId && member.laneOwnerProviderId !== 'opencode') {
+    return false;
+  }
+  if (
+    entry.launchState === 'skipped_for_launch' ||
+    entry.skippedForLaunch === true ||
+    entry.launchState === 'runtime_pending_permission' ||
+    entry.launchState === 'runtime_pending_bootstrap' ||
+    (entry.pendingPermissionRequestIds?.length ?? 0) > 0 ||
+    entry.launchState === 'starting' ||
+    entry.status === 'spawning' ||
+    entry.launchState === 'confirmed_alive' ||
+    entry.bootstrapConfirmed === true
+  ) {
+    return false;
+  }
+  return entry.launchState === 'failed_to_start' || entry.status === 'error';
 }
 
 function shouldPreferSnapshotEntryOverLive(params: {
@@ -182,6 +220,7 @@ function getPendingDiagnosticNameGroups(params: {
   memberSpawnSnapshotUpdatedAt?: string;
 }): PendingDiagnosticNameGroups {
   const groups: PendingDiagnosticNameGroups = {
+    bootstrapStalled: [],
     shellOnly: [],
     runtimeProcess: [],
     runtimeCandidate: [],
@@ -213,6 +252,10 @@ function getPendingDiagnosticNameGroups(params: {
       (entry.pendingPermissionRequestIds?.length ?? 0) > 0
     ) {
       groups.permission.push(name);
+      continue;
+    }
+    if (entry.bootstrapStalled === true) {
+      groups.bootstrapStalled.push(name);
       continue;
     }
     if (entry.livenessKind === 'shell_only') {
@@ -288,9 +331,24 @@ function buildOpenCodeSecondaryWaitPhrase(params: {
   const pendingOnlyOpenCodeSecondary = pendingNames.every((name) =>
     isOpenCodeSecondaryMember(memberByName.get(name))
   );
-  return pendingOnlyOpenCodeSecondary
-    ? `Waiting for OpenCode: ${formatMemberNameList(pendingNames)}`
-    : null;
+  if (!pendingOnlyOpenCodeSecondary) {
+    return null;
+  }
+
+  const groups = getPendingDiagnosticNameGroups({
+    memberSpawnStatuses: params.memberSpawnStatuses,
+    memberSpawnSnapshotStatuses: params.memberSpawnSnapshotStatuses,
+    memberSpawnSnapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+  });
+  if (groups.bootstrapStalled.length === 0) {
+    return `Waiting for OpenCode: ${formatMemberNameList(pendingNames)}`;
+  }
+
+  const stalled = `Bootstrap stalled: ${formatMemberNameList(groups.bootstrapStalled)}`;
+  const waitingNames = pendingNames.filter((name) => !groups.bootstrapStalled.includes(name));
+  return waitingNames.length > 0
+    ? `${stalled}; Waiting for OpenCode: ${formatMemberNameList(waitingNames)}`
+    : stalled;
 }
 
 function formatNamedPendingDiagnostic(label: string, names: readonly string[]): string | null {
@@ -323,6 +381,7 @@ function buildPendingDiagnosticPhrase({
     memberSpawnSnapshotUpdatedAt,
   });
   const namedParts = [
+    formatNamedPendingDiagnostic('Bootstrap stalled', groups.bootstrapStalled),
     formatNamedPendingDiagnostic('Shell-only', groups.shellOnly),
     formatNamedPendingDiagnostic('Waiting for bootstrap', groups.runtimeProcess),
     formatNamedPendingDiagnostic('Bootstrap unconfirmed', groups.runtimeCandidate),
@@ -458,6 +517,51 @@ function getSkippedSpawnDetails(params: {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function getRetryableOpenCodeSecondaryFailedNames(params: {
+  members: readonly ProvisioningMemberLike[];
+  memberSpawnStatuses: MemberSpawnStatusCollection;
+  memberSpawnSnapshotStatuses?: MemberSpawnStatusesSnapshot['statuses'];
+  memberSpawnSnapshotUpdatedAt?: string;
+}): string[] {
+  const membersByName = new Map(
+    params.members
+      .map((member) => [member.name.trim(), member] as const)
+      .filter(([name]) => name.length > 0)
+  );
+  const names = new Set<string>(membersByName.keys());
+  if (params.memberSpawnStatuses instanceof Map) {
+    for (const name of params.memberSpawnStatuses.keys()) {
+      names.add(name);
+    }
+  } else if (params.memberSpawnStatuses) {
+    for (const name of Object.keys(params.memberSpawnStatuses)) {
+      names.add(name);
+    }
+  }
+  for (const name of Object.keys(params.memberSpawnSnapshotStatuses ?? {})) {
+    names.add(name);
+  }
+
+  return [...names]
+    .filter((name) => {
+      const liveEntry =
+        params.memberSpawnStatuses instanceof Map
+          ? params.memberSpawnStatuses.get(name)
+          : params.memberSpawnStatuses?.[name];
+      const snapshotEntry = params.memberSpawnSnapshotStatuses?.[name];
+      const entry = getPreferredSpawnEntry({
+        liveEntry,
+        snapshotEntry,
+        snapshotUpdatedAt: params.memberSpawnSnapshotUpdatedAt,
+      });
+      return isOpenCodeSecondaryRetryCandidate({
+        member: membersByName.get(name),
+        entry,
+      });
+    })
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function normalizeFailureReason(reason: string): string {
   return reason.replace(/\s+/g, ' ').trim();
 }
@@ -470,18 +574,9 @@ function buildFailedSpawnPanelMessage(
   }
   if (failedSpawnDetails.length === 1) {
     const [failed] = failedSpawnDetails;
-    return failed.reason
-      ? `${failed.name} failed to start - ${normalizeFailureReason(failed.reason)}`
-      : `${failed.name} failed to start`;
+    return `${failed.name} failed to start`;
   }
-  const listedFailures = failedSpawnDetails
-    .slice(0, 2)
-    .map((failed) =>
-      failed.reason ? `${failed.name} - ${normalizeFailureReason(failed.reason)}` : failed.name
-    )
-    .join('; ');
-  const remainingCount = failedSpawnDetails.length - Math.min(failedSpawnDetails.length, 2);
-  return `Failed teammates: ${listedFailures}${remainingCount > 0 ? `; +${remainingCount} more` : ''}`;
+  return `${failedSpawnDetails.length} teammates failed to start`;
 }
 
 function buildFailedSpawnCompactDetail(
@@ -559,6 +654,8 @@ export interface TeamProvisioningPresentation {
   allTeammatesConfirmedAlive: boolean;
   hasMembersStillJoining: boolean;
   remainingJoinCount: number;
+  retryableOpenCodeSecondaryFailedCount: number;
+  retryableOpenCodeSecondaryFailedNames: string[];
   panelTitle: string;
   panelMessage?: string | null;
   panelMessageSeverity?: 'error' | 'warning' | 'info';
@@ -652,6 +749,13 @@ export function buildTeamProvisioningPresentation({
     memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
     memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
   });
+  const retryableOpenCodeSecondaryFailedNames = getRetryableOpenCodeSecondaryFailedNames({
+    members,
+    memberSpawnStatuses,
+    memberSpawnSnapshotStatuses: memberSpawnSnapshot?.statuses,
+    memberSpawnSnapshotUpdatedAt: memberSpawnSnapshot?.updatedAt,
+  });
+  const retryableOpenCodeSecondaryFailedCount = retryableOpenCodeSecondaryFailedNames.length;
 
   const { allTeammatesConfirmedAlive, hasMembersStillJoining, remainingJoinCount } =
     getLaunchJoinState({
@@ -690,6 +794,8 @@ export function buildTeamProvisioningPresentation({
       allTeammatesConfirmedAlive,
       hasMembersStillJoining,
       remainingJoinCount,
+      retryableOpenCodeSecondaryFailedCount,
+      retryableOpenCodeSecondaryFailedNames,
       panelTitle: 'Launch failed',
       panelMessage: progress.error ?? failedSpawnPanelMessage ?? genericFailedSpawnPanelMessage,
       panelTone: 'error',
@@ -778,6 +884,8 @@ export function buildTeamProvisioningPresentation({
       allTeammatesConfirmedAlive,
       hasMembersStillJoining,
       remainingJoinCount,
+      retryableOpenCodeSecondaryFailedCount,
+      retryableOpenCodeSecondaryFailedNames,
       panelTitle: 'Launch details',
       panelMessage:
         failedSpawnCount > 0 || skippedSpawnCount > 0 || hasMembersStillJoining
@@ -853,6 +961,8 @@ export function buildTeamProvisioningPresentation({
       allTeammatesConfirmedAlive,
       hasMembersStillJoining,
       remainingJoinCount,
+      retryableOpenCodeSecondaryFailedCount,
+      retryableOpenCodeSecondaryFailedNames,
       panelTitle: openCodeSecondaryWaitPhrase ? 'Core team ready' : 'Launching team',
       panelMessage:
         failedSpawnCount > 0

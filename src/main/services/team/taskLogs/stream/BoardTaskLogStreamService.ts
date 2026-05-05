@@ -1669,6 +1669,12 @@ export class BoardTaskLogStreamService {
     private readonly historicalBoardMcpRawProbe: HistoricalBoardMcpRawProbe = new HistoricalBoardMcpRawProbe()
   ) {}
 
+  private readConfigForObservation(teamName: string) {
+    return typeof this.configReader.getConfigSnapshot === 'function'
+      ? this.configReader.getConfigSnapshot(teamName)
+      : this.configReader.getConfig(teamName);
+  }
+
   private buildLayoutCacheKey(teamName: string, taskId: string): string {
     return `${teamName}::${taskId}`;
   }
@@ -2199,7 +2205,7 @@ export class BoardTaskLogStreamService {
         this.taskReader.getTasks(teamName).catch(() => []),
         this.taskReader.getDeletedTasks(teamName).catch(() => []),
         this.membersMetaStore.getMembers(teamName).catch(() => []),
-        this.configReader.getConfig(teamName).catch(() => null),
+        this.readConfigForObservation(teamName).catch(() => null),
       ]);
       const task = [...activeTasks, ...deletedTasks].find((candidate) => candidate.id === taskId);
       const ownerName = task?.owner?.trim();

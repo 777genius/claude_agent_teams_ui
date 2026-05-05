@@ -140,6 +140,59 @@ describe('TeamTranscriptProjectResolver', () => {
     return { projectDir, jsonlPath };
   }
 
+  it('uses snapshot-capable config readers for resolver observations', async () => {
+    await setupClaudeRoot();
+    const { projectDir } = await createSessionFile('/repo/current', 'lead-session-1');
+    const getConfig = vi.fn(async () => {
+      throw new Error('verified config read should not be used for transcript observations');
+    });
+    const getConfigSnapshot = vi.fn(async () => ({
+      name: 'My Team',
+      projectPath: '/repo/current',
+      leadSessionId: 'lead-session-1',
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    }));
+    const resolver = new TeamTranscriptProjectResolver({
+      getConfig,
+      getConfigSnapshot,
+    });
+
+    const context = await resolver.getContext('my-team');
+
+    expect(context?.projectDir).toBe(projectDir);
+    expect(getConfigSnapshot).toHaveBeenCalledWith('my-team');
+    expect(getConfig).not.toHaveBeenCalled();
+  });
+
+  it('resolves live base context from cheap projectPath evidence without session discovery', async () => {
+    await setupClaudeRoot();
+
+    const teamName = 'live-base-team';
+    const projectPath = '/Users/test/live-base';
+    const projectDir = path.join(tmpDir!, 'projects', encodePath(projectPath));
+    await fs.mkdir(projectDir, { recursive: true });
+    const getConfig = vi.fn(async () => {
+      throw new Error('verified config read should not be used for live base context');
+    });
+    const getConfigSnapshot = vi.fn(async () => ({
+      name: teamName,
+      projectPath,
+      leadSessionId: 'lead-session',
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    }));
+    const resolver = new TeamTranscriptProjectResolver({
+      getConfig,
+      getConfigSnapshot,
+    });
+
+    const context = await resolver.getLiveBaseContext(teamName, { forceRefresh: true });
+
+    expect(context?.projectDir).toBe(projectDir);
+    expect(context?.config.projectPath).toBe(projectPath);
+    expect(getConfigSnapshot).toHaveBeenCalledWith(teamName);
+    expect(getConfig).not.toHaveBeenCalled();
+  });
+
   it('repairs stale projectPath when exact leadSessionId exists only in the renamed project', async () => {
     await setupClaudeRoot();
 

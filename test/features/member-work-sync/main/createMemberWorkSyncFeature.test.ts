@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   MEMBER_WORK_SYNC_NUDGE_SIDE_EFFECTS_ENV,
@@ -75,6 +75,34 @@ describe('createMemberWorkSyncFeature composition', () => {
         retryable: 0,
         terminal: 0,
       });
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('uses snapshot config reads for startup roster materialization', async () => {
+    const getConfig = vi.fn(async () => ({ members: [] }));
+    const getConfigSnapshot = vi.fn(async () => ({
+      members: [{ name: 'alice' }],
+    }));
+    const feature = createMemberWorkSyncFeature({
+      teamsBasePath: makeTempRoot(),
+      configReader: {
+        getConfig,
+        getConfigSnapshot,
+      } as never,
+      taskReader: {} as never,
+      kanbanManager: {} as never,
+      membersMetaStore: {
+        getMembers: vi.fn(async () => []),
+      } as never,
+      nudgeSideEffectsEnabled: false,
+    });
+
+    try {
+      await feature.enqueueStartupScan(['my-team']);
+      expect(getConfigSnapshot).toHaveBeenCalledWith('my-team');
+      expect(getConfig).not.toHaveBeenCalled();
     } finally {
       await feature.dispose();
     }

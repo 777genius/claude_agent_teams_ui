@@ -44,7 +44,7 @@
     {
       "id": "isFree",
       "question": "C'est vraiment gratuit ?",
-      "answer": "Oui. L'application est 100% gratuite et open source. L'application n'a pas d'offre payante. Pour exécuter des agents, vous avez seulement besoin d'un accès à un provider/runtime pris en charge, comme Anthropic ou Codex."
+      "answer": "Oui. L'application est gratuite et open source. L'application n'a pas d'offre payante. Pour exécuter des agents, vous avez seulement besoin d'un accès à un provider/runtime pris en charge, comme Anthropic ou Codex."
     },
     {
       "id": "platforms",
@@ -82,9 +82,9 @@
   "pricing": [
     {
       "id": "free",
-      "name": "Gratuit pour toujours",
+      "name": "Gratuit",
       "price": "0€",
-      "period": "pour toujours",
+      "period": "",
       "description": "Tout inclus. Sans limites, sans clés API, sans carte bancaire.",
       "features": [
         "Équipes d'agents illimitées",

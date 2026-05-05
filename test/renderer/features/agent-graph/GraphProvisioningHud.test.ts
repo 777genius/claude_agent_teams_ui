@@ -4,20 +4,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GraphProvisioningHud } from '@features/agent-graph/renderer/ui/GraphProvisioningHud';
 
+const hoisted = vi.hoisted(() => ({
+  stepperProps: [] as { active?: boolean }[],
+}));
+
 const hookState = {
-  presentation: null as
-    | {
-        isActive: boolean;
-        isFailed: boolean;
-        hasMembersStillJoining: boolean;
-        failedSpawnCount: number;
-        compactTone: 'default' | 'warning' | 'error' | 'success';
-        compactTitle: string;
-        compactDetail?: string | null;
-        currentStepIndex: number;
-        progress: { runId: string };
-      }
-    | null,
+  presentation: null as {
+    isActive: boolean;
+    isFailed: boolean;
+    hasMembersStillJoining: boolean;
+    failedSpawnCount: number;
+    compactTone: 'default' | 'warning' | 'error' | 'success';
+    compactTitle: string;
+    compactDetail?: string | null;
+    currentStepIndex: number;
+    progress: { runId: string };
+  } | null,
   runInstanceKey: 'team:run-1:2026-04-13T10:00:00.000Z',
 };
 
@@ -26,19 +28,26 @@ vi.mock('@renderer/components/team/useTeamProvisioningPresentation', () => ({
 }));
 
 vi.mock('@renderer/components/ui/badge', () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => React.createElement('span', null, children),
+  Badge: ({ children }: { children: React.ReactNode }) =>
+    React.createElement('span', null, children),
 }));
 
 vi.mock('@renderer/components/team/StepProgressBar', () => ({
-  StepProgressBar: () => React.createElement('div', { 'data-testid': 'stepper' }, 'stepper'),
+  StepProgressBar: (props: { active?: boolean }) => {
+    hoisted.stepperProps.push(props);
+    return React.createElement(
+      'div',
+      {
+        'data-testid': 'stepper',
+        'data-stepper-active': props.active ? 'true' : 'false',
+      },
+      'stepper'
+    );
+  },
 }));
 
 vi.mock('@renderer/components/team/TeamProvisioningPanel', () => ({
-  TeamProvisioningPanel: ({
-    defaultLogsOpen,
-  }: {
-    defaultLogsOpen?: boolean;
-  }) =>
+  TeamProvisioningPanel: ({ defaultLogsOpen }: { defaultLogsOpen?: boolean }) =>
     React.createElement(
       'div',
       { 'data-testid': 'panel', 'data-default-logs-open': defaultLogsOpen ? 'true' : 'false' },
@@ -51,6 +60,7 @@ describe('GraphProvisioningHud', () => {
     document.body.innerHTML = '';
     hookState.presentation = null;
     hookState.runInstanceKey = 'team:run-1:2026-04-13T10:00:00.000Z';
+    hoisted.stepperProps = [];
   });
 
   it('hides the graph launch hud once provisioning is ready', async () => {
@@ -119,6 +129,9 @@ describe('GraphProvisioningHud', () => {
 
     const openButton = host.querySelector('button[aria-label]');
     expect(openButton).not.toBeNull();
+    expect(host.querySelector('[data-testid="stepper"]')?.getAttribute('data-stepper-active')).toBe(
+      'true'
+    );
 
     await act(async () => {
       openButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -126,8 +139,45 @@ describe('GraphProvisioningHud', () => {
     });
 
     expect(document.body.textContent).toContain('provisioning-panel');
-    expect(document.body.querySelector('[data-testid="panel"]')?.getAttribute('data-default-logs-open')).toBe(
-      'true'
+    expect(
+      document.body.querySelector('[data-testid="panel"]')?.getAttribute('data-default-logs-open')
+    ).toBe('true');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('renders the failed graph hud without active stepper animation', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    hookState.presentation = {
+      isActive: false,
+      isFailed: true,
+      hasMembersStillJoining: false,
+      failedSpawnCount: 1,
+      compactTone: 'error',
+      compactTitle: 'Launch failed',
+      compactDetail: 'alice failed to start',
+      currentStepIndex: 2,
+      progress: { runId: 'run-4' },
+    };
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(GraphProvisioningHud, {
+          teamName: 'northstar-core',
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.querySelector('[data-testid="stepper"]')?.getAttribute('data-stepper-active')).toBe(
+      'false'
     );
 
     await act(async () => {

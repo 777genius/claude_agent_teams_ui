@@ -546,9 +546,11 @@ export function getLaunchAwarePresenceLabel(
 }
 
 export type MemberLaunchVisualState =
+  | 'queued'
   | 'waiting'
   | 'spawning'
   | 'permission_pending'
+  | 'bootstrap_stalled'
   | 'runtime_pending'
   | 'shell_only'
   | 'runtime_candidate'
@@ -573,12 +575,16 @@ export interface MemberLaunchPresentation {
 
 export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState): string | null {
   switch (visualState) {
+    case 'queued':
+      return 'queued';
     case 'waiting':
       return 'waiting to start';
     case 'spawning':
       return 'starting';
     case 'permission_pending':
       return 'awaiting permission';
+    case 'bootstrap_stalled':
+      return 'bootstrap stalled';
     case 'runtime_pending':
       return 'waiting for bootstrap';
     case 'shell_only':
@@ -602,7 +608,10 @@ export function getMemberLaunchStatusLabel(visualState: MemberLaunchVisualState)
 
 function getLaunchVisualStateDotClass(visualState: MemberLaunchVisualState): string | null {
   switch (visualState) {
+    case 'queued':
+      return SPAWN_DOT_COLORS.waiting;
     case 'permission_pending':
+    case 'bootstrap_stalled':
     case 'runtime_pending':
     case 'runtime_candidate':
       return 'bg-amber-400 animate-pulse';
@@ -615,6 +624,29 @@ function getLaunchVisualStateDotClass(visualState: MemberLaunchVisualState): str
     default:
       return null;
   }
+}
+
+function isQueuedOpenCodeLaunch(
+  member: ResolvedTeamMember,
+  spawnStatus: MemberSpawnStatus | undefined,
+  spawnLaunchState: MemberLaunchState | undefined,
+  runtimeEntry: TeamAgentRuntimeEntry | undefined,
+  isLaunchSettling: boolean,
+  isTeamProvisioning: boolean | undefined
+): boolean {
+  if (member.providerId !== 'opencode') {
+    return false;
+  }
+  if (isTeamProvisioning !== true && !isLaunchSettling) {
+    return false;
+  }
+  if (spawnStatus !== 'waiting' || spawnLaunchState !== 'starting') {
+    return false;
+  }
+
+  // Only label lanes as queued before runtime evidence appears. Once the
+  // backend has any liveness signal, show the exact runtime state instead.
+  return runtimeEntry == null || runtimeEntry.livenessKind == null;
 }
 
 function hasElapsedSinceIso(
@@ -682,6 +714,7 @@ export function isOpenCodeRelaunchActionable({
     nowMs
   );
   const hasExplicitBootstrapStall =
+    spawnEntry?.bootstrapStalled === true ||
     hasBootstrapStallDiagnostic(spawnEntry?.runtimeDiagnostic) ||
     hasBootstrapStallDiagnostic(runtimeEntry?.runtimeDiagnostic);
   const launchIsNoLongerFresh =
@@ -697,6 +730,9 @@ export function isOpenCodeRelaunchActionable({
   ) {
     return launchIsNoLongerFresh;
   }
+  if (livenessKind === 'runtime_process') {
+    return hasExplicitBootstrapStall;
+  }
   if (livenessKind !== 'runtime_process_candidate') {
     return false;
   }
@@ -710,6 +746,8 @@ export function buildMemberLaunchPresentation({
   spawnLaunchState,
   spawnLivenessSource,
   spawnRuntimeAlive,
+  spawnBootstrapConfirmed,
+  spawnBootstrapStalled,
   runtimeAdvisory,
   runtimeEntry,
   isLaunchSettling = false,
@@ -722,6 +760,8 @@ export function buildMemberLaunchPresentation({
   spawnLaunchState: MemberLaunchState | undefined;
   spawnLivenessSource: MemberSpawnLivenessSource | undefined;
   spawnRuntimeAlive: boolean | undefined;
+  spawnBootstrapConfirmed?: boolean;
+  spawnBootstrapStalled?: boolean;
   runtimeAdvisory: MemberRuntimeAdvisory | undefined;
   runtimeEntry?: TeamAgentRuntimeEntry;
   isLaunchSettling?: boolean;
@@ -729,12 +769,19 @@ export function buildMemberLaunchPresentation({
   isTeamProvisioning?: boolean;
   leadActivity?: LeadActivityState;
 }): MemberLaunchPresentation {
+  const hasConfirmedSpawnLaunch =
+    spawnLaunchState === 'confirmed_alive' && spawnBootstrapConfirmed === true;
+  const effectiveSpawnStatus =
+    hasConfirmedSpawnLaunch && (spawnStatus === 'waiting' || spawnStatus === 'spawning')
+      ? 'online'
+      : spawnStatus;
+  const effectiveSpawnRuntimeAlive = hasConfirmedSpawnLaunch ? true : spawnRuntimeAlive;
   const presenceLabel = getLaunchAwarePresenceLabel(
     member,
-    spawnStatus,
+    effectiveSpawnStatus,
     spawnLaunchState,
     spawnLivenessSource,
-    spawnRuntimeAlive,
+    effectiveSpawnRuntimeAlive,
     runtimeAdvisory,
     isLaunchSettling,
     isTeamAlive,
@@ -743,18 +790,18 @@ export function buildMemberLaunchPresentation({
   );
   const baseDotClass = getSpawnAwareDotClass(
     member,
-    spawnStatus,
+    effectiveSpawnStatus,
     spawnLaunchState,
-    spawnRuntimeAlive,
+    effectiveSpawnRuntimeAlive,
     isLaunchSettling,
     isTeamAlive,
     isTeamProvisioning,
     leadActivity
   );
   const cardClass = getSpawnCardClass(
-    spawnStatus,
+    effectiveSpawnStatus,
     spawnLaunchState,
-    spawnRuntimeAlive,
+    effectiveSpawnRuntimeAlive,
     isLaunchSettling,
     isTeamAlive,
     isTeamProvisioning
@@ -772,18 +819,37 @@ export function buildMemberLaunchPresentation({
       launchVisualState = 'skipped';
     } else if (spawnLaunchState === 'runtime_pending_permission') {
       launchVisualState = 'permission_pending';
-    } else if (runtimeEntry?.livenessKind === 'shell_only') {
+    } else if (spawnBootstrapStalled === true) {
+      launchVisualState = 'bootstrap_stalled';
+    } else if (!hasConfirmedSpawnLaunch && runtimeEntry?.livenessKind === 'shell_only') {
       launchVisualState = 'shell_only';
-    } else if (runtimeEntry?.livenessKind === 'runtime_process_candidate') {
+    } else if (
+      !hasConfirmedSpawnLaunch &&
+      runtimeEntry?.livenessKind === 'runtime_process_candidate'
+    ) {
       launchVisualState = 'runtime_candidate';
-    } else if (runtimeEntry?.livenessKind === 'registered_only') {
+    } else if (!hasConfirmedSpawnLaunch && runtimeEntry?.livenessKind === 'registered_only') {
       launchVisualState = 'registered_only';
     } else if (
-      runtimeEntry?.livenessKind === 'stale_metadata' ||
-      runtimeEntry?.livenessKind === 'not_found'
+      !hasConfirmedSpawnLaunch &&
+      (runtimeEntry?.livenessKind === 'stale_metadata' ||
+        runtimeEntry?.livenessKind === 'not_found')
     ) {
       launchVisualState = 'stale_runtime';
     } else if (
+      !hasConfirmedSpawnLaunch &&
+      isQueuedOpenCodeLaunch(
+        member,
+        spawnStatus,
+        spawnLaunchState,
+        runtimeEntry,
+        isLaunchSettling,
+        isTeamProvisioning
+      )
+    ) {
+      launchVisualState = 'queued';
+    } else if (
+      !hasConfirmedSpawnLaunch &&
       isLaunchStillStarting(
         spawnStatus,
         spawnLaunchState,
@@ -793,16 +859,13 @@ export function buildMemberLaunchPresentation({
     ) {
       launchVisualState = spawnStatus === 'spawning' ? 'spawning' : 'waiting';
     } else if (
+      !hasConfirmedSpawnLaunch &&
       spawnLaunchState === 'runtime_pending_bootstrap' &&
       (runtimeEntry?.livenessKind === 'runtime_process' ||
         (spawnStatus === 'online' && spawnRuntimeAlive === true))
     ) {
       launchVisualState = 'runtime_pending';
-    } else if (
-      isLaunchSettling &&
-      spawnStatus === 'online' &&
-      spawnLaunchState === 'confirmed_alive'
-    ) {
+    } else if (isLaunchSettling && spawnLaunchState === 'confirmed_alive') {
       launchVisualState = 'settling';
     }
   }
@@ -810,7 +873,9 @@ export function buildMemberLaunchPresentation({
   const launchStatusLabel = getMemberLaunchStatusLabel(launchVisualState);
   const launchVisualStateDotClass = getLaunchVisualStateDotClass(launchVisualState);
   const shouldShowLaunchStatusAsPresence =
+    launchVisualState === 'queued' ||
     launchVisualState === 'permission_pending' ||
+    launchVisualState === 'bootstrap_stalled' ||
     launchVisualState === 'runtime_pending' ||
     launchVisualState === 'shell_only' ||
     launchVisualState === 'runtime_candidate' ||

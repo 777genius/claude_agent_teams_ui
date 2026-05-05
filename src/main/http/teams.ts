@@ -1,4 +1,5 @@
 import { validateTeammateName, validateTeamName } from '@main/ipc/guards';
+import { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import { getTeamsBasePath } from '@main/utils/pathDecoder';
 import { extractUserFlags, PROTECTED_CLI_FLAGS } from '@shared/utils/cliArgsParser';
 import {
@@ -551,6 +552,7 @@ export function registerTeamRoutes(app: FastifyInstance, services: HttpServices)
               parseLaunchRequest(teamName, request.body),
               () => undefined
             );
+        TeamConfigReader.invalidateListTeamsCache();
         return reply.send(response);
       } catch (error) {
         const statusCode = getStatusCode(error);

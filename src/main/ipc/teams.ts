@@ -29,6 +29,7 @@ import {
   TEAM_GET_MEMBER_LOGS,
   TEAM_GET_MEMBER_STATS,
   TEAM_GET_MESSAGES_PAGE,
+  TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS,
   TEAM_GET_PROJECT_BRANCH,
   TEAM_GET_SAVED_REQUEST,
   TEAM_GET_TASK_ACTIVITY,
@@ -60,6 +61,7 @@ import {
   TEAM_RESTART_MEMBER,
   TEAM_RESTORE,
   TEAM_RESTORE_TASK,
+  TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
   TEAM_SAVE_TASK_ATTACHMENT,
   TEAM_SEND_MESSAGE,
   TEAM_SET_CHANGE_PRESENCE_TRACKING,
@@ -123,7 +125,12 @@ import {
 import {
   getAutoResumeService,
   initializeAutoResumeService,
+  planRateLimitAutoResume,
 } from '../services/team/AutoResumeService';
+import {
+  cloneLaunchIoGovernorPayload,
+  type LaunchIoGovernor,
+} from '../services/team/LaunchIoGovernor';
 import {
   buildReplaceMembersDiff,
   buildReplaceMembersSummaryMessage,
@@ -183,6 +190,8 @@ import type {
   MemberLogSummary,
   MemberSpawnStatusesSnapshot,
   MessagesPage,
+  OpenCodeRuntimeDeliveryStatus,
+  RetryFailedOpenCodeSecondaryLanesResult,
   SendMessageRequest,
   SendMessageResult,
   TaskAttachmentMeta,
@@ -197,6 +206,7 @@ import type {
   TeamCreateRequest,
   TeamCreateResponse,
   TeamFastMode,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -220,6 +230,61 @@ import type { CliArgsValidationResult } from '@shared/utils/cliArgsParser';
 
 const logger = createLogger('IPC:teams');
 const OPENCODE_RUNTIME_DELIVERY_UI_TIMEOUT_MS = 12_000;
+
+type VisibleDirectReplyProtocol = 'send_message' | 'agent_teams_message_send';
+
+function resolveVisibleDirectReplyProtocol(input: {
+  providerId?: TeamProviderId;
+  isLeadRecipient: boolean;
+  replyRecipient: string;
+}): VisibleDirectReplyProtocol {
+  if (
+    !input.isLeadRecipient &&
+    input.replyRecipient.trim().toLowerCase() === 'user' &&
+    input.providerId === 'codex'
+  ) {
+    return 'agent_teams_message_send';
+  }
+
+  return 'send_message';
+}
+const TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS = 250;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function validateTeamGetDataOptions(
+  value: unknown
+): { valid: true; value: TeamGetDataOptions | undefined } | { valid: false; error: string } {
+  if (value === undefined) {
+    return { valid: true, value: undefined };
+  }
+  if (!isPlainObject(value)) {
+    return { valid: false, error: 'options must be an object' };
+  }
+
+  const allowed = new Set(['includeMemberBranches']);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      return { valid: false, error: `Unknown getData option: ${key}` };
+    }
+  }
+
+  const includeMemberBranches = value.includeMemberBranches;
+  if (includeMemberBranches !== undefined && typeof includeMemberBranches !== 'boolean') {
+    return { valid: false, error: 'includeMemberBranches must be a boolean' };
+  }
+
+  return {
+    valid: true,
+    value: includeMemberBranches === false ? { includeMemberBranches: false } : undefined,
+  };
+}
 
 /**
  * In-memory set of rate-limit message keys already processed.
@@ -359,6 +424,21 @@ function buildLeadDirectDelegateAckBlock(actionMode?: AgentActionMode): string |
 const seenApiErrorKeys = new Set<string>();
 const SEEN_API_ERROR_KEYS_MAX = 500;
 
+function formatNotificationClockTime(date: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function buildRateLimitNotificationBody(plan: ReturnType<typeof planRateLimitAutoResume>): string {
+  if (plan.kind === 'scheduled') {
+    return `Auto-resume scheduled at ${formatNotificationClockTime(new Date(plan.fireAtMs))}`;
+  }
+  return 'Manual restart needed';
+}
+
 /**
  * Check messages for rate limit indicators and fire notifications for new ones.
  * Uses both in-memory seenRateLimitKeys (to prevent resurrection after deletion)
@@ -390,6 +470,18 @@ function checkRateLimitMessages(
 
     const rawKey = msg.messageId ?? `${msg.from}:${msg.timestamp}`;
     const dedupeKey = `rate-limit:${teamName}:${rawKey}`;
+    const isLeadAutoResumeCandidate =
+      !msg.to && (msg.source === 'lead_process' || msg.source === 'lead_session');
+    const autoResumeSessionMatches =
+      msg.source !== 'lead_session' ||
+      (Boolean(currentLeadSessionId) && msg.leadSessionId === currentLeadSessionId);
+    const autoResumePlan = planRateLimitAutoResume({
+      enabled: autoResumeEnabled,
+      canAutoResume: teamIsAlive && isLeadAutoResumeCandidate && autoResumeSessionMatches,
+      messageText: msg.text,
+      observedAt,
+      messageTimestamp: new Date(msg.timestamp),
+    });
 
     // In-memory guard: prevents resurrection after user deletes the notification.
     if (!seenRateLimitKeys.has(dedupeKey)) {
@@ -407,9 +499,10 @@ function checkRateLimitMessages(
           teamName,
           teamDisplayName,
           from: msg.from,
-          summary: `Rate limit: ${msg.from}`,
-          body: msg.text.slice(0, 200),
+          summary: 'Rate limit',
+          body: buildRateLimitNotificationBody(autoResumePlan),
           dedupeKey,
+          target: { kind: 'member', teamName, memberName: msg.from, focus: 'logs' },
           projectPath,
         })
         .catch(() => undefined);
@@ -419,18 +512,10 @@ function checkRateLimitMessages(
     // Persisted history for an offline/stopped team may still contain the old
     // rate-limit message, but arming a new timer from that stale history would
     // resurrect the nudge into a later manual restart.
-    const isLeadAutoResumeCandidate =
-      !msg.to && (msg.source === 'lead_process' || msg.source === 'lead_session');
-
-    if (autoResumeEnabled && teamIsAlive && isLeadAutoResumeCandidate) {
+    if (autoResumePlan.kind === 'scheduled') {
       // Only let persisted lead_session history rebuild auto-resume when it
       // clearly belongs to the currently running lead session. Otherwise an old
       // rate-limit from a previous manual run can resurrect into a newer restart.
-      if (msg.source === 'lead_session') {
-        if (!currentLeadSessionId) continue;
-        if (msg.leadSessionId !== currentLeadSessionId) continue;
-      }
-
       // Pass the original message timestamp so relative reset windows survive restarts
       // and old history does not rebuild a fresh auto-resume timer from "now".
       getAutoResumeService().handleRateLimitMessage(
@@ -477,13 +562,14 @@ function checkApiErrorMessages(
 
     void NotificationManager.getInstance()
       .addTeamNotification({
-        teamEventType: 'rate_limit', // reuse rate_limit type — closest fit
+        teamEventType: 'api_error',
         teamName,
         teamDisplayName,
         from: msg.from,
-        summary: `API Error ${statusCode}: ${msg.from}`,
-        body: msg.text.slice(0, 400),
+        summary: `API Error ${statusCode}`,
+        body: 'Manual restart needed',
         dedupeKey,
+        target: { kind: 'member', teamName, memberName: msg.from, focus: 'logs' },
         projectPath,
       })
       .catch(() => undefined);
@@ -511,6 +597,7 @@ let teamBackupService: TeamBackupService | null = null;
 let teammateToolTracker: TeammateToolTracker | null = null;
 let teamLogSourceTracker: TeamLogSourceTracker | null = null;
 let branchStatusService: BranchStatusService | null = null;
+let launchIoGovernor: LaunchIoGovernor | null = null;
 let boardTaskActivityService: BoardTaskActivityService | null = null;
 let boardTaskActivityDetailService: BoardTaskActivityDetailService | null = null;
 let boardTaskLogStreamService: BoardTaskLogStreamService | null = null;
@@ -563,7 +650,8 @@ export function initializeTeamHandlers(
   taskActivityDetailService?: BoardTaskActivityDetailService,
   taskLogStreamService?: BoardTaskLogStreamService,
   taskExactLogsService?: BoardTaskExactLogsService,
-  taskExactLogDetailService?: BoardTaskExactLogDetailService
+  taskExactLogDetailService?: BoardTaskExactLogDetailService,
+  ioGovernor?: LaunchIoGovernor
 ): void {
   teamDataService = service;
   teamProvisioningService = provisioningService;
@@ -574,6 +662,7 @@ export function initializeTeamHandlers(
   teammateToolTracker = toolTracker ?? null;
   teamLogSourceTracker = logSourceTracker ?? null;
   branchStatusService = branchTracker ?? null;
+  launchIoGovernor = ioGovernor ?? null;
   boardTaskActivityService = taskActivityService ?? null;
   boardTaskActivityDetailService = taskActivityDetailService ?? null;
   boardTaskLogStreamService = taskLogStreamService ?? null;
@@ -599,6 +688,7 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_PROVISIONING_STATUS, handleProvisioningStatus);
   ipcMain.handle(TEAM_CANCEL_PROVISIONING, handleCancelProvisioning);
   ipcMain.handle(TEAM_SEND_MESSAGE, handleSendMessage);
+  ipcMain.handle(TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS, handleGetOpenCodeRuntimeDeliveryStatus);
   ipcMain.handle(TEAM_GET_MESSAGES_PAGE, handleGetMessagesPage);
   ipcMain.handle(TEAM_GET_MEMBER_ACTIVITY_META, handleGetMemberActivityMeta);
   ipcMain.handle(TEAM_CREATE_TASK, handleCreateTask);
@@ -641,6 +731,10 @@ export function registerTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(TEAM_LEAD_CONTEXT, handleLeadContext);
   ipcMain.handle(TEAM_MEMBER_SPAWN_STATUSES, handleMemberSpawnStatuses);
   ipcMain.handle(TEAM_GET_AGENT_RUNTIME, handleGetAgentRuntime);
+  ipcMain.handle(
+    TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
+    handleRetryFailedOpenCodeSecondaryLanes
+  );
   ipcMain.handle(TEAM_RESTART_MEMBER, handleRestartMember);
   ipcMain.handle(TEAM_SKIP_MEMBER_FOR_LAUNCH, handleSkipMemberForLaunch);
   ipcMain.handle(TEAM_SOFT_DELETE_TASK, handleSoftDeleteTask);
@@ -680,6 +774,7 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_PROVISIONING_STATUS);
   ipcMain.removeHandler(TEAM_CANCEL_PROVISIONING);
   ipcMain.removeHandler(TEAM_SEND_MESSAGE);
+  ipcMain.removeHandler(TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS);
   ipcMain.removeHandler(TEAM_GET_MESSAGES_PAGE);
   ipcMain.removeHandler(TEAM_GET_MEMBER_ACTIVITY_META);
   ipcMain.removeHandler(TEAM_CREATE_TASK);
@@ -722,6 +817,7 @@ export function removeTeamHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(TEAM_LEAD_CONTEXT);
   ipcMain.removeHandler(TEAM_MEMBER_SPAWN_STATUSES);
   ipcMain.removeHandler(TEAM_GET_AGENT_RUNTIME);
+  ipcMain.removeHandler(TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES);
   ipcMain.removeHandler(TEAM_RESTART_MEMBER);
   ipcMain.removeHandler(TEAM_SKIP_MEMBER_FOR_LAUNCH);
   ipcMain.removeHandler(TEAM_SOFT_DELETE_TASK);
@@ -895,7 +991,14 @@ async function handleListTeams(_event: IpcMainInvokeEvent): Promise<IpcResult<Te
   setCurrentMainOp('team:list');
   const startedAt = Date.now();
   try {
-    return await wrapTeamHandler('list', () => getTeamDataService().listTeams());
+    return await wrapTeamHandler('list', () => {
+      const loadFresh = () => getTeamDataService().listTeams();
+      return launchIoGovernor
+        ? launchIoGovernor.runSummaryOperation('teams:list', loadFresh, {
+            clone: cloneLaunchIoGovernorPayload,
+          })
+        : loadFresh();
+    });
   } finally {
     const ms = Date.now() - startedAt;
     if (ms >= 1500) {
@@ -907,44 +1010,74 @@ async function handleListTeams(_event: IpcMainInvokeEvent): Promise<IpcResult<Te
 
 async function handleGetData(
   _event: IpcMainInvokeEvent,
-  teamName: unknown
+  teamName: unknown,
+  rawOptions?: unknown
 ): Promise<IpcResult<TeamViewSnapshot>> {
   const validated = validateTeamName(teamName);
   if (!validated.valid) {
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
+  const optionsResult = validateTeamGetDataOptions(rawOptions);
+  if (!optionsResult.valid) {
+    return { success: false, error: optionsResult.error };
+  }
   const tn = validated.value!;
+  const getDataOptions = optionsResult.value;
   const startedAt = Date.now();
   let data: TeamViewSnapshot;
+  let dataSource: 'worker' | 'main-fallback' | 'main-unavailable' = 'main-unavailable';
+  let workerAvailable = false;
+  const readFromMain = (): Promise<TeamViewSnapshot> =>
+    getDataOptions === undefined
+      ? getTeamDataService().getTeamData(tn)
+      : getTeamDataService().getTeamData(tn, getDataOptions);
   setCurrentMainOp('team:getData');
   try {
     // Prefer worker thread to keep main event loop responsive
     const worker = getTeamDataWorkerClient();
-    if (worker.isAvailable()) {
+    workerAvailable = worker.isAvailable();
+    const missingState = await classifyMissingTeamData(tn);
+    if (missingState === 'provisioning') {
+      return { success: false, error: 'TEAM_PROVISIONING' };
+    }
+    if (missingState === 'draft') {
+      return { success: false, error: 'TEAM_DRAFT' };
+    }
+
+    if (workerAvailable) {
       try {
-        data = await worker.getTeamData(tn);
+        data =
+          getDataOptions === undefined
+            ? await worker.getTeamData(tn)
+            : await worker.getTeamData(tn, getDataOptions);
+        dataSource = 'worker';
       } catch (workerErr) {
         logger.warn(
           `[teams:getData] worker failed, falling back: ${workerErr instanceof Error ? workerErr.message : workerErr}`
         );
         noteHeavyTeamDataWorkerFallback('teams:getData');
-        data = await getTeamDataService().getTeamData(tn);
+        data = await readFromMain();
+        dataSource = 'main-fallback';
       }
     } else {
       noteHeavyTeamDataWorkerFallback('teams:getData');
-      data = await getTeamDataService().getTeamData(tn);
+      data = await readFromMain();
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
       message === `Team not found: ${tn}` &&
-      getTeamProvisioningService().hasProvisioningRun(tn)
+      getTeamProvisioningService().hasProvisioningRun?.(tn) === true
     ) {
       return { success: false, error: 'TEAM_PROVISIONING' };
     }
     // Draft team: team.meta.json exists but config.json doesn't (provisioning failed before TeamCreate)
     if (message === `Team not found: ${tn}`) {
-      const meta = await teamMetaStore.getMeta(tn);
+      const meta = await withTimeoutValue(
+        teamMetaStore.getMeta(tn).catch(() => null),
+        TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+        null
+      );
       if (meta) {
         return { success: false, error: 'TEAM_DRAFT' };
       }
@@ -957,7 +1090,10 @@ async function handleGetData(
   const getDataMs = Date.now() - startedAt;
 
   if (getDataMs >= 1500) {
-    logger.warn(`[teams:getData] slow team=${tn} ms=${getDataMs}`);
+    const branchMode = getDataOptions?.includeMemberBranches === false ? 'skipped' : 'full';
+    logger.warn(
+      `[teams:getData] slow team=${tn} ms=${getDataMs} source=${dataSource} workerAvailable=${workerAvailable} branchMode=${branchMode}`
+    );
   }
   const teamDataService = getTeamDataService();
   if (data.processes.some((process) => !process.stoppedAt)) {
@@ -1013,6 +1149,33 @@ async function handleGetData(
   checkRateLimitMessages(merged, tn, displayName, projectPath, isAlive, currentLeadSessionId);
   checkApiErrorMessages(merged, tn, displayName, projectPath);
   return { success: true, data: { ...data, isAlive } };
+}
+
+async function classifyMissingTeamData(teamName: string): Promise<'provisioning' | 'draft' | null> {
+  const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
+  const configExists = await withTimeoutValue(
+    fs.promises
+      .access(configPath, fs.constants.F_OK)
+      .then(() => true)
+      .catch((error: unknown) => {
+        const code = typeof error === 'object' && error ? (error as { code?: unknown }).code : null;
+        return code === 'ENOENT' ? false : null;
+      }),
+    TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+    null
+  );
+  if (configExists !== false) {
+    return null;
+  }
+  if (getTeamProvisioningService().hasProvisioningRun?.(teamName) === true) {
+    return 'provisioning';
+  }
+  const meta = await withTimeoutValue(
+    teamMetaStore.getMeta(teamName).catch(() => null),
+    TEAM_DATA_DRAFT_CLASSIFICATION_ACCESS_TIMEOUT_MS,
+    null
+  );
+  return meta ? 'draft' : null;
 }
 
 async function handleGetTaskChangePresence(
@@ -1116,6 +1279,7 @@ async function handleDeleteTeam(
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
     await getTeamProvisioningService().stopTeam(validated.value!);
     await getTeamDataService().deleteTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
   });
 }
 
@@ -1127,7 +1291,10 @@ async function handleRestoreTeam(
   if (!validated.valid) {
     return { success: false, error: validated.error ?? 'Invalid teamName' };
   }
-  return wrapTeamHandler('restoreTeam', () => getTeamDataService().restoreTeam(validated.value!));
+  return wrapTeamHandler('restoreTeam', async () => {
+    await getTeamDataService().restoreTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
+  });
 }
 
 async function handlePermanentlyDeleteTeam(
@@ -1141,6 +1308,7 @@ async function handlePermanentlyDeleteTeam(
   return wrapTeamHandler('permanentlyDeleteTeam', async () => {
     getAutoResumeService().cancelPendingAutoResume(validated.value!);
     await getTeamDataService().permanentlyDeleteTeam(validated.value!);
+    getTeamDataWorkerClient().invalidateTeamConfig(validated.value!);
     // Clean up app-owned data (attachments, task-attachments) that lives outside ~/.claude/
     const appData = getAppDataPath();
     await fs.promises
@@ -1208,6 +1376,7 @@ async function handleUpdateConfig(
       }
     }
 
+    getTeamDataWorkerClient().invalidateTeamConfig(tn);
     return result;
   });
 }
@@ -1797,6 +1966,21 @@ function sendProvisioningProgress(
   safeSendToRenderer(targetWindow, TEAM_PROVISIONING_PROGRESS, progress);
 }
 
+function noteLaunchIntentFailed(teamName: string, source: string): void {
+  if (!launchIoGovernor) {
+    return;
+  }
+  const now = new Date().toISOString();
+  launchIoGovernor.noteProvisioningProgress({
+    runId: `${source}:failed-before-progress`,
+    teamName,
+    state: 'failed',
+    message: 'Launch failed before provisioning progress',
+    startedAt: now,
+    updatedAt: now,
+  } as TeamProvisioningProgress);
+}
+
 async function handleCreateTeam(
   event: IpcMainInvokeEvent,
   request: unknown
@@ -1807,11 +1991,18 @@ async function handleCreateTeam(
   }
   const progressTargetWindow = BrowserWindow.fromWebContents(event.sender);
 
-  return wrapTeamHandler('create', () => {
+  return wrapTeamHandler('create', async () => {
     addMainBreadcrumb('team', 'create', { teamName: validation.value.teamName });
-    return getTeamProvisioningService().createTeam(validation.value, (progress) => {
-      sendProvisioningProgress(progressTargetWindow, progress);
-    });
+    launchIoGovernor?.noteLaunchIntent(validation.value.teamName, 'create');
+    try {
+      return await getTeamProvisioningService().createTeam(validation.value, (progress) => {
+        launchIoGovernor?.noteProvisioningProgress(progress);
+        sendProvisioningProgress(progressTargetWindow, progress);
+      });
+    } catch (error) {
+      noteLaunchIntentFailed(validation.value.teamName, 'create');
+      throw error;
+    }
   });
 }
 
@@ -1944,11 +2135,18 @@ async function handleLaunchTeam(
       members: savedRequest.members,
     };
 
-    return wrapTeamHandler('create', () =>
-      getTeamProvisioningService().createTeam(createRequest, (progress) => {
-        sendProvisioningProgress(progressTargetWindow, progress);
-      })
-    );
+    return wrapTeamHandler('create', async () => {
+      launchIoGovernor?.noteLaunchIntent(tn, 'draft-launch');
+      try {
+        return await getTeamProvisioningService().createTeam(createRequest, (progress) => {
+          launchIoGovernor?.noteProvisioningProgress(progress);
+          sendProvisioningProgress(progressTargetWindow, progress);
+        });
+      } catch (error) {
+        noteLaunchIntentFailed(tn, 'draft-launch');
+        throw error;
+      }
+    });
   }
 
   const persistedMeta = await teamMetaStore.getMeta(tn).catch(() => null);
@@ -1986,33 +2184,41 @@ async function handleLaunchTeam(
   const launchLimitContext =
     typeof payload.limitContext === 'boolean' ? payload.limitContext : persistedMeta?.limitContext;
 
-  return wrapTeamHandler('launch', () => {
+  return wrapTeamHandler('launch', async () => {
     addMainBreadcrumb('team', 'launch', { teamName: validatedTeamName.value! });
-    return getTeamProvisioningService().launchTeam(
-      {
-        teamName: validatedTeamName.value!,
-        cwd,
-        prompt: typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
-        providerId: launchProviderId,
-        providerBackendId: launchProviderBackendValidation.value,
-        model: rawLaunchModel,
-        effort: effortValidation.value,
-        fastMode: fastModeValidation.value,
-        limitContext: launchLimitContext,
-        clearContext: payload.clearContext === true ? true : undefined,
-        skipPermissions:
-          typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
-        worktree:
-          typeof payload.worktree === 'string' ? payload.worktree.trim() || undefined : undefined,
-        extraCliArgs:
-          typeof payload.extraCliArgs === 'string'
-            ? payload.extraCliArgs.trim() || undefined
-            : undefined,
-      },
-      (progress) => {
-        sendProvisioningProgress(progressTargetWindow, progress);
-      }
-    );
+    launchIoGovernor?.noteLaunchIntent(validatedTeamName.value!, 'launch');
+    try {
+      return await getTeamProvisioningService().launchTeam(
+        {
+          teamName: validatedTeamName.value!,
+          cwd,
+          prompt:
+            typeof payload.prompt === 'string' ? payload.prompt.trim() || undefined : undefined,
+          providerId: launchProviderId,
+          providerBackendId: launchProviderBackendValidation.value,
+          model: rawLaunchModel,
+          effort: effortValidation.value,
+          fastMode: fastModeValidation.value,
+          limitContext: launchLimitContext,
+          clearContext: payload.clearContext === true ? true : undefined,
+          skipPermissions:
+            typeof payload.skipPermissions === 'boolean' ? payload.skipPermissions : undefined,
+          worktree:
+            typeof payload.worktree === 'string' ? payload.worktree.trim() || undefined : undefined,
+          extraCliArgs:
+            typeof payload.extraCliArgs === 'string'
+              ? payload.extraCliArgs.trim() || undefined
+              : undefined,
+        },
+        (progress) => {
+          launchIoGovernor?.noteProvisioningProgress(progress);
+          sendProvisioningProgress(progressTargetWindow, progress);
+        }
+      );
+    } catch (error) {
+      noteLaunchIntentFailed(validatedTeamName.value!, 'launch');
+      throw error;
+    }
   });
 }
 
@@ -2289,7 +2495,11 @@ function buildMessageDeliveryText(
   opts: {
     actionMode?: AgentActionMode;
     isLeadRecipient: boolean;
+    memberName?: string;
+    messageId?: string;
+    protocol?: VisibleDirectReplyProtocol;
     replyRecipient?: string;
+    teamName?: string;
   }
 ): string {
   const hiddenBlocks: string[] = [];
@@ -2298,22 +2508,49 @@ function buildMessageDeliveryText(
     hiddenBlocks.push(actionModeBlock);
   }
   if (!opts.isLeadRecipient) {
-    const replyRecipient =
+    const rawReplyRecipient =
       typeof opts.replyRecipient === 'string' && opts.replyRecipient.trim().length > 0
         ? opts.replyRecipient.trim()
         : 'user';
-    const senderDescriptor = replyRecipient === 'user' ? 'the human user' : `"${replyRecipient}"`;
+    const isUserReplyRecipient = rawReplyRecipient.toLowerCase() === 'user';
+    const replyRecipient = isUserReplyRecipient ? 'user' : rawReplyRecipient;
+    const senderDescriptor = isUserReplyRecipient ? 'the human user' : `"${replyRecipient}"`;
+    const protocol = opts.protocol ?? 'send_message';
+    const canUseAgentTeamsMessageSend =
+      protocol === 'agent_teams_message_send' &&
+      isUserReplyRecipient &&
+      typeof opts.teamName === 'string' &&
+      opts.teamName.trim().length > 0 &&
+      typeof opts.memberName === 'string' &&
+      opts.memberName.trim().length > 0 &&
+      typeof opts.messageId === 'string' &&
+      opts.messageId.trim().length > 0;
+    const replyInstructionLines = canUseAgentTeamsMessageSend
+      ? [
+          'CRITICAL: Reply using the Agent Teams MCP message_send tool, not SendMessage.',
+          'Use tool agent-teams_message_send or mcp__agent-teams__message_send, whichever exposed name is available.',
+          `CRITICAL: The tool input must include teamName="${opts.teamName!.trim()}", to="user", from="${opts.memberName!.trim()}", text, summary, source="runtime_delivery", and relayOfMessageId="${opts.messageId!.trim()}".`,
+          'Do NOT answer only with normal assistant text when the Agent Teams message_send tool is available because that will not appear in the UI message thread.',
+        ]
+      : [
+          'CRITICAL: Reply using the SendMessage tool, not plain assistant text.',
+          `CRITICAL: The destination must be exactly to="${replyRecipient}".`,
+          'CRITICAL: The SendMessage tool input must use the exact field names `to`, `summary`, and `message`.',
+          'Do NOT answer only with normal assistant text because that will not appear in the UI message thread.',
+        ];
     hiddenBlocks.push(
       [
         AGENT_BLOCK_OPEN,
         `You received a direct message from ${senderDescriptor} via the UI.`,
-        'CRITICAL: Reply using the SendMessage tool, not plain assistant text.',
-        `CRITICAL: The destination must be exactly to="${replyRecipient}".`,
-        'CRITICAL: The SendMessage tool input must use the exact field names `to`, `summary`, and `message`.',
-        'Do NOT answer only with normal assistant text because that will not appear in the UI message thread.',
+        ...replyInstructionLines,
         `Please reply back to recipient "${replyRecipient}" with a short, human-readable answer.`,
         'If you cannot respond now, reply with a brief status (e.g. "Busy, will reply later").',
-        ...(replyRecipient === 'user'
+        ...(canUseAgentTeamsMessageSend
+          ? [
+              'If neither Agent Teams MCP message_send tool name is available before any visible-message tool attempt, write exactly the concise reply text as normal assistant text so the runtime can relay it.',
+            ]
+          : []),
+        ...(isUserReplyRecipient
           ? [
               'CRITICAL: If the user asks you to check with the lead or another teammate before you can fully answer, FIRST send a short acknowledgement to "user" so the human sees you started (for example: "Принял, сейчас уточню и вернусь с ответом.").',
               'Only after that first acknowledgement may you message the lead or another teammate.',
@@ -2352,35 +2589,47 @@ async function handleGetMessagesPage(
 
   return wrapTeamHandler('getMessagesPage', async () => {
     let page: MessagesPage;
-    const notificationContext = await getTeamDataService().getTeamNotificationContext(vTeam.value!);
+    const teamName = vTeam.value!;
+    const scanNotifications = (messagesPage: MessagesPage): void => {
+      const notificationContextPromise: Promise<{ displayName: string; projectPath?: string }> =
+        getTeamDataService()
+          .getTeamNotificationContext(teamName)
+          .catch(() => ({ displayName: teamName }));
+      void notificationContextPromise
+        .then((notificationContext) => {
+          scanTeamMessageNotifications(
+            messagesPage.messages,
+            teamName,
+            notificationContext.displayName,
+            notificationContext.projectPath
+          );
+        })
+        .catch((error: unknown) => {
+          logger.debug(
+            `[teams:getMessagesPage] notification scan skipped team=${teamName}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        });
+    };
     const liveMessages =
-      cursor == null ? getTeamProvisioningService().getLiveLeadProcessMessages(vTeam.value!) : [];
+      cursor == null ? getTeamProvisioningService().getLiveLeadProcessMessages(teamName) : [];
 
     if (liveMessages.length > 0) {
-      page = await getTeamDataService().getMessagesPage(vTeam.value!, {
+      page = await getTeamDataService().getMessagesPage(teamName, {
         cursor,
         limit,
         liveMessages,
       });
-      scanTeamMessageNotifications(
-        page.messages,
-        vTeam.value!,
-        notificationContext.displayName,
-        notificationContext.projectPath
-      );
+      scanNotifications(page);
       return page;
     }
 
     const worker = getTeamDataWorkerClient();
     if (worker.isAvailable()) {
       try {
-        page = await worker.getMessagesPage(vTeam.value!, { cursor, limit });
-        scanTeamMessageNotifications(
-          page.messages,
-          vTeam.value!,
-          notificationContext.displayName,
-          notificationContext.projectPath
-        );
+        page = await worker.getMessagesPage(teamName, { cursor, limit });
+        scanNotifications(page);
         return page;
       } catch (workerErr) {
         logger.warn(
@@ -2391,13 +2640,8 @@ async function handleGetMessagesPage(
       }
     }
     noteHeavyTeamDataWorkerFallback('teams:getMessagesPage');
-    page = await getTeamDataService().getMessagesPage(vTeam.value!, { cursor, limit });
-    scanTeamMessageNotifications(
-      page.messages,
-      vTeam.value!,
-      notificationContext.displayName,
-      notificationContext.projectPath
-    );
+    page = await getTeamDataService().getMessagesPage(teamName, { cursor, limit });
+    scanNotifications(page);
     return page;
   });
 }
@@ -2657,22 +2901,37 @@ async function handleSendMessage(
       typeof payload.from === 'string' && payload.from.trim().length > 0
         ? payload.from.trim()
         : 'user';
-    const isOpenCodeRecipient =
-      !isLeadRecipient && (await provisioning.isOpenCodeRuntimeRecipient(tn, memberName));
+    const storedFrom = replyRecipient.toLowerCase() === 'user' ? 'user' : replyRecipient;
+    const recipientProviderId = !isLeadRecipient
+      ? await provisioning.resolveRuntimeRecipientProviderId(tn, memberName)
+      : undefined;
+    const isOpenCodeRecipient = recipientProviderId === 'opencode';
+    const directReplyProtocol = resolveVisibleDirectReplyProtocol({
+      isLeadRecipient,
+      replyRecipient,
+      ...(recipientProviderId ? { providerId: recipientProviderId } : {}),
+    });
+    const inboxMessageId =
+      directReplyProtocol === 'agent_teams_message_send' ? crypto.randomUUID() : undefined;
     const memberDeliveryText = buildMessageDeliveryText(baseText, {
       actionMode,
       isLeadRecipient,
+      memberName,
+      protocol: directReplyProtocol,
       replyRecipient,
+      teamName: tn,
+      ...(inboxMessageId ? { messageId: inboxMessageId } : {}),
     });
     const inboxText = isOpenCodeRecipient ? baseText : memberDeliveryText;
     const result = await getTeamDataService().sendMessage(tn, {
       member: memberName,
       text: inboxText,
       summary: payload.summary,
-      from: payload.from,
+      from: storedFrom,
       actionMode,
       source: 'user_sent',
       taskRefs: validatedTaskRefs.value,
+      ...(inboxMessageId ? { messageId: inboxMessageId } : {}),
     });
 
     // Teammate inbox relay DISABLED (2026-03-23).
@@ -2777,6 +3036,30 @@ async function handleSendMessage(
 
     return result;
   });
+}
+
+async function handleGetOpenCodeRuntimeDeliveryStatus(
+  _event: IpcMainInvokeEvent,
+  teamName: unknown,
+  messageId: unknown
+): Promise<IpcResult<OpenCodeRuntimeDeliveryStatus | null>> {
+  const validatedTeamName = validateTeamName(teamName);
+  if (!validatedTeamName.valid) {
+    return { success: false, error: validatedTeamName.error ?? 'Invalid teamName' };
+  }
+  if (typeof messageId !== 'string' || messageId.trim().length === 0) {
+    return { success: false, error: 'messageId must be a non-empty string' };
+  }
+  const safeMessageId = messageId.trim();
+  if (safeMessageId.includes('/') || safeMessageId.includes('\\') || safeMessageId.includes('..')) {
+    return { success: false, error: 'Invalid messageId' };
+  }
+  return wrapTeamHandler('getOpenCodeRuntimeDeliveryStatus', async () =>
+    getTeamProvisioningService().getOpenCodeRuntimeDeliveryStatus(
+      validatedTeamName.value!,
+      safeMessageId
+    )
+  );
 }
 
 async function handleCreateTask(
@@ -3307,8 +3590,8 @@ async function handleCreateConfig(
     });
   }
 
-  return wrapTeamHandler('createConfig', () =>
-    getTeamDataService().createTeamConfig({
+  return wrapTeamHandler('createConfig', async () => {
+    await getTeamDataService().createTeamConfig({
       teamName,
       displayName: payload.displayName?.trim() || undefined,
       description: payload.description?.trim() || undefined,
@@ -3332,8 +3615,9 @@ async function handleCreateConfig(
         typeof payload.extraCliArgs === 'string' && payload.extraCliArgs.trim()
           ? payload.extraCliArgs.trim()
           : undefined,
-    })
-  );
+    });
+    getTeamDataWorkerClient().invalidateTeamConfig(teamName);
+  });
 }
 
 function getTeamMemberLogsFinder(): TeamMemberLogsFinder {
@@ -3643,8 +3927,28 @@ async function handleRestartMember(
   if (!validatedMemberName.valid) {
     return { success: false, error: validatedMemberName.error ?? 'Invalid memberName' };
   }
-  return wrapTeamHandler('restartMember', async () =>
-    getTeamProvisioningService().restartMember(validatedTeamName.value!, validatedMemberName.value!)
+  return wrapTeamHandler('restartMember', async () => {
+    try {
+      await getTeamProvisioningService().restartMember(
+        validatedTeamName.value!,
+        validatedMemberName.value!
+      );
+    } finally {
+      getTeamDataService().invalidateMessageFeed(validatedTeamName.value!);
+    }
+  });
+}
+
+async function handleRetryFailedOpenCodeSecondaryLanes(
+  _event: IpcMainInvokeEvent,
+  teamName: unknown
+): Promise<IpcResult<RetryFailedOpenCodeSecondaryLanesResult>> {
+  const validatedTeamName = validateTeamName(teamName);
+  if (!validatedTeamName.valid) {
+    return { success: false, error: validatedTeamName.error ?? 'Invalid teamName' };
+  }
+  return wrapTeamHandler('retryFailedOpenCodeSecondaryLanes', async () =>
+    getTeamProvisioningService().retryFailedOpenCodeSecondaryLanes(validatedTeamName.value!)
   );
 }
 
@@ -3724,7 +4028,14 @@ async function handleGetAllTasks(_event: IpcMainInvokeEvent): Promise<IpcResult<
   setCurrentMainOp('team:getAllTasks');
   const startedAt = Date.now();
   try {
-    return await wrapTeamHandler('getAllTasks', () => getTeamDataService().getAllTasks());
+    return await wrapTeamHandler('getAllTasks', () => {
+      const loadFresh = () => getTeamDataService().getAllTasks();
+      return launchIoGovernor
+        ? launchIoGovernor.runSummaryOperation('teams:getAllTasks', loadFresh, {
+            clone: cloneLaunchIoGovernorPayload,
+          })
+        : loadFresh();
+    });
   } finally {
     const ms = Date.now() - startedAt;
     if (ms >= 1500) {
@@ -4021,6 +4332,7 @@ async function handleReplaceMembers(
       : [];
 
     await teamDataService.replaceMembers(tn, { members });
+    teamDataService.invalidateMessageFeed(tn);
 
     if (!isTeamAlive) {
       return;
@@ -4324,6 +4636,7 @@ async function handleShowMessageNotification(
       summary: d.summary ?? `${d.from} → ${d.to ?? 'team'}`,
       body: d.body,
       dedupeKey,
+      target: d.target,
       suppressToast: d.suppressToast,
     })
     .catch(() => undefined);

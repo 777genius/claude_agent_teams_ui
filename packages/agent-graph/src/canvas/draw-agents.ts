@@ -264,6 +264,7 @@ function drawLaunchStage(
 
   ctx.save();
   switch (visualState) {
+    case 'queued':
     case 'waiting': {
       const ringR = r + 8 + Math.sin(time * 3.2) * 1.4;
       const pulseAlpha = 0.28 + 0.18 * (0.5 + 0.5 * Math.sin(time * 3.2));
@@ -778,6 +779,7 @@ function truncateSubLabel(ctx: CanvasRenderingContext2D, label: string, r: numbe
 
 function getLaunchStatusColor(visualState: GraphNode['launchVisualState']): string {
   switch (visualState) {
+    case 'queued':
     case 'waiting':
       return hexWithAlpha('#d4d4d8', 0.8);
     case 'spawning':

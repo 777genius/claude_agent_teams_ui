@@ -27,6 +27,7 @@ export type GraphLaunchVisualState =
   | 'registered_only'
   | 'stale_runtime'
   | 'settling'
+  | 'queued'
   | 'error'
   | 'skipped';
 

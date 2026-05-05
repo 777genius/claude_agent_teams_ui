@@ -58,8 +58,10 @@ import type {
   MemberLogSummary,
   MemberSpawnStatusesSnapshot,
   MessagesPage,
+  OpenCodeRuntimeDeliveryStatus,
   ProjectBranchChangeEvent,
   ReplaceMembersRequest,
+  RetryFailedOpenCodeSecondaryLanesResult,
   SendMessageRequest,
   SendMessageResult,
   TaskAttachmentMeta,
@@ -73,6 +75,7 @@ import type {
   TeamCreateConfigRequest,
   TeamCreateRequest,
   TeamCreateResponse,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -440,7 +443,7 @@ export interface HttpServerAPI {
 
 export interface TeamsAPI {
   list: () => Promise<TeamSummary[]>;
-  getData: (teamName: string) => Promise<TeamViewSnapshot>;
+  getData: (teamName: string, options?: TeamGetDataOptions) => Promise<TeamViewSnapshot>;
   getTaskChangePresence: (teamName: string) => Promise<Record<string, TaskChangePresenceState>>;
   setChangePresenceTracking: (teamName: string, enabled: boolean) => Promise<void>;
   setToolActivityTracking: (teamName: string, enabled: boolean) => Promise<void>;
@@ -466,6 +469,10 @@ export interface TeamsAPI {
   getProvisioningStatus: (runId: string) => Promise<TeamProvisioningProgress>;
   cancelProvisioning: (runId: string) => Promise<void>;
   sendMessage: (teamName: string, request: SendMessageRequest) => Promise<SendMessageResult>;
+  getOpenCodeRuntimeDeliveryStatus: (
+    teamName: string,
+    messageId: string
+  ) => Promise<OpenCodeRuntimeDeliveryStatus | null>;
   getMessagesPage: (
     teamName: string,
     options?: { cursor?: string | null; limit?: number }
@@ -554,6 +561,9 @@ export interface TeamsAPI {
   getLeadContext: (teamName: string) => Promise<LeadContextUsageSnapshot>;
   getMemberSpawnStatuses: (teamName: string) => Promise<MemberSpawnStatusesSnapshot>;
   getTeamAgentRuntime: (teamName: string) => Promise<TeamAgentRuntimeSnapshot>;
+  retryFailedOpenCodeSecondaryLanes: (
+    teamName: string
+  ) => Promise<RetryFailedOpenCodeSecondaryLanesResult>;
   restartMember: (teamName: string, memberName: string) => Promise<void>;
   skipMemberForLaunch: (teamName: string, memberName: string) => Promise<void>;
   softDeleteTask: (teamName: string, taskId: string) => Promise<void>;

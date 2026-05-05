@@ -32,11 +32,18 @@ import {
 } from '../../../../src/main/utils/pathDecoder';
 import { createPersistedLaunchSnapshot } from '../../../../src/main/services/team/TeamLaunchStateEvaluator';
 import {
+  getOpenCodeRuntimeManifestPath,
   getOpenCodeRuntimeLaneIndexPath,
   readOpenCodeRuntimeLaneIndex,
   setOpenCodeRuntimeActiveRunManifest,
   upsertOpenCodeRuntimeLaneIndexEntry,
 } from '../../../../src/main/services/team/opencode/store/OpenCodeRuntimeManifestEvidenceReader';
+import {
+  createRuntimeStoreManifestStore,
+  createRuntimeStoreReceiptStore,
+  OPENCODE_RUNTIME_STORE_DESCRIPTORS,
+  RuntimeStoreBatchWriter,
+} from '../../../../src/main/services/team/opencode/store/RuntimeStoreManifest';
 
 import type { TeamProvisioningProgress } from '../../../../src/shared/types';
 
@@ -9921,6 +9928,7 @@ describe('Team agent launch matrix safe e2e', () => {
     addGeminiPrimaryToMixedRun(currentRun);
     staleRun.runId = `run-${teamName}-stale`;
     currentRun.runId = `run-${teamName}-current`;
+    markMixedOpenCodeLaneConfirmedForTest(currentRun, 'bob');
     trackLiveRun(svc, staleRun);
     trackLiveRun(svc, currentRun);
 
@@ -9990,6 +9998,7 @@ describe('Team agent launch matrix safe e2e', () => {
     addGeminiPrimaryToMixedRun(secondRun);
     firstRun.child = { stdin: { writable: true } };
     secondRun.child = { stdin: { writable: true } };
+    markMixedOpenCodeLaneConfirmedForTest(secondRun, 'bob');
     trackLiveRun(svc, firstRun);
     trackLiveRun(svc, secondRun);
 
@@ -10268,6 +10277,7 @@ describe('Team agent launch matrix safe e2e', () => {
     const currentRun = createMixedLiveRun({ teamName, projectPath, primaryProviderId: 'anthropic' });
     addGeminiPrimaryToMixedRun(currentRun);
     currentRun.runId = `run-${teamName}-current`;
+    markMixedOpenCodeLaneConfirmedForTest(currentRun, 'bob');
     trackLiveRun(svc, currentRun);
     injectStaleTerminalProvisioningRun(svc, teamName, `run-${teamName}-stale`);
 
@@ -11181,7 +11191,7 @@ describe('Team agent launch matrix safe e2e', () => {
     });
   });
 
-  it('recovers a missing mixed OpenCode lane index from materialized persisted runtime evidence before direct delivery', async () => {
+  it('recovers a missing mixed OpenCode lane index from materialized persisted runtime evidence but blocks direct delivery until bootstrap', async () => {
     const teamName = 'mixed-opencode-direct-message-recovers-missing-lane-safe-e2e';
     await writeMixedTeamConfig({ teamName, projectPath });
     await writeTeamMeta(teamName, projectPath);
@@ -11268,8 +11278,11 @@ describe('Team agent launch matrix safe e2e', () => {
         messageId: 'msg-recovered-missing-lane-bob',
       })
     ).resolves.toEqual({
-      delivered: true,
-      diagnostics: [],
+      delivered: false,
+      reason: 'opencode_runtime_not_active',
+      diagnostics: [
+        'OpenCode runtime bootstrap is not confirmed for bob. Message was saved and will be retried after runtime check-in.',
+      ],
     });
 
     expect(adapter.reconcileInputs).toHaveLength(1);
@@ -11287,15 +11300,7 @@ describe('Team agent launch matrix safe e2e', () => {
         },
       }
     );
-    expect(adapter.messageInputs).toHaveLength(1);
-    expect(adapter.messageInputs[0]).toMatchObject({
-      teamName,
-      laneId: 'secondary:opencode:bob',
-      memberName: 'bob',
-      cwd: projectPath,
-      text: 'recovered bob receives direct message',
-      messageId: 'msg-recovered-missing-lane-bob',
-    });
+    expect(adapter.messageInputs).toEqual([]);
   });
 
   it('recovers a missing mixed OpenCode lane index from confirmed-alive persisted runtime evidence before direct delivery', async () => {
@@ -11353,6 +11358,13 @@ describe('Team agent launch matrix safe e2e', () => {
     );
     const adapter = new FakeOpenCodeRuntimeAdapter('clean_success', {
       bob: 'confirmed',
+    });
+    await writeOpenCodeBootstrapSessionEvidenceForTest({
+      teamName,
+      laneId: 'secondary:opencode:bob',
+      memberName: 'bob',
+      runId: null,
+      sessionId: 'ses_bob_confirmed_materialized',
     });
     await writeAliveProcessRegistry(teamName);
     const restartedService = new TeamProvisioningService();
@@ -12641,6 +12653,7 @@ describe('Team agent launch matrix safe e2e', () => {
     svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
     const run = createMixedLiveRun({ teamName, projectPath, primaryProviderId: 'anthropic' });
     addGeminiPrimaryToMixedRun(run);
+    markMixedOpenCodeLaneConfirmedForTest(run, 'tom');
     trackLiveRun(svc, run);
 
     await expect(
@@ -12696,6 +12709,7 @@ describe('Team agent launch matrix safe e2e', () => {
     svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
     const run = createMixedLiveRun({ teamName, projectPath, primaryProviderId: 'anthropic' });
     addGeminiPrimaryToMixedRun(run);
+    markMixedOpenCodeLaneConfirmedForTest(run, 'bob');
     trackLiveRun(svc, run);
 
     await expect(
@@ -14796,7 +14810,7 @@ describe('Team agent launch matrix safe e2e', () => {
     expect(adapter.launchInputs).toHaveLength(0);
     expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
       'launching',
-      'launching',
+      'queued',
     ]);
     expect(run.mixedSecondaryLanes.map((lane: { runId: string | null }) => lane.runId)).toEqual(
       firstLaneRunIds
@@ -14847,7 +14861,7 @@ describe('Team agent launch matrix safe e2e', () => {
     expect(adapter.launchInputs).toHaveLength(0);
     expect(run.mixedSecondaryLanes.map((lane: { state: string }) => lane.state)).toEqual([
       'launching',
-      'launching',
+      'queued',
     ]);
     expect(run.mixedSecondaryLanes.map((lane: { runId: string | null }) => lane.runId)).toEqual(
       firstLaneRunIds
@@ -17105,6 +17119,7 @@ async function upsertActiveOpenCodeRuntimeLaneForTest(input: {
   runId?: string | null;
   diagnostics?: string[];
 }): Promise<void> {
+  const runId = input.runId ?? null;
   await upsertOpenCodeRuntimeLaneIndexEntry({
     teamsBasePath: getTeamsBasePath(),
     teamName: input.teamName,
@@ -17116,7 +17131,76 @@ async function upsertActiveOpenCodeRuntimeLaneForTest(input: {
     teamsBasePath: getTeamsBasePath(),
     teamName: input.teamName,
     laneId: input.laneId,
-    runId: input.runId ?? null,
+    runId,
+  });
+  await writeOpenCodeBootstrapSessionEvidenceForTest({
+    teamName: input.teamName,
+    laneId: input.laneId,
+    runId,
+  });
+}
+
+async function writeOpenCodeBootstrapSessionEvidenceForTest(input: {
+  teamName: string;
+  laneId: string;
+  runId?: string | null;
+  memberName?: string;
+  sessionId?: string;
+}): Promise<void> {
+  const runId = input.runId ?? null;
+  const descriptor = OPENCODE_RUNTIME_STORE_DESCRIPTORS.find(
+    (candidate) => candidate.schemaName === 'opencode.sessionStore'
+  );
+  if (!descriptor) {
+    throw new Error('OpenCode session store descriptor missing');
+  }
+  const manifestPath = getOpenCodeRuntimeManifestPath(
+    getTeamsBasePath(),
+    input.teamName,
+    input.laneId
+  );
+  const runtimeDirectory = path.dirname(manifestPath);
+  await fs.mkdir(runtimeDirectory, { recursive: true });
+  const memberName = input.memberName ?? input.laneId.split(':').at(-1) ?? input.laneId;
+  const writer = new RuntimeStoreBatchWriter(
+    runtimeDirectory,
+    createRuntimeStoreManifestStore({
+      filePath: manifestPath,
+      teamName: input.teamName,
+    }),
+    createRuntimeStoreReceiptStore({
+      filePath: path.join(runtimeDirectory, 'opencode-runtime-receipts.json'),
+    }),
+    {
+      clock: () => new Date('2026-04-23T10:00:00.000Z'),
+      batchIdFactory: () => `batch-${input.teamName}-${input.laneId}`,
+      receiptIdFactory: () => `receipt-${input.teamName}-${input.laneId}`,
+    }
+  );
+  await writer.writeBatch({
+    teamName: input.teamName,
+    runId,
+    capabilitySnapshotId: null,
+    behaviorFingerprint: null,
+    reason: 'launch_checkpoint',
+    writes: [
+      {
+        descriptor,
+        data: {
+          sessions: [
+            {
+              id: input.sessionId ?? `ses-${input.teamName}-${input.laneId}`,
+              teamName: input.teamName,
+              memberName,
+              laneId: input.laneId,
+              runId,
+              observedAt: '2026-04-23T10:00:00.000Z',
+              source: 'runtime_bootstrap_checkin',
+            },
+          ],
+        },
+      },
+    ],
   });
 }
 
@@ -17288,6 +17372,42 @@ function createMixedLiveRun(input: {
     mcpConfigPath: null,
     bootstrapSpecPath: null,
     bootstrapUserPromptPath: null,
+  };
+}
+
+function markMixedOpenCodeLaneConfirmedForTest(run: any, memberName: string): void {
+  const now = '2026-04-23T10:00:00.000Z';
+  const laneId = `secondary:opencode:${memberName}`;
+  const lane = run.mixedSecondaryLanes?.find((candidate: any) => candidate.laneId === laneId);
+  if (!lane) {
+    throw new Error(`Missing mixed OpenCode lane fixture for ${memberName}`);
+  }
+  lane.runId = run.runId;
+  lane.state = 'active';
+  lane.result = {
+    runId: run.runId,
+    teamName: run.teamName,
+    launchPhase: 'reconciled',
+    teamLaunchState: 'clean_success',
+    members: {
+      [memberName]: {
+        memberName,
+        providerId: 'opencode',
+        launchState: 'confirmed_alive',
+        agentToolAccepted: true,
+        runtimeAlive: true,
+        bootstrapConfirmed: true,
+        hardFailure: false,
+        sessionId: `session-${memberName}`,
+        runtimePid: 10_000,
+        livenessKind: 'confirmed_bootstrap',
+        pidSource: 'opencode_bridge',
+        diagnostics: ['fake OpenCode launch ready'],
+        lastEvaluatedAt: now,
+      },
+    },
+    warnings: [],
+    diagnostics: ['fake OpenCode launch ready'],
   };
 }
 

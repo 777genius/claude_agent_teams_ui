@@ -44,7 +44,7 @@
     {
       "id": "isFree",
       "question": "¿Es realmente gratis?",
-      "answer": "Sí. La app es 100% gratuita y de código abierto. La app no tiene un plan de pago propio. Para ejecutar agentes solo necesitas acceso a un proveedor/runtime compatible, como Anthropic o Codex."
+      "answer": "Sí. La app es gratuita y de código abierto. La app no tiene un plan de pago propio. Para ejecutar agentes solo necesitas acceso a un proveedor/runtime compatible, como Anthropic o Codex."
     },
     {
       "id": "platforms",
@@ -82,9 +82,9 @@
   "pricing": [
     {
       "id": "free",
-      "name": "Gratis para siempre",
+      "name": "Gratis",
       "price": "$0",
-      "period": "para siempre",
+      "period": "",
       "description": "Todo incluido. Sin límites, sin claves API, sin tarjeta de crédito.",
       "features": [
         "Equipos de agentes ilimitados",

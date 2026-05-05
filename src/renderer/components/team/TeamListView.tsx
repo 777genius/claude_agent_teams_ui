@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { recordRecentProjectOpenPaths } from '@features/recent-projects/renderer';
 import { api, isElectronMode } from '@renderer/api';
@@ -45,8 +45,6 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { CreateTeamDialog } from './dialogs/CreateTeamDialog';
-import { LaunchTeamDialog } from './dialogs/LaunchTeamDialog';
 import { TeamEmptyState } from './TeamEmptyState';
 import { EMPTY_TEAM_FILTER, TeamListFilterPopover } from './TeamListFilterPopover';
 import {
@@ -66,6 +64,13 @@ import type {
   TeamSummary,
   TeamSummaryMember,
 } from '@shared/types';
+
+const CreateTeamDialog = lazy(() =>
+  import('./dialogs/CreateTeamDialog').then((m) => ({ default: m.CreateTeamDialog }))
+);
+const LaunchTeamDialog = lazy(() =>
+  import('./dialogs/LaunchTeamDialog').then((m) => ({ default: m.LaunchTeamDialog }))
+);
 
 function generateUniqueName(sourceName: string, existingNames: string[]): string {
   const base = sourceName.replace(/-\d+$/, '');
@@ -233,7 +238,7 @@ const StatusBadge = ({ status }: { status: TeamStatus }): React.JSX.Element => {
   }
 };
 
-export const TeamListView = (): React.JSX.Element => {
+export const TeamListView = memo(function TeamListView(): React.JSX.Element {
   const { isLight } = useTheme();
   const electronMode = isElectronMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -596,7 +601,9 @@ export const TeamListView = (): React.JSX.Element => {
       e.stopPropagation();
       void (async () => {
         try {
-          const data = await api.teams.getData(teamName);
+          const data = await api.teams.getData(teamName, {
+            includeMemberBranches: false,
+          });
           const existingNames = teams.map((t) => t.teamName);
           const uniqueName = generateUniqueName(teamName, existingNames);
           const members = (data.members ?? [])
@@ -648,7 +655,9 @@ export const TeamListView = (): React.JSX.Element => {
       e.stopPropagation();
       if (!projectPath) return;
       try {
-        const data = await api.teams.getData(teamName);
+        const data = await api.teams.getData(teamName, {
+          includeMemberBranches: false,
+        });
         setLaunchDialogTeamName(teamName);
         setLaunchDialogMembers(resolveLaunchDialogMembers(data.members ?? []));
         setLaunchDialogDefaultPath(data.config.projectPath ?? projectPath);
@@ -731,36 +740,40 @@ export const TeamListView = (): React.JSX.Element => {
     );
   }
 
-  const createDialogElement = (
-    <CreateTeamDialog
-      open={showCreateDialog}
-      canCreate={canCreate}
-      provisioningErrorsByTeam={provisioningErrorByTeam}
-      clearProvisioningError={clearProvisioningError}
-      existingTeamNames={teams.map((t) => t.teamName)}
-      provisioningTeamNames={provisioningTeamNames}
-      activeTeams={activeTeams}
-      initialData={copyData ?? undefined}
-      defaultProjectPath={currentProjectPath}
-      onClose={handleCreateDialogClose}
-      onCreate={handleCreateSubmit}
-      onOpenTeam={openTeamTab}
-    />
+  const createDialogElement = showCreateDialog && (
+    <Suspense fallback={null}>
+      <CreateTeamDialog
+        open={showCreateDialog}
+        canCreate={canCreate}
+        provisioningErrorsByTeam={provisioningErrorByTeam}
+        clearProvisioningError={clearProvisioningError}
+        existingTeamNames={teams.map((t) => t.teamName)}
+        provisioningTeamNames={provisioningTeamNames}
+        activeTeams={activeTeams}
+        initialData={copyData ?? undefined}
+        defaultProjectPath={currentProjectPath}
+        onClose={handleCreateDialogClose}
+        onCreate={handleCreateSubmit}
+        onOpenTeam={openTeamTab}
+      />
+    </Suspense>
   );
 
-  const launchDialogElement = (
-    <LaunchTeamDialog
-      mode="launch"
-      open={launchDialogOpen}
-      teamName={launchDialogTeamName}
-      members={launchDialogMembers}
-      defaultProjectPath={launchDialogDefaultPath}
-      provisioningError={provisioningErrorByTeam[launchDialogTeamName] ?? null}
-      clearProvisioningError={clearProvisioningError}
-      activeTeams={activeTeams}
-      onClose={() => setLaunchDialogOpen(false)}
-      onLaunch={handleLaunchSubmit}
-    />
+  const launchDialogElement = launchDialogOpen && (
+    <Suspense fallback={null}>
+      <LaunchTeamDialog
+        mode="launch"
+        open={launchDialogOpen}
+        teamName={launchDialogTeamName}
+        members={launchDialogMembers}
+        defaultProjectPath={launchDialogDefaultPath}
+        provisioningError={provisioningErrorByTeam[launchDialogTeamName] ?? null}
+        clearProvisioningError={clearProvisioningError}
+        activeTeams={activeTeams}
+        onClose={() => setLaunchDialogOpen(false)}
+        onLaunch={handleLaunchSubmit}
+      />
+    </Suspense>
   );
 
   const renderHeader = (): React.JSX.Element => (
@@ -1177,4 +1190,4 @@ export const TeamListView = (): React.JSX.Element => {
       </div>
     </TooltipProvider>
   );
-};
+});

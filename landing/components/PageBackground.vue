@@ -26,8 +26,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(var(--at-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--at-grid-line) 1px, transparent 1px);
   background-size: 60px 60px;
   z-index: 1;
 }
@@ -40,8 +40,8 @@
     0deg,
     transparent,
     transparent 2px,
-    rgba(0, 240, 255, 0.008) 2px,
-    rgba(0, 240, 255, 0.008) 4px
+    var(--at-scanline) 2px,
+    var(--at-scanline) 4px
   );
   z-index: 2;
 }
@@ -56,7 +56,7 @@
 .page-bg__orb--1 {
   width: 900px;
   height: 900px;
-  background: #00f0ff;
+  background: var(--at-c-cyan);
   top: -200px;
   right: -150px;
   animation: orbDrift1 20s ease-in-out infinite;
@@ -65,7 +65,7 @@
 .page-bg__orb--2 {
   width: 700px;
   height: 700px;
-  background: #ff00ff;
+  background: var(--at-c-magenta);
   top: 300px;
   left: -200px;
   animation: orbDrift2 25s ease-in-out infinite;
@@ -74,7 +74,7 @@
 .page-bg__orb--3 {
   width: 800px;
   height: 800px;
-  background: #39ff14;
+  background: var(--at-c-green);
   top: 1200px;
   right: -100px;
   opacity: 0.05;
@@ -84,7 +84,7 @@
 .page-bg__orb--4 {
   width: 700px;
   height: 700px;
-  background: #00f0ff;
+  background: var(--at-c-cyan);
   top: 2100px;
   left: -150px;
   opacity: 0.06;
@@ -94,7 +94,7 @@
 .page-bg__orb--5 {
   width: 750px;
   height: 750px;
-  background: #ff00ff;
+  background: var(--at-c-magenta);
   top: 2900px;
   right: -120px;
   opacity: 0.05;
@@ -104,7 +104,7 @@
 .page-bg__orb--6 {
   width: 700px;
   height: 700px;
-  background: #ffd700;
+  background: var(--at-c-gold);
   top: 3600px;
   left: -100px;
   opacity: 0.04;
@@ -114,7 +114,7 @@
 .page-bg__orb--7 {
   width: 650px;
   height: 650px;
-  background: #00f0ff;
+  background: var(--at-c-cyan);
   top: 4300px;
   right: -80px;
   opacity: 0.05;

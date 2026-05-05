@@ -1,7 +1,12 @@
 <script setup lang="ts">
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const { repoUrl } = useGithubRepo();
+const { baseURL } = useRuntimeConfig().app;
 const year = new Date().getFullYear();
+const docsHref = computed(() => {
+  const base = baseURL.replace(/\/?$/, '/');
+  return `${base}${locale.value === 'ru' ? 'docs/ru/' : 'docs/'}`;
+});
 </script>
 
 <template>
@@ -14,6 +19,8 @@ const year = new Date().getFullYear();
         <a class="app-footer__link" href="https://github.com/777genius" target="_blank">Author</a>
         <span class="app-footer__divider" />
         <a class="app-footer__link" :href="repoUrl" target="_blank">GitHub</a>
+        <span class="app-footer__divider" />
+        <a class="app-footer__link" :href="docsHref">{{ t('footer.links.docs') }}</a>
       </div>
     </v-container>
   </footer>
@@ -21,7 +28,7 @@ const year = new Date().getFullYear();
 
 <style scoped>
 .app-footer {
-  border-top: 1px solid rgba(0, 240, 255, 0.08);
+  border-top: 1px solid var(--at-c-border);
   padding: 20px 0;
 }
 
@@ -34,7 +41,7 @@ const year = new Date().getFullYear();
 .app-footer__copy {
   font-size: 13px;
   opacity: 0.5;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--at-font-mono);
 }
 
 .app-footer__links {
@@ -44,12 +51,12 @@ const year = new Date().getFullYear();
 }
 
 .app-footer__link {
-  color: #00f0ff;
+  color: var(--at-c-cyan);
   text-decoration: none;
   font-size: 13px;
   opacity: 0.7;
   transition: opacity 0.2s ease;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--at-font-mono);
 }
 
 .app-footer__link:hover {
@@ -59,11 +66,11 @@ const year = new Date().getFullYear();
 .app-footer__divider {
   width: 1px;
   height: 14px;
-  background: rgba(0, 240, 255, 0.2);
+  background: var(--at-c-border-strong);
 }
 
 .v-theme--light .app-footer {
-  border-top-color: rgba(0, 0, 0, 0.08);
+  border-top-color: var(--at-c-border);
 }
 
 @media (max-width: 600px) {

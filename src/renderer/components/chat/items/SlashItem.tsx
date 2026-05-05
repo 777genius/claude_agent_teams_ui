@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 
 import { Slash } from 'lucide-react';
 
@@ -34,48 +34,52 @@ interface SlashItemProps {
  * - MCP commands
  * - User-defined commands
  */
-export const SlashItem: React.FC<SlashItemProps> = ({
-  slash,
-  onClick,
-  isExpanded,
-  timestamp,
-  timestampFormat,
-  highlightClasses,
-  highlightStyle,
-  notificationDotColor,
-  titleText,
-}) => {
-  const hasInstructions = !!slash.instructions;
+export const SlashItem = memo(
+  ({
+    slash,
+    onClick,
+    isExpanded,
+    timestamp,
+    timestampFormat,
+    highlightClasses,
+    highlightStyle,
+    notificationDotColor,
+    titleText,
+  }: SlashItemProps): React.JSX.Element => {
+    const hasInstructions = !!slash.instructions;
 
-  // Display args or message as the description
-  const description = slash.args ?? slash.message;
+    // Display args or message as the description
+    const description = slash.args ?? slash.message;
 
-  return (
-    <BaseItem
-      icon={<Slash className="size-4" />}
-      label={`/${slash.name}`}
-      summary={description}
-      tokenCount={slash.instructionsTokenCount}
-      tokenLabel="tokens"
-      status={hasInstructions ? 'ok' : undefined}
-      timestamp={timestamp}
-      timestampFormat={timestampFormat}
-      titleText={titleText}
-      onClick={onClick}
-      isExpanded={isExpanded}
-      hasExpandableContent={hasInstructions}
-      highlightClasses={highlightClasses}
-      highlightStyle={highlightStyle}
-      notificationDotColor={notificationDotColor}
-    >
-      {hasInstructions && (
-        <MarkdownViewer
-          content={slash.instructions!}
-          label="Slash Output"
-          maxHeight="max-h-96"
-          copyable
-        />
-      )}
-    </BaseItem>
-  );
-};
+    return (
+      <BaseItem
+        icon={<Slash className="size-4" />}
+        label={`/${slash.name}`}
+        summary={description}
+        tokenCount={slash.instructionsTokenCount}
+        tokenLabel="tokens"
+        status={hasInstructions ? 'ok' : undefined}
+        timestamp={timestamp}
+        timestampFormat={timestampFormat}
+        titleText={titleText}
+        onClick={onClick}
+        isExpanded={isExpanded}
+        hasExpandableContent={hasInstructions}
+        highlightClasses={highlightClasses}
+        highlightStyle={highlightStyle}
+        notificationDotColor={notificationDotColor}
+      >
+        {hasInstructions && (
+          <MarkdownViewer
+            content={slash.instructions!}
+            label="Slash Output"
+            maxHeight="max-h-96"
+            copyable
+          />
+        )}
+      </BaseItem>
+    );
+  }
+);
+
+SlashItem.displayName = 'SlashItem';

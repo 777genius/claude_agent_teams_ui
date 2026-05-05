@@ -83,6 +83,80 @@ describe('memberHelpers spawn-aware presence', () => {
     ).toBe('starting');
   });
 
+  it('labels queued OpenCode lanes separately from active startup', () => {
+    const openCodeMember: ResolvedTeamMember = { ...member, providerId: 'opencode' };
+
+    expect(
+      buildMemberLaunchPresentation({
+        member: openCodeMember,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'starting',
+        spawnLivenessSource: undefined,
+        spawnRuntimeAlive: false,
+        runtimeAdvisory: undefined,
+        isLaunchSettling: true,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'queued',
+      launchVisualState: 'queued',
+      launchStatusLabel: 'queued',
+      dotClass: expect.stringContaining('bg-zinc-400'),
+    });
+  });
+
+  it('does not label non-OpenCode waiting lanes as queued', () => {
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'starting',
+        spawnLivenessSource: undefined,
+        spawnRuntimeAlive: false,
+        runtimeAdvisory: undefined,
+        isLaunchSettling: true,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'starting',
+      launchVisualState: 'waiting',
+      launchStatusLabel: 'waiting to start',
+    });
+  });
+
+  it('keeps OpenCode runtime evidence states more specific than queued', () => {
+    const openCodeMember: ResolvedTeamMember = { ...member, providerId: 'opencode' };
+
+    expect(
+      buildMemberLaunchPresentation({
+        member: openCodeMember,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'starting',
+        spawnLivenessSource: undefined,
+        spawnRuntimeAlive: false,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          providerId: 'opencode',
+          livenessKind: 'registered_only',
+          runtimeDiagnostic: 'registered runtime metadata without live process',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: true,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'registered',
+      launchVisualState: 'registered_only',
+      launchStatusLabel: 'registered',
+    });
+  });
+
   it('keeps starting visuals after provisioning already transitioned out of active state', () => {
     expect(
       getSpawnAwarePresenceLabel(
@@ -229,6 +303,26 @@ describe('memberHelpers spawn-aware presence', () => {
     expect(permissionPending.cardClass).toContain('member-waiting-shimmer');
   });
 
+  it('surfaces bootstrap-stalled OpenCode teammates as actionable pending state', () => {
+    const bootstrapStalled = buildMemberLaunchPresentation({
+      member: { ...member, providerId: 'opencode' },
+      spawnStatus: 'waiting',
+      spawnLaunchState: 'runtime_pending_bootstrap',
+      spawnLivenessSource: undefined,
+      spawnRuntimeAlive: true,
+      spawnBootstrapStalled: true,
+      runtimeAdvisory: undefined,
+      isLaunchSettling: false,
+      isTeamAlive: true,
+      isTeamProvisioning: false,
+    });
+
+    expect(bootstrapStalled.presenceLabel).toBe('bootstrap stalled');
+    expect(bootstrapStalled.launchVisualState).toBe('bootstrap_stalled');
+    expect(bootstrapStalled.launchStatusLabel).toBe('bootstrap stalled');
+    expect(bootstrapStalled.dotClass).toContain('bg-amber-400');
+  });
+
   it('surfaces strict runtime liveness diagnostics as launch labels', () => {
     expect(
       buildMemberLaunchPresentation({
@@ -291,6 +385,7 @@ describe('memberHelpers spawn-aware presence', () => {
         spawnLaunchState: 'confirmed_alive',
         spawnLivenessSource: 'process',
         spawnRuntimeAlive: true,
+        spawnBootstrapConfirmed: true,
         runtimeEntry: {
           memberName: 'alice',
           alive: false,
@@ -305,10 +400,38 @@ describe('memberHelpers spawn-aware presence', () => {
         isTeamProvisioning: false,
       })
     ).toMatchObject({
-      presenceLabel: 'registered',
-      launchVisualState: 'registered_only',
-      launchStatusLabel: 'registered',
-      dotClass: expect.stringContaining('bg-zinc-400'),
+      presenceLabel: 'online',
+      launchVisualState: null,
+      launchStatusLabel: null,
+      dotClass: expect.stringContaining('bg-emerald-400'),
+    });
+
+    expect(
+      buildMemberLaunchPresentation({
+        member,
+        spawnStatus: 'waiting',
+        spawnLaunchState: 'confirmed_alive',
+        spawnLivenessSource: 'process',
+        spawnRuntimeAlive: true,
+        spawnBootstrapConfirmed: true,
+        runtimeEntry: {
+          memberName: 'alice',
+          alive: false,
+          restartable: true,
+          livenessKind: 'registered_only',
+          runtimeDiagnostic: 'registered runtime metadata without live process',
+          updatedAt: '2026-04-24T12:00:00.000Z',
+        },
+        runtimeAdvisory: undefined,
+        isLaunchSettling: false,
+        isTeamAlive: true,
+        isTeamProvisioning: false,
+      })
+    ).toMatchObject({
+      presenceLabel: 'online',
+      launchVisualState: null,
+      launchStatusLabel: null,
+      dotClass: expect.stringContaining('bg-emerald-400'),
     });
   });
 

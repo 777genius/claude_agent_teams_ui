@@ -114,6 +114,30 @@ describe('resolveMemberRuntimeSummary', () => {
     );
   });
 
+  it('hides stale runtime memory when the spawn state is explicitly offline', () => {
+    const member = createMember({ model: 'gpt-5.4-mini' });
+    const spawnEntry = createSpawnEntry({
+      status: 'offline',
+      launchState: 'failed_to_start',
+      runtimeAlive: false,
+      bootstrapConfirmed: false,
+    });
+    const runtimeEntry = {
+      memberName: 'alice',
+      alive: true,
+      restartable: false,
+      providerId: 'opencode',
+      pid: 333,
+      pidSource: 'opencode_bridge',
+      rssBytes: 97.3 * 1024 * 1024,
+      updatedAt: '2026-04-24T12:00:00.000Z',
+    };
+
+    expect(resolveMemberRuntimeSummary(member, undefined, spawnEntry, runtimeEntry as never)).toBe(
+      '5.4 Mini · Medium · Codex'
+    );
+  });
+
   it('keeps the persisted backend lane visible in the runtime summary', () => {
     const member = createMember({ model: 'gpt-5.4-mini' });
 

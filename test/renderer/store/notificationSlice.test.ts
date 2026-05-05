@@ -502,6 +502,74 @@ describe('notificationSlice', () => {
         expect(tabs).toHaveLength(1);
         expect(tabs[0].type).toBe('team');
       });
+
+      it('should open global task detail for task notification targets', () => {
+        const teamError = createMockError({
+          sessionId: 'team:delta-team',
+          source: 'task_comment',
+          category: 'team' as never,
+          teamEventType: 'task_comment' as never,
+          target: {
+            kind: 'task',
+            teamName: 'delta-team',
+            taskId: 'task-123',
+            commentId: 'comment-456',
+            focus: 'comments',
+          },
+        });
+
+        store.getState().navigateToError(teamError);
+
+        expect(store.getState().globalTaskDetail).toEqual({
+          teamName: 'delta-team',
+          taskId: 'task-123',
+          commentId: 'comment-456',
+        });
+      });
+
+      it('should open team-scoped member profile for member notification targets', () => {
+        const teamError = createMockError({
+          sessionId: 'team:epsilon-team',
+          source: 'rate_limit',
+          category: 'team' as never,
+          teamEventType: 'rate_limit' as never,
+          target: {
+            kind: 'member',
+            teamName: 'epsilon-team',
+            memberName: 'tom',
+            focus: 'logs',
+          },
+        });
+
+        store.getState().navigateToError(teamError);
+
+        expect(store.getState().pendingMemberProfile).toEqual({
+          teamName: 'epsilon-team',
+          memberName: 'tom',
+          focus: 'logs',
+        });
+      });
+
+      it('should focus a team section for team notification targets', () => {
+        const teamError = createMockError({
+          sessionId: 'team:zeta-team',
+          source: 'team_launch_incomplete',
+          category: 'team' as never,
+          teamEventType: 'team_launch_incomplete' as never,
+          target: {
+            kind: 'team',
+            teamName: 'zeta-team',
+            section: 'members',
+          },
+        });
+
+        store.getState().navigateToError(teamError);
+
+        expect(store.getState().pendingTeamSectionFocus).toEqual({
+          teamName: 'zeta-team',
+          section: 'members',
+        });
+      });
     });
 
     describe('existing tab behavior', () => {

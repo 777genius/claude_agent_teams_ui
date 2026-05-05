@@ -1,10 +1,9 @@
-import { getClaudeBasePath, getTeamsBasePath } from '@main/utils/pathDecoder';
+import { getClaudeBasePath } from '@main/utils/pathDecoder';
 import { CROSS_TEAM_SENT_SOURCE, CROSS_TEAM_SOURCE, formatCrossTeamText } from '@shared/constants';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
 import * as agentTeamsControllerModule from 'agent-teams-controller';
 import { randomUUID } from 'crypto';
-import * as fs from 'fs';
 
 import { buildActionModeAgentBlock } from './actionModeInstructions';
 import { CascadeGuard } from './CascadeGuard';
@@ -117,8 +116,11 @@ export class CrossTeamService {
       throw new Error(`Target team not found: ${toTeam}`);
     }
 
-    // 2. Resolve lead
-    const leadName = (await this.dataService.getLeadMemberName(toTeam)) ?? 'team-lead';
+    // 2. Resolve lead. Reuse the verified target config before falling back to meta storage.
+    const leadName =
+      targetConfig.members?.find((m) => isLeadMember(m))?.name?.trim() ||
+      (await this.dataService.getLeadMemberName(toTeam)) ||
+      'team-lead';
 
     // 3. Format
     const from = `${fromTeam}.${fromMember}`;
@@ -203,39 +205,34 @@ export class CrossTeamService {
   }
 
   async listAvailableTargets(excludeTeam?: string): Promise<CrossTeamTarget[]> {
-    const teamsDir = getTeamsBasePath();
-    let entries: string[];
+    let teams: Awaited<ReturnType<TeamDataService['listTeams']>>;
     try {
-      entries = await fs.promises.readdir(teamsDir);
+      teams = await this.dataService.listTeams();
     } catch {
       return [];
     }
 
-    const targets: CrossTeamTarget[] = [];
-    for (const entry of entries) {
-      if (excludeTeam && entry === excludeTeam) continue;
-      if (!TEAM_NAME_PATTERN.test(entry)) continue;
-
-      let config: TeamConfig | null;
-      try {
-        config = await this.configReader.getConfig(entry);
-      } catch {
-        continue;
-      }
-      if (!config || config.deletedAt) continue;
-
-      const lead = config.members?.find((m) => isLeadMember(m));
-
-      targets.push({
-        teamName: entry,
-        displayName: config.name || entry,
-        description: config.description,
-        color: config.color,
-        leadName: lead?.name,
-        leadColor: lead?.color,
-        isOnline: this.provisioning?.isTeamAlive(entry) ?? false,
+    const targets: CrossTeamTarget[] = teams
+      .filter((team) => {
+        if (excludeTeam && team.teamName === excludeTeam) return false;
+        if (!TEAM_NAME_PATTERN.test(team.teamName)) return false;
+        return !team.deletedAt && !team.pendingCreate;
+      })
+      .map((team) => {
+        const summaryLead =
+          team.leadName || team.leadColor
+            ? { name: team.leadName, color: team.leadColor }
+            : team.members?.find((member) => isLeadMember(member));
+        return {
+          teamName: team.teamName,
+          displayName: team.displayName || team.teamName,
+          description: team.description,
+          color: team.color,
+          ...(summaryLead?.name ? { leadName: summaryLead.name } : {}),
+          ...(summaryLead?.color ? { leadColor: summaryLead.color } : {}),
+          isOnline: this.provisioning?.isTeamAlive(team.teamName) ?? false,
+        };
       });
-    }
 
     return targets.sort((a, b) => {
       if (a.isOnline && !b.isOnline) return -1;

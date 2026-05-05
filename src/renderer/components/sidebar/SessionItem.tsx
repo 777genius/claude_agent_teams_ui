@@ -4,7 +4,7 @@
  * Supports right-click context menu for pane management.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { ProviderBrandLogo } from '@renderer/components/common/ProviderBrandLogo';
@@ -30,7 +30,6 @@ interface SessionItemProps {
   isHidden?: boolean;
   multiSelectActive?: boolean;
   isSelected?: boolean;
-  onToggleSelect?: () => void;
 }
 
 /**
@@ -156,15 +155,14 @@ const SessionRuntimeBadge = ({
   );
 };
 
-export const SessionItem = ({
+export const SessionItem = memo(function SessionItem({
   session,
   isActive,
   isPinned,
   isHidden,
   multiSelectActive,
   isSelected,
-  onToggleSelect,
-}: Readonly<SessionItemProps>): React.JSX.Element => {
+}: Readonly<SessionItemProps>): React.JSX.Element {
   const {
     openTab,
     activeProjectId,
@@ -173,6 +171,7 @@ export const SessionItem = ({
     splitPane,
     togglePinSession,
     toggleHideSession,
+    toggleSidebarSessionSelection,
   } = useStore(
     useShallow((s) => ({
       openTab: s.openTab,
@@ -182,6 +181,7 @@ export const SessionItem = ({
       splitPane: s.splitPane,
       togglePinSession: s.togglePinSession,
       toggleHideSession: s.toggleHideSession,
+      toggleSidebarSessionSelection: s.toggleSidebarSessionSelection,
     }))
   );
 
@@ -191,8 +191,8 @@ export const SessionItem = ({
     if (!activeProjectId) return;
 
     // In multi-select mode, clicks toggle selection
-    if (multiSelectActive && onToggleSelect) {
-      onToggleSelect();
+    if (multiSelectActive) {
+      toggleSidebarSessionSelection(session.id);
       return;
     }
 
@@ -290,7 +290,7 @@ export const SessionItem = ({
                   <input
                     type="checkbox"
                     checked={isSelected ?? false}
-                    onChange={() => onToggleSelect?.()}
+                    onChange={() => toggleSidebarSessionSelection(session.id)}
                     onClick={(e) => e.stopPropagation()}
                     className="size-3.5 shrink-0 accent-blue-500"
                   />
@@ -390,4 +390,4 @@ export const SessionItem = ({
         )}
     </>
   );
-};
+});

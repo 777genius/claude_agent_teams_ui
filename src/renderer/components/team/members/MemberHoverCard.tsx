@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 import { Badge } from '@renderer/components/ui/badge';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card';
 import {
@@ -57,13 +59,13 @@ interface MemberHoverCardProps {
  * Reads member data from the team snapshot + resolved member selectors.
  * Falls back to a simple wrapper when member data is unavailable.
  */
-export const MemberHoverCard = ({
+export const MemberHoverCard = memo(function MemberHoverCard({
   name,
   color,
   teamName,
   onOpenTask,
   children,
-}: MemberHoverCardProps): React.JSX.Element => {
+}: MemberHoverCardProps): React.JSX.Element {
   const { isLight } = useTheme();
   const selectedTeamName = useStore((s) => s.selectedTeamName);
   const effectiveTeamName = teamName ?? selectedTeamName;
@@ -130,6 +132,8 @@ export const MemberHoverCard = ({
     spawnLaunchState: spawnEntry?.launchState,
     spawnLivenessSource: spawnEntry?.livenessSource,
     spawnRuntimeAlive: spawnEntry?.runtimeAlive,
+    spawnBootstrapConfirmed: spawnEntry?.bootstrapConfirmed,
+    spawnBootstrapStalled: spawnEntry?.bootstrapStalled,
     runtimeEntry,
     runtimeAdvisory: member.runtimeAdvisory,
     isLaunchSettling,
@@ -147,7 +151,8 @@ export const MemberHoverCard = ({
   const badgeLabel =
     runtimeAdvisoryTone === 'error' && runtimeAdvisoryLabel
       ? runtimeAdvisoryLabel
-      : launchVisualState === 'runtime_pending' ||
+      : launchVisualState === 'bootstrap_stalled' ||
+          launchVisualState === 'runtime_pending' ||
           launchVisualState === 'permission_pending' ||
           launchVisualState === 'shell_only' ||
           launchVisualState === 'runtime_candidate' ||
@@ -287,4 +292,4 @@ export const MemberHoverCard = ({
       </HoverCardContent>
     </HoverCard>
   );
-};
+});

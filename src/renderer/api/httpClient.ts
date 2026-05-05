@@ -35,6 +35,7 @@ import type {
   KanbanColumnId,
   NotificationsAPI,
   NotificationTrigger,
+  OpenCodeRuntimeDeliveryStatus,
   PaginatedSessionsResult,
   Project,
   RepositoryGroup,
@@ -61,6 +62,7 @@ import type {
   TeamClaudeLogsResponse,
   TeamCreateRequest,
   TeamCreateResponse,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -706,7 +708,10 @@ export class HttpAPIClient implements ElectronAPI {
       console.warn('[HttpAPIClient] teams API is not available in browser mode');
       return [];
     },
-    getData: async (_teamName: string): Promise<TeamViewSnapshot> => {
+    getData: async (
+      _teamName: string,
+      _options?: TeamGetDataOptions
+    ): Promise<TeamViewSnapshot> => {
       throw new Error('Teams detail is not available in browser mode');
     },
     getTaskChangePresence: async (): Promise<
@@ -789,6 +794,12 @@ export class HttpAPIClient implements ElectronAPI {
       _request: SendMessageRequest
     ): Promise<SendMessageResult> => {
       throw new Error('Team messaging is not available in browser mode');
+    },
+    getOpenCodeRuntimeDeliveryStatus: async (
+      _teamName: string,
+      _messageId: string
+    ): Promise<OpenCodeRuntimeDeliveryStatus | null> => {
+      throw new Error('OpenCode runtime delivery status is not available in browser mode');
     },
     getMessagesPage: async () => {
       return { messages: [], nextCursor: null, hasMore: false, feedRevision: 'empty' };
@@ -976,6 +987,9 @@ export class HttpAPIClient implements ElectronAPI {
     },
     restartMember: async (): Promise<void> => {
       throw new Error('Member restart is not available in browser mode');
+    },
+    retryFailedOpenCodeSecondaryLanes: async () => {
+      throw new Error('OpenCode secondary retry is not available in browser mode');
     },
     skipMemberForLaunch: async (): Promise<void> => {
       throw new Error('Member launch skip is not available in browser mode');

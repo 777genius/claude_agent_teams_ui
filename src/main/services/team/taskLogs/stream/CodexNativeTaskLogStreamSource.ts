@@ -54,6 +54,12 @@ export class CodexNativeTaskLogStreamSource {
     private readonly chunkBuilder: BoardTaskExactLogChunkBuilder = new BoardTaskExactLogChunkBuilder()
   ) {}
 
+  private readConfigForObservation(teamName: string) {
+    return typeof this.configReader.getConfigSnapshot === 'function'
+      ? this.configReader.getConfigSnapshot(teamName)
+      : this.configReader.getConfig(teamName);
+  }
+
   async getTaskLogStream(
     teamName: string,
     taskId: string,
@@ -163,7 +169,7 @@ export class CodexNativeTaskLogStreamSource {
     const normalizedOwner = normalizeMemberName(ownerName);
     const [metaMembers, config] = await Promise.all([
       this.membersMetaStore.getMembers(teamName).catch(() => []),
-      this.configReader.getConfig(teamName).catch(() => null),
+      this.readConfigForObservation(teamName).catch(() => null),
     ]);
     const member = [...metaMembers, ...(config?.members ?? [])].find(
       (candidate) => normalizeMemberName(candidate.name) === normalizedOwner

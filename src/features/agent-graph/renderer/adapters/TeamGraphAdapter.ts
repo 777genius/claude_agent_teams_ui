@@ -72,6 +72,12 @@ export interface TeamGraphData extends TeamViewSnapshot {
   messageFeed: InboxMessage[];
 }
 
+function toGraphLaunchVisualState(
+  visualState: ReturnType<typeof buildMemberLaunchPresentation>['launchVisualState'] | undefined
+): GraphNode['launchVisualState'] {
+  return visualState === 'bootstrap_stalled' ? 'runtime_pending' : (visualState ?? undefined);
+}
+
 export class TeamGraphAdapter {
   // ─── ES #private fields ──────────────────────────────────────────────────
   #lastTeamName = '';
@@ -430,6 +436,7 @@ export class TeamGraphAdapter {
           spawnLaunchState: undefined,
           spawnLivenessSource: undefined,
           spawnRuntimeAlive: undefined,
+          spawnBootstrapStalled: undefined,
           runtimeAdvisory: leadMember.runtimeAdvisory,
           isLaunchSettling: false,
           isTeamAlive: data.isAlive,
@@ -462,7 +469,7 @@ export class TeamGraphAdapter {
         leadMember?.model,
         leadMember?.effort
       ),
-      launchVisualState: leadLaunchPresentation?.launchVisualState ?? undefined,
+      launchVisualState: toGraphLaunchVisualState(leadLaunchPresentation?.launchVisualState),
       launchStatusLabel: leadLaunchPresentation?.launchStatusLabel ?? undefined,
       contextUsage: percent != null ? Math.max(0, Math.min(1, percent / 100)) : undefined,
       avatarUrl: leadMember
@@ -538,6 +545,8 @@ export class TeamGraphAdapter {
         spawnLaunchState: spawn?.launchState,
         spawnLivenessSource: spawn?.livenessSource,
         spawnRuntimeAlive: spawn?.runtimeAlive,
+        spawnBootstrapConfirmed: spawn?.bootstrapConfirmed,
+        spawnBootstrapStalled: spawn?.bootstrapStalled,
         runtimeAdvisory: member.runtimeAdvisory,
         isLaunchSettling,
         isTeamAlive: data.isAlive,
@@ -562,7 +571,7 @@ export class TeamGraphAdapter {
         ),
         spawnStatus: isTeamVisualOnline ? spawn?.status : undefined,
         launchVisualState: isTeamVisualOnline
-          ? (launchPresentation.launchVisualState ?? undefined)
+          ? toGraphLaunchVisualState(launchPresentation.launchVisualState)
           : undefined,
         launchStatusLabel: isTeamVisualOnline
           ? (launchPresentation.launchStatusLabel ?? undefined)

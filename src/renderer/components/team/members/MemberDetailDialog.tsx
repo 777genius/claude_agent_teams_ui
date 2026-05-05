@@ -50,6 +50,8 @@ import type {
 
 const OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE =
   'No OpenCode runtime session was recorded. Relaunch this teammate to start a fresh OpenCode session.';
+const OPENCODE_BOOTSTRAP_STALLED_MESSAGE =
+  'OpenCode process is alive, but bootstrap did not confirm. Relaunch this teammate to start a fresh OpenCode session.';
 
 function hasOpenCodeRuntimeEvidence(runtimeEntry: TeamAgentRuntimeEntry | undefined): boolean {
   const hasPid =
@@ -202,14 +204,31 @@ export const MemberDetailDialog = ({
   const launchErrorMessage = launchDiagnosticsPayload
     ? getMemberLaunchDiagnosticsErrorMessage(launchDiagnosticsPayload)
     : undefined;
+  const openCodeBootstrapStalled =
+    member?.providerId === 'opencode' && spawnEntry?.bootstrapStalled === true;
   const openCodeNoRuntimeEvidence = member
     ? isOpenCodeNoRuntimeEvidenceFailure(member, spawnEntry, runtimeEntry)
     : false;
   const effectiveLaunchErrorMessage = openCodeNoRuntimeEvidence
     ? OPENCODE_NO_RUNTIME_EVIDENCE_MESSAGE
     : launchErrorMessage;
-  const restartButtonLabel =
-    openCodeNoRuntimeEvidence || openCodeRelaunchActionable ? 'Relaunch OpenCode' : 'Restart';
+  const effectiveLaunchInfoMessage = openCodeBootstrapStalled
+    ? OPENCODE_BOOTSTRAP_STALLED_MESSAGE
+    : undefined;
+  const isOpenCodeMember = member?.providerId === 'opencode';
+  const restartButtonLabel = isOpenCodeMember ? 'Relaunch OpenCode' : 'Restart';
+  const hasLiveRestartContext = isTeamAlive === true || isTeamProvisioning === true;
+  const canControlledOpenCodeRelaunch =
+    member == null
+      ? false
+      : isOpenCodeMember && !member.removedAt && !isLeadMember(member) && hasLiveRestartContext;
+  const canRestartFromDialog =
+    member == null
+      ? false
+      : Boolean(onRestartMember) &&
+        !isLeadMember(member) &&
+        hasLiveRestartContext &&
+        (runtimeEntry?.restartable !== false || canControlledOpenCodeRelaunch);
 
   useEffect(() => {
     if (!open || !member) {
@@ -245,6 +264,8 @@ export const MemberDetailDialog = ({
               spawnLaunchState={spawnEntry?.launchState}
               spawnLivenessSource={spawnEntry?.livenessSource}
               spawnRuntimeAlive={spawnEntry?.runtimeAlive}
+              spawnBootstrapConfirmed={spawnEntry?.bootstrapConfirmed}
+              spawnBootstrapStalled={spawnEntry?.bootstrapStalled}
               runtimeEntry={runtimeEntry}
               isLaunchSettling={isLaunchSettling}
               onUpdateRole={
@@ -351,6 +372,12 @@ export const MemberDetailDialog = ({
                 />
               ) : null}
             </div>
+          ) : effectiveLaunchInfoMessage ? (
+            <div className="mr-auto flex min-w-0 items-center gap-2 text-xs text-amber-300">
+              <span className="min-w-0 truncate" title={effectiveLaunchInfoMessage}>
+                {effectiveLaunchInfoMessage}
+              </span>
+            </div>
           ) : runtimeEntry?.pid ? (
             <div className="mr-auto text-xs text-[var(--color-text-muted)]">
               PID {runtimeEntry.pid}
@@ -365,37 +392,35 @@ export const MemberDetailDialog = ({
             </span>
           ) : (
             <>
-              {onRestartMember &&
-                !isLeadMember(member) &&
-                (isTeamAlive || isTeamProvisioning) &&
-                runtimeEntry?.restartable !== false && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    disabled={restarting || restartInFlight}
-                    onClick={async () => {
-                      setRestartError(null);
-                      setRestarting(true);
-                      try {
-                        await onRestartMember(member.name);
-                      } catch (error) {
-                        setRestartError(
-                          error instanceof Error ? error.message : 'Failed to restart member'
-                        );
-                      } finally {
-                        setRestarting(false);
-                      }
-                    }}
-                  >
-                    {restarting ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <RotateCcw size={14} />
-                    )}
-                    {restartButtonLabel}
-                  </Button>
-                )}
+              {canRestartFromDialog && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={restarting || restartInFlight}
+                  onClick={async () => {
+                    setRestartError(null);
+                    setRestarting(true);
+                    try {
+                      if (!onRestartMember) return;
+                      await onRestartMember(member.name);
+                    } catch (error) {
+                      setRestartError(
+                        error instanceof Error ? error.message : 'Failed to restart member'
+                      );
+                    } finally {
+                      setRestarting(false);
+                    }
+                  }}
+                >
+                  {restarting ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <RotateCcw size={14} />
+                  )}
+                  {restartButtonLabel}
+                </Button>
+              )}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={onSendMessage}>
                 <MessageSquare size={14} />
                 Send Message

@@ -44,7 +44,7 @@
     {
       "id": "isFree",
       "question": "本当に無料ですか？",
-      "answer": "はい。アプリは100%無料のオープンソースです。アプリ自体に有料プランはありません。エージェントを実行するには、Anthropic や Codex など対応する provider/runtime へのアクセスだけが必要です。"
+      "answer": "はい。アプリは無料のオープンソースです。アプリ自体に有料プランはありません。エージェントを実行するには、Anthropic や Codex など対応する provider/runtime へのアクセスだけが必要です。"
     },
     {
       "id": "platforms",
@@ -82,9 +82,9 @@
   "pricing": [
     {
       "id": "free",
-      "name": "永久無料",
+      "name": "無料",
       "price": "¥0",
-      "period": "永久",
+      "period": "",
       "description": "すべて含まれています。制限なし、APIキー不要、クレジットカード不要。",
       "features": [
         "無制限のエージェントチーム",

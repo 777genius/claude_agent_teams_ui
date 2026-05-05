@@ -27,7 +27,7 @@ interface RuntimeAdvisoryLogsFinder {
 const LOOKBACK_MS = 10 * 60 * 1000;
 const CACHE_TTL_MS = 30_000;
 const TAIL_BYTES = 64 * 1024;
-const BATCH_WARN_MS = 200;
+const BATCH_WARN_MS = 1_000;
 const ADVISORY_FETCH_CONCURRENCY = 2;
 const QUOTA_EXHAUSTED_TOKENS = [
   'exhausted your capacity',

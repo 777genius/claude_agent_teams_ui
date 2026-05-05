@@ -37,25 +37,67 @@ const LARGE_CONFIG_BYTES = 512 * 1024;
 const CONFIG_HEAD_BYTES = 64 * 1024;
 const MAX_CONFIG_READ_BYTES = 10 * 1024 * 1024; // 10MB hard limit for full config reads
 const PER_TEAM_READ_TIMEOUT_MS = 5_000;
-const GET_CONFIG_CACHE_TTL_MS = 750;
 const GET_CONFIG_SLOW_READ_WARN_MS = 500;
+const CONFIG_SNAPSHOT_RECENT_STAT_FAILURE_FALLBACK_MS = 5_000;
+const COARSE_FS_FULL_VERIFY_MS = 1_500;
+const LIST_TEAMS_CACHE_TTL_MS = 5_000;
 const MAX_SESSION_HISTORY_IN_SUMMARY = 2000;
 const MAX_PROJECT_PATH_HISTORY_IN_SUMMARY = 200;
 const MAX_LAUNCH_STATE_BYTES = 32 * 1024;
 const TEAM_LAUNCH_STATE_FILE = 'launch-state.json';
 
+export interface TeamConfigFingerprint {
+  size: string;
+  mode: string;
+  dev?: string;
+  ino?: string;
+  mtimeNs?: string;
+  ctimeNs?: string;
+  birthtimeNs?: string;
+  mtimeMs: number;
+  ctimeMs: number;
+  birthtimeMs: number;
+}
+
+interface InternalTeamConfigFingerprint extends TeamConfigFingerprint {
+  isFile: boolean;
+  highResolution: boolean;
+  numericSize: number;
+}
+
 interface CachedTeamConfig {
   value: TeamConfig;
-  expiresAt: number;
+  fingerprint: InternalTeamConfigFingerprint | null;
+  verifiedAt: number;
+  fullVerifiedAt: number;
 }
+
+type TeamConfigReadMode = 'verified' | 'snapshot';
 
 interface ConfigReadTiming {
   teamName: string;
+  mode: TeamConfigReadMode;
+  configPath: string;
   size: number | null;
   statMs: number | null;
   readMs: number | null;
   parseMs: number | null;
   totalMs: number;
+  likelyCause: string;
+  fingerprintHighResolution: boolean | null;
+  cacheGeneration: number | null;
+  currentGeneration: number;
+  caller: string | null;
+}
+
+interface CachedTeamList {
+  value: TeamSummary[];
+  expiresAt: number;
+}
+
+interface InFlightTeamList {
+  promise: Promise<TeamSummary[]>;
+  generationAtStart: number;
 }
 
 function normalizeProjectPathCandidate(value: unknown): string | undefined {
@@ -175,13 +217,130 @@ function cloneConfig(config: TeamConfig): TeamConfig {
   return structuredClone(config);
 }
 
+function cloneTeamSummaries(teams: readonly TeamSummary[]): TeamSummary[] {
+  return structuredClone([...teams]);
+}
+
+function classifyConfigReadTiming(timing: {
+  statMs: number | null;
+  readMs: number | null;
+  parseMs: number | null;
+}): string {
+  const statMs = timing.statMs ?? 0;
+  const readMs = timing.readMs ?? 0;
+  const parseMs = timing.parseMs ?? 0;
+  if (readMs >= 1_000 && readMs >= statMs * 2 && readMs >= parseMs * 2) {
+    return 'io_read_slow';
+  }
+  if (statMs >= 1_000 && statMs >= readMs * 2 && statMs >= parseMs * 2) {
+    return 'io_stat_slow';
+  }
+  if (parseMs >= 500 && parseMs >= readMs && parseMs >= statMs) {
+    return 'json_parse_slow';
+  }
+  if (statMs + readMs >= 1_000) {
+    return 'filesystem_pressure';
+  }
+  return 'mixed_or_unknown';
+}
+
+function captureConfigReadCaller(): string | null {
+  const stack = new Error().stack?.split('\n').slice(2) ?? [];
+  const frame = stack.find((line) => {
+    const normalized = line.trim();
+    return (
+      normalized.length > 0 &&
+      !normalized.includes('TeamConfigReader.') &&
+      !normalized.includes('TeamConfigReader.ts') &&
+      !normalized.includes('captureConfigReadCaller') &&
+      !normalized.includes('node:internal')
+    );
+  });
+  return frame?.trim().slice(0, 240) ?? null;
+}
+
 export class TeamConfigReader {
   private static readonly configCacheByPath = new Map<string, CachedTeamConfig>();
   private static readonly configReadInFlightByPath = new Map<string, Promise<TeamConfig | null>>();
+  private static readonly configStatInFlightByPath = new Map<
+    string,
+    Promise<InternalTeamConfigFingerprint | null>
+  >();
+  private static readonly configGenerationByPath = new Map<string, number>();
+  private static readonly listTeamsCacheByBasePath = new Map<string, CachedTeamList>();
+  private static readonly listTeamsInFlightByBasePath = new Map<string, InFlightTeamList>();
+  private static listTeamsGeneration = 0;
 
   static clearCacheForTests(): void {
     TeamConfigReader.configCacheByPath.clear();
     TeamConfigReader.configReadInFlightByPath.clear();
+    TeamConfigReader.configStatInFlightByPath.clear();
+    TeamConfigReader.configGenerationByPath.clear();
+    TeamConfigReader.listTeamsCacheByBasePath.clear();
+    TeamConfigReader.listTeamsInFlightByBasePath.clear();
+    TeamConfigReader.listTeamsGeneration = 0;
+  }
+
+  static invalidateTeam(teamName: string): void {
+    const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
+    TeamConfigReader.invalidatePath(configPath);
+  }
+
+  static invalidatePath(configPath: string): void {
+    TeamConfigReader.configCacheByPath.delete(configPath);
+    TeamConfigReader.configReadInFlightByPath.delete(configPath);
+    TeamConfigReader.configStatInFlightByPath.delete(configPath);
+    TeamConfigReader.bumpConfigGeneration(configPath);
+    TeamConfigReader.invalidateListTeamsCache();
+  }
+
+  static invalidateListTeamsCache(): void {
+    TeamConfigReader.listTeamsCacheByBasePath.clear();
+    // Do not clear in-flight scans here. Config writes can arrive while a global
+    // team scan is already running; dropping the in-flight entry starts a second
+    // full scan over all teams and amplifies launch-time filesystem pressure.
+    // The generation check below prevents the stale in-flight result from being
+    // cached after invalidation.
+    TeamConfigReader.listTeamsGeneration += 1;
+  }
+
+  private static invalidatePathForGeneration(
+    configPath: string,
+    expectedGeneration?: number
+  ): void {
+    if (
+      typeof expectedGeneration === 'number' &&
+      TeamConfigReader.getConfigGeneration(configPath) !== expectedGeneration
+    ) {
+      return;
+    }
+    TeamConfigReader.invalidatePath(configPath);
+  }
+
+  static async primeConfig(
+    teamName: string,
+    config: TeamConfig,
+    fingerprint?: TeamConfigFingerprint | null
+  ): Promise<void> {
+    const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
+    const generation = TeamConfigReader.bumpConfigGeneration(configPath);
+    TeamConfigReader.configReadInFlightByPath.delete(configPath);
+    TeamConfigReader.configStatInFlightByPath.delete(configPath);
+    let internalFingerprint: InternalTeamConfigFingerprint | null = null;
+    if (fingerprint) {
+      internalFingerprint = {
+        ...fingerprint,
+        isFile: true,
+        highResolution: Boolean(fingerprint.mtimeNs || fingerprint.ctimeNs),
+        numericSize: Number(fingerprint.size),
+      };
+    } else {
+      internalFingerprint = await TeamConfigReader.readConfigFingerprint(configPath).catch(
+        () => null
+      );
+    }
+    TeamConfigReader.storeConfigCache(configPath, config, internalFingerprint, true, generation);
+    TeamConfigReader.invalidateListTeamsCache();
   }
 
   constructor(
@@ -190,6 +349,44 @@ export class TeamConfigReader {
   ) {}
 
   async listTeams(): Promise<TeamSummary[]> {
+    const teamsBasePath = getTeamsBasePath();
+    const cached = TeamConfigReader.listTeamsCacheByBasePath.get(teamsBasePath);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cloneTeamSummaries(cached.value);
+    }
+
+    const existingRequest = TeamConfigReader.listTeamsInFlightByBasePath.get(teamsBasePath);
+    if (
+      existingRequest &&
+      existingRequest.generationAtStart === TeamConfigReader.listTeamsGeneration
+    ) {
+      return cloneTeamSummaries(await existingRequest.promise);
+    }
+
+    const request = this.listTeamsUncached(teamsBasePath);
+    const generationAtStart = TeamConfigReader.listTeamsGeneration;
+    TeamConfigReader.listTeamsInFlightByBasePath.set(teamsBasePath, {
+      promise: request,
+      generationAtStart,
+    });
+
+    try {
+      const teams = await request;
+      if (TeamConfigReader.listTeamsGeneration === generationAtStart) {
+        TeamConfigReader.listTeamsCacheByBasePath.set(teamsBasePath, {
+          value: cloneTeamSummaries(teams),
+          expiresAt: Date.now() + LIST_TEAMS_CACHE_TTL_MS,
+        });
+      }
+      return cloneTeamSummaries(teams);
+    } finally {
+      if (TeamConfigReader.listTeamsInFlightByBasePath.get(teamsBasePath)?.promise === request) {
+        TeamConfigReader.listTeamsInFlightByBasePath.delete(teamsBasePath);
+      }
+    }
+  }
+
+  private async listTeamsUncached(teamsBasePath: string): Promise<TeamSummary[]> {
     const worker = getTeamFsWorkerClient();
     if (worker.isAvailable()) {
       const startedAt = Date.now();
@@ -227,7 +424,7 @@ export class TeamConfigReader {
       }
     }
 
-    const teamsDir = getTeamsBasePath();
+    const teamsDir = teamsBasePath;
 
     let entries: fs.Dirent[];
     try {
@@ -336,6 +533,21 @@ export class TeamConfigReader {
       const expectedTeammateNames = new Set<string>();
       const confirmedArtifactNames = new Set<string>();
       let metaMembers: TeamMember[] = [];
+      let leadName: string | undefined;
+      let leadColor: string | undefined;
+
+      const captureLeadMember = (m: TeamMember, overwrite = false): void => {
+        if (m.removedAt) return;
+        if (!isLeadMember(m)) return;
+        const name = m.name?.trim();
+        if (name && (overwrite || !leadName)) {
+          leadName = name;
+        }
+        const colorValue = m.color?.trim();
+        if (colorValue && (overwrite || !leadColor)) {
+          leadColor = colorValue;
+        }
+      };
 
       const mergeMember = (m: TeamMember): void => {
         const name = m.name?.trim();
@@ -360,6 +572,7 @@ export class TeamConfigReader {
         for (const member of metaMembers) {
           const name = member.name?.trim();
           if (!name) continue;
+          captureLeadMember(member);
           // Summary/memberCount should represent teammates (exclude the lead process).
           if (name === 'user' || isLeadMember(member)) continue;
           const key = name.toLowerCase();
@@ -385,6 +598,7 @@ export class TeamConfigReader {
         for (const member of config.members) {
           if (member && typeof member.name === 'string') {
             const name = member.name.trim();
+            captureLeadMember(member, true);
             if (name && name !== 'user' && !isLeadMember(member)) {
               confirmedArtifactNames.add(name);
             }
@@ -460,6 +674,8 @@ export class TeamConfigReader {
         taskCount: 0,
         lastActivity: null,
         ...(members.length > 0 ? { members } : {}),
+        ...(leadName ? { leadName } : {}),
+        ...(leadColor ? { leadColor } : {}),
         ...(color ? { color } : {}),
         ...(projectPath ? { projectPath } : {}),
         ...(leadSessionId ? { leadSessionId } : {}),
@@ -501,11 +717,21 @@ export class TeamConfigReader {
           : teamName;
 
       let memberCount = 0;
+      let leadName: string | undefined;
+      let leadColor: string | undefined;
       try {
-        const metaStore = new TeamMembersMetaStore();
-        const members = await metaStore.getMembers(teamName);
+        const members = await this.membersMetaStore.getMembers(teamName);
         memberCount = members.filter((member) => {
           const name = member.name?.trim() ?? '';
+          if (!member.removedAt && isLeadMember(member)) {
+            if (name) {
+              leadName = name;
+            }
+            const color = member.color?.trim();
+            if (color) {
+              leadColor = color;
+            }
+          }
           if (!name || name === 'user' || isLeadMember(member)) {
             return false;
           }
@@ -524,6 +750,8 @@ export class TeamConfigReader {
         lastActivity:
           typeof meta.createdAt === 'number' ? new Date(meta.createdAt).toISOString() : null,
         color: typeof meta.color === 'string' ? meta.color : undefined,
+        ...(leadName ? { leadName } : {}),
+        ...(leadColor ? { leadColor } : {}),
         projectPath: typeof meta.cwd === 'string' ? meta.cwd : undefined,
         pendingCreate: true,
       };
@@ -533,27 +761,25 @@ export class TeamConfigReader {
   }
 
   async getConfig(teamName: string): Promise<TeamConfig | null> {
-    const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
-    const now = Date.now();
-    const cached = TeamConfigReader.configCacheByPath.get(configPath);
-    if (cached && cached.expiresAt > now) {
-      return cloneConfig(cached.value);
-    }
+    return this.getConfigVerified(teamName);
+  }
 
+  async getConfigVerified(teamName: string): Promise<TeamConfig | null> {
+    const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
     const existingRead = TeamConfigReader.configReadInFlightByPath.get(configPath);
     if (existingRead) {
       return this.resolveConfigRead(teamName, configPath, existingRead);
     }
 
-    const readPromise = this.readConfigFromDisk(teamName, configPath).then((config) => {
-      if (config) {
-        TeamConfigReader.configCacheByPath.set(configPath, {
-          value: cloneConfig(config),
-          expiresAt: Date.now() + GET_CONFIG_CACHE_TTL_MS,
-        });
-      }
-      return config;
-    });
+    const generation = TeamConfigReader.getConfigGeneration(configPath);
+    const readPromise = this.readConfigFromDisk(
+      teamName,
+      configPath,
+      null,
+      true,
+      generation,
+      'verified'
+    );
     TeamConfigReader.configReadInFlightByPath.set(configPath, readPromise);
 
     try {
@@ -563,6 +789,89 @@ export class TeamConfigReader {
         TeamConfigReader.configReadInFlightByPath.delete(configPath);
       }
     }
+  }
+
+  async getConfigSnapshot(teamName: string): Promise<TeamConfig | null> {
+    const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const generationAtStart = TeamConfigReader.getConfigGeneration(configPath);
+      let fingerprint: InternalTeamConfigFingerprint | null;
+
+      try {
+        fingerprint = await TeamConfigReader.getConfigFingerprint(configPath);
+      } catch (error) {
+        if (TeamConfigReader.getConfigGeneration(configPath) !== generationAtStart) {
+          continue;
+        }
+        const cached = TeamConfigReader.configCacheByPath.get(configPath);
+        if (
+          cached &&
+          Date.now() - cached.verifiedAt <= CONFIG_SNAPSHOT_RECENT_STAT_FAILURE_FALLBACK_MS
+        ) {
+          logger.warn(
+            `[getConfigSnapshot] config_snapshot_stat_failed_using_recent_cache team=${teamName} error=${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          return cloneConfig(cached.value);
+        }
+        return null;
+      }
+
+      if (TeamConfigReader.getConfigGeneration(configPath) !== generationAtStart) {
+        continue;
+      }
+
+      if (!fingerprint?.isFile || fingerprint.numericSize > MAX_CONFIG_READ_BYTES) {
+        TeamConfigReader.invalidatePathForGeneration(configPath, generationAtStart);
+        if (fingerprint && fingerprint.numericSize > MAX_CONFIG_READ_BYTES) {
+          logger.warn(
+            `Refusing to load oversized config.json (${fingerprint.numericSize} bytes) for team: ${teamName}`
+          );
+        }
+        return null;
+      }
+
+      const cached = TeamConfigReader.configCacheByPath.get(configPath);
+      if (
+        cached?.fingerprint &&
+        TeamConfigReader.fingerprintsEqual(cached.fingerprint, fingerprint)
+      ) {
+        const now = Date.now();
+        const mustRevalidateCoarseFingerprint =
+          !fingerprint.highResolution && now - cached.fullVerifiedAt >= COARSE_FS_FULL_VERIFY_MS;
+        if (!mustRevalidateCoarseFingerprint) {
+          cached.verifiedAt = now;
+          return cloneConfig(cached.value);
+        }
+      }
+
+      const existingRead = TeamConfigReader.configReadInFlightByPath.get(configPath);
+      if (existingRead) {
+        return this.resolveConfigRead(teamName, configPath, existingRead);
+      }
+
+      const generation = TeamConfigReader.getConfigGeneration(configPath);
+      const readPromise = this.readConfigFromDisk(
+        teamName,
+        configPath,
+        fingerprint,
+        true,
+        generation,
+        'snapshot'
+      );
+      TeamConfigReader.configReadInFlightByPath.set(configPath, readPromise);
+      try {
+        return await this.resolveConfigRead(teamName, configPath, readPromise);
+      } finally {
+        if (TeamConfigReader.configReadInFlightByPath.get(configPath) === readPromise) {
+          TeamConfigReader.configReadInFlightByPath.delete(configPath);
+        }
+      }
+    }
+
+    return null;
   }
 
   private async resolveConfigRead(
@@ -578,38 +887,164 @@ export class TeamConfigReader {
     }
   }
 
+  private static async getConfigFingerprint(
+    configPath: string
+  ): Promise<InternalTeamConfigFingerprint | null> {
+    const existing = TeamConfigReader.configStatInFlightByPath.get(configPath);
+    if (existing) return existing;
+
+    const statPromise = TeamConfigReader.readConfigFingerprint(configPath).finally(() => {
+      if (TeamConfigReader.configStatInFlightByPath.get(configPath) === statPromise) {
+        TeamConfigReader.configStatInFlightByPath.delete(configPath);
+      }
+    });
+    TeamConfigReader.configStatInFlightByPath.set(configPath, statPromise);
+    return statPromise;
+  }
+
+  private static async readConfigFingerprint(
+    configPath: string
+  ): Promise<InternalTeamConfigFingerprint | null> {
+    let stat: fs.BigIntStats;
+    try {
+      stat = await withReadTimeout(
+        fs.promises.stat(configPath, { bigint: true }),
+        PER_TEAM_READ_TIMEOUT_MS
+      );
+    } catch (error) {
+      const code = typeof error === 'object' && error ? (error as { code?: unknown }).code : null;
+      if (code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+
+    const highResStat = stat as fs.BigIntStats & {
+      mtimeNs?: bigint;
+      ctimeNs?: bigint;
+      birthtimeNs?: bigint;
+    };
+    const mtimeNs = highResStat.mtimeNs;
+    const ctimeNs = highResStat.ctimeNs;
+    const birthtimeNs = highResStat.birthtimeNs;
+
+    return {
+      size: stat.size.toString(),
+      mode: stat.mode.toString(),
+      dev: stat.dev.toString(),
+      ino: stat.ino.toString(),
+      mtimeNs: typeof mtimeNs === 'bigint' ? mtimeNs.toString() : undefined,
+      ctimeNs: typeof ctimeNs === 'bigint' ? ctimeNs.toString() : undefined,
+      birthtimeNs: typeof birthtimeNs === 'bigint' ? birthtimeNs.toString() : undefined,
+      mtimeMs: Number(stat.mtimeMs),
+      ctimeMs: Number(stat.ctimeMs),
+      birthtimeMs: Number(stat.birthtimeMs),
+      isFile: stat.isFile(),
+      highResolution: typeof mtimeNs === 'bigint' || typeof ctimeNs === 'bigint',
+      numericSize: Number(stat.size),
+    };
+  }
+
+  private static fingerprintsEqual(
+    a: InternalTeamConfigFingerprint,
+    b: InternalTeamConfigFingerprint
+  ): boolean {
+    return (
+      a.size === b.size &&
+      a.mode === b.mode &&
+      a.dev === b.dev &&
+      a.ino === b.ino &&
+      a.mtimeNs === b.mtimeNs &&
+      a.ctimeNs === b.ctimeNs &&
+      a.birthtimeNs === b.birthtimeNs &&
+      a.mtimeMs === b.mtimeMs &&
+      a.ctimeMs === b.ctimeMs &&
+      a.birthtimeMs === b.birthtimeMs
+    );
+  }
+
+  private static storeConfigCache(
+    configPath: string,
+    config: TeamConfig,
+    fingerprint: InternalTeamConfigFingerprint | null,
+    fullVerified: boolean,
+    expectedGeneration?: number
+  ): void {
+    if (
+      typeof expectedGeneration === 'number' &&
+      TeamConfigReader.getConfigGeneration(configPath) !== expectedGeneration
+    ) {
+      return;
+    }
+    const now = Date.now();
+    const previous = TeamConfigReader.configCacheByPath.get(configPath);
+    TeamConfigReader.configCacheByPath.set(configPath, {
+      value: cloneConfig(config),
+      fingerprint,
+      verifiedAt: now,
+      fullVerifiedAt: fullVerified ? now : (previous?.fullVerifiedAt ?? now),
+    });
+  }
+
+  private static getConfigGeneration(configPath: string): number {
+    return TeamConfigReader.configGenerationByPath.get(configPath) ?? 0;
+  }
+
+  private static bumpConfigGeneration(configPath: string): number {
+    const next = TeamConfigReader.getConfigGeneration(configPath) + 1;
+    TeamConfigReader.configGenerationByPath.set(configPath, next);
+    return next;
+  }
+
   private async readConfigFromDisk(
     teamName: string,
-    configPath: string
+    configPath: string,
+    knownFingerprint: InternalTeamConfigFingerprint | null = null,
+    updateCache = false,
+    cacheGeneration?: number,
+    mode: TeamConfigReadMode = 'verified'
   ): Promise<TeamConfig | null> {
     const startedAt = performance.now();
+    const caller = captureConfigReadCaller();
     let size: number | null = null;
     let statMs: number | null = null;
     let readMs: number | null = null;
     let parseMs: number | null = null;
+    let fingerprintHighResolution: boolean | null = knownFingerprint?.highResolution ?? null;
 
     const buildTiming = (): ConfigReadTiming => ({
       teamName,
+      mode,
+      configPath,
       size,
       statMs,
       readMs,
       parseMs,
       totalMs: Math.round(performance.now() - startedAt),
+      likelyCause: classifyConfigReadTiming({ statMs, readMs, parseMs }),
+      fingerprintHighResolution,
+      cacheGeneration: cacheGeneration ?? null,
+      currentGeneration: TeamConfigReader.getConfigGeneration(configPath),
+      caller,
     });
 
     try {
       const statStartedAt = performance.now();
-      const stat = await fs.promises.stat(configPath);
+      const fingerprint =
+        knownFingerprint ?? (await TeamConfigReader.getConfigFingerprint(configPath));
       statMs = Math.round(performance.now() - statStartedAt);
-      size = stat.size;
+      size = fingerprint?.numericSize ?? null;
+      fingerprintHighResolution = fingerprint?.highResolution ?? null;
 
       // Safety: refuse special files and huge/binary configs
-      if (!stat.isFile()) {
+      if (!fingerprint?.isFile) {
+        TeamConfigReader.invalidatePathForGeneration(configPath, cacheGeneration);
         return null;
       }
-      if (stat.size > MAX_CONFIG_READ_BYTES) {
+      if (fingerprint.numericSize > MAX_CONFIG_READ_BYTES) {
+        TeamConfigReader.invalidatePathForGeneration(configPath, cacheGeneration);
         logger.warn(
-          `Refusing to load oversized config.json (${stat.size} bytes) for team: ${teamName}`
+          `Refusing to load oversized config.json (${fingerprint.numericSize} bytes) for team: ${teamName}`
         );
         return null;
       }
@@ -622,6 +1057,7 @@ export class TeamConfigReader {
       const config = JSON.parse(raw) as TeamConfig;
       parseMs = Math.round(performance.now() - parseStartedAt);
       if (typeof config.name !== 'string' || config.name.trim() === '') {
+        TeamConfigReader.invalidatePathForGeneration(configPath, cacheGeneration);
         return null;
       }
       const resolvedProjectPath = resolveProjectPathFromConfig(config);
@@ -633,10 +1069,24 @@ export class TeamConfigReader {
       if (totalMs >= GET_CONFIG_SLOW_READ_WARN_MS) {
         logger.warn(`[getConfig] slow read diag=${JSON.stringify(buildTiming())}`);
       }
+      if (updateCache) {
+        TeamConfigReader.storeConfigCache(
+          configPath,
+          resolvedConfig,
+          fingerprint,
+          true,
+          cacheGeneration
+        );
+      }
       return resolvedConfig;
     } catch (error) {
+      TeamConfigReader.invalidatePathForGeneration(configPath, cacheGeneration);
       if (error instanceof FileReadTimeoutError) {
         logger.warn(`[getConfig] ${error.message} diag=${JSON.stringify(buildTiming())}`);
+      } else if (error instanceof Error && error.message === 'Team config read timeout') {
+        logger.warn(
+          `[getConfig] Timed out after ${PER_TEAM_READ_TIMEOUT_MS}ms reading ${configPath} diag=${JSON.stringify(buildTiming())}`
+        );
       }
       throw error;
     }
@@ -664,10 +1114,7 @@ export class TeamConfigReader {
     }
     const configPath = path.join(getTeamsBasePath(), teamName, 'config.json');
     await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
-    TeamConfigReader.configCacheByPath.set(configPath, {
-      value: cloneConfig(config),
-      expiresAt: Date.now() + GET_CONFIG_CACHE_TTL_MS,
-    });
+    await TeamConfigReader.primeConfig(teamName, config);
     return config;
   }
 }

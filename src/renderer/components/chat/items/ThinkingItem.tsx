@@ -31,52 +31,56 @@ interface ThinkingItemProps {
   titleText?: string;
 }
 
-export const ThinkingItem: React.FC<ThinkingItemProps> = ({
-  step,
-  preview,
-  onClick,
-  isExpanded,
-  timestamp,
-  timestampFormat,
-  searchQueryOverride,
-  markdownItemId,
-  highlightClasses,
-  highlightStyle,
-  notificationDotColor,
-  titleText,
-}) => {
-  const fullContent = step.content.thinkingText ?? preview;
-  const summary = searchQueryOverride
-    ? highlightQueryInText(preview, searchQueryOverride, `${markdownItemId ?? step.id}:summary`, {
-        forceAllActive: true,
-      })
-    : preview;
+export const ThinkingItem: React.FC<ThinkingItemProps> = React.memo(
+  ({
+    step,
+    preview,
+    onClick,
+    isExpanded,
+    timestamp,
+    timestampFormat,
+    searchQueryOverride,
+    markdownItemId,
+    highlightClasses,
+    highlightStyle,
+    notificationDotColor,
+    titleText,
+  }) => {
+    const fullContent = step.content.thinkingText ?? preview;
+    const summary = searchQueryOverride
+      ? highlightQueryInText(preview, searchQueryOverride, `${markdownItemId ?? step.id}:summary`, {
+          forceAllActive: true,
+        })
+      : preview;
 
-  // Get token count from step.tokens.output or step.content.tokenCount
-  const tokenCount = step.tokens?.output ?? step.content.tokenCount ?? 0;
+    // Get token count from step.tokens.output or step.content.tokenCount
+    const tokenCount = step.tokens?.output ?? step.content.tokenCount ?? 0;
 
-  return (
-    <BaseItem
-      icon={<Brain className="size-4" />}
-      label="Thinking"
-      summary={summary}
-      tokenCount={tokenCount}
-      timestamp={timestamp}
-      timestampFormat={timestampFormat}
-      titleText={titleText}
-      onClick={onClick}
-      isExpanded={isExpanded}
-      highlightClasses={highlightClasses}
-      highlightStyle={highlightStyle}
-      notificationDotColor={notificationDotColor}
-    >
-      <MarkdownViewer
-        content={fullContent}
-        maxHeight="max-h-96"
-        copyable
-        itemId={markdownItemId}
-        searchQueryOverride={searchQueryOverride}
-      />
-    </BaseItem>
-  );
-};
+    return (
+      <BaseItem
+        icon={<Brain className="size-4" />}
+        label="Thinking"
+        summary={summary}
+        tokenCount={tokenCount}
+        timestamp={timestamp}
+        timestampFormat={timestampFormat}
+        titleText={titleText}
+        onClick={onClick}
+        isExpanded={isExpanded}
+        highlightClasses={highlightClasses}
+        highlightStyle={highlightStyle}
+        notificationDotColor={notificationDotColor}
+      >
+        <MarkdownViewer
+          content={fullContent}
+          maxHeight="max-h-96"
+          copyable
+          itemId={markdownItemId}
+          searchQueryOverride={searchQueryOverride}
+        />
+      </BaseItem>
+    );
+  }
+);
+
+ThinkingItem.displayName = 'ThinkingItem';

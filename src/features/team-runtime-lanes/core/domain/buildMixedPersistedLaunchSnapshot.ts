@@ -47,6 +47,8 @@ export interface MixedSecondaryLaneMemberStateInput {
     pidSource?: TeamAgentRuntimePidSource;
     runtimeDiagnostic?: string;
     runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+    bootstrapStalled?: boolean;
+    firstSpawnAcceptedAt?: string;
     diagnostics?: string[];
   } | null;
   pendingReason?: string;
@@ -87,15 +89,90 @@ function preservesStrongRuntimeAlive(value: {
   );
 }
 
+function hasMaterializedOpenCodeRuntimeMarker(value: {
+  runtimeAlive?: boolean;
+  runtimePid?: number;
+  runtimeSessionId?: string;
+  sessionId?: string;
+  livenessKind?: TeamAgentRuntimeLivenessKind;
+}): boolean {
+  return (
+    value.runtimeAlive === true ||
+    (typeof value.runtimePid === 'number' &&
+      Number.isFinite(value.runtimePid) &&
+      value.runtimePid > 0) ||
+    (typeof value.runtimeSessionId === 'string' && value.runtimeSessionId.trim().length > 0) ||
+    (typeof value.sessionId === 'string' && value.sessionId.trim().length > 0) ||
+    value.livenessKind === 'runtime_process' ||
+    value.livenessKind === 'runtime_process_candidate' ||
+    value.livenessKind === 'registered_only'
+  );
+}
+
+const OPENCODE_MEMBER_SESSION_RECORDED_AT_PATTERN =
+  /\bmember_session_recorded\s+at\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+Z?)\b/i;
+
+function normalizeIsoTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function selectEarliestIsoTimestamp(values: readonly unknown[]): string | undefined {
+  let selected: { value: string; timeMs: number } | null = null;
+  for (const value of values) {
+    const normalized = normalizeIsoTimestamp(value);
+    if (!normalized) {
+      continue;
+    }
+    const timeMs = Date.parse(normalized);
+    if (!selected || timeMs < selected.timeMs) {
+      selected = { value: normalized, timeMs };
+    }
+  }
+  return selected?.value;
+}
+
+function extractOpenCodeMemberSessionRecordedAt(
+  diagnostics: readonly string[] | undefined
+): string[] {
+  return (diagnostics ?? []).flatMap((diagnostic) => {
+    const match = OPENCODE_MEMBER_SESSION_RECORDED_AT_PATTERN.exec(diagnostic);
+    return match?.[1] ? [match[1]] : [];
+  });
+}
+
+function resolveOpenCodeSecondaryFirstSpawnAcceptedAt(
+  evidence: NonNullable<MixedSecondaryLaneMemberStateInput['evidence']>,
+  fallbackUpdatedAt: string
+): string | undefined {
+  if (evidence.agentToolAccepted !== true) {
+    return undefined;
+  }
+  return selectEarliestIsoTimestamp([
+    evidence.firstSpawnAcceptedAt,
+    ...extractOpenCodeMemberSessionRecordedAt(evidence.diagnostics),
+    fallbackUpdatedAt,
+  ]);
+}
+
 function buildDiagnostics(
   member: Pick<
     PersistedTeamLaunchMemberState,
     | 'agentToolAccepted'
     | 'runtimeAlive'
     | 'bootstrapConfirmed'
+    | 'hardFailure'
     | 'hardFailureReason'
     | 'sources'
     | 'pendingPermissionRequestIds'
+    | 'bootstrapStalled'
   >
 ): string[] {
   const diagnostics: string[] = [];
@@ -104,6 +181,10 @@ function buildDiagnostics(
   if (member.bootstrapConfirmed) diagnostics.push('late heartbeat received');
   if ((member.pendingPermissionRequestIds?.length ?? 0) > 0) {
     diagnostics.push('waiting for permission approval');
+  } else if (member.bootstrapStalled) {
+    diagnostics.push('opencode_bootstrap_stalled');
+  } else if (member.hardFailure && member.runtimeAlive && !member.bootstrapConfirmed) {
+    diagnostics.push('bootstrap failed while runtime process was still alive');
   } else if (member.runtimeAlive && !member.bootstrapConfirmed) {
     diagnostics.push('waiting for teammate check-in');
   }
@@ -225,6 +306,9 @@ function createSecondaryLaneMemberState(
     });
   const hardFailure = evidence?.hardFailure === true || launchState === 'failed_to_start';
   const hardFailureReason = hardFailure ? evidence?.hardFailureReason : undefined;
+  const firstSpawnAcceptedAt = evidence
+    ? resolveOpenCodeSecondaryFirstSpawnAcceptedAt(evidence, params.updatedAt)
+    : undefined;
   const base: PersistedTeamLaunchMemberState = {
     name: params.member.name.trim(),
     providerId,
@@ -268,7 +352,16 @@ function createSecondaryLaneMemberState(
     pidSource: evidence?.pidSource,
     runtimeDiagnostic: evidence?.runtimeDiagnostic,
     runtimeDiagnosticSeverity: evidence?.runtimeDiagnosticSeverity,
-    firstSpawnAcceptedAt: evidence?.agentToolAccepted ? params.updatedAt : undefined,
+    bootstrapStalled:
+      providerId === 'opencode' &&
+      evidence?.bootstrapStalled === true &&
+      launchState === 'runtime_pending_bootstrap' &&
+      hasMaterializedOpenCodeRuntimeMarker(evidence) &&
+      evidence.bootstrapConfirmed !== true &&
+      hardFailure !== true
+        ? true
+        : undefined,
+    firstSpawnAcceptedAt,
     lastHeartbeatAt: evidence?.bootstrapConfirmed ? params.updatedAt : undefined,
     runtimeLastSeenAt: strongRuntimeAlive ? params.updatedAt : undefined,
     lastRuntimeAliveAt: strongRuntimeAlive ? params.updatedAt : undefined,

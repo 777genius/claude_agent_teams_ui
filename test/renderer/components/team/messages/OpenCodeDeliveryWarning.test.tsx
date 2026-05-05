@@ -173,6 +173,29 @@ describe('OpenCodeDeliveryWarning', () => {
     });
   });
 
+  it('shows terminal empty assistant turn reason in the compact failed warning', async () => {
+    const failedWarning =
+      'OpenCode runtime delivery failed. Message was saved to inbox, but live delivery did not complete. Reason: OpenCode returned an empty assistant turn.';
+    const { host, root } = renderWarning({
+      warning: failedWarning,
+      debugDetails: {
+        ...debugDetails,
+        delivered: false,
+        responsePending: false,
+        responseState: 'empty_assistant_turn',
+        ledgerStatus: 'failed_terminal',
+        reason: 'empty_assistant_turn',
+        diagnostics: ['empty_assistant_turn'],
+      },
+    });
+
+    expect(host.textContent).toContain(failedWarning);
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it('hides details again when a different runtime delivery payload arrives', async () => {
     const { host, root } = renderWarning();
 

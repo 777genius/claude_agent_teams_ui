@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 
 import {
   CODE_BG,
@@ -349,14 +349,14 @@ const DiffLineRow: React.FC<DiffLineRowProps> = ({ line, highlightedHtml }): Rea
 // Main Component
 // =============================================================================
 
-export const DiffViewer: React.FC<DiffViewerProps> = ({
+export const DiffViewer = memo(function DiffViewer({
   fileName,
   oldString,
   newString,
   maxHeight = 'max-h-96',
   tokenCount,
   syntaxHighlight = false,
-}): React.JSX.Element => {
+}: DiffViewerProps): React.JSX.Element {
   // Compute diff
   const oldLines = oldString.split(/\r?\n/);
   const newLines = newString.split(/\r?\n/);
@@ -456,4 +456,4 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       </div>
     </div>
   );
-};
+});

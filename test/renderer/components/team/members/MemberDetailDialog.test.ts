@@ -413,4 +413,82 @@ describe('MemberDetailDialog activity count', () => {
       await Promise.resolve();
     });
   });
+
+  it('shows Relaunch OpenCode copy for stalled OpenCode bootstrap', async () => {
+    const member: ResolvedTeamMember = {
+      name: 'tom',
+      status: 'active',
+      currentTaskId: null,
+      taskCount: 0,
+      lastActiveAt: null,
+      messageCount: 0,
+      providerId: 'opencode',
+    };
+    const onRestartMember = vi.fn(async () => undefined);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberDetailDialog, {
+          open: true,
+          member,
+          teamName: 'demo-team',
+          members: [member],
+          tasks: [],
+          isTeamAlive: true,
+          spawnEntry: {
+            status: 'waiting',
+            launchState: 'runtime_pending_bootstrap',
+            runtimeAlive: true,
+            bootstrapConfirmed: false,
+            hardFailure: false,
+            agentToolAccepted: true,
+            livenessKind: 'runtime_process',
+            runtimeDiagnostic: 'Runtime process is alive, but no bootstrap check-in after 5 min.',
+            runtimeDiagnosticSeverity: 'warning',
+            bootstrapStalled: true,
+            updatedAt: '2026-04-24T12:05:00.000Z',
+          },
+          runtimeEntry: {
+            memberName: 'tom',
+            alive: true,
+            restartable: true,
+            providerId: 'opencode',
+            livenessKind: 'runtime_process',
+            runtimeDiagnostic: 'OpenCode runtime process detected',
+            runtimeDiagnosticSeverity: 'info',
+            updatedAt: '2026-04-24T12:05:01.000Z',
+          },
+          onClose: () => undefined,
+          onSendMessage: () => undefined,
+          onAssignTask: () => undefined,
+          onTaskClick: () => undefined,
+          onRestartMember,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain(
+      'OpenCode process is alive, but bootstrap did not confirm. Relaunch this teammate to start a fresh OpenCode session.'
+    );
+    const relaunchButton = Array.from(host.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Relaunch OpenCode')
+    );
+    expect(relaunchButton).not.toBeUndefined();
+
+    await act(async () => {
+      relaunchButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onRestartMember).toHaveBeenCalledWith('tom');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
 });

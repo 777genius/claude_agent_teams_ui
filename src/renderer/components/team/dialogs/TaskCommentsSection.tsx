@@ -49,6 +49,10 @@ const INITIAL_VISIBLE_COMMENTS = 30;
 const VISIBLE_COMMENTS_STEP = 50;
 const MAX_COMMENTS_TO_RENDER = 2000;
 
+function getTaskCommentElementId(taskId: string, commentId: string): string {
+  return `task-comment-${taskId}-${commentId}`;
+}
+
 interface TaskCommentsSectionProps {
   teamName: string;
   taskId: string;
@@ -66,6 +70,8 @@ interface TaskCommentsSectionProps {
   containerClassName?: string;
   /** Snapshot of unread comment IDs captured when the dialog opened. Blue dot is shown for these. */
   unreadCommentIds?: Set<string>;
+  /** Comment to reveal when the dialog was opened from a notification. */
+  focusCommentId?: string;
   /**
    * Ref callback factory from useViewportCommentRead.
    * When provided, each comment element is registered for viewport-based read tracking.
@@ -84,6 +90,7 @@ export const TaskCommentsSection = ({
   onTaskIdClick,
   containerClassName,
   unreadCommentIds,
+  focusCommentId,
   registerCommentForViewport,
 }: TaskCommentsSectionProps): React.JSX.Element => {
   const addTaskComment = useStore((s) => s.addTaskComment);
@@ -130,9 +137,15 @@ export const TaskCommentsSection = ({
     return list;
   }, [cappedComments]);
 
+  const visibleCountForFocus = useMemo(() => {
+    if (!focusCommentId) return visibleCount;
+    const focusedIndex = sortedComments.findIndex((comment) => comment.id === focusCommentId);
+    return focusedIndex >= 0 ? Math.max(visibleCount, focusedIndex + 1) : visibleCount;
+  }, [focusCommentId, sortedComments, visibleCount]);
+
   const visibleComments = useMemo(
-    () => sortedComments.slice(0, Math.min(visibleCount, sortedComments.length)),
-    [sortedComments, visibleCount]
+    () => sortedComments.slice(0, Math.min(visibleCountForFocus, sortedComments.length)),
+    [sortedComments, visibleCountForFocus]
   );
 
   const visibleCommentIds = useMemo(
@@ -162,6 +175,22 @@ export const TaskCommentsSection = ({
     (trimmed.length > 0 || chipDraft.chips.length > 0) &&
     trimmed.length <= MAX_TEXT_LENGTH &&
     !addingComment;
+
+  useEffect(() => {
+    if (!focusCommentId) return;
+    const target = document.getElementById(getTaskCommentElementId(taskId, focusCommentId));
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.remove('kanban-card-focus-pulse');
+    void target.offsetWidth;
+    target.classList.add('kanban-card-focus-pulse');
+    target.addEventListener(
+      'animationend',
+      () => target.classList.remove('kanban-card-focus-pulse'),
+      { once: true }
+    );
+  }, [focusCommentId, taskId, visibleComments]);
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
@@ -215,6 +244,8 @@ export const TaskCommentsSection = ({
             {visibleComments.map((comment, index) => (
               <AnimatedHeightReveal key={comment.id} animate={newCommentIds.has(comment.id)}>
                 <div
+                  id={getTaskCommentElementId(taskId, comment.id)}
+                  data-task-comment-id={comment.id}
                   ref={
                     registerCommentForViewport ? registerCommentForViewport(comment.id) : undefined
                   }

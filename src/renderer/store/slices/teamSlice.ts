@@ -20,6 +20,7 @@ import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import { buildTeamGraphDefaultLayoutSeed } from '@shared/utils/teamGraphDefaultLayout';
 import { getStableTeamOwnerId } from '@shared/utils/teamStableOwnerId';
 
+import { noteTeamRefreshFanout } from '../teamRefreshFanoutDiagnostics';
 import { getWorktreeNavigationState } from '../utils/stateResetHelpers';
 
 import type { AppState } from '../types';
@@ -42,8 +43,10 @@ import type {
   MemberActivityMetaEntry,
   MemberSpawnStatusEntry,
   MemberSpawnStatusesSnapshot,
+  NotificationTarget,
   PersistedTeamLaunchSummary,
   ResolvedTeamMember,
+  RetryFailedOpenCodeSecondaryLanesResult,
   SendMessageRequest,
   SendMessageResult,
   TaskChangePresenceState,
@@ -51,6 +54,7 @@ import type {
   TeamAgentRuntimeEntry,
   TeamAgentRuntimeSnapshot,
   TeamCreateRequest,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamMemberActivityMeta,
   TeamMemberSnapshot,
@@ -75,9 +79,19 @@ const TEAM_FETCH_TIMEOUT_MS = 30_000;
 const MEMBER_SPAWN_STATUSES_IPC_RETRY_BACKOFF_MS = 5_000;
 const TEAM_REFRESH_BURST_WINDOW_MS = 4_000;
 const MEMBER_SPAWN_UI_EQUAL_WARN_THROTTLE_MS = 2_000;
+const POST_PAINT_TEAM_ENRICHMENT_FALLBACK_MS = 500;
 const inFlightTeamDataRequests = new Map<string, Promise<TeamViewSnapshot>>();
 const inFlightRefreshTeamDataCalls = new Map<string, Set<symbol>>();
 const pendingFreshTeamDataRefreshes = new Set<string>();
+const queuedFullTeamDataRefreshesAfterThin = new Set<string>();
+interface PostPaintHandle {
+  rafId?: number;
+  timerId?: ReturnType<typeof setTimeout>;
+  fallbackTimerId?: ReturnType<typeof setTimeout>;
+  cancelled: boolean;
+  ran: boolean;
+}
+const postPaintTeamEnrichmentTimers = new Map<string, PostPaintHandle>();
 const inFlightTeamMessagesHeadRequests = new Map<string, Promise<RefreshTeamMessagesHeadResult>>();
 const inFlightTeamMessagesOlderRequests = new Map<string, Promise<void>>();
 const queuedTeamMessagesHeadRefreshesAfterOlder = new Map<
@@ -103,6 +117,55 @@ interface RefreshTeamDataOptions {
   withDedup?: boolean;
 }
 
+type TeamDataSnapshotMode = 'full' | 'thin';
+
+function normalizeTeamGetDataOptions(options?: TeamGetDataOptions): TeamGetDataOptions | undefined {
+  return options?.includeMemberBranches === false ? { includeMemberBranches: false } : undefined;
+}
+
+function shouldIncludeMemberBranches(options?: TeamGetDataOptions): boolean {
+  return normalizeTeamGetDataOptions(options)?.includeMemberBranches !== false;
+}
+
+function getTeamDataSnapshotMode(options?: TeamGetDataOptions): TeamDataSnapshotMode {
+  return shouldIncludeMemberBranches(options) ? 'full' : 'thin';
+}
+
+function getTeamDataRequestKey(teamName: string, options?: TeamGetDataOptions): string {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  return `${teamName}\u0000mode:${getTeamDataSnapshotMode(normalizedOptions)}`;
+}
+
+function getTeamDataRequestLabel(teamName: string, options?: TeamGetDataOptions): string {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  return `team:getData(${teamName},mode=${getTeamDataSnapshotMode(normalizedOptions)})`;
+}
+
+function getFullTeamDataRequestKey(teamName: string): string {
+  return getTeamDataRequestKey(teamName);
+}
+
+function getThinTeamDataRequestKey(teamName: string): string {
+  return getTeamDataRequestKey(teamName, { includeMemberBranches: false });
+}
+
+function hasFullTeamDataRequestForTeam(teamName: string): boolean {
+  return inFlightTeamDataRequests.has(getFullTeamDataRequestKey(teamName));
+}
+
+function hasThinTeamDataRequestForTeam(teamName: string): boolean {
+  return inFlightTeamDataRequests.has(getThinTeamDataRequestKey(teamName));
+}
+
+function clearTeamDataRequestsForTeam(teamName: string): void {
+  const prefix = `${teamName}\u0000`;
+  for (const key of inFlightTeamDataRequests.keys()) {
+    if (key.startsWith(prefix)) {
+      inFlightTeamDataRequests.delete(key);
+    }
+  }
+}
+
 type TeamGraphSlotAssignments = Record<string, GraphOwnerSlotAssignment>;
 type TeamGraphMemberSeedInput = Pick<TeamMemberSnapshot, 'name' | 'agentId' | 'removedAt'>;
 type TeamGraphConfigMemberSeedInput = Pick<
@@ -116,9 +179,10 @@ interface TeamGraphLayoutSessionState {
 
 export function isTeamDataRefreshPending(teamName: string): boolean {
   return (
-    inFlightTeamDataRequests.has(teamName) ||
+    hasFullTeamDataRequestForTeam(teamName) ||
     (inFlightRefreshTeamDataCalls.get(teamName)?.size ?? 0) > 0 ||
-    pendingFreshTeamDataRefreshes.has(teamName)
+    pendingFreshTeamDataRefreshes.has(teamName) ||
+    queuedFullTeamDataRefreshesAfterThin.has(teamName)
   );
 }
 
@@ -142,6 +206,11 @@ export function __resetTeamSliceModuleStateForTests(): void {
   inFlightTeamDataRequests.clear();
   inFlightRefreshTeamDataCalls.clear();
   pendingFreshTeamDataRefreshes.clear();
+  queuedFullTeamDataRefreshesAfterThin.clear();
+  for (const teamName of postPaintTeamEnrichmentTimers.keys()) {
+    cancelPostPaintTeamEnrichments(teamName);
+  }
+  postPaintTeamEnrichmentTimers.clear();
   inFlightTeamMessagesHeadRequests.clear();
   inFlightTeamMessagesOlderRequests.clear();
   queuedTeamMessagesHeadRefreshesAfterOlder.clear();
@@ -182,9 +251,11 @@ function clearTeamScopedSelectorCaches(teamName: string): void {
 }
 
 function clearTeamScopedTransientState(teamName: string): void {
-  inFlightTeamDataRequests.delete(teamName);
+  clearTeamDataRequestsForTeam(teamName);
   inFlightRefreshTeamDataCalls.delete(teamName);
   pendingFreshTeamDataRefreshes.delete(teamName);
+  queuedFullTeamDataRefreshesAfterThin.delete(teamName);
+  cancelPostPaintTeamEnrichments(teamName);
   inFlightTeamMessagesHeadRequests.delete(teamName);
   inFlightTeamMessagesOlderRequests.delete(teamName);
   queuedTeamMessagesHeadRefreshesAfterOlder.delete(teamName);
@@ -387,12 +458,171 @@ function endInFlightTeamDataRefresh(teamName: string, token: symbol): void {
   }
 }
 
+function cancelPostPaintTeamEnrichments(teamName: string): void {
+  const handle = postPaintTeamEnrichmentTimers.get(teamName);
+  if (!handle) {
+    return;
+  }
+
+  handle.cancelled = true;
+  if (
+    handle.rafId !== undefined &&
+    typeof window !== 'undefined' &&
+    typeof window.cancelAnimationFrame === 'function'
+  ) {
+    window.cancelAnimationFrame(handle.rafId);
+  }
+  if (handle.timerId !== undefined) {
+    clearTimeout(handle.timerId);
+  }
+  if (handle.fallbackTimerId !== undefined) {
+    clearTimeout(handle.fallbackTimerId);
+  }
+  postPaintTeamEnrichmentTimers.delete(teamName);
+}
+
+function scheduleAfterPaint(run: () => void): PostPaintHandle {
+  const handle: PostPaintHandle = {
+    cancelled: false,
+    ran: false,
+  };
+
+  const runOnce = (): void => {
+    if (handle.cancelled || handle.ran) {
+      return;
+    }
+    handle.ran = true;
+
+    if (
+      handle.rafId !== undefined &&
+      typeof window !== 'undefined' &&
+      typeof window.cancelAnimationFrame === 'function'
+    ) {
+      window.cancelAnimationFrame(handle.rafId);
+      handle.rafId = undefined;
+    }
+    if (handle.timerId !== undefined) {
+      clearTimeout(handle.timerId);
+      handle.timerId = undefined;
+    }
+    if (handle.fallbackTimerId !== undefined) {
+      clearTimeout(handle.fallbackTimerId);
+      handle.fallbackTimerId = undefined;
+    }
+
+    run();
+  };
+
+  const scheduleTimer = (): void => {
+    handle.timerId = setTimeout(runOnce, 0);
+  };
+
+  handle.fallbackTimerId = setTimeout(runOnce, POST_PAINT_TEAM_ENRICHMENT_FALLBACK_MS);
+
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    handle.rafId = window.requestAnimationFrame(() => {
+      handle.rafId = undefined;
+      scheduleTimer();
+    });
+    return handle;
+  }
+
+  scheduleTimer();
+  return handle;
+}
+
+function drainQueuedFullRefreshAfterThinSettles(teamName: string, get: () => TeamSlice): void {
+  if (!queuedFullTeamDataRefreshesAfterThin.delete(teamName)) {
+    return;
+  }
+  void get().refreshTeamData(teamName, { withDedup: true });
+}
+
+function isSelectedTeamLoadStillCurrent(
+  get: () => TeamSlice,
+  teamName: string,
+  requestNonce: number,
+  teamStateEpoch: number
+): boolean {
+  const state = get();
+  return (
+    isTeamLocalStateEpochCurrent(teamName, teamStateEpoch) &&
+    state.selectedTeamName === teamName &&
+    state.selectedTeamLoadNonce === requestNonce &&
+    state.selectedTeamData?.teamName === teamName
+  );
+}
+
+function schedulePostPaintTeamEnrichments(params: {
+  teamName: string;
+  requestNonce: number;
+  teamStateEpoch: number;
+  get: () => TeamSlice;
+}): void {
+  const { teamName, requestNonce, teamStateEpoch, get } = params;
+
+  cancelPostPaintTeamEnrichments(teamName);
+
+  const handle = scheduleAfterPaint(() => {
+    if (postPaintTeamEnrichmentTimers.get(teamName) !== handle) {
+      return;
+    }
+    postPaintTeamEnrichmentTimers.delete(teamName);
+
+    void (async () => {
+      if (!isTeamLocalStateEpochCurrent(teamName, teamStateEpoch)) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
+        return;
+      }
+
+      const state = get();
+      if (state.selectedTeamName !== teamName) {
+        drainQueuedFullRefreshAfterThinSettles(teamName, get);
+        return;
+      }
+
+      if (state.selectedTeamLoadNonce !== requestNonce) {
+        return;
+      }
+
+      if (state.selectedTeamData?.teamName !== teamName) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
+        return;
+      }
+
+      if (queuedFullTeamDataRefreshesAfterThin.delete(teamName)) {
+        void get().refreshTeamData(teamName, { withDedup: true });
+      }
+
+      try {
+        const headResult = await get().refreshTeamMessagesHead(teamName);
+        if (!isSelectedTeamLoadStillCurrent(get, teamName, requestNonce, teamStateEpoch)) {
+          return;
+        }
+        if (headResult.feedChanged || isMemberActivityMetaStale(get(), teamName)) {
+          await get().refreshMemberActivityMeta(teamName);
+        }
+      } catch (error) {
+        logger.debug(
+          `post-paint team enrichments skipped team=${teamName} error=${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    })();
+  });
+
+  postPaintTeamEnrichmentTimers.set(teamName, handle);
+}
+
 export function __getTeamScopedTransientStateForTests(teamName: string): {
   hasResolvedMembersSelector: boolean;
   resolvedMemberSelectorCount: number;
   hasMergedMessagesSelector: boolean;
   memberMessagesSelectorCount: number;
   hasPendingFreshTeamDataRefresh: boolean;
+  hasQueuedFullTeamDataRefreshAfterThin: boolean;
+  hasPostPaintTeamEnrichmentTimer: boolean;
   hasQueuedHeadRefreshAfterOlder: boolean;
   hasPendingFreshMessagesHeadRefresh: boolean;
   hasPendingFreshMemberActivityMetaRefresh: boolean;
@@ -423,6 +653,8 @@ export function __getTeamScopedTransientStateForTests(teamName: string): {
     hasMergedMessagesSelector: mergedMessagesSelectorCache.has(teamName),
     memberMessagesSelectorCount,
     hasPendingFreshTeamDataRefresh: pendingFreshTeamDataRefreshes.has(teamName),
+    hasQueuedFullTeamDataRefreshAfterThin: queuedFullTeamDataRefreshesAfterThin.has(teamName),
+    hasPostPaintTeamEnrichmentTimer: postPaintTeamEnrichmentTimers.has(teamName),
     hasQueuedHeadRefreshAfterOlder: queuedTeamMessagesHeadRefreshesAfterOlder.has(teamName),
     hasPendingFreshMessagesHeadRefresh: pendingFreshTeamMessagesHeadRefreshes.has(teamName),
     hasPendingFreshMemberActivityMetaRefresh:
@@ -534,31 +766,48 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-function fetchTeamDataDeduped(teamName: string): Promise<TeamViewSnapshot> {
-  const existing = inFlightTeamDataRequests.get(teamName);
+function fetchTeamDataDeduped(
+  teamName: string,
+  options?: TeamGetDataOptions
+): Promise<TeamViewSnapshot> {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
+  const key = getTeamDataRequestKey(teamName, normalizedOptions);
+  const existing = inFlightTeamDataRequests.get(key);
   if (existing) {
     return existing;
   }
 
   const request = withTimeout(
-    unwrapIpc('team:getData', () => api.teams.getData(teamName)),
+    unwrapIpc('team:getData', () =>
+      normalizedOptions === undefined
+        ? api.teams.getData(teamName)
+        : api.teams.getData(teamName, normalizedOptions)
+    ),
     TEAM_GET_DATA_TIMEOUT_MS,
-    `team:getData(${teamName})`
+    getTeamDataRequestLabel(teamName, normalizedOptions)
   ).finally(() => {
-    if (inFlightTeamDataRequests.get(teamName) === request) {
-      inFlightTeamDataRequests.delete(teamName);
+    if (inFlightTeamDataRequests.get(key) === request) {
+      inFlightTeamDataRequests.delete(key);
     }
   });
 
-  inFlightTeamDataRequests.set(teamName, request);
+  inFlightTeamDataRequests.set(key, request);
   return request;
 }
 
-function fetchTeamDataFresh(teamName: string): Promise<TeamViewSnapshot> {
+function fetchTeamDataFresh(
+  teamName: string,
+  options?: TeamGetDataOptions
+): Promise<TeamViewSnapshot> {
+  const normalizedOptions = normalizeTeamGetDataOptions(options);
   return withTimeout(
-    unwrapIpc('team:getData', () => api.teams.getData(teamName)),
+    unwrapIpc('team:getData', () =>
+      normalizedOptions === undefined
+        ? api.teams.getData(teamName)
+        : api.teams.getData(teamName, normalizedOptions)
+    ),
     TEAM_GET_DATA_TIMEOUT_MS,
-    `team:getData(${teamName})`
+    getTeamDataRequestLabel(teamName, normalizedOptions)
   );
 }
 
@@ -1062,6 +1311,7 @@ const notifiedStatusChangeKeys = new Set<string>();
 const notifiedCommentKeys = new Set<string>();
 const notifiedCreatedTaskKeys = new Set<string>();
 const notifiedAllCompletedTeams = new Set<string>();
+const notifiedBlockedTaskKeys = new Set<string>();
 
 let isFirstFetchAllTasks = true;
 
@@ -1102,6 +1352,13 @@ function fireClarificationNotification(task: GlobalTask, suppressToast: boolean)
       body,
       teamEventType: 'task_clarification',
       dedupeKey: `clarification:${task.teamName}:${task.id}:${task.updatedAt ?? Date.now()}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        commentId: latestComment?.id,
+        focus: 'comments',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1198,6 +1455,12 @@ function fireStatusChangeNotification(
       body: task.subject,
       teamEventType: 'task_status_change',
       dedupeKey: `status:${task.teamName}:${task.id}:${fromStatus}:${toStatus}:${task.updatedAt ?? Date.now()}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        focus: 'status',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1222,12 +1485,16 @@ function detectTaskCommentNotifications(
     for (const comment of newComments) {
       // Don't notify about user's own comments
       if (comment.author === 'user') continue;
-      // Skip review-related comment types (already covered by status change notifications)
-      if (comment.type === 'review_request' || comment.type === 'review_approved') continue;
 
       const key = `${task.teamName}:${task.id}:${comment.id}`;
       if (notifiedCommentKeys.has(key)) continue;
       notifiedCommentKeys.add(key);
+
+      if (comment.type === 'review_request') {
+        fireTaskReviewRequestedNotification(task, comment, !notifyEnabled);
+        continue;
+      }
+      if (comment.type === 'review_approved') continue;
 
       fireTaskCommentNotification(task, comment, !notifyEnabled);
     }
@@ -1236,7 +1503,7 @@ function detectTaskCommentNotifications(
 
 function fireTaskCommentNotification(
   task: GlobalTask,
-  comment: { author: string; text: string; id: string },
+  comment: Pick<TaskComment, 'author' | 'text' | 'id'>,
   suppressToast: boolean
 ): void {
   // Double-check: never notify about user's own comments
@@ -1255,6 +1522,106 @@ function fireTaskCommentNotification(
       body: preview,
       teamEventType: 'task_comment',
       dedupeKey: `comment:${task.teamName}:${task.id}:${comment.id}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        commentId: comment.id,
+        focus: 'comments',
+      },
+      suppressToast,
+    })
+    .catch(() => undefined);
+}
+
+function fireTaskReviewRequestedNotification(
+  task: GlobalTask,
+  comment: Pick<TaskComment, 'author' | 'text' | 'id'>,
+  suppressToast: boolean
+): void {
+  const stripped = stripAgentBlocks(comment.text).trim();
+  const preview = stripped.length > 100 ? stripped.slice(0, 100) + '...' : stripped;
+
+  void api.teams
+    ?.showMessageNotification({
+      teamName: task.teamName,
+      teamDisplayName: task.teamDisplayName,
+      from: comment.author,
+      to: 'user',
+      summary: `Review requested ${formatTaskDisplayLabel(task)}: ${task.subject}`,
+      body: preview || task.subject,
+      teamEventType: 'task_review_requested',
+      dedupeKey: `review-request:${task.teamName}:${task.id}:${comment.id}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        commentId: comment.id,
+        focus: 'review',
+      },
+      suppressToast,
+    })
+    .catch(() => undefined);
+}
+
+function detectBlockedTaskNotifications(
+  oldTasks: GlobalTask[],
+  newTasks: GlobalTask[],
+  notifyEnabled: boolean
+): void {
+  const oldTaskMap = new Map(oldTasks.map((task) => [`${task.teamName}:${task.id}`, task]));
+
+  for (const task of newTasks) {
+    const oldTask = oldTaskMap.get(`${task.teamName}:${task.id}`);
+    const oldBlockedBy = new Set(oldTask?.blockedBy?.filter(Boolean) ?? []);
+    const newBlockedBy = Array.from(new Set(task.blockedBy?.filter(Boolean) ?? []));
+    const taskKeyPrefix = `${task.teamName}:${task.id}:`;
+    const key = `${taskKeyPrefix}${[...newBlockedBy].sort().join(',')}`;
+    const addedBlockedBy = newBlockedBy.filter((id) => !oldBlockedBy.has(id));
+
+    for (const existingKey of Array.from(notifiedBlockedTaskKeys)) {
+      if (existingKey.startsWith(taskKeyPrefix) && existingKey !== key) {
+        notifiedBlockedTaskKeys.delete(existingKey);
+      }
+    }
+
+    if (newBlockedBy.length > 0 && addedBlockedBy.length > 0) {
+      if (notifiedBlockedTaskKeys.has(key)) continue;
+      notifiedBlockedTaskKeys.add(key);
+      fireTaskBlockedNotification(task, newBlockedBy, !notifyEnabled);
+    } else if (newBlockedBy.length === 0) {
+      for (const existingKey of Array.from(notifiedBlockedTaskKeys)) {
+        if (existingKey.startsWith(taskKeyPrefix)) {
+          notifiedBlockedTaskKeys.delete(existingKey);
+        }
+      }
+    }
+  }
+}
+
+function fireTaskBlockedNotification(
+  task: GlobalTask,
+  blockedBy: readonly string[],
+  suppressToast: boolean
+): void {
+  const blockerRefs = blockedBy.map((id) => formatTaskDisplayLabel({ id })).join(', ');
+
+  void api.teams
+    ?.showMessageNotification({
+      teamName: task.teamName,
+      teamDisplayName: task.teamDisplayName,
+      from: task.owner ?? 'system',
+      to: 'user',
+      summary: `Blocked ${formatTaskDisplayLabel(task)}: ${task.subject}`,
+      body: blockerRefs ? `Blocked by ${blockerRefs}` : task.subject,
+      teamEventType: 'task_blocked',
+      dedupeKey: `blocked:${task.teamName}:${task.id}:${blockedBy.join(',')}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        focus: 'detail',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1288,6 +1655,12 @@ function fireTaskCreatedNotification(task: GlobalTask, suppressToast: boolean): 
       body: stripAgentBlocks(task.description || task.subject).trim(),
       teamEventType: 'task_created',
       dedupeKey: `created:${task.teamName}:${task.id}`,
+      target: {
+        kind: 'task',
+        teamName: task.teamName,
+        taskId: task.id,
+        focus: 'detail',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1346,6 +1719,11 @@ function fireAllTasksCompletedNotification(
       body: `All tasks in team "${sampleTask.teamDisplayName}" are done`,
       teamEventType: 'all_tasks_completed',
       dedupeKey: `all-done:${sampleTask.teamName}:${Date.now()}`,
+      target: {
+        kind: 'team',
+        teamName: sampleTask.teamName,
+        section: 'tasks',
+      },
       suppressToast,
     })
     .catch(() => undefined);
@@ -1447,6 +1825,20 @@ function mapReviewError(error: unknown): string {
 export interface GlobalTaskDetailState {
   teamName: string;
   taskId: string;
+  commentId?: string;
+}
+
+export interface PendingMemberProfileState {
+  teamName?: string;
+  memberName: string;
+  focus?: 'profile' | 'messages' | 'logs';
+}
+
+type TeamSectionTarget = NonNullable<Extract<NotificationTarget, { kind: 'team' }>['section']>;
+
+export interface PendingTeamSectionFocusState {
+  teamName: string;
+  section: TeamSectionTarget;
 }
 
 /** Per-team launch parameters shown in the header badge. */
@@ -1582,6 +1974,9 @@ export function selectTeamDataForName(
 ): TeamViewSnapshot | null {
   if (!teamName) {
     return null;
+  }
+  if (state.selectedTeamName === teamName && state.selectedTeamData) {
+    return state.selectedTeamData;
   }
   return (
     state.teamDataCacheByName[teamName] ??
@@ -1930,12 +2325,19 @@ export interface TeamSlice {
   globalTasksInitialized: boolean;
   globalTasksError: string | null;
   globalTaskDetail: GlobalTaskDetailState | null;
-  openGlobalTaskDetail: (teamName: string, taskId: string) => void;
+  openGlobalTaskDetail: (teamName: string, taskId: string, commentId?: string) => void;
   closeGlobalTaskDetail: () => void;
   /** Set by MemberHoverCard to signal TeamDetailView to open MemberDetailDialog */
-  pendingMemberProfile: string | null;
-  openMemberProfile: (memberName: string) => void;
+  pendingMemberProfile: PendingMemberProfileState | null;
+  openMemberProfile: (
+    memberName: string,
+    teamName?: string,
+    focus?: PendingMemberProfileState['focus']
+  ) => void;
   closeMemberProfile: () => void;
+  pendingTeamSectionFocus: PendingTeamSectionFocusState | null;
+  focusTeamSection: (teamName: string, section: TeamSectionTarget) => void;
+  clearTeamSectionFocus: () => void;
   /** Set by GlobalTaskDetailDialog to signal TeamDetailView to open ChangeReviewDialog */
   pendingReviewRequest: {
     taskId: string;
@@ -1965,6 +2367,7 @@ export interface TeamSlice {
   sendMessageDebugDetails: OpenCodeRuntimeDeliveryDebugDetails | null;
   lastSendMessageResult: SendMessageResult | null;
   clearSendMessageRuntimeDiagnostics: (messageId?: string | null) => void;
+  refreshSendMessageRuntimeDeliveryStatus: (teamName: string, messageId: string) => Promise<void>;
   reviewActionError: string | null;
   provisioningRuns: Record<string, TeamProvisioningProgress>;
   /** Synthetic TeamSummary snapshots for teams currently being provisioned (before config.json exists). */
@@ -2099,6 +2502,9 @@ export interface TeamSlice {
     memberName: string,
     role: string | undefined
   ) => Promise<void>;
+  retryFailedOpenCodeSecondaryLanes: (
+    teamName: string
+  ) => Promise<RetryFailedOpenCodeSecondaryLanesResult>;
   addTaskRelationship: (
     teamName: string,
     taskId: string,
@@ -2456,12 +2862,20 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   kanbanFilterQuery: null,
   globalTaskDetail: null,
   pendingMemberProfile: null,
-  openMemberProfile: (memberName: string) => set({ pendingMemberProfile: memberName }),
+  pendingTeamSectionFocus: null,
+  openMemberProfile: (
+    memberName: string,
+    teamName?: string,
+    focus?: PendingMemberProfileState['focus']
+  ) => set({ pendingMemberProfile: { memberName, teamName, focus } }),
   closeMemberProfile: () => set({ pendingMemberProfile: null }),
+  focusTeamSection: (teamName: string, section: TeamSectionTarget) =>
+    set({ pendingTeamSectionFocus: { teamName, section } }),
+  clearTeamSectionFocus: () => set({ pendingTeamSectionFocus: null }),
   pendingReviewRequest: null,
   setPendingReviewRequest: (req) => set({ pendingReviewRequest: req }),
-  openGlobalTaskDetail: (teamName: string, taskId: string) => {
-    set({ globalTaskDetail: { teamName, taskId } });
+  openGlobalTaskDetail: (teamName: string, taskId: string, commentId?: string) => {
+    set({ globalTaskDetail: { teamName, taskId, commentId } });
   },
   closeGlobalTaskDetail: () => set({ globalTaskDetail: null }),
   addingComment: false,
@@ -2602,6 +3016,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
             const notifyOnClarifications =
               get().appConfig?.notifications?.notifyOnClarifications ?? true;
             detectClarificationNotifications(oldTasks, tasks, notifyOnClarifications);
+            detectBlockedTaskNotifications(oldTasks, tasks, notifyOnClarifications);
             detectStatusChangeNotifications(oldTasks, tasks, get().appConfig, get().teamByName);
             const notifyOnTaskComments =
               get().appConfig?.notifications?.notifyOnTaskComments ?? true;
@@ -2616,6 +3031,11 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
             for (const task of tasks) {
               if (task.needsClarification === 'user') {
                 notifiedClarificationTaskKeys.add(`${task.teamName}:${task.id}`);
+              }
+              if ((task.blockedBy?.length ?? 0) > 0) {
+                notifiedBlockedTaskKeys.add(
+                  `${task.teamName}:${task.id}:${(task.blockedBy ?? []).join(',')}`
+                );
               }
               notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:${task.status}`);
               if (task.reviewState === 'needsFix') {
@@ -3243,6 +3663,8 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     const requestNonce = get().selectedTeamLoadNonce + 1;
     const previousData = selectTeamDataForName(get(), teamName);
 
+    cancelPostPaintTeamEnrichments(teamName);
+
     // Repoint selection synchronously to the new team's cached snapshot when available.
     // Never keep the previous team's snapshot attached to a newly selected team.
     set({
@@ -3257,12 +3679,20 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     });
 
     try {
-      const data = await fetchTeamDataDeduped(teamName);
+      const data = await fetchTeamDataDeduped(teamName, {
+        includeMemberBranches: false,
+      });
       if (!isTeamLocalStateEpochCurrent(teamName, teamStateEpoch)) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
         return;
       }
       // Stale check: user may have switched to another team during the async call
-      if (get().selectedTeamName !== teamName || get().selectedTeamLoadNonce !== requestNonce) {
+      const stateAfterLoad = get();
+      if (stateAfterLoad.selectedTeamName !== teamName) {
+        drainQueuedFullRefreshAfterThinSettles(teamName, get);
+        return;
+      }
+      if (stateAfterLoad.selectedTeamLoadNonce !== requestNonce) {
         return;
       }
       // Eagerly patch teamByName with color/displayName from detailed data
@@ -3310,80 +3740,105 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
         };
       });
       lastResolvedTeamDataRefreshAtByTeam.set(teamName, Date.now());
-      const invalidationState = previousData
-        ? collectTaskChangeInvalidationState(teamName, previousData.tasks, data.tasks)
-        : { cacheKeys: [], taskIds: [] };
-      if (invalidationState.cacheKeys.length > 0) {
-        get().invalidateTaskChangePresence(invalidationState.cacheKeys);
-      }
-      if (invalidationState.taskIds.length > 0) {
-        await api.review.invalidateTaskChangeSummaries(teamName, invalidationState.taskIds);
-      }
-      // Sync tab label with the team's display name from config
-      const displayName = data.config.name || teamName;
-      const allTabs = get().getAllPaneTabs();
-      const relatedTabs = allTabs.filter(
-        (tab) => (tab.type === 'team' || tab.type === 'graph') && tab.teamName === teamName
-      );
-      for (const tab of relatedTabs) {
-        const nextLabel = tab.type === 'graph' ? `${displayName} Graph` : displayName;
-        if (tab.label !== nextLabel) {
-          get().updateTabLabel(tab.id, nextLabel);
+
+      try {
+        const invalidationState = previousData
+          ? collectTaskChangeInvalidationState(teamName, previousData.tasks, data.tasks)
+          : { cacheKeys: [], taskIds: [] };
+        if (invalidationState.cacheKeys.length > 0) {
+          get().invalidateTaskChangePresence(invalidationState.cacheKeys);
         }
-      }
+        if (invalidationState.taskIds.length > 0) {
+          void api.review
+            .invalidateTaskChangeSummaries(teamName, invalidationState.taskIds)
+            .catch(() => undefined);
+        }
 
-      const messagesHeadResult = await get().refreshTeamMessagesHead(teamName);
-      if (messagesHeadResult.feedChanged || isMemberActivityMetaStale(get(), teamName)) {
-        await get().refreshMemberActivityMeta(teamName);
-      }
-
-      if (opts?.skipProjectAutoSelect) {
-        return;
-      }
-
-      // Auto-select the project associated with this team's cwd/projectPath.
-      // Must search both flat projects and grouped repositoryGroups/worktrees
-      // because the default viewMode is 'grouped' and flat projects may be empty.
-      const projectPath = data.config.projectPath;
-      if (projectPath) {
-        const state = get();
-        const normalizedTeamPath = normalizePath(projectPath);
-
-        // 1. Try flat projects list
-        const matchingProject = state.projects.find(
-          (p) => normalizePath(p.path) === normalizedTeamPath
+        // Sync tab label with the team's display name from config.
+        const displayName = data.config.name || teamName;
+        const allTabs = get().getAllPaneTabs();
+        const relatedTabs = allTabs.filter(
+          (tab) => (tab.type === 'team' || tab.type === 'graph') && tab.teamName === teamName
         );
-        if (matchingProject && state.selectedProjectId !== matchingProject.id) {
-          state.selectProject(matchingProject.id);
-        } else if (!matchingProject) {
-          // 2. Try grouped view: search worktrees across all repository groups
-          for (const repo of state.repositoryGroups) {
-            const matchingWorktree = repo.worktrees.find(
-              (wt) => normalizePath(wt.path) === normalizedTeamPath
-            );
-            if (matchingWorktree) {
-              if (state.selectedWorktreeId !== matchingWorktree.id) {
-                set(getWorktreeNavigationState(repo.id, matchingWorktree.id));
-                void get().fetchSessionsInitial(matchingWorktree.id);
+        for (const tab of relatedTabs) {
+          const nextLabel = tab.type === 'graph' ? `${displayName} Graph` : displayName;
+          if (tab.label !== nextLabel) {
+            get().updateTabLabel(tab.id, nextLabel);
+          }
+        }
+
+        // Auto-select the project associated with this team's cwd/projectPath.
+        // Must search both flat projects and grouped repositoryGroups/worktrees
+        // because the default viewMode is 'grouped' and flat projects may be empty.
+        const projectPath = data.config.projectPath;
+        if (
+          !opts?.skipProjectAutoSelect &&
+          projectPath &&
+          isSelectedTeamLoadStillCurrent(get, teamName, requestNonce, teamStateEpoch)
+        ) {
+          const state = get();
+          const normalizedTeamPath = normalizePath(projectPath);
+
+          // 1. Try flat projects list
+          const matchingProject = state.projects.find(
+            (p) => normalizePath(p.path) === normalizedTeamPath
+          );
+          if (matchingProject && state.selectedProjectId !== matchingProject.id) {
+            state.selectProject(matchingProject.id);
+          } else if (!matchingProject) {
+            // 2. Try grouped view: search worktrees across all repository groups
+            for (const repo of state.repositoryGroups) {
+              const matchingWorktree = repo.worktrees.find(
+                (wt) => normalizePath(wt.path) === normalizedTeamPath
+              );
+              if (matchingWorktree) {
+                if (state.selectedWorktreeId !== matchingWorktree.id) {
+                  set(getWorktreeNavigationState(repo.id, matchingWorktree.id));
+                  void get().fetchSessionsInitial(matchingWorktree.id);
+                }
+                break;
               }
-              break;
             }
           }
         }
+      } catch (error) {
+        logger.debug(
+          `selectTeam(${teamName}) post-structural sync work failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+
+      try {
+        schedulePostPaintTeamEnrichments({
+          teamName,
+          requestNonce,
+          teamStateEpoch,
+          get,
+        });
+      } catch (error) {
+        logger.debug(
+          `selectTeam(${teamName}) failed to schedule post-paint enrichments: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
     } catch (error) {
       if (!isTeamLocalStateEpochCurrent(teamName, teamStateEpoch)) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
         return;
       }
       // If provisioning is in progress for this team, stay in loading state;
       // file watcher / progress callback will refresh once config is written.
       const currentState = get();
-      if (
-        currentState.selectedTeamName !== teamName ||
-        currentState.selectedTeamLoadNonce !== requestNonce
-      ) {
+      if (currentState.selectedTeamName !== teamName) {
+        queuedFullTeamDataRefreshesAfterThin.delete(teamName);
         return;
       }
+      if (currentState.selectedTeamLoadNonce !== requestNonce) {
+        return;
+      }
+      queuedFullTeamDataRefreshesAfterThin.delete(teamName);
       const isProvisioning = isTeamProvisioningActive(currentState, teamName);
 
       const msg = error instanceof Error ? error.message : String(error);
@@ -3422,12 +3877,21 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   },
 
   refreshTeamData: async (teamName: string, opts?: RefreshTeamDataOptions) => {
+    const fullKey = getFullTeamDataRequestKey(teamName);
+    const reusedInFlightRequest = opts?.withDedup === true && inFlightTeamDataRequests.has(fullKey);
+    const queuedBehindThinRequest =
+      opts?.withDedup === true && !reusedInFlightRequest && hasThinTeamDataRequestForTeam(teamName);
+
+    if (queuedBehindThinRequest) {
+      queuedFullTeamDataRefreshesAfterThin.add(teamName);
+      logger.debug(`refreshTeamData(${teamName}) queued behind thin team:getData`);
+      return;
+    }
+
     const teamStateEpoch = captureTeamLocalStateEpoch(teamName);
     const refreshToken = beginInFlightTeamDataRefresh(teamName);
     // Silent refresh — update data without showing loading skeleton.
     // Only selectTeam() sets loading: true (for initial load).
-    const reusedInFlightRequest =
-      opts?.withDedup === true && inFlightTeamDataRequests.has(teamName);
     noteTeamRefreshBurst(teamName);
     if (reusedInFlightRequest) {
       pendingFreshTeamDataRefreshes.add(teamName);
@@ -4039,6 +4503,30 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     });
   },
 
+  refreshSendMessageRuntimeDeliveryStatus: async (teamName: string, messageId: string) => {
+    const normalizedMessageId = messageId.trim();
+    if (!normalizedMessageId) return;
+    if (get().sendMessageDebugDetails?.messageId !== normalizedMessageId) return;
+    const status = await unwrapIpc('team:getOpenCodeRuntimeDeliveryStatus', () =>
+      api.teams.getOpenCodeRuntimeDeliveryStatus(teamName, normalizedMessageId)
+    );
+    if (!status) return;
+    const diagnostics = buildOpenCodeRuntimeDeliveryDiagnostics({
+      deliveredToInbox: true,
+      messageId: normalizedMessageId,
+      runtimeDelivery: status,
+    });
+    set((state) => {
+      if (state.sendMessageDebugDetails?.messageId !== normalizedMessageId) {
+        return {};
+      }
+      return {
+        sendMessageWarning: diagnostics.warning,
+        sendMessageDebugDetails: diagnostics.debugDetails,
+      };
+    });
+  },
+
   fetchCrossTeamTargets: async () => {
     set({ crossTeamTargetsLoading: true });
     try {
@@ -4212,6 +4700,20 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   restartMember: async (teamName: string, memberName: string) => {
     try {
       await unwrapIpc('team:restartMember', () => api.teams.restartMember(teamName, memberName));
+    } finally {
+      await Promise.allSettled([
+        get().refreshTeamMessagesHead(teamName),
+        get().fetchMemberSpawnStatuses(teamName),
+        get().fetchTeamAgentRuntime(teamName),
+      ]);
+    }
+  },
+
+  retryFailedOpenCodeSecondaryLanes: async (teamName: string) => {
+    try {
+      return await unwrapIpc('team:retryFailedOpenCodeSecondaryLanes', () =>
+        api.teams.retryFailedOpenCodeSecondaryLanes(teamName)
+      );
     } finally {
       await Promise.allSettled([
         get().fetchMemberSpawnStatuses(teamName),
@@ -4887,6 +5389,17 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     if (isCanonicalRun && becameConfigReady) {
       const state = get();
       if (isVisibleInActiveTeamSurface(state, progress.teamName)) {
+        const willSelectTeam =
+          state.selectedTeamName === progress.teamName && state.selectedTeamData == null;
+        noteTeamRefreshFanout({
+          teamName: progress.teamName,
+          surface: 'provisioning-progress',
+          phase: 'scheduled',
+          reason: 'provisioning:config-ready',
+          operation: willSelectTeam ? 'selectTeam' : 'refreshTeamData',
+          selected: state.selectedTeamName === progress.teamName,
+          visible: true,
+        });
         if (state.selectedTeamName === progress.teamName && state.selectedTeamData == null) {
           void state.selectTeam(progress.teamName, { allowReloadWhileProvisioning: true });
         } else {
@@ -4939,8 +5452,27 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
     }
 
     if (isCanonicalRun && (progress.state === 'ready' || progress.state === 'disconnected')) {
+      const terminalReason =
+        progress.state === 'ready'
+          ? 'provisioning:terminal-ready'
+          : 'provisioning:terminal-disconnected';
+      noteTeamRefreshFanout({
+        teamName: progress.teamName,
+        surface: 'provisioning-progress',
+        phase: 'scheduled',
+        reason: terminalReason,
+        operation: 'fetchTeams',
+      });
       void get().fetchTeams();
       if (hydratedVisibleTeam) {
+        noteTeamRefreshFanout({
+          teamName: progress.teamName,
+          surface: 'provisioning-progress',
+          phase: 'skipped',
+          reason: 'provisioning:already-hydrated-visible-team',
+          operation: 'refreshTeamData',
+          visible: true,
+        });
         return;
       }
 
@@ -4951,6 +5483,15 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
 
       // If the user already opened the team tab, reload team data now that
       // config.json is guaranteed to exist.
+      noteTeamRefreshFanout({
+        teamName: progress.teamName,
+        surface: 'provisioning-progress',
+        phase: 'scheduled',
+        reason: terminalReason,
+        operation: state.selectedTeamName === progress.teamName ? 'selectTeam' : 'refreshTeamData',
+        selected: state.selectedTeamName === progress.teamName,
+        visible: true,
+      });
       if (state.selectedTeamName === progress.teamName) {
         void state.selectTeam(progress.teamName);
       } else {

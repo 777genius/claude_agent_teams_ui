@@ -11,6 +11,35 @@ import type {
   TeamProviderId,
 } from '@shared/types';
 
+function shouldShowRuntimeMemory(
+  spawnEntry: MemberSpawnStatusEntry | undefined,
+  runtimeEntry: TeamAgentRuntimeEntry | undefined
+): boolean {
+  if (typeof runtimeEntry?.rssBytes !== 'number' || runtimeEntry.rssBytes <= 0) {
+    return false;
+  }
+
+  if (
+    spawnEntry?.status === 'offline' ||
+    spawnEntry?.status === 'skipped' ||
+    spawnEntry?.launchState === 'skipped_for_launch'
+  ) {
+    return false;
+  }
+
+  if (!spawnEntry) {
+    return runtimeEntry.alive === true;
+  }
+
+  return (
+    runtimeEntry.alive === true ||
+    spawnEntry.runtimeAlive === true ||
+    spawnEntry.bootstrapConfirmed === true ||
+    spawnEntry.livenessSource === 'process' ||
+    spawnEntry.livenessSource === 'heartbeat'
+  );
+}
+
 function normalizeMemberBackendLabel(
   providerId: TeamProviderId,
   backendLabel: string | undefined
@@ -101,10 +130,9 @@ export function resolveMemberRuntimeSummary(
     configuredProvider,
     formatTeamProviderBackendLabel(configuredProvider, configuredProviderBackendId)
   );
-  const memorySuffix =
-    typeof runtimeEntry?.rssBytes === 'number' && runtimeEntry.rssBytes > 0
-      ? ` · ${formatBytes(runtimeEntry.rssBytes)}`
-      : '';
+  const memorySuffix = shouldShowRuntimeMemory(spawnEntry, runtimeEntry)
+    ? ` · ${formatBytes(runtimeEntry!.rssBytes!)}`
+    : '';
 
   if (runtimeModel && (isMemberLaunchPending(spawnEntry) || configuredModel.length === 0)) {
     const runtimeProvider = inferTeamProviderIdFromModel(runtimeModel) ?? configuredProvider;

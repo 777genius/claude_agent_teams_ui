@@ -46,6 +46,7 @@ type RuntimeMemberSpawnState = Pick<
   | 'livenessKind'
   | 'runtimeDiagnostic'
   | 'runtimeDiagnosticSeverity'
+  | 'bootstrapStalled'
   | 'livenessLastCheckedAt'
   | 'firstSpawnAcceptedAt'
   | 'lastHeartbeatAt'
@@ -97,6 +98,59 @@ function preservesStrongRuntimeAlive(
     (value.bootstrapConfirmed === true ||
       value.livenessKind === 'confirmed_bootstrap' ||
       value.livenessKind === 'runtime_process')
+  );
+}
+
+function isOpenCodeSecondaryBootstrapPending(
+  member: Pick<
+    PersistedTeamLaunchMemberState,
+    | 'providerId'
+    | 'laneKind'
+    | 'laneOwnerProviderId'
+    | 'launchState'
+    | 'bootstrapConfirmed'
+    | 'hardFailure'
+  >
+): boolean {
+  return (
+    member.providerId === 'opencode' &&
+    member.laneKind === 'secondary' &&
+    member.laneOwnerProviderId === 'opencode' &&
+    member.launchState === 'runtime_pending_bootstrap' &&
+    member.bootstrapConfirmed !== true &&
+    member.hardFailure !== true
+  );
+}
+
+function isPersistedBootstrapStalled(
+  member: Pick<
+    PersistedTeamLaunchMemberState,
+    | 'providerId'
+    | 'laneKind'
+    | 'laneOwnerProviderId'
+    | 'launchState'
+    | 'runtimeAlive'
+    | 'bootstrapConfirmed'
+    | 'hardFailure'
+    | 'bootstrapStalled'
+    | 'runtimePid'
+    | 'runtimeSessionId'
+    | 'livenessKind'
+  >
+): boolean {
+  const hasMaterializedOpenCodeRuntimeMarker =
+    member.runtimeAlive === true ||
+    (typeof member.runtimePid === 'number' &&
+      Number.isFinite(member.runtimePid) &&
+      member.runtimePid > 0) ||
+    (typeof member.runtimeSessionId === 'string' && member.runtimeSessionId.trim().length > 0) ||
+    member.livenessKind === 'runtime_process' ||
+    member.livenessKind === 'runtime_process_candidate' ||
+    member.livenessKind === 'registered_only';
+  return (
+    member.bootstrapStalled === true &&
+    isOpenCodeSecondaryBootstrapPending(member) &&
+    hasMaterializedOpenCodeRuntimeMarker
   );
 }
 
@@ -193,11 +247,13 @@ function buildDiagnostics(
     | 'agentToolAccepted'
     | 'runtimeAlive'
     | 'bootstrapConfirmed'
+    | 'hardFailure'
     | 'hardFailureReason'
     | 'skippedForLaunch'
     | 'skipReason'
     | 'sources'
     | 'pendingPermissionRequestIds'
+    | 'bootstrapStalled'
   >
 ): string[] {
   const diagnostics: string[] = [];
@@ -206,6 +262,10 @@ function buildDiagnostics(
   if (member.bootstrapConfirmed) diagnostics.push('late heartbeat received');
   if ((member.pendingPermissionRequestIds?.length ?? 0) > 0) {
     diagnostics.push('waiting for permission approval');
+  } else if (member.bootstrapStalled) {
+    diagnostics.push('opencode_bootstrap_stalled');
+  } else if (member.hardFailure && member.runtimeAlive && !member.bootstrapConfirmed) {
+    diagnostics.push('bootstrap failed while runtime process was still alive');
   } else if (member.runtimeAlive && !member.bootstrapConfirmed) {
     diagnostics.push('waiting for teammate check-in');
   }
@@ -545,6 +605,7 @@ function normalizePersistedMemberState(
     pidSource: normalizePidSource(parsed.pidSource),
     runtimeDiagnostic: normalizeOptionalString(parsed.runtimeDiagnostic),
     runtimeDiagnosticSeverity: normalizeDiagnosticSeverity(parsed.runtimeDiagnosticSeverity),
+    bootstrapStalled: toBoolean(parsed.bootstrapStalled),
     runtimeLastSeenAt: normalizeOptionalString(parsed.runtimeLastSeenAt),
     firstSpawnAcceptedAt:
       typeof parsed.firstSpawnAcceptedAt === 'string' ? parsed.firstSpawnAcceptedAt : undefined,
@@ -571,6 +632,9 @@ function normalizePersistedMemberState(
       ? parsed.launchState
       : deriveMemberLaunchState(next);
   next.launchState = launchState;
+  if (!isPersistedBootstrapStalled(next)) {
+    next.bootstrapStalled = undefined;
+  }
   next.diagnostics = next.diagnostics?.length ? next.diagnostics : buildDiagnostics(next);
   return next;
 }
@@ -714,6 +778,7 @@ export function snapshotFromRuntimeMemberStatuses(params: {
       livenessKind: runtime?.livenessKind,
       runtimeDiagnostic: runtime?.runtimeDiagnostic,
       runtimeDiagnosticSeverity: runtime?.runtimeDiagnosticSeverity,
+      bootstrapStalled: runtime?.bootstrapStalled === true,
       runtimeLastSeenAt: runtime?.livenessLastCheckedAt,
       firstSpawnAcceptedAt: runtime?.firstSpawnAcceptedAt,
       lastHeartbeatAt: runtime?.lastHeartbeatAt,
@@ -723,6 +788,9 @@ export function snapshotFromRuntimeMemberStatuses(params: {
       diagnostics: undefined,
     };
     entry.launchState = deriveMemberLaunchState(entry);
+    if (!isPersistedBootstrapStalled(entry)) {
+      entry.bootstrapStalled = undefined;
+    }
     entry.diagnostics = buildDiagnostics(entry);
     members[name] = entry;
   }
@@ -756,6 +824,8 @@ export function snapshotToMemberSpawnStatuses(
     const skippedForLaunch =
       entry.launchState === 'skipped_for_launch' || entry.skippedForLaunch === true;
     const runtimeAlive = skippedForLaunch ? false : preservesStrongRuntimeAlive(entry);
+    const openCodeBootstrapPending = isOpenCodeSecondaryBootstrapPending(entry);
+    const bootstrapStalled = isPersistedBootstrapStalled(entry);
     if (entry.launchState === 'failed_to_start') {
       status = 'error';
     } else if (entry.launchState === 'skipped_for_launch') {
@@ -767,8 +837,10 @@ export function snapshotToMemberSpawnStatuses(
       entry.launchState === 'runtime_pending_permission' ||
       entry.launchState === 'runtime_pending_bootstrap'
     ) {
-      status = runtimeAlive ? 'online' : 'waiting';
-      livenessSource = runtimeAlive ? 'process' : undefined;
+      status =
+        runtimeAlive && !openCodeBootstrapPending && !bootstrapStalled ? 'online' : 'waiting';
+      livenessSource =
+        runtimeAlive && !openCodeBootstrapPending && !bootstrapStalled ? 'process' : undefined;
     } else {
       status = entry.agentToolAccepted ? 'waiting' : 'spawning';
     }
@@ -789,6 +861,7 @@ export function snapshotToMemberSpawnStatuses(
       livenessKind: entry.livenessKind,
       runtimeDiagnostic: entry.runtimeDiagnostic,
       runtimeDiagnosticSeverity: entry.runtimeDiagnosticSeverity,
+      bootstrapStalled,
       livenessLastCheckedAt: entry.runtimeLastSeenAt ?? entry.lastEvaluatedAt,
       firstSpawnAcceptedAt: entry.firstSpawnAcceptedAt,
       lastHeartbeatAt: entry.lastHeartbeatAt,

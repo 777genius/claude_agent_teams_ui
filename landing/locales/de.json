@@ -2,6 +2,7 @@
   "nav": {
     "features": "Funktionen",
     "screenshots": "Screenshots",
+    "docs": "Dokumentation",
     "comparison": "Vergleich",
     "download": "Download",
     "pricing": "Kostenlos",
@@ -13,6 +14,7 @@
     "downloadNow": "Herunterladen",
     "ctaPrimary": "Für {platform} herunterladen",
     "ctaSecondary": "Vergleichen",
+    "ctaDocs": "Dokumentation",
     "preview": "Produktvorschau",
     "trust": {
       "agentTeams": "Agenten-Teams",
@@ -44,8 +46,8 @@
     "sectionTitle": "100% Kostenlos. Ohne Haken.",
     "sectionSubtitle": "Open Source, keine API-Schlüssel, keine Konfiguration. Einfach installieren und loslegen.",
     "getStarted": "Herunterladen",
-    "popular": "Für immer kostenlos",
-    "note": "100% Open Source. Keine API-Schlüssel. Keine Konfiguration. Läuft vollständig lokal."
+    "popular": "Kostenlos",
+    "note": "Open Source. Keine API-Schlüssel. Keine Konfiguration. Läuft vollständig lokal."
   },
   "testimonials": {
     "sectionTitle": "Was Entwickler sagen",

@@ -44,7 +44,7 @@
     {
       "id": "isFree",
       "question": "क्या यह सच में मुफ़्त है?",
-      "answer": "हाँ। ऐप 100% मुफ़्त और ओपन सोर्स है। ऐप का अपना कोई paid plan नहीं है। agents चलाने के लिए आपको सिर्फ़ किसी supported provider/runtime, जैसे Anthropic या Codex, का access चाहिए।"
+      "answer": "हाँ। ऐप मुफ़्त और ओपन सोर्स है। ऐप का अपना कोई paid plan नहीं है। agents चलाने के लिए आपको सिर्फ़ किसी supported provider/runtime, जैसे Anthropic या Codex, का access चाहिए।"
     },
     {
       "id": "platforms",
@@ -82,9 +82,9 @@
   "pricing": [
     {
       "id": "free",
-      "name": "हमेशा मुफ़्त",
+      "name": "मुफ़्त",
       "price": "$0",
-      "period": "हमेशा",
+      "period": "",
       "description": "सब कुछ शामिल। कोई लिमिट नहीं, कोई API कुंजी नहीं, कोई क्रेडिट कार्ड नहीं।",
       "features": [
         "असीमित एजेंट टीमें",

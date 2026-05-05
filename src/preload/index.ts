@@ -136,6 +136,7 @@ import {
   TEAM_GET_MEMBER_LOGS,
   TEAM_GET_MEMBER_STATS,
   TEAM_GET_MESSAGES_PAGE,
+  TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS,
   TEAM_GET_PROJECT_BRANCH,
   TEAM_GET_SAVED_REQUEST,
   TEAM_GET_TASK_ACTIVITY,
@@ -168,6 +169,7 @@ import {
   TEAM_RESTART_MEMBER,
   TEAM_RESTORE,
   TEAM_RESTORE_TASK,
+  TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
   TEAM_SAVE_TASK_ATTACHMENT,
   TEAM_SEND_MESSAGE,
   TEAM_SET_CHANGE_PRESENCE_TRACKING,
@@ -280,9 +282,11 @@ import type {
   MemberSpawnStatusesSnapshot,
   MessagesPage,
   NotificationTrigger,
+  OpenCodeRuntimeDeliveryStatus,
   ProjectBranchChangeEvent,
   RejectResult,
   ReplaceMembersRequest,
+  RetryFailedOpenCodeSecondaryLanesResult,
   Schedule,
   ScheduleChangeEvent,
   ScheduleRun,
@@ -307,6 +311,7 @@ import type {
   TeamCreateConfigRequest,
   TeamCreateRequest,
   TeamCreateResponse,
+  TeamGetDataOptions,
   TeamLaunchRequest,
   TeamLaunchResponse,
   TeamMemberActivityMeta,
@@ -844,8 +849,11 @@ const electronAPI: ElectronAPI = {
     list: async () => {
       return invokeIpcWithResult<TeamSummary[]>(TEAM_LIST);
     },
-    getData: async (teamName: string) => {
-      return invokeIpcWithResult<TeamViewSnapshot>(TEAM_GET_DATA, teamName);
+    getData: async (teamName: string, options?: TeamGetDataOptions) => {
+      if (options === undefined) {
+        return invokeIpcWithResult<TeamViewSnapshot>(TEAM_GET_DATA, teamName);
+      }
+      return invokeIpcWithResult<TeamViewSnapshot>(TEAM_GET_DATA, teamName, options);
     },
     getTaskChangePresence: async (teamName: string) => {
       return invokeIpcWithResult<Record<string, TaskChangePresenceState>>(
@@ -927,6 +935,13 @@ const electronAPI: ElectronAPI = {
     },
     sendMessage: async (teamName: string, request: SendMessageRequest) => {
       return invokeIpcWithResult<SendMessageResult>(TEAM_SEND_MESSAGE, teamName, request);
+    },
+    getOpenCodeRuntimeDeliveryStatus: async (teamName: string, messageId: string) => {
+      return invokeIpcWithResult<OpenCodeRuntimeDeliveryStatus | null>(
+        TEAM_GET_OPENCODE_RUNTIME_DELIVERY_STATUS,
+        teamName,
+        messageId
+      );
     },
     getMessagesPage: async (
       teamName: string,
@@ -1113,6 +1128,12 @@ const electronAPI: ElectronAPI = {
     },
     getTeamAgentRuntime: async (teamName: string) => {
       return invokeIpcWithResult<TeamAgentRuntimeSnapshot>(TEAM_GET_AGENT_RUNTIME, teamName);
+    },
+    retryFailedOpenCodeSecondaryLanes: async (teamName: string) => {
+      return invokeIpcWithResult<RetryFailedOpenCodeSecondaryLanesResult>(
+        TEAM_RETRY_FAILED_OPENCODE_SECONDARY_LANES,
+        teamName
+      );
     },
     restartMember: async (teamName: string, memberName: string) => {
       return invokeIpcWithResult<void>(TEAM_RESTART_MEMBER, teamName, memberName);

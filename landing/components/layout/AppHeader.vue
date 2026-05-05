@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { mdiMenu, mdiClose, mdiGithub } from '@mdi/js';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const { repoUrl } = useGithubRepo();
+const { baseURL } = useRuntimeConfig().app;
 const menuOpen = ref(false);
 
+const withBase = (path: string) => `${baseURL.replace(/\/?$/, '/')}${path.replace(/^\/+/, '')}`;
+const docsHref = computed(() => withBase(locale.value === 'ru' ? 'docs/ru/' : 'docs/'));
+
 const navItems = computed(() => [
-  { id: 'screenshots', label: t('nav.screenshots') },
-  { id: 'download', label: t('nav.download') },
-  { id: 'comparison', label: t('nav.comparison') },
-  { id: 'pricing', label: t('nav.pricing') },
-  { id: 'faq', label: t('nav.faq') },
+  { href: '#screenshots', label: t('nav.screenshots') },
+  { href: docsHref.value, label: t('nav.docs') },
+  { href: '#download', label: t('nav.download') },
+  { href: '#comparison', label: t('nav.comparison') },
+  { href: '#pricing', label: t('nav.pricing') },
+  { href: '#faq', label: t('nav.faq') },
 ]);
 </script>
 
@@ -19,7 +24,7 @@ const navItems = computed(() => [
     <v-container class="app-header__inner">
       <AppLogo />
       <nav class="app-header__nav">
-        <v-btn v-for="item in navItems" :key="item.id" variant="text" :href="`#${item.id}`">
+        <v-btn v-for="item in navItems" :key="item.href" variant="text" :href="item.href">
           {{ item.label }}
         </v-btn>
       </nav>
@@ -49,12 +54,12 @@ const navItems = computed(() => [
                   <div style="flex: 1" />
                   <v-btn :icon="mdiClose" variant="text" @click="menuOpen = false" />
                 </div>
-                <hr class="mobile-menu__divider" />
+                <hr class="mobile-menu__divider">
                 <nav class="mobile-menu__list">
                   <a
                     v-for="item in navItems"
-                    :key="item.id"
-                    :href="`#${item.id}`"
+                    :key="item.href"
+                    :href="item.href"
                     class="mobile-menu__link"
                     @click="menuOpen = false"
                   >
@@ -69,7 +74,7 @@ const navItems = computed(() => [
                     GitHub
                   </a>
                 </nav>
-                <hr class="mobile-menu__divider" />
+                <hr class="mobile-menu__divider">
                 <div class="mobile-menu__actions">
                   <LanguageSwitcher compact />
                   <ThemeToggle />
@@ -89,18 +94,18 @@ const navItems = computed(() => [
   top: 0;
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: var(--at-z-header);
   height: 64px;
   display: flex;
   align-items: center;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(0, 240, 255, 0.08);
+  backdrop-filter: blur(var(--at-blur-md));
+  -webkit-backdrop-filter: blur(var(--at-blur-md));
+  border-bottom: 1px solid var(--at-c-border);
 }
 
 .v-theme--light .app-header {
   background: rgba(255, 255, 255, 0.9);
-  border-bottom-color: rgba(0, 0, 0, 0.06);
+  border-bottom-color: var(--at-c-border);
 }
 
 .v-theme--dark .app-header {
@@ -136,15 +141,15 @@ const navItems = computed(() => [
 }
 
 .app-header__github-btn {
-  border-color: rgba(0, 240, 255, 0.25) !important;
-  color: #00f0ff !important;
+  border-color: var(--at-c-border-strong) !important;
+  color: var(--at-c-cyan) !important;
   font-weight: 600 !important;
   font-size: 12px !important;
   letter-spacing: 0.02em !important;
 }
 
 .app-header__github-btn:hover {
-  border-color: rgba(0, 240, 255, 0.5) !important;
+  border-color: var(--at-c-focus) !important;
   background: rgba(0, 240, 255, 0.06) !important;
 }
 

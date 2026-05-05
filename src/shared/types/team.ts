@@ -1,3 +1,4 @@
+import type { NotificationTarget, TeamEventType } from './notifications';
 import type { EnhancedChunk } from '@main/types';
 
 export interface TeamMember {
@@ -55,6 +56,8 @@ export interface TeamSummary {
   color?: string;
   memberCount: number;
   members?: TeamSummaryMember[];
+  leadName?: string;
+  leadColor?: string;
   taskCount: number;
   lastActivity: string | null;
   projectPath?: string;
@@ -733,6 +736,10 @@ export interface SendMessageResult {
   };
 }
 
+export type OpenCodeRuntimeDeliveryStatus = NonNullable<SendMessageResult['runtimeDelivery']> & {
+  messageId: string;
+};
+
 export interface AddTaskCommentRequest {
   text: string;
   attachments?: CommentAttachmentPayload[];
@@ -870,6 +877,14 @@ export interface TeamMemberActivityMeta {
   computedAt: string;
   members: Record<string, MemberActivityMetaEntry>;
   feedRevision: string;
+}
+
+export interface TeamGetDataOptions {
+  /**
+   * Default true.
+   * Set false only for UI-first reads where branch labels can arrive through branch sync.
+   */
+  includeMemberBranches?: boolean;
 }
 
 export interface TeamViewSnapshot {
@@ -1020,6 +1035,8 @@ export interface PersistedTeamLaunchMemberState {
   pidSource?: TeamAgentRuntimePidSource;
   runtimeDiagnostic?: string;
   runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  /** True when a live runtime process missed the bounded bootstrap check-in window. */
+  bootstrapStalled?: boolean;
   runtimeLastSeenAt?: string;
   firstSpawnAcceptedAt?: string;
   lastHeartbeatAt?: string;
@@ -1064,6 +1081,14 @@ export interface MemberSpawnStatusesSnapshot {
   updatedAt?: string;
   summary?: PersistedTeamLaunchSummary;
   source?: 'live' | 'persisted' | 'merged';
+}
+
+export interface RetryFailedOpenCodeSecondaryLanesResult {
+  attempted: string[];
+  confirmed: string[];
+  pending: string[];
+  failed: Array<{ memberName: string; error: string }>;
+  skipped: Array<{ memberName: string; reason: string }>;
 }
 
 export type MemberSpawnLivenessSource = 'heartbeat' | 'process';
@@ -1197,6 +1222,8 @@ export interface MemberSpawnStatusEntry {
   runtimeDiagnostic?: string;
   /** Visual severity for runtimeDiagnostic. */
   runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  /** Process is alive, but bootstrap did not confirm before the bounded OpenCode deadline. */
+  bootstrapStalled?: boolean;
   /** ISO timestamp of the last liveness evaluation. */
   livenessLastCheckedAt?: string;
   /** ISO timestamp of the last status change. */
@@ -1497,12 +1524,9 @@ export interface TeamMessageNotificationData {
   /** Optional sender color for visual context. */
   color?: string;
   /** Team event sub-type for notification categorization. */
-  teamEventType?:
-    | 'task_clarification'
-    | 'task_status_change'
-    | 'task_comment'
-    | 'task_created'
-    | 'all_tasks_completed';
+  teamEventType?: TeamEventType;
+  /** Structured destination used when clicking the OS or in-app notification. */
+  target?: NotificationTarget;
   /** Stable key for storage deduplication. Required — no fallback to Date.now(). */
   dedupeKey?: string;
   /**

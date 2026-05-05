@@ -5,6 +5,7 @@
 import type {
   MemberLogSummary,
   MessagesPage,
+  TeamGetDataOptions,
   TeamMemberActivityMeta,
   TeamViewSnapshot,
 } from '@shared/types';
@@ -13,6 +14,7 @@ import type {
 
 export interface GetTeamDataPayload {
   teamName: string;
+  options?: TeamGetDataOptions;
 }
 
 export interface GetMessagesPagePayload {
@@ -38,18 +40,37 @@ export interface FindLogsForTaskPayload {
   };
 }
 
+export interface InvalidateTeamConfigPayload {
+  teamName: string;
+}
+
+export interface InvalidateTeamMessageFeedPayload {
+  teamName: string;
+}
+
+export interface TeamDataWorkerDiag {
+  op: TeamDataWorkerRequest['op'];
+  teamName?: string;
+  taskId?: string;
+  totalMs: number;
+}
+
 // ── Request / Response ──
 
 export type TeamDataWorkerRequest =
+  | { id: string; op: 'warmup'; payload?: Record<string, never> }
   | { id: string; op: 'getTeamData'; payload: GetTeamDataPayload }
   | { id: string; op: 'getMessagesPage'; payload: GetMessagesPagePayload }
   | { id: string; op: 'getMemberActivityMeta'; payload: GetMemberActivityMetaPayload }
-  | { id: string; op: 'findLogsForTask'; payload: FindLogsForTaskPayload };
+  | { id: string; op: 'findLogsForTask'; payload: FindLogsForTaskPayload }
+  | { id: string; op: 'invalidateTeamConfig'; payload: InvalidateTeamConfigPayload }
+  | { id: string; op: 'invalidateTeamMessageFeed'; payload: InvalidateTeamMessageFeedPayload };
 
 export type TeamDataWorkerResponse =
   | {
       id: string;
       ok: true;
-      result: TeamViewSnapshot | MessagesPage | TeamMemberActivityMeta | MemberLogSummary[];
+      result: TeamViewSnapshot | MessagesPage | TeamMemberActivityMeta | MemberLogSummary[] | null;
+      diag?: TeamDataWorkerDiag;
     }
   | { id: string; ok: false; error: string };

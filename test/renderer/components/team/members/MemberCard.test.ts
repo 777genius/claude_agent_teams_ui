@@ -4,6 +4,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { MemberSpawnStatusEntry, ResolvedTeamMember, TeamTaskWithKanban } from '@shared/types';
 
+const hoisted = vi.hoisted(() => ({
+  openExternal: vi.fn(),
+}));
+
+vi.mock('@renderer/api', () => ({
+  api: {
+    openExternal: hoisted.openExternal,
+  },
+}));
+
 vi.mock('@renderer/components/ui/badge', () => ({
   Badge: ({
     children,
@@ -86,6 +96,7 @@ const skippedSpawnEntry: MemberSpawnStatusEntry = {
 describe('MemberCard starting-state visuals', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    hoisted.openExternal.mockReset();
     vi.useRealTimers();
   });
 
@@ -765,6 +776,60 @@ describe('MemberCard starting-state visuals', () => {
     });
 
     expect(host.querySelector('[aria-label="Retry teammate"]')).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('shows a compact failed launch reason on the member row with clickable links', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const reason =
+      'Latest assistant message msg_df2d6414f0016Bn0Pc0QJbo5sU failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits';
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberCard, {
+          member,
+          memberColor: 'blue',
+          isTeamAlive: true,
+          isTeamProvisioning: false,
+          spawnStatus: 'error',
+          spawnLaunchState: 'failed_to_start',
+          spawnRuntimeAlive: false,
+          spawnError: reason,
+          spawnEntry: {
+            ...failedSpawnEntry,
+            hardFailureReason: reason,
+            runtimeDiagnostic: reason,
+          },
+          onRestartMember: vi.fn(),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const failureReason = host.querySelector('[data-testid="member-launch-failure-reason"]');
+    expect(failureReason?.textContent).toContain('Insufficient credits');
+    expect(failureReason?.textContent).toContain('OpenRouter credits');
+    expect(failureReason?.textContent).not.toContain('Latest assistant message');
+    expect(failureReason?.textContent).not.toContain('msg_df2d6414');
+
+    const link = failureReason?.querySelector(
+      'a[href="https://openrouter.ai/settings/credits"]'
+    ) as HTMLAnchorElement | null;
+    expect(link).not.toBeNull();
+
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(hoisted.openExternal).toHaveBeenCalledWith('https://openrouter.ai/settings/credits');
 
     await act(async () => {
       root.unmount();

@@ -2,6 +2,7 @@
   "nav": {
     "features": "Features",
     "screenshots": "Screenshots",
+    "docs": "Documentation",
     "comparison": "Compare",
     "download": "Download",
     "pricing": "Free",
@@ -13,6 +14,7 @@
     "downloadNow": "Download Now",
     "ctaPrimary": "Download for {platform}",
     "ctaSecondary": "Compare",
+    "ctaDocs": "Documentation",
     "preview": "Product preview",
     "trust": {
       "agentTeams": "Agent Teams",
@@ -44,8 +46,8 @@
     "sectionTitle": "100% Free. No strings attached.",
     "sectionSubtitle": "Open source, no API keys, no configuration. Just install and go.",
     "getStarted": "Download Now",
-    "popular": "Free Forever",
-    "note": "100% open source. No API keys. No configuration. Runs entirely locally."
+    "popular": "Free",
+    "note": "Open source. No API keys. No configuration. Runs entirely locally."
   },
   "testimonials": {
     "sectionTitle": "What developers say",

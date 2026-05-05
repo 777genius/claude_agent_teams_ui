@@ -286,6 +286,71 @@ describe('OpenCodePromptDeliveryLedger', () => {
     expect(observed.observedAssistantPreview).toBe('Понял');
   });
 
+  it('keeps plain-text responses active until their visible inbox reply is materialized', async () => {
+    const store = createStore();
+    const record = await store.ensurePending({
+      teamName: 'team-a',
+      memberName: 'jack',
+      laneId: 'secondary:opencode:jack',
+      inboxMessageId: 'msg-plain-visible',
+      inboxTimestamp: '2026-04-25T09:59:00.000Z',
+      source: 'watcher',
+      replyRecipient: 'user',
+      actionMode: 'ask',
+      taskRefs: [],
+      payloadHash: 'sha256:plain-visible',
+      now: '2026-04-25T10:00:00.000Z',
+    });
+
+    const responded = await store.applyDeliveryResult({
+      id: record.id,
+      accepted: true,
+      attempted: true,
+      responseObservation: {
+        state: 'responded_plain_text',
+        deliveredUserMessageId: 'oc-user-plain',
+        assistantMessageId: 'oc-assistant-plain',
+        toolCallNames: [],
+        visibleMessageToolCallId: null,
+        visibleReplyMessageId: null,
+        visibleReplyCorrelation: null,
+        latestAssistantPreview: 'Concrete visible answer.',
+        reason: null,
+      },
+      now: '2026-04-25T10:00:05.000Z',
+    });
+    expect(responded.status).toBe('responded');
+
+    await expect(store.getActiveForMember({
+      teamName: 'team-a',
+      memberName: 'jack',
+      laneId: 'secondary:opencode:jack',
+    })).resolves.toMatchObject({
+      id: record.id,
+      responseState: 'responded_plain_text',
+    });
+
+    const materialized = await store.applyDestinationProof({
+      id: record.id,
+      visibleReplyInbox: 'user',
+      visibleReplyMessageId: 'opencode-plain-reply-1',
+      visibleReplyCorrelation: 'plain_assistant_text',
+      semanticallySufficient: true,
+      observedAt: '2026-04-25T10:00:06.000Z',
+    });
+    expect(materialized).toMatchObject({
+      status: 'responded',
+      responseState: 'responded_plain_text',
+      visibleReplyCorrelation: 'plain_assistant_text',
+    });
+
+    await expect(store.getActiveForMember({
+      teamName: 'team-a',
+      memberName: 'jack',
+      laneId: 'secondary:opencode:jack',
+    })).resolves.toBeNull();
+  });
+
   it('does not keep responded live deliveries active when no inbox commit is needed', async () => {
     const store = createStore();
     const direct = await store.ensurePending({

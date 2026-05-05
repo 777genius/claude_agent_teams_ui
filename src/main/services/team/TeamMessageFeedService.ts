@@ -26,6 +26,11 @@ interface TeamMessageFeedCacheEntry {
   cachedAt: number;
 }
 
+interface InFlightTeamMessageFeed {
+  promise: Promise<TeamNormalizedMessageFeed>;
+  generationAtStart: number;
+}
+
 export interface TeamNormalizedMessageFeed {
   teamName: string;
   feedRevision: string;
@@ -411,11 +416,14 @@ function toFeedRevision(messages: readonly InboxMessage[]): string {
 export class TeamMessageFeedService {
   private readonly cacheByTeam = new Map<string, TeamMessageFeedCacheEntry>();
   private readonly dirtyTeams = new Set<string>();
+  private readonly inFlightByTeam = new Map<string, InFlightTeamMessageFeed>();
+  private readonly generationByTeam = new Map<string, number>();
 
   constructor(private readonly deps: TeamMessageFeedDeps) {}
 
   invalidate(teamName: string): void {
     this.dirtyTeams.add(teamName);
+    this.generationByTeam.set(teamName, this.getGeneration(teamName) + 1);
   }
 
   async getFeed(teamName: string): Promise<TeamNormalizedMessageFeed> {
@@ -431,20 +439,65 @@ export class TeamMessageFeedService {
       };
     }
 
+    const existingRequest = this.inFlightByTeam.get(teamName);
+    const generationAtStart = this.getGeneration(teamName);
+    if (existingRequest && existingRequest.generationAtStart === generationAtStart) {
+      return existingRequest.promise;
+    }
+
+    const request = this.buildFeed(
+      teamName,
+      cached,
+      now,
+      cacheDirty,
+      cacheExpired,
+      generationAtStart
+    ).finally(() => {
+      if (this.inFlightByTeam.get(teamName)?.promise === request) {
+        this.inFlightByTeam.delete(teamName);
+      }
+    });
+    this.inFlightByTeam.set(teamName, {
+      promise: request,
+      generationAtStart,
+    });
+    return request;
+  }
+
+  private getGeneration(teamName: string): number {
+    return this.generationByTeam.get(teamName) ?? 0;
+  }
+
+  private async buildFeed(
+    teamName: string,
+    cached: TeamMessageFeedCacheEntry | undefined,
+    now: number,
+    cacheDirty: boolean,
+    cacheExpired: boolean,
+    generationAtStart: number
+  ): Promise<TeamNormalizedMessageFeed> {
+    const startedAt = Date.now();
+    const configStartedAt = Date.now();
     const config = await this.deps.getConfig(teamName);
+    const configMs = Date.now() - configStartedAt;
     if (!config) {
       const emptyEntry = { feedRevision: toFeedRevision([]), messages: [], cachedAt: now };
-      this.cacheByTeam.set(teamName, emptyEntry);
-      this.dirtyTeams.delete(teamName);
+      if (this.getGeneration(teamName) === generationAtStart) {
+        this.cacheByTeam.set(teamName, emptyEntry);
+        this.dirtyTeams.delete(teamName);
+      }
       return { teamName, ...emptyEntry };
     }
 
+    const sourceStartedAt = Date.now();
     const [inboxMessages, leadTexts, sentMessages] = await Promise.all([
       this.deps.getInboxMessages(teamName).catch(() => [] as InboxMessage[]),
       this.deps.getLeadSessionMessages(teamName, config).catch(() => [] as InboxMessage[]),
       this.deps.getSentMessages(teamName).catch(() => [] as InboxMessage[]),
     ]);
+    const sourceMs = Date.now() - sourceStartedAt;
 
+    const normalizeStartedAt = Date.now();
     const syntheticMessages = buildSyntheticOpenCodeBootstrapMessages(config);
     let messages = [...inboxMessages, ...leadTexts, ...sentMessages, ...syntheticMessages];
     messages = dedupeLeadProcessCopies(messages, leadTexts);
@@ -461,6 +514,13 @@ export class TeamMessageFeedService {
     });
 
     const feedRevision = toFeedRevision(messages);
+    const normalizeMs = Date.now() - normalizeStartedAt;
+    const totalMs = Date.now() - startedAt;
+    if (totalMs >= 750) {
+      logger.warn(
+        `[${teamName}] message feed build slow totalMs=${totalMs} configMs=${configMs} sourceMs=${sourceMs} normalizeMs=${normalizeMs} inbox=${inboxMessages.length} lead=${leadTexts.length} sent=${sentMessages.length} synthetic=${syntheticMessages.length} cacheDirty=${cacheDirty} cacheExpired=${cacheExpired}`
+      );
+    }
     if (cached && !cacheDirty && cacheExpired && cached.feedRevision !== feedRevision) {
       logger.warn(
         `[${teamName}] Message feed cache expired without dirty invalidation and recovered newer durable messages`
@@ -478,8 +538,10 @@ export class TeamMessageFeedService {
             cachedAt: now,
           };
 
-    this.cacheByTeam.set(teamName, nextEntry);
-    this.dirtyTeams.delete(teamName);
+    if (this.getGeneration(teamName) === generationAtStart) {
+      this.cacheByTeam.set(teamName, nextEntry);
+      this.dirtyTeams.delete(teamName);
+    }
     return {
       teamName,
       feedRevision: nextEntry.feedRevision,

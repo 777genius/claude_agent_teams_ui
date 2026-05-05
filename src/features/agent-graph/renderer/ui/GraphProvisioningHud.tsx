@@ -90,6 +90,7 @@ export const GraphProvisioningHud = ({
           <StepProgressBar
             steps={MINI_STEPS}
             currentIndex={presentation.currentStepIndex}
+            active={presentation.isActive}
             errorIndex={errorStepIndex}
             className="w-full origin-top scale-[0.88]"
           />

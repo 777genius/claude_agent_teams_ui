@@ -4,7 +4,7 @@
  * Displays error output for tool results.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 
 import { StatusDot } from '../BaseItem';
 
@@ -16,7 +16,9 @@ interface ToolErrorDisplayProps {
   linkedTool: LinkedToolItem;
 }
 
-export const ToolErrorDisplay: React.FC<ToolErrorDisplayProps> = ({ linkedTool }) => {
+export const ToolErrorDisplay = memo(function ToolErrorDisplay({
+  linkedTool,
+}: ToolErrorDisplayProps) {
   if (!linkedTool.result?.isError) return null;
 
   return (
@@ -40,4 +42,4 @@ export const ToolErrorDisplay: React.FC<ToolErrorDisplayProps> = ({ linkedTool }
       </div>
     </div>
   );
-};
+});

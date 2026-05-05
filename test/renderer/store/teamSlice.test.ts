@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { create } from 'zustand';
 
 import {
@@ -11,7 +11,13 @@ import {
   selectMemberMessagesForTeamMember,
   selectResolvedMemberForTeamName,
   selectResolvedMembersForTeamName,
+  selectTeamDataForName,
 } from '../../../src/renderer/store/slices/teamSlice';
+import {
+  __resetTeamRefreshFanoutDiagnosticsForTests,
+  getTeamRefreshFanoutSnapshotForTests,
+  type TeamRefreshFanoutSnapshot,
+} from '../../../src/renderer/store/teamRefreshFanoutDiagnostics';
 
 const hoisted = vi.hoisted(() => ({
   list: vi.fn(),
@@ -28,6 +34,8 @@ const hoisted = vi.hoisted(() => ({
   restoreTeam: vi.fn(),
   permanentlyDeleteTeam: vi.fn(),
   sendMessage: vi.fn(),
+  getOpenCodeRuntimeDeliveryStatus: vi.fn(),
+  retryFailedOpenCodeSecondaryLanes: vi.fn(),
   restartMember: vi.fn(),
   skipMemberForLaunch: vi.fn(),
   requestReview: vi.fn(),
@@ -35,6 +43,16 @@ const hoisted = vi.hoisted(() => ({
   invalidateTaskChangeSummaries: vi.fn(),
   onProvisioningProgress: vi.fn(() => () => undefined),
 }));
+
+const originalWindowAnimationFrame =
+  typeof window === 'undefined'
+    ? null
+    : {
+        hasRequest: Object.prototype.hasOwnProperty.call(window, 'requestAnimationFrame'),
+        hasCancel: Object.prototype.hasOwnProperty.call(window, 'cancelAnimationFrame'),
+        requestAnimationFrame: window.requestAnimationFrame,
+        cancelAnimationFrame: window.cancelAnimationFrame,
+      };
 
 vi.mock('@renderer/api', () => ({
   api: {
@@ -53,6 +71,8 @@ vi.mock('@renderer/api', () => ({
       restoreTeam: hoisted.restoreTeam,
       permanentlyDeleteTeam: hoisted.permanentlyDeleteTeam,
       sendMessage: hoisted.sendMessage,
+      getOpenCodeRuntimeDeliveryStatus: hoisted.getOpenCodeRuntimeDeliveryStatus,
+      retryFailedOpenCodeSecondaryLanes: hoisted.retryFailedOpenCodeSecondaryLanes,
       restartMember: hoisted.restartMember,
       skipMemberForLaunch: hoisted.skipMemberForLaunch,
       requestReview: hoisted.requestReview,
@@ -173,6 +193,83 @@ function createDeferredPromise<T>() {
   return { promise, resolve, reject };
 }
 
+function defineWindowAnimationFrame(
+  requestAnimationFrame: ((callback: FrameRequestCallback) => number) | undefined,
+  cancelAnimationFrame: ((handle: number) => void) | undefined
+): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (requestAnimationFrame === undefined) {
+    delete (window as Partial<Window>).requestAnimationFrame;
+  } else {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: requestAnimationFrame,
+    });
+  }
+  if (cancelAnimationFrame === undefined) {
+    delete (window as Partial<Window>).cancelAnimationFrame;
+  } else {
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: cancelAnimationFrame,
+    });
+  }
+}
+
+function restoreWindowAnimationFrame(): void {
+  if (typeof window === 'undefined' || originalWindowAnimationFrame === null) {
+    return;
+  }
+  defineWindowAnimationFrame(
+    originalWindowAnimationFrame.hasRequest
+      ? originalWindowAnimationFrame.requestAnimationFrame
+      : undefined,
+    originalWindowAnimationFrame.hasCancel ? originalWindowAnimationFrame.cancelAnimationFrame : undefined
+  );
+}
+
+function stubAnimationFrameWithTimer(): void {
+  defineWindowAnimationFrame(
+    (callback) => setTimeout(() => callback(Date.now()), 16) as unknown as number,
+    (handle) => clearTimeout(handle as unknown as ReturnType<typeof setTimeout>)
+  );
+}
+
+function stubAnimationFrameNeverFires(): void {
+  defineWindowAnimationFrame(
+    () => 1,
+    () => undefined
+  );
+}
+
+async function flushPostPaintTeamEnrichments(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(16);
+  await vi.runOnlyPendingTimersAsync();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function flushAsyncWork(): Promise<void> {
+  await flushMicrotasks();
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+  await flushMicrotasks();
+}
+
 function createRuntimeSnapshot(overrides: Record<string, unknown> = {}) {
   return {
     teamName: 'my-team',
@@ -198,6 +295,7 @@ describe('teamSlice actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetTeamSliceModuleStateForTests();
+    __resetTeamRefreshFanoutDiagnosticsForTests();
     hoisted.list.mockResolvedValue([]);
     hoisted.getData.mockResolvedValue(createTeamSnapshot());
     hoisted.getMessagesPage.mockResolvedValue({
@@ -213,6 +311,7 @@ describe('teamSlice actions', () => {
       feedRevision: 'rev-1',
     });
     hoisted.sendMessage.mockResolvedValue({ deliveredToInbox: true, messageId: 'm1' });
+    hoisted.getOpenCodeRuntimeDeliveryStatus.mockResolvedValue(null);
     hoisted.requestReview.mockResolvedValue(undefined);
     hoisted.updateKanban.mockResolvedValue(undefined);
     hoisted.createTeam.mockResolvedValue({ runId: 'run-1' });
@@ -234,8 +333,71 @@ describe('teamSlice actions', () => {
     hoisted.deleteTeam.mockResolvedValue(undefined);
     hoisted.restoreTeam.mockResolvedValue(undefined);
     hoisted.permanentlyDeleteTeam.mockResolvedValue(undefined);
+    hoisted.retryFailedOpenCodeSecondaryLanes.mockResolvedValue({
+      attempted: [],
+      confirmed: [],
+      pending: [],
+      failed: [],
+      skipped: [],
+    });
     hoisted.restartMember.mockResolvedValue(undefined);
     hoisted.skipMemberForLaunch.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    restoreWindowAnimationFrame();
+    vi.useRealTimers();
+  });
+
+  it('records terminal provisioning fanout diagnostics without changing visible graph hydrate behavior', () => {
+    const store = createSliceStore();
+    const fetchTeams = vi.fn(async () => undefined);
+    const refreshTeamData = vi.fn(async () => undefined);
+    store.setState({
+      fetchTeams,
+      refreshTeamData,
+      selectedTeamName: 'other-team',
+      selectedTeamData: createTeamSnapshot({
+        teamName: 'other-team',
+        config: { name: 'Other Team' },
+      }),
+      paneLayout: {
+        focusedPaneId: 'pane-default',
+        panes: [
+          {
+            id: 'pane-default',
+            widthFraction: 1,
+            tabs: [{ id: 'graph-my-team', type: 'graph', teamName: 'my-team', label: 'Graph' }],
+            activeTabId: 'graph-my-team',
+          },
+        ],
+      },
+    });
+
+    store.getState().onProvisioningProgress({
+      runId: 'run-ready',
+      teamName: 'my-team',
+      state: 'ready',
+      message: 'Ready',
+      startedAt: '2026-03-12T10:00:00.000Z',
+      updatedAt: '2026-03-12T10:00:01.000Z',
+    } as never);
+
+    expect(fetchTeams).toHaveBeenCalledTimes(1);
+    expect(refreshTeamData).toHaveBeenCalledTimes(1);
+    expect(refreshTeamData).toHaveBeenCalledWith('my-team', { withDedup: true });
+
+    const snapshot = getTeamRefreshFanoutSnapshotForTests(
+      'my-team'
+    ) as TeamRefreshFanoutSnapshot | null;
+    expect(
+      snapshot?.counts['provisioning-progress:provisioning:terminal-ready:fetchTeams:scheduled']
+    ).toBe(1);
+    expect(
+      snapshot?.counts[
+        'provisioning-progress:provisioning:terminal-ready:refreshTeamData:scheduled'
+      ]
+    ).toBe(1);
   });
 
   it('maps inbox verify failure to user-friendly text', async () => {
@@ -325,6 +487,58 @@ describe('teamSlice actions', () => {
       acceptanceUnknown: false,
       reason: 'assistant_response_pending',
       diagnostics: ['assistant_response_pending'],
+    });
+  });
+
+  it('updates pending OpenCode runtime diagnostics when delivery becomes terminal', async () => {
+    const store = createSliceStore();
+    hoisted.sendMessage.mockResolvedValue({
+      deliveredToInbox: true,
+      messageId: 'm-opencode-pending',
+      runtimeDelivery: {
+        providerId: 'opencode',
+        attempted: true,
+        delivered: true,
+        responsePending: true,
+        responseState: 'pending',
+        ledgerStatus: 'accepted',
+        acceptanceUnknown: false,
+        reason: 'assistant_response_pending',
+        diagnostics: ['assistant_response_pending'],
+      },
+    });
+    hoisted.getOpenCodeRuntimeDeliveryStatus.mockResolvedValue({
+      messageId: 'm-opencode-pending',
+      providerId: 'opencode',
+      attempted: true,
+      delivered: false,
+      responsePending: false,
+      responseState: 'empty_assistant_turn',
+      ledgerStatus: 'failed_terminal',
+      acceptanceUnknown: false,
+      reason: 'empty_assistant_turn',
+      diagnostics: ['empty_assistant_turn'],
+    });
+
+    await store.getState().sendTeamMessage('my-team', {
+      member: 'bob',
+      text: 'hello',
+    });
+    await store
+      .getState()
+      .refreshSendMessageRuntimeDeliveryStatus('my-team', 'm-opencode-pending');
+
+    expect(store.getState().sendMessageWarning).toBe(
+      'OpenCode runtime delivery failed. Message was saved to inbox, but live delivery did not complete. Reason: OpenCode returned an empty assistant turn.'
+    );
+    expect(store.getState().sendMessageDebugDetails).toMatchObject({
+      messageId: 'm-opencode-pending',
+      delivered: false,
+      responsePending: false,
+      responseState: 'empty_assistant_turn',
+      ledgerStatus: 'failed_terminal',
+      reason: 'empty_assistant_turn',
+      diagnostics: ['empty_assistant_turn'],
     });
   });
 
@@ -903,6 +1117,470 @@ describe('teamSlice actions', () => {
     await selectPromise;
 
     expect(store.getState().selectedTeamData).toBe(cachedBeta);
+  });
+
+  it('commits selectTeam thin snapshot before post-paint messages and activity meta refreshes', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+    const messagesRequest = createDeferredPromise<{
+      messages: Array<{
+        from: string;
+        text: string;
+        timestamp: string;
+        messageId: string;
+        source: 'inbox';
+      }>;
+      nextCursor: null;
+      hasMore: false;
+      feedRevision: string;
+    }>();
+    const metaRequest = createDeferredPromise<{
+      teamName: string;
+      computedAt: string;
+      feedRevision: string;
+      members: Record<string, never>;
+    }>();
+    const thinSnapshot = createTeamSnapshot({
+      config: { name: 'Thin Team' },
+      members: [{ name: 'alice', role: 'developer', currentTaskId: null }],
+    });
+
+    hoisted.getData.mockResolvedValueOnce(thinSnapshot);
+    hoisted.getMessagesPage.mockImplementationOnce(() => messagesRequest.promise);
+    hoisted.getMemberActivityMeta.mockImplementationOnce(() => metaRequest.promise);
+
+    await store.getState().selectTeam('my-team');
+
+    expect(hoisted.getData).toHaveBeenCalledWith('my-team', {
+      includeMemberBranches: false,
+    });
+    expect(store.getState().selectedTeamLoading).toBe(false);
+    expect(store.getState().selectedTeamData).toEqual(thinSnapshot);
+    expect(hoisted.getMessagesPage).not.toHaveBeenCalled();
+    expect(hoisted.getMemberActivityMeta).not.toHaveBeenCalled();
+
+    await flushPostPaintTeamEnrichments();
+
+    expect(hoisted.getMessagesPage).toHaveBeenCalledWith('my-team', { limit: 50 });
+    expect(hoisted.getMemberActivityMeta).not.toHaveBeenCalled();
+
+    messagesRequest.resolve({
+      messages: [],
+      nextCursor: null,
+      hasMore: false,
+      feedRevision: 'rev-thin',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hoisted.getMemberActivityMeta).toHaveBeenCalledWith('my-team');
+
+    metaRequest.resolve({
+      teamName: 'my-team',
+      computedAt: '2026-03-12T10:00:00.000Z',
+      feedRevision: 'rev-thin',
+      members: {},
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.getState().selectedTeamData).toEqual(thinSnapshot);
+    expect(store.getState().selectedTeamError).toBeNull();
+  });
+
+  it('keeps selected team data visible when post-paint message refresh fails', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+    const thinSnapshot = createTeamSnapshot({
+      config: { name: 'Thin Team' },
+      members: [{ name: 'alice', role: 'developer', currentTaskId: null }],
+    });
+
+    hoisted.getData.mockResolvedValueOnce(thinSnapshot);
+    hoisted.getMessagesPage.mockRejectedValueOnce(new Error('message feed unavailable'));
+
+    await store.getState().selectTeam('my-team');
+    await flushPostPaintTeamEnrichments();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hoisted.getMessagesPage).toHaveBeenCalledTimes(1);
+    expect(store.getState().selectedTeamData).toEqual(thinSnapshot);
+    expect(store.getState().selectedTeamError).toBeNull();
+    expect(store.getState().teamMessagesByName['my-team']?.loadingHead).toBe(false);
+  });
+
+  it('queues a full team refresh behind an in-flight thin selectTeam snapshot', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+    const thinRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+    const thinSnapshot = createTeamSnapshot({
+      config: { name: 'Thin Team' },
+    });
+    const fullSnapshot = createTeamSnapshot({
+      config: { name: 'Full Team' },
+      members: [{ name: 'alice', role: 'developer', currentTaskId: null, gitBranch: 'feature/a' }],
+    });
+
+    hoisted.getData
+      .mockImplementationOnce(() => thinRequest.promise)
+      .mockResolvedValueOnce(fullSnapshot);
+
+    const selectPromise = store.getState().selectTeam('my-team');
+    await Promise.resolve();
+
+    await store.getState().refreshTeamData('my-team', { withDedup: true });
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(1);
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: true,
+    });
+
+    thinRequest.resolve(thinSnapshot);
+    await selectPromise;
+
+    expect(store.getState().selectedTeamData).toEqual(thinSnapshot);
+    expect(hoisted.getData).toHaveBeenCalledTimes(1);
+
+    await flushPostPaintTeamEnrichments();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(2);
+    expect(hoisted.getData.mock.calls[1]).toEqual(['my-team']);
+    expect(store.getState().selectedTeamData).toEqual(fullSnapshot);
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+    });
+  });
+
+  it('drains queued full team refresh through the post-paint fallback when rAF never fires', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameNeverFires();
+    const store = createSliceStore();
+    const thinRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+
+    hoisted.getData
+      .mockImplementationOnce(() => thinRequest.promise)
+      .mockResolvedValueOnce(
+        createTeamSnapshot({
+          config: { name: 'Full Team After Fallback' },
+        })
+      );
+
+    const selectPromise = store.getState().selectTeam('my-team');
+    await Promise.resolve();
+    await store.getState().refreshTeamData('my-team', { withDedup: true });
+
+    thinRequest.resolve(createTeamSnapshot({ config: { name: 'Thin Team' } }));
+    await selectPromise;
+
+    await vi.advanceTimersByTimeAsync(499);
+    expect(hoisted.getData).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(2);
+    expect(store.getState().selectedTeamData?.config.name).toBe('Full Team After Fallback');
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+      hasPostPaintTeamEnrichmentTimer: false,
+    });
+  });
+
+  it('keeps selected team data visible when post-paint activity meta refresh fails', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+    const thinSnapshot = createTeamSnapshot({
+      config: { name: 'Thin Team' },
+      members: [{ name: 'alice', role: 'developer', currentTaskId: null }],
+    });
+
+    hoisted.getData.mockResolvedValueOnce(thinSnapshot);
+    hoisted.getMessagesPage.mockResolvedValueOnce({
+      messages: [
+        {
+          from: 'alice',
+          text: 'Fresh message',
+          timestamp: '2026-03-12T10:00:00.000Z',
+          messageId: 'msg-fresh',
+          source: 'inbox',
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+      feedRevision: 'rev-meta-fail',
+    });
+    hoisted.getMemberActivityMeta.mockRejectedValueOnce(new Error('meta unavailable'));
+
+    await store.getState().selectTeam('my-team');
+    await flushPostPaintTeamEnrichments();
+    await flushMicrotasks();
+
+    expect(hoisted.getMemberActivityMeta).toHaveBeenCalledWith('my-team');
+    expect(store.getState().selectedTeamData).toEqual(thinSnapshot);
+    expect(store.getState().selectedTeamError).toBeNull();
+  });
+
+  it('does not share a forced full refresh request with an in-flight thin selectTeam request', async () => {
+    const store = createSliceStore();
+    const thinRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+    const fullRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+    const thinSnapshot = createTeamSnapshot({ config: { name: 'Thin Team' } });
+    const fullSnapshot = createTeamSnapshot({
+      config: { name: 'Full Team' },
+      members: [{ name: 'alice', role: 'developer', currentTaskId: null, gitBranch: 'feature/a' }],
+    });
+
+    hoisted.getData
+      .mockImplementationOnce(() => thinRequest.promise)
+      .mockImplementationOnce(() => fullRequest.promise);
+
+    const selectPromise = store.getState().selectTeam('my-team');
+    await flushMicrotasks();
+
+    const fullPromise = store.getState().refreshTeamData('my-team', { withDedup: false });
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(2);
+    expect(hoisted.getData.mock.calls[0]).toEqual([
+      'my-team',
+      { includeMemberBranches: false },
+    ]);
+    expect(hoisted.getData.mock.calls[1]).toEqual(['my-team']);
+
+    thinRequest.resolve(thinSnapshot);
+    await selectPromise;
+    fullRequest.resolve(fullSnapshot);
+    await fullPromise;
+
+    expect(store.getState().selectedTeamData).toEqual(fullSnapshot);
+  });
+
+  it('keeps one queued full refresh for repeated fanout while thin selectTeam is pending', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+    const thinRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+    const fullSnapshot = createTeamSnapshot({
+      config: { name: 'Full Team Once' },
+    });
+
+    hoisted.getData
+      .mockImplementationOnce(() => thinRequest.promise)
+      .mockResolvedValueOnce(fullSnapshot);
+
+    const selectPromise = store.getState().selectTeam('my-team');
+    await flushMicrotasks();
+
+    await Promise.all([
+      store.getState().refreshTeamData('my-team', { withDedup: true }),
+      store.getState().refreshTeamData('my-team', { withDedup: true }),
+    ]);
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(1);
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: true,
+    });
+
+    thinRequest.resolve(createTeamSnapshot({ config: { name: 'Thin Team' } }));
+    await selectPromise;
+    await flushPostPaintTeamEnrichments();
+    await flushMicrotasks();
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(2);
+    expect(store.getState().selectedTeamData).toEqual(fullSnapshot);
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+    });
+  });
+
+  it('drains queued full refresh when thin selectTeam becomes stale after switching teams', async () => {
+    const store = createSliceStore();
+    const alphaThin = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+    const alphaFull = createTeamSnapshot({
+      teamName: 'alpha-team',
+      config: { name: 'Alpha Full' },
+    });
+
+    hoisted.getData
+      .mockImplementationOnce(() => alphaThin.promise)
+      .mockResolvedValueOnce(createTeamSnapshot({ teamName: 'beta-team', config: { name: 'Beta' } }))
+      .mockResolvedValueOnce(alphaFull);
+
+    const alphaSelect = store.getState().selectTeam('alpha-team');
+    await flushMicrotasks();
+    await store.getState().refreshTeamData('alpha-team', { withDedup: true });
+
+    expect(__getTeamScopedTransientStateForTests('alpha-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: true,
+    });
+
+    await store.getState().selectTeam('beta-team');
+
+    alphaThin.resolve(createTeamSnapshot({ teamName: 'alpha-team', config: { name: 'Alpha Thin' } }));
+    await alphaSelect;
+    await flushAsyncWork();
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(3);
+    expect(hoisted.getData.mock.calls[2]).toEqual(['alpha-team']);
+    expect(store.getState().selectedTeamName).toBe('beta-team');
+    expect(store.getState().teamDataCacheByName['alpha-team']).toEqual(alphaFull);
+    expect(__getTeamScopedTransientStateForTests('alpha-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+    });
+  });
+
+  it('clears queued full refresh when thin selectTeam fails structurally', async () => {
+    const store = createSliceStore();
+    const thinRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+
+    hoisted.getData.mockImplementationOnce(() => thinRequest.promise);
+
+    const selectPromise = store.getState().selectTeam('my-team');
+    await flushMicrotasks();
+    await store.getState().refreshTeamData('my-team', { withDedup: true });
+
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: true,
+    });
+
+    thinRequest.reject(new Error('TEAM_DRAFT'));
+    await selectPromise;
+
+    expect(store.getState().selectedTeamError).toBe('TEAM_DRAFT');
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+    });
+  });
+
+  it('lets the newer same-team selectTeam drain queued full refresh after its own paint', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+    const thinRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+    const fullSnapshot = createTeamSnapshot({
+      config: { name: 'Full After Newer Paint' },
+    });
+
+    hoisted.getData
+      .mockImplementationOnce(() => thinRequest.promise)
+      .mockResolvedValueOnce(fullSnapshot);
+
+    const firstSelect = store.getState().selectTeam('my-team');
+    await flushMicrotasks();
+    await store.getState().refreshTeamData('my-team', { withDedup: true });
+    const secondSelect = store
+      .getState()
+      .selectTeam('my-team', { allowReloadWhileProvisioning: true });
+
+    thinRequest.resolve(createTeamSnapshot({ config: { name: 'Thin Team' } }));
+    await Promise.all([firstSelect, secondSelect]);
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(1);
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: true,
+      hasPostPaintTeamEnrichmentTimer: true,
+    });
+
+    await flushPostPaintTeamEnrichments();
+    await flushMicrotasks();
+
+    expect(hoisted.getData).toHaveBeenCalledTimes(2);
+    expect(hoisted.getData.mock.calls[1]).toEqual(['my-team']);
+    expect(store.getState().selectedTeamData).toEqual(fullSnapshot);
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+    });
+  });
+
+  it('does not run stale post-paint messages for a team after switching away', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+
+    hoisted.getData
+      .mockResolvedValueOnce(createTeamSnapshot({ teamName: 'alpha-team', config: { name: 'Alpha' } }))
+      .mockResolvedValueOnce(createTeamSnapshot({ teamName: 'beta-team', config: { name: 'Beta' } }));
+
+    await store.getState().selectTeam('alpha-team');
+    expect(__getTeamScopedTransientStateForTests('alpha-team')).toMatchObject({
+      hasPostPaintTeamEnrichmentTimer: true,
+    });
+
+    await store.getState().selectTeam('beta-team');
+    await flushPostPaintTeamEnrichments();
+    await flushMicrotasks();
+
+    expect(hoisted.getMessagesPage).toHaveBeenCalledTimes(1);
+    expect(hoisted.getMessagesPage).toHaveBeenCalledWith('beta-team', { limit: 50 });
+    expect(hoisted.getMessagesPage).not.toHaveBeenCalledWith('alpha-team', { limit: 50 });
+  });
+
+  it('clears queued full refresh and post-paint timer when deleting a loaded team', async () => {
+    vi.useFakeTimers();
+    stubAnimationFrameWithTimer();
+    const store = createSliceStore();
+    const thinRequest = createDeferredPromise<ReturnType<typeof createTeamSnapshot>>();
+
+    hoisted.getData.mockImplementationOnce(() => thinRequest.promise);
+
+    const selectPromise = store.getState().selectTeam('my-team');
+    await flushMicrotasks();
+    await store.getState().refreshTeamData('my-team', { withDedup: true });
+
+    thinRequest.resolve(createTeamSnapshot({ config: { name: 'Thin Team' } }));
+    await selectPromise;
+
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: true,
+      hasPostPaintTeamEnrichmentTimer: true,
+    });
+
+    await store.getState().deleteTeam('my-team');
+
+    expect(__getTeamScopedTransientStateForTests('my-team')).toMatchObject({
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+      hasPostPaintTeamEnrichmentTimer: false,
+    });
+
+    await flushPostPaintTeamEnrichments();
+
+    expect(hoisted.getMessagesPage).not.toHaveBeenCalled();
+    expect(hoisted.getData).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps selected team data visible when post-structural sync work throws', async () => {
+    const store = createSliceStore();
+    const thinSnapshot = createTeamSnapshot({
+      config: { name: 'Renamed Team' },
+    });
+    const updateTabLabel = vi.fn(() => {
+      throw new Error('tab label failed');
+    });
+
+    store.setState({
+      getAllPaneTabs: vi.fn(() => [
+        { id: 'tab-1', type: 'team', teamName: 'my-team', label: 'Old Team' },
+      ]),
+      updateTabLabel,
+    });
+    hoisted.getData.mockResolvedValueOnce(thinSnapshot);
+
+    await store.getState().selectTeam('my-team');
+
+    expect(updateTabLabel).toHaveBeenCalledWith('tab-1', 'Renamed Team');
+    expect(store.getState().selectedTeamData).toEqual(thinSnapshot);
+    expect(store.getState().selectedTeamError).toBeNull();
   });
 
   it('distinguishes historical feed changes from visible head changes in refreshTeamMessagesHead', async () => {
@@ -1646,6 +2324,35 @@ describe('teamSlice actions', () => {
     expect(nextResolvedMembers).toBe(initialResolvedMembers);
   });
 
+  it('prefers selected team data over stale cached data for the active team', () => {
+    const store = createSliceStore();
+    const staleCachedData = createTeamSnapshot({
+      members: [],
+    });
+    const freshSelectedData = createTeamSnapshot({
+      members: [
+        {
+          name: 'alice',
+          currentTaskId: null,
+          taskCount: 0,
+          color: 'blue',
+        },
+      ],
+    });
+
+    store.setState({
+      selectedTeamName: 'my-team',
+      selectedTeamData: freshSelectedData,
+      teamDataCacheByName: {
+        'my-team': staleCachedData,
+      },
+      memberActivityMetaByTeam: {},
+    });
+
+    expect(selectTeamDataForName(store.getState(), 'my-team')).toBe(freshSelectedData);
+    expect(selectResolvedMembersForTeamName(store.getState(), 'my-team')).toHaveLength(1);
+  });
+
   it('memoizes team-scoped member messages selectors over the merged message feed', () => {
     const store = createSliceStore();
     store.setState({
@@ -1907,6 +2614,8 @@ describe('teamSlice actions', () => {
       hasMergedMessagesSelector: false,
       memberMessagesSelectorCount: 0,
       hasPendingFreshTeamDataRefresh: false,
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+      hasPostPaintTeamEnrichmentTimer: false,
       hasQueuedHeadRefreshAfterOlder: false,
       hasPendingFreshMessagesHeadRefresh: false,
       hasPendingFreshMemberActivityMetaRefresh: false,
@@ -2000,6 +2709,8 @@ describe('teamSlice actions', () => {
       hasMergedMessagesSelector: false,
       memberMessagesSelectorCount: 0,
       hasPendingFreshTeamDataRefresh: false,
+      hasQueuedFullTeamDataRefreshAfterThin: false,
+      hasPostPaintTeamEnrichmentTimer: false,
       hasQueuedHeadRefreshAfterOlder: false,
       hasPendingFreshMessagesHeadRefresh: false,
       hasPendingFreshMemberActivityMetaRefresh: false,
@@ -2745,6 +3456,38 @@ describe('teamSlice actions', () => {
       alice: expect.objectContaining({ status: 'spawning', launchState: 'starting' }),
     });
     expect(store.getState().teamAgentRuntimeByTeam['my-team']).toEqual(createRuntimeSnapshot());
+  });
+
+  it('retryFailedOpenCodeSecondaryLanes refreshes only spawn statuses and runtime snapshot', async () => {
+    const store = createSliceStore();
+    const refreshSpawnStatuses = vi.fn(async (_teamName: string) => undefined);
+    const refreshRuntimeSnapshot = vi.fn(async (_teamName: string) => undefined);
+    const refreshTeamData = vi.fn(async (_teamName: string) => undefined);
+    const fetchTeams = vi.fn(async () => undefined);
+    store.setState({
+      fetchMemberSpawnStatuses: refreshSpawnStatuses,
+      fetchTeamAgentRuntime: refreshRuntimeSnapshot,
+      refreshTeamData,
+      fetchTeams,
+    });
+    hoisted.retryFailedOpenCodeSecondaryLanes.mockResolvedValueOnce({
+      attempted: ['alice'],
+      confirmed: [],
+      pending: [],
+      failed: [{ memberName: 'alice', error: 'OpenRouter credits exhausted' }],
+      skipped: [],
+    });
+
+    const result = await store.getState().retryFailedOpenCodeSecondaryLanes('my-team');
+
+    expect(result.failed).toEqual([
+      { memberName: 'alice', error: 'OpenRouter credits exhausted' },
+    ]);
+    expect(hoisted.retryFailedOpenCodeSecondaryLanes).toHaveBeenCalledWith('my-team');
+    expect(refreshSpawnStatuses).toHaveBeenCalledWith('my-team');
+    expect(refreshRuntimeSnapshot).toHaveBeenCalledWith('my-team');
+    expect(refreshTeamData).not.toHaveBeenCalled();
+    expect(fetchTeams).not.toHaveBeenCalled();
   });
 
   it('restartMember refreshes spawn statuses and runtime snapshot even when restart fails', async () => {

@@ -7,5 +7,6 @@ export default defineEventHandler((event) => {
   return `User-agent: *
 Allow: /
 Sitemap: ${siteUrl}/sitemap.xml
+Sitemap: ${siteUrl}/docs/sitemap.xml
 `;
 });

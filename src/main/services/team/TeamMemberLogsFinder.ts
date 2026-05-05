@@ -10,8 +10,14 @@ import {
   canonicalizeAgentTeamsToolName,
   lineHasAgentTeamsTaskBoundaryToolName,
 } from './agentTeamsToolNames';
+import {
+  choosePreferredLaunchSnapshot,
+  readBootstrapLaunchSnapshot,
+} from './TeamBootstrapStateReader';
 import { TeamConfigReader } from './TeamConfigReader';
 import { TeamInboxReader } from './TeamInboxReader';
+import { TeamLaunchStateStore } from './TeamLaunchStateStore';
+import { buildTeamLogWatchSessionIds, extractRuntimeSessionIds } from './teamLogSourceWatchScope';
 import { TeamMembersMetaStore } from './TeamMembersMetaStore';
 import { TeamTranscriptProjectResolver } from './TeamTranscriptProjectResolver';
 
@@ -107,6 +113,14 @@ export interface MemberLogFileRef {
   mtimeMs: number;
 }
 
+export interface TeamLogSourceLiveContext {
+  projectDir: string;
+  projectPath?: string;
+  leadSessionId?: string;
+  sessionIds: string[];
+  watchSessionIds: string[];
+}
+
 async function mapLimit<T, R>(
   items: readonly T[],
   limit: number,
@@ -148,8 +162,11 @@ export class TeamMemberLogsFinder {
     private readonly inboxReader: TeamInboxReader = new TeamInboxReader(),
     private readonly membersMetaStore: TeamMembersMetaStore = new TeamMembersMetaStore(),
     private readonly projectResolver: TeamTranscriptProjectResolver = new TeamTranscriptProjectResolver(
-      configReader
-    )
+      {
+        getConfig: (teamName) => configReader.getConfigSnapshot(teamName),
+      }
+    ),
+    private readonly launchStateStore: TeamLaunchStateStore = new TeamLaunchStateStore()
   ) {}
 
   async findMemberLogs(
@@ -257,6 +274,43 @@ export class TeamMemberLogsFinder {
       projectPath: discovery.config.projectPath,
       leadSessionId: discovery.config.leadSessionId,
       sessionIds: [...discovery.sessionIds],
+    };
+  }
+
+  async getLiveLogSourceWatchContext(
+    teamName: string,
+    options?: { forceRefresh?: boolean }
+  ): Promise<TeamLogSourceLiveContext | null> {
+    const [launchSnapshot, bootstrapSnapshot] = await Promise.all([
+      this.launchStateStore.read(teamName).catch(() => null),
+      readBootstrapLaunchSnapshot(teamName).catch(() => null),
+    ]);
+    const preferredSnapshot = choosePreferredLaunchSnapshot(bootstrapSnapshot, launchSnapshot);
+    const extraProjectPathCandidates = Object.values(preferredSnapshot?.members ?? {}).map(
+      (member) => member.cwd
+    );
+
+    const base = await this.projectResolver.getLiveBaseContext(teamName, {
+      forceRefresh: options?.forceRefresh,
+      extraProjectPathCandidates,
+    });
+    if (!base) {
+      return null;
+    }
+
+    const watchSessionIds = buildTeamLogWatchSessionIds({
+      configLeadSessionId: base.config.leadSessionId,
+      launchLeadSessionId: preferredSnapshot?.leadSessionId,
+      sessionHistory: base.config.sessionHistory,
+      launchRuntimeSessionIds: extractRuntimeSessionIds(preferredSnapshot),
+    });
+
+    return {
+      projectDir: base.projectDir,
+      projectPath: base.config.projectPath,
+      leadSessionId: base.config.leadSessionId ?? preferredSnapshot?.leadSessionId,
+      sessionIds: watchSessionIds,
+      watchSessionIds,
     };
   }
 

@@ -110,6 +110,7 @@ function buildRuntimeSummary(
 }
 
 export interface BootstrapPromptDisplay {
+  eventKind: 'start' | 'restart';
   teammateName?: string;
   teamName?: string;
   runtime?: string;
@@ -144,9 +145,16 @@ export function getBootstrapPromptDisplay(
   const model = matchOverrideField(text, 'Model override');
   const effort = matchOverrideField(text, 'Effort override');
   const runtime = buildRuntimeSummary(providerId, model, effort);
+  const eventKind = text.includes(
+    'The team has already been reconnected and you are being re-attached as a persistent teammate.'
+  )
+    ? 'restart'
+    : 'start';
   const displayName = teammateName ? displayMemberName(teammateName) : 'teammate';
-  const summary = `Starting ${displayName}`;
-  const bodyLines = [`Lead is starting \`${displayName}\` as a teammate.`];
+  const summary = `${eventKind === 'restart' ? 'Restarting' : 'Starting'} ${displayName}`;
+  const bodyLines = [
+    `Lead is ${eventKind === 'restart' ? 'restarting' : 'starting'} \`${displayName}\` as a teammate.`,
+  ];
 
   if (runtime) {
     bodyLines.push(`Runtime: ${runtime}`);
@@ -157,6 +165,7 @@ export function getBootstrapPromptDisplay(
   bodyLines.push('Startup instructions are hidden in the UI.');
 
   return {
+    eventKind,
     teammateName,
     teamName,
     runtime,

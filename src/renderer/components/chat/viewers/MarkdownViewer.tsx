@@ -946,7 +946,7 @@ export const CompactMarkdownPreview: React.FC<CompactMarkdownPreviewProps> = Rea
   }
 );
 
-export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
+export const MarkdownViewer: React.FC<MarkdownViewerProps> = React.memo(function MarkdownViewer({
   content,
   maxHeight = 'max-h-96',
   className = '',
@@ -958,7 +958,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   baseDir,
   teamColorByName: providedTeamColorByName,
   onTeamClick: providedOnTeamClick,
-}) => {
+}) {
   const [showRaw, setShowRaw] = React.useState(false);
   const [rawLimit, setRawLimit] = React.useState(LARGE_PREVIEW_CHARS);
   const { isLight } = useTheme();
@@ -1169,12 +1169,36 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
           <span className="text-sm font-medium" style={{ color: COLOR_TEXT_SECONDARY }}>
             {label}
           </span>
-          {copyable && (
-            <>
-              <span className="flex-1" />
-              <CopyButton text={content} inline />
-            </>
-          )}
+          <span className="flex-1" />
+          <button
+            type="button"
+            className="text-xs underline"
+            style={{ color: PROSE_LINK }}
+            onClick={() => setShowRaw(true)}
+            title="Show raw"
+          >
+            Show raw
+          </button>
+          {copyable && <CopyButton text={content} inline />}
+        </div>
+      )}
+
+      {/* Show raw toggle for no-label path (skip in bare mode) */}
+      {!label && !bare && (
+        <div
+          className="flex items-center justify-between px-3 py-1 text-xs"
+          style={{ color: COLOR_TEXT_MUTED }}
+        >
+          <span />
+          <button
+            type="button"
+            className="underline"
+            style={{ color: PROSE_LINK }}
+            onClick={() => setShowRaw(true)}
+            title="Show raw"
+          >
+            Show raw
+          </button>
         </div>
       )}
 
@@ -1195,4 +1219,4 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -50,6 +50,7 @@ export const GlobalTaskDetailDialog = (): React.JSX.Element | null => {
 
   const teamName = globalTaskDetail?.teamName ?? '';
   const taskId = globalTaskDetail?.taskId ?? '';
+  const commentId = globalTaskDetail?.commentId;
   const hasTargetTeamData = hasSelectedTargetTeamData(
     teamName,
     selectedTeamName,
@@ -150,6 +151,7 @@ export const GlobalTaskDetailDialog = (): React.JSX.Element | null => {
       onClose={closeGlobalTaskDetail}
       onOwnerChange={undefined}
       onViewChanges={isFullTeamLoaded ? handleViewChanges : undefined}
+      focusCommentId={commentId}
       headerExtra={
         <button
           type="button"

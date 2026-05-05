@@ -16,9 +16,19 @@ const hoisted = vi.hoisted(() => {
       error.code = 'ENOENT';
       throw error;
     }
+    const size = Buffer.byteLength(data, 'utf8');
     return {
       isFile: () => true,
-      size: Buffer.byteLength(data, 'utf8'),
+      size,
+      mode: 0o100644,
+      dev: 1,
+      ino: 1,
+      mtimeMs: 1,
+      ctimeMs: 1,
+      birthtimeMs: 1,
+      mtimeNs: 1n,
+      ctimeNs: 1n,
+      birthtimeNs: 1n,
     };
   });
 
@@ -54,22 +64,20 @@ const hoisted = vi.hoisted(() => {
       files.set(sentMessagesPath, JSON.stringify(rows));
       return message;
     }),
-    sendInboxMessage: vi.fn(
-      (teamName: string, message: Record<string, unknown>) => {
-        const member =
-          typeof message.member === 'string'
-            ? message.member
-            : typeof message.to === 'string'
-              ? message.to
-              : 'unknown';
-        const p = `/mock/teams/${teamName}/inboxes/${member}.json`;
-        const current = files.get(p);
-        const rows = current ? (JSON.parse(current) as unknown[]) : [];
-        rows.push(message);
-        files.set(p, JSON.stringify(rows));
-        return { deliveredToInbox: true, messageId: 'mock-id', message };
-      }
-    ),
+    sendInboxMessage: vi.fn((teamName: string, message: Record<string, unknown>) => {
+      const member =
+        typeof message.member === 'string'
+          ? message.member
+          : typeof message.to === 'string'
+            ? message.to
+            : 'unknown';
+      const p = `/mock/teams/${teamName}/inboxes/${member}.json`;
+      const current = files.get(p);
+      const rows = current ? (JSON.parse(current) as unknown[]) : [];
+      rows.push(message);
+      files.set(p, JSON.stringify(rows));
+      return { deliveredToInbox: true, messageId: 'mock-id', message };
+    }),
     setAtomicWriteShouldFail: (next: boolean) => {
       atomicWriteShouldFail = next;
     },
@@ -298,6 +306,45 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(service.getLiveLeadProcessMessages(teamName)).toHaveLength(1);
   });
 
+  it('uses snapshot config reads for lead inbox relay routing', async () => {
+    const getConfig = vi.fn(async () => {
+      throw new Error('verified config read should not be used for inbox relay routing');
+    });
+    const getConfigSnapshot = vi.fn(async () => ({
+      name: 'My Team',
+      members: [{ name: 'team-lead', agentType: 'team-lead' }],
+    }));
+    const service = new TeamProvisioningService({
+      getConfig,
+      getConfigSnapshot,
+    } as any);
+    const teamName = 'my-team';
+    seedLeadInbox(teamName, [
+      {
+        from: 'bob',
+        text: 'Please assign this to Alice.',
+        timestamp: '2026-02-23T10:00:00.000Z',
+        read: false,
+        summary: 'Need delegation',
+        messageId: 'm-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: 'OK, will do.' }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+    await expect(relayPromise).resolves.toBe(1);
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(getConfigSnapshot).toHaveBeenCalledWith(teamName);
+    expect(getConfig).not.toHaveBeenCalled();
+  });
+
   it('shows assistant text after relay capture has already settled', () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';
@@ -371,7 +418,9 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('Source: system_notification');
     expect(payload).toContain('summary looks like \\"Comment on #...\\"');
-    expect(payload).toContain('reply via task_add_comment only when you have a substantive board update');
+    expect(payload).toContain(
+      'reply via task_add_comment only when you have a substantive board update'
+    );
     expect(payload).toContain('Do NOT post acknowledgement-only task comments');
 
     (service as any).handleStreamJsonMessage(run, {
@@ -492,9 +541,13 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       runId: 'run-old',
     });
     const inboxDeferred = createDeferred<typeof inboxMessages>();
-    const inboxReader = (service as unknown as {
-      inboxReader: { getMessagesFor: (team: string, member: string) => Promise<typeof inboxMessages> };
-    }).inboxReader;
+    const inboxReader = (
+      service as unknown as {
+        inboxReader: {
+          getMessagesFor: (team: string, member: string) => Promise<typeof inboxMessages>;
+        };
+      }
+    ).inboxReader;
     const inboxSpy = vi
       .spyOn(inboxReader, 'getMessagesFor')
       .mockImplementationOnce(async () => await inboxDeferred.promise)
@@ -538,14 +591,13 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
 
     const { runId: oldRunId } = attachAliveRun(service, teamName, { runId: 'run-old' });
     const inboxDeferred = createDeferred<[typeof permissionMessage]>();
-    const inboxReader = (service as unknown as {
-      inboxReader: {
-        getMessagesFor: (
-          team: string,
-          member: string
-        ) => Promise<[typeof permissionMessage]>;
-      };
-    }).inboxReader;
+    const inboxReader = (
+      service as unknown as {
+        inboxReader: {
+          getMessagesFor: (team: string, member: string) => Promise<[typeof permissionMessage]>;
+        };
+      }
+    ).inboxReader;
     const inboxSpy = vi
       .spyOn(inboxReader, 'getMessagesFor')
       .mockImplementationOnce(async () => await inboxDeferred.promise)
@@ -654,7 +706,9 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     const payload = String(writeSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('Source: cross_team');
     expect(payload).toContain('Cross-team conversationId: conv-explicit');
-    expect(payload).toContain('Call the MCP tool named cross_team_send with toTeam=\\"other-team\\"');
+    expect(payload).toContain(
+      'Call the MCP tool named cross_team_send with toTeam=\\"other-team\\"'
+    );
     expect(payload).toContain('replyToConversationId=\\"conv-explicit\\"');
     expect(payload).toContain('NEVER set recipient/to to \\"cross_team_send\\"');
 
@@ -905,7 +959,11 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     attachAliveRun(service, teamName);
 
     const run = (service as unknown as { runs: Map<string, unknown> }).runs.get('run-1') as {
-      silentUserDmForward: { target: string; startedAt: string; mode: 'user_dm' | 'member_inbox_relay' } | null;
+      silentUserDmForward: {
+        target: string;
+        startedAt: string;
+        mode: 'user_dm' | 'member_inbox_relay';
+      } | null;
     };
     run.silentUserDmForward = {
       target: 'alice',
@@ -1072,9 +1130,13 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       runId: 'run-old',
     });
     const inboxDeferred = createDeferred<typeof inboxMessages>();
-    const inboxReader = (service as unknown as {
-      inboxReader: { getMessagesFor: (team: string, member: string) => Promise<typeof inboxMessages> };
-    }).inboxReader;
+    const inboxReader = (
+      service as unknown as {
+        inboxReader: {
+          getMessagesFor: (team: string, member: string) => Promise<typeof inboxMessages>;
+        };
+      }
+    ).inboxReader;
     const inboxSpy = vi
       .spyOn(inboxReader, 'getMessagesFor')
       .mockImplementationOnce(async () => await inboxDeferred.promise)
@@ -1284,11 +1346,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
 
     await (service as any).markInboxMessagesRead(teamName, 'alice', [
       {
-        messageId: buildLegacyInboxMessageId(
-          legacyRow.from,
-          legacyRow.timestamp,
-          legacyRow.text
-        ),
+        messageId: buildLegacyInboxMessageId(legacyRow.from, legacyRow.timestamp, legacyRow.text),
       },
     ]);
 
@@ -1684,9 +1742,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
         taskRefs: [{ teamName, taskId: 'task-1', displayId: 'abcd1234' }],
       })
     );
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows[0].read).toBe(true);
   });
 
@@ -1732,9 +1788,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       failed: 0,
       lastDelivery: { delivered: true, responsePending: true },
     });
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows[0].read).toBe(false);
   });
 
@@ -1866,9 +1920,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       teamName,
       expect.objectContaining({ messageId: 'opencode-terminal-new' })
     );
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows.map((row: { read?: boolean }) => row.read)).toEqual([false, true]);
   });
 
@@ -1952,9 +2004,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       'opencode_attachments_not_supported_for_secondary_runtime'
     );
     vi.mocked(console.warn).mockClear();
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows[0].read).toBe(false);
     expect(records[0]).toMatchObject({
       inboxMessageId: 'opencode-attachment-1',
@@ -1979,7 +2029,10 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
           ],
         })
       );
-      const identity = await (service as any).resolveOpenCodeMemberDeliveryIdentity(teamName, 'jack');
+      const identity = await (service as any).resolveOpenCodeMemberDeliveryIdentity(
+        teamName,
+        'jack'
+      );
       expect(identity.ok).toBe(true);
       const laneId = identity.laneId;
       const records: any[] = [];
@@ -2000,7 +2053,12 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
           return record;
         }),
         markAcceptanceUnknown: vi.fn(
-          async (input: { id: string; reason: string; nextAttemptAt: string; markedAt: string }) => {
+          async (input: {
+            id: string;
+            reason: string;
+            nextAttemptAt: string;
+            markedAt: string;
+          }) => {
             const record = records.find((candidate) => candidate.id === input.id);
             Object.assign(record, {
               status: 'failed_retryable',
@@ -2132,9 +2190,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       teamName,
       expect.objectContaining({ messageId: 'opencode-inflight-new' })
     );
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows.map((row: { read?: boolean }) => row.read)).toEqual([true, true]);
   });
 
@@ -2207,10 +2263,12 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       delivered: true,
       diagnostics: [],
     });
+    const recipientSpy = vi.spyOn(service, 'isOpenCodeRuntimeRecipient');
 
     const relay = await service.relayInboxFileToLiveRecipient(teamName, 'jack');
 
     expect(relay).toMatchObject({ kind: 'opencode_member', relayed: 1 });
+    expect(recipientSpy).toHaveBeenCalledTimes(1);
     const rows = JSON.parse(
       hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
     );
@@ -2303,9 +2361,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       'OpenCode inbox relay failed for jack/opencode-relay-failed-1'
     );
     vi.mocked(console.warn).mockClear();
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows[0].read).toBe(false);
   });
 
@@ -2337,9 +2393,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       delivered: true,
       diagnostics: [],
     });
-    vi.spyOn(service as any, 'markInboxMessagesRead').mockRejectedValue(
-      new Error('write failed')
-    );
+    vi.spyOn(service as any, 'markInboxMessagesRead').mockRejectedValue(new Error('write failed'));
 
     const relay = await service.relayOpenCodeMemberInboxMessages(teamName, 'jack');
 
@@ -2360,9 +2414,7 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       'opencode_inbox_mark_read_failed_after_delivery'
     );
     vi.mocked(console.warn).mockClear();
-    const rows = JSON.parse(
-      hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]'
-    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows[0].read).toBe(false);
   });
 });

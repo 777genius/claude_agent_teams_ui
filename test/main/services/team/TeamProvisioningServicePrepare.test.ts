@@ -95,7 +95,10 @@ vi.mock('@main/utils/childProcess', () => ({
   killProcessTree: vi.fn(),
 }));
 
-import { TeamProvisioningService } from '@main/services/team/TeamProvisioningService';
+import {
+  TeamProvisioningService,
+  buildDirectTmuxRestartEnvAssignments,
+} from '@main/services/team/TeamProvisioningService';
 import { ClaudeBinaryResolver } from '@main/services/team/ClaudeBinaryResolver';
 import { TeamRuntimeAdapterRegistry } from '@main/services/team/runtime';
 import { ProviderConnectionService } from '@main/services/runtime/ProviderConnectionService';
@@ -345,6 +348,91 @@ describe('TeamProvisioningService prepare/auth behavior', () => {
     );
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.ANTHROPIC_AUTH_TOKEN;
+  });
+
+  it('blanks Anthropic auth carriers for direct tmux restart in helper mode', () => {
+    const assignments = buildDirectTmuxRestartEnvAssignments(
+      {
+        CLAUDE_TEAM_ANTHROPIC_AUTH_MODE: 'api_key_helper',
+        CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH:
+          '/tmp/team-runtime-auth/demo/runtime-settings-anthropic.json',
+        ANTHROPIC_API_KEY: 'sk-ant-direct-restart-should-not-leak',
+        ANTHROPIC_AUTH_TOKEN: 'direct-restart-token-should-not-leak',
+        CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: '3',
+        CLAUDE_CODE_OAUTH_TOKEN: 'direct-restart-oauth-token-should-not-leak',
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: '4',
+      },
+      'anthropic'
+    );
+
+    expect(assignments).toContain("CLAUDE_TEAM_ANTHROPIC_AUTH_MODE='api_key_helper'");
+    expect(assignments).toContain(
+      "CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH='/tmp/team-runtime-auth/demo/runtime-settings-anthropic.json'"
+    );
+    expect(assignments).toContain("ANTHROPIC_API_KEY=''");
+    expect(assignments).toContain("ANTHROPIC_AUTH_TOKEN=''");
+    expect(assignments).toContain("CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR=''");
+    expect(assignments).toContain("CLAUDE_CODE_OAUTH_TOKEN=''");
+    expect(assignments).toContain("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=''");
+    expect(assignments).not.toContain('sk-ant-direct-restart-should-not-leak');
+    expect(assignments).not.toContain('direct-restart-token-should-not-leak');
+    expect(assignments).not.toContain('direct-restart-oauth-token-should-not-leak');
+  });
+
+  it('preserves CODEX_HOME for direct tmux restart even when Codex API keys are blanked', () => {
+    const assignments = buildDirectTmuxRestartEnvAssignments(
+      {
+        CODEX_HOME: '/tmp/codex-connected-home',
+        CODEX_API_KEY: '',
+        OPENAI_API_KEY: '',
+      },
+      'codex'
+    );
+
+    expect(assignments).toContain("CODEX_HOME='/tmp/codex-connected-home'");
+  });
+
+  it('does not flatten Anthropic helper settings into non-Anthropic lead cross-provider args', async () => {
+    const svc = new TeamProvisioningService();
+    const helperSettingsPath = path.join(tempRoot, 'team-runtime-auth', 'helper-settings.json');
+    vi.spyOn(svc as any, 'buildProvisioningEnv').mockResolvedValue({
+      env: {
+        CLAUDE_TEAM_ANTHROPIC_AUTH_MODE: 'api_key_helper',
+        CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH: helperSettingsPath,
+      },
+      authSource: 'anthropic_api_key_helper',
+      geminiRuntimeAuth: null,
+      providerArgs: ['--settings', helperSettingsPath, '--anthropic-safe-passthrough'],
+      anthropicApiKeyHelper: {
+        teamName: 'mixed-team',
+        directory: path.dirname(helperSettingsPath),
+        helperPath: path.join(tempRoot, 'helper.sh'),
+        keyPath: path.join(tempRoot, 'key'),
+        settingsPath: helperSettingsPath,
+        settingsObject: { apiKeyHelper: "'/tmp/helper.sh'" },
+        settingsArgs: ['--settings', helperSettingsPath],
+        envPatch: {
+          CLAUDE_TEAM_ANTHROPIC_AUTH_MODE: 'api_key_helper',
+          CLAUDE_TEAM_ANTHROPIC_API_KEY_HELPER_SETTINGS_PATH: helperSettingsPath,
+        },
+      },
+    });
+
+    const result = await (svc as any).buildCrossProviderMemberArgs(
+      'codex',
+      [{ name: 'alice', providerId: 'anthropic', model: 'opus' }],
+      { teamRuntimeAuth: { teamName: 'mixed-team', authMaterialId: 'run-1' } }
+    );
+
+    expect(result.usesAnthropicApiKeyHelper).toBe(true);
+    expect(result.envPatch.CLAUDE_TEAM_ANTHROPIC_AUTH_MODE).toBe('api_key_helper');
+    expect(result.args).toContain('--anthropic-safe-passthrough');
+    expect(result.args).not.toContain(helperSettingsPath);
+    expect(result.providerArgsByProvider.get('anthropic')).toEqual([
+      '--settings',
+      helperSettingsPath,
+      '--anthropic-safe-passthrough',
+    ]);
   });
 
   afterEach(async () => {

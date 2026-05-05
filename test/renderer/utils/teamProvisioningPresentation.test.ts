@@ -83,12 +83,133 @@ describe('buildTeamProvisioningPresentation', () => {
       memberSpawnSnapshot: undefined,
     });
 
-    expect(presentation?.panelMessage).toContain('jack failed to start');
-    expect(presentation?.panelMessage).toContain('gpt-5.2-codex');
+    expect(presentation?.panelMessage).toBe('jack failed to start');
     expect(presentation?.panelMessageSeverity).toBe('warning');
     expect(presentation?.compactDetail).toBe('jack failed to start');
     expect(presentation?.compactTone).toBe('warning');
     expect(presentation?.defaultLiveOutputOpen).toBe(false);
+  });
+
+  it('counts retryable failed OpenCode secondary teammates conservatively', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-opencode-retry',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed with teammate errors',
+        messageSeverity: 'warning',
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          providerId: 'anthropic',
+        },
+        {
+          name: 'alice',
+          agentType: 'developer',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+        },
+        {
+          name: 'bob',
+          agentType: 'developer',
+          providerId: 'anthropic',
+          laneKind: 'primary',
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason: 'OpenRouter credits exhausted',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: false,
+        },
+        bob: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason: 'Primary lane failed',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: false,
+        },
+      },
+      memberSpawnSnapshot: undefined,
+    });
+
+    expect(presentation?.retryableOpenCodeSecondaryFailedNames).toEqual(['alice']);
+    expect(presentation?.retryableOpenCodeSecondaryFailedCount).toBe(1);
+  });
+
+  it('does not count skipped or permission-blocked OpenCode failures as bulk retry candidates', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-opencode-no-retry',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed with teammate errors',
+        messageSeverity: 'warning',
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'alice',
+          agentType: 'developer',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+        },
+        {
+          name: 'tom',
+          agentType: 'developer',
+          providerId: 'opencode',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'skipped',
+          launchState: 'skipped_for_launch',
+          skippedForLaunch: true,
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: false,
+        },
+        tom: {
+          status: 'waiting',
+          launchState: 'runtime_pending_permission',
+          pendingPermissionRequestIds: ['perm-1'],
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: true,
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+      },
+      memberSpawnSnapshot: undefined,
+    });
+
+    expect(presentation?.retryableOpenCodeSecondaryFailedNames).toEqual([]);
+    expect(presentation?.retryableOpenCodeSecondaryFailedCount).toBe(0);
   });
 
   it('does not truncate long failed teammate reasons in the panel message', () => {
@@ -144,7 +265,66 @@ describe('buildTeamProvisioningPresentation', () => {
       memberSpawnSnapshot: undefined,
     });
 
-    expect(presentation?.panelMessage).toBe(`alice failed to start - ${reason}`);
+    expect(presentation?.panelMessage).toBe('alice failed to start');
+  });
+
+  it('keeps multiple failed teammate details out of the top panel', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-multi-failure',
+        teamName: 'relay-works-18',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:00:08.000Z',
+        message: 'Launch completed with teammate errors',
+        messageSeverity: 'warning',
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        { name: 'team-lead', agentType: 'team-lead' },
+        { name: 'alice', agentType: 'reviewer' },
+        { name: 'tom', agentType: 'developer' },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason:
+            'Latest assistant message msg_alice failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+          updatedAt: '2026-04-13T10:00:03.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: true,
+        },
+        tom: {
+          status: 'error',
+          launchState: 'failed_to_start',
+          hardFailureReason:
+            'Latest assistant message msg_tom failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+          updatedAt: '2026-04-13T10:00:04.000Z',
+          runtimeAlive: false,
+          bootstrapConfirmed: false,
+          hardFailure: true,
+          agentToolAccepted: true,
+        },
+      },
+      memberSpawnSnapshot: {
+        expectedMembers: ['alice', 'tom'],
+        summary: {
+          confirmedCount: 0,
+          pendingCount: 0,
+          failedCount: 2,
+          runtimeAlivePendingCount: 0,
+        },
+      },
+    });
+
+    expect(presentation?.panelMessage).toBe('2 teammates failed to start');
+    expect(presentation?.panelMessage).not.toContain('msg_alice');
+    expect(presentation?.panelMessage).not.toContain('openrouter.ai');
   });
 
   it('surfaces the failed teammate reason after launch completes with errors', () => {
@@ -209,7 +389,7 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.successMessage).toBe(
       'Launch finished with errors - 1/1 teammates failed to start'
     );
-    expect(presentation?.panelMessage).toContain('requested model is not available');
+    expect(presentation?.panelMessage).toBe('jack failed to start');
     expect(presentation?.compactDetail).toBe('jack failed to start');
     expect(presentation?.currentStepIndex).toBe(2);
   });
@@ -345,7 +525,7 @@ describe('buildTeamProvisioningPresentation', () => {
     });
 
     expect(presentation?.currentStepIndex).toBe(2);
-    expect(presentation?.panelMessage).toContain('bob failed to start');
+    expect(presentation?.panelMessage).toBe('bob failed to start');
     expect(presentation?.compactTone).toBe('warning');
   });
 
@@ -664,6 +844,84 @@ describe('buildTeamProvisioningPresentation', () => {
     expect(presentation?.panelMessage).toBe('Waiting for OpenCode: tom');
     expect(presentation?.compactTitle).toBe('Core team ready');
     expect(presentation?.compactDetail).toBe('Waiting for OpenCode: tom');
+    expect(presentation?.currentStepIndex).toBe(2);
+  });
+
+  it('shows stalled OpenCode secondaries separately from normal bootstrap waiting', () => {
+    const presentation = buildTeamProvisioningPresentation({
+      progress: {
+        runId: 'run-opencode-secondary-stalled',
+        teamName: 'mixed-team',
+        state: 'ready',
+        startedAt: '2026-04-13T10:00:00.000Z',
+        updatedAt: '2026-04-13T10:05:08.000Z',
+        message: 'Team provisioned - waiting for secondary runtime lane: tom',
+        messageSeverity: undefined,
+        pid: 4321,
+        cliLogsTail: '',
+        assistantOutput: '',
+      },
+      members: [
+        {
+          name: 'team-lead',
+          agentType: 'team-lead',
+          providerId: 'codex',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'alice',
+          providerId: 'codex',
+          laneKind: 'primary',
+          status: 'active',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+        {
+          name: 'tom',
+          providerId: 'opencode',
+          laneId: 'secondary:opencode:tom',
+          laneKind: 'secondary',
+          laneOwnerProviderId: 'opencode',
+          status: 'unknown',
+          currentTaskId: null,
+          taskCount: 0,
+          lastActiveAt: null,
+          messageCount: 0,
+        },
+      ],
+      memberSpawnStatuses: {
+        alice: {
+          status: 'online',
+          launchState: 'confirmed_alive',
+          updatedAt: '2026-04-13T10:00:05.000Z',
+          runtimeAlive: true,
+          bootstrapConfirmed: true,
+          hardFailure: false,
+          agentToolAccepted: true,
+        },
+        tom: {
+          status: 'waiting',
+          launchState: 'runtime_pending_bootstrap',
+          updatedAt: '2026-04-13T10:05:07.000Z',
+          runtimeAlive: true,
+          livenessKind: 'runtime_process',
+          bootstrapConfirmed: false,
+          hardFailure: false,
+          agentToolAccepted: true,
+          bootstrapStalled: true,
+        },
+      },
+    });
+
+    expect(presentation?.successMessage).toBe('Core team ready');
+    expect(presentation?.panelMessage).toBe('Bootstrap stalled: tom');
+    expect(presentation?.compactDetail).toBe('Bootstrap stalled: tom');
     expect(presentation?.currentStepIndex).toBe(2);
   });
 
@@ -1280,8 +1538,7 @@ describe('buildTeamProvisioningPresentation', () => {
       },
     });
 
-    expect(presentation?.panelMessage).toContain('jack failed to start');
-    expect(presentation?.panelMessage).toContain('requested model is not available');
+    expect(presentation?.panelMessage).toBe('jack failed to start');
     expect(presentation?.compactDetail).toBe('jack failed to start');
   });
 

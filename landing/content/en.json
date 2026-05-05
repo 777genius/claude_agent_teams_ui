@@ -44,7 +44,7 @@
     {
       "id": "isFree",
       "question": "Is it really free?",
-      "answer": "Yes. The app itself is 100% free and open source. The app has no paid tier of its own. To run agents, you only need access to a supported provider/runtime, such as Anthropic or Codex."
+      "answer": "Yes. The app itself is free and open source. The app has no paid tier of its own. To run agents, you only need access to a supported provider/runtime, such as Anthropic or Codex."
     },
     {
       "id": "platforms",
@@ -82,9 +82,9 @@
   "pricing": [
     {
       "id": "free",
-      "name": "Free Forever",
+      "name": "Free",
       "price": "$0",
-      "period": "forever",
+      "period": "",
       "description": "Everything included. No limits, no API keys, no credit card.",
       "features": [
         "Unlimited agent teams",

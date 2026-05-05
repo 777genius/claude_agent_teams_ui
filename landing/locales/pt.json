@@ -2,6 +2,7 @@
   "nav": {
     "features": "Recursos",
     "screenshots": "Capturas",
+    "docs": "Documentação",
     "comparison": "Comparar",
     "download": "Baixar",
     "pricing": "Grátis",
@@ -13,6 +14,7 @@
     "downloadNow": "Baixar agora",
     "ctaPrimary": "Baixar para {platform}",
     "ctaSecondary": "Comparar",
+    "ctaDocs": "Documentação",
     "preview": "Prévia do produto",
     "trust": {
       "agentTeams": "Equipes de agentes",
@@ -44,8 +46,8 @@
     "sectionTitle": "100% Grátis. Sem pegadinhas.",
     "sectionSubtitle": "Código aberto, sem chaves de API, sem configuração. Instale e comece.",
     "getStarted": "Baixar agora",
-    "popular": "Grátis para sempre",
-    "note": "100% código aberto. Sem chaves de API. Sem configuração. Roda totalmente local."
+    "popular": "Grátis",
+    "note": "Código aberto. Sem chaves de API. Sem configuração. Roda totalmente local."
   },
   "testimonials": {
     "sectionTitle": "O que os desenvolvedores dizem",

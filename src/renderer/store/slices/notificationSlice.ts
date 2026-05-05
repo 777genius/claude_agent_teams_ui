@@ -10,10 +10,94 @@ import { getAllTabs } from '../utils/paneHelpers';
 
 import type { AppState } from '../types';
 import type { DetectedError } from '@renderer/types/data';
+import type { NotificationTarget } from '@shared/types';
 import type { StateCreator } from 'zustand';
 
 const logger = createLogger('Store:notification');
 const NOTIFICATIONS_FETCH_LIMIT = 200;
+
+function getTeamNameFromError(error: DetectedError): string | null {
+  if (error.sessionId.startsWith('team:')) {
+    const teamName = error.sessionId.slice('team:'.length).trim();
+    return teamName || null;
+  }
+  return null;
+}
+
+function isNotificationTarget(value: unknown): value is NotificationTarget {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  if (row.kind === 'team') return typeof row.teamName === 'string' && row.teamName.length > 0;
+  if (row.kind === 'task') {
+    return (
+      typeof row.teamName === 'string' &&
+      row.teamName.length > 0 &&
+      typeof row.taskId === 'string' &&
+      row.taskId.length > 0
+    );
+  }
+  if (row.kind === 'member') {
+    return (
+      typeof row.teamName === 'string' &&
+      row.teamName.length > 0 &&
+      typeof row.memberName === 'string' &&
+      row.memberName.length > 0
+    );
+  }
+  return false;
+}
+
+function parseLegacyTeamTarget(error: DetectedError, fallbackTeamName: string): NotificationTarget {
+  const dedupeParts = (error.dedupeKey ?? '').split(':');
+  const kind = dedupeParts[0];
+  const teamName = dedupeParts[1] || fallbackTeamName;
+
+  if (
+    (kind === 'comment' || kind === 'clarification' || kind === 'status' || kind === 'created') &&
+    dedupeParts[2]
+  ) {
+    return {
+      kind: 'task',
+      teamName,
+      taskId: dedupeParts[2],
+      commentId: kind === 'comment' ? dedupeParts[3] : undefined,
+      focus: kind === 'comment' || kind === 'clarification' ? 'comments' : 'detail',
+    };
+  }
+
+  if (kind === 'inbox' && dedupeParts[2]) {
+    return { kind: 'member', teamName, memberName: dedupeParts[2], focus: 'messages' };
+  }
+
+  return { kind: 'team', teamName, section: 'overview' };
+}
+
+function getTeamNotificationTarget(error: DetectedError): NotificationTarget | null {
+  if (isNotificationTarget(error.target)) {
+    return error.target;
+  }
+
+  const teamName = getTeamNameFromError(error);
+  if (!teamName) return null;
+
+  return parseLegacyTeamTarget(error, teamName);
+}
+
+function navigateToTeamNotification(state: AppState, error: DetectedError): void {
+  const target = getTeamNotificationTarget(error);
+  const teamName = target?.teamName ?? getTeamNameFromError(error);
+  if (!teamName) return;
+
+  state.openTeamTab(teamName, error.context.cwd);
+
+  if (target?.kind === 'team' && target.section) {
+    state.focusTeamSection(target.teamName, target.section);
+  } else if (target?.kind === 'task') {
+    state.openGlobalTaskDetail(target.teamName, target.taskId, target.commentId);
+  } else if (target?.kind === 'member') {
+    state.openMemberProfile(target.memberName, target.teamName, target.focus);
+  }
+}
 
 // =============================================================================
 // Slice Interface
@@ -206,10 +290,9 @@ export const createNotificationSlice: StateCreator<AppState, [], [], Notificatio
     // Mark the notification as read
     void state.markNotificationRead(error.id);
 
-    // Team notifications (inbox, clarification, status change, rate-limit): open team tab
+    // Team notifications use structured targets when available.
     if (error.sessionId.startsWith('team:')) {
-      const teamName = error.sessionId.slice('team:'.length);
-      state.openTeamTab(teamName, error.context.cwd);
+      navigateToTeamNotification(state, error);
       return;
     }
 

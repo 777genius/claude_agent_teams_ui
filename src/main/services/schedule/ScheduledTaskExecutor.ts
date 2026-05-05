@@ -178,7 +178,9 @@ export class ScheduledTaskExecutor {
       cwd: request.config.cwd,
       // shellEnv spread after buildEnrichedEnv ensures freshly-resolved values
       // take precedence over the cached snapshot inside buildEnrichedEnv.
-      env,
+      // CLAUDECODE stripped last to prevent nested-session detection regardless
+      // of what buildProviderAwareCliEnv merges in.
+      env: { ...env, CLAUDECODE: undefined },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

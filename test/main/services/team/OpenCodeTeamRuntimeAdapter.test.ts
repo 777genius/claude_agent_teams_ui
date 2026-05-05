@@ -86,6 +86,176 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     });
   });
 
+  it('can rely on the launch bridge as the only readiness authority', async () => {
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'ready',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'confirmed_alive',
+              runtimePid: 123,
+              model: 'openai/gpt-5.4-mini',
+              evidence: [
+                { kind: 'required_tools_proven', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'delivery_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'member_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+                { kind: 'run_ready', observedAt: '2026-04-21T00:00:00.000Z' },
+              ],
+            },
+          },
+          warnings: [],
+          diagnostics: [
+            {
+              code: 'opencode_launch_total_timing',
+              severity: 'info',
+              message: 'total=12ms provisioningProbe=3ms members=1',
+            },
+            {
+              code: 'member_reconcile',
+              severity: 'warning',
+              message: 'alice: sample reconcile diagnostic',
+            },
+          ],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const bridge = bridgePort(
+      readiness({
+        state: 'unknown_error',
+        launchAllowed: false,
+        diagnostics: ['readiness should be skipped'],
+      }),
+      { launchOpenCodeTeam }
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(bridge);
+
+    const result = await adapter.launch(launchInput({ skipReadinessPreflight: true }));
+
+    expect(result.teamLaunchState).toBe('clean_success');
+    expect(bridge.checkOpenCodeTeamLaunchReadiness).not.toHaveBeenCalled();
+    expect(launchOpenCodeTeam).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedModel: 'openai/gpt-5.4-mini',
+        expectedCapabilitySnapshotId: null,
+      })
+    );
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        'info:opencode_launch_total_timing: total=12ms provisioningProbe=3ms members=1',
+      ])
+    );
+    expect(result.members.alice?.diagnostics).not.toContain(
+      'info:opencode_launch_total_timing: total=12ms provisioningProbe=3ms members=1'
+    );
+    expect(result.members.alice?.diagnostics).toContain(
+      'warning:member_reconcile: alice: sample reconcile diagnostic'
+    );
+  });
+
+  it('uses concrete member diagnostics as failed OpenCode hard failure reasons', async () => {
+    const concreteReason =
+      'Latest assistant message msg_123 failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits';
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'failed',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'failed',
+              model: 'openai/gpt-5.4-mini',
+              diagnostics: ['OpenCode bridge reported member launch failure', concreteReason],
+              evidence: [],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), { launchOpenCodeTeam })
+    );
+
+    const result = await adapter.launch(launchInput());
+
+    expect(result.members.alice).toMatchObject({
+      launchState: 'failed_to_start',
+      hardFailureReason: concreteReason,
+    });
+  });
+
+  it('falls back to bridge error diagnostics when member failure details are generic', async () => {
+    const bridgeError = 'Provider runtime returned a concrete launch error';
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'failed',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'failed',
+              model: 'openai/gpt-5.4-mini',
+              diagnostics: ['OpenCode bridge reported member launch failure'],
+              evidence: [],
+            },
+          },
+          warnings: [],
+          diagnostics: [{ code: 'provider_error', severity: 'error', message: bridgeError }],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), { launchOpenCodeTeam })
+    );
+
+    const result = await adapter.launch(launchInput());
+
+    expect(result.members.alice?.hardFailureReason).toBe(bridgeError);
+  });
+
+  it('redacts secret-like values in selected OpenCode failure reasons', async () => {
+    const launchOpenCodeTeam = vi.fn<
+      NonNullable<OpenCodeTeamRuntimeBridgePort['launchOpenCodeTeam']>
+    >(
+      async () =>
+        ({
+          runId: 'run-1',
+          teamLaunchState: 'failed',
+          members: {
+            alice: {
+              sessionId: 'oc-session-1',
+              launchState: 'failed',
+              model: 'openai/gpt-5.4-mini',
+              diagnostics: [
+                'Provider failed with --api-key sk-openroutersecret000000000000 and Bearer abc.def.ghi',
+              ],
+              evidence: [],
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        }) satisfies OpenCodeLaunchTeamCommandData
+    );
+    const adapter = new OpenCodeTeamRuntimeAdapter(
+      bridgePort(readiness({ state: 'ready', launchAllowed: true }), { launchOpenCodeTeam })
+    );
+
+    const result = await adapter.launch(launchInput());
+
+    expect(result.members.alice?.hardFailureReason).toBe(
+      'Provider failed with --api-key [redacted] and Bearer [redacted]'
+    );
+  });
+
   it('rejects non-OpenCode members before readiness or launch bridge dispatch', async () => {
     const launchOpenCodeTeam = vi.fn();
     const bridge = bridgePort(readiness({ state: 'ready', launchAllowed: true }), {

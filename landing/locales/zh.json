@@ -2,6 +2,7 @@
   "nav": {
     "features": "功能",
     "screenshots": "截图",
+    "docs": "文档",
     "comparison": "对比",
     "download": "下载",
     "pricing": "免费",
@@ -13,6 +14,7 @@
     "downloadNow": "立即下载",
     "ctaPrimary": "下载 {platform} 版",
     "ctaSecondary": "对比",
+    "ctaDocs": "文档",
     "preview": "产品预览",
     "trust": {
       "agentTeams": "智能体团队",
@@ -44,8 +46,8 @@
     "sectionTitle": "100% 免费，没有附加条件。",
     "sectionSubtitle": "开源，无需 API 密钥，无需配置。安装即用。",
     "getStarted": "立即下载",
-    "popular": "永久免费",
-    "note": "100% 开源。无需 API 密钥。无需配置。完全本地运行。"
+    "popular": "免费",
+    "note": "开源。无需 API 密钥。无需配置。完全本地运行。"
   },
   "testimonials": {
     "sectionTitle": "开发者怎么说",

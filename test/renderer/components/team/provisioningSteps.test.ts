@@ -65,6 +65,25 @@ describe('getLaunchJoinMilestonesFromMembers', () => {
     expect(milestones.pendingSpawnCount).toBe(4);
   });
 
+  it('keeps bootstrap-stalled runtime processes out of process-alive progress', () => {
+    const milestones = getLaunchJoinMilestonesFromMembers({
+      members,
+      memberSpawnStatuses: {
+        alice: {
+          status: 'waiting',
+          launchState: 'runtime_pending_bootstrap',
+          runtimeAlive: true,
+          livenessKind: 'runtime_process',
+          bootstrapStalled: true,
+          updatedAt: '2026-04-24T12:05:00.000Z',
+        },
+      },
+    });
+
+    expect(milestones.processOnlyAliveCount).toBe(0);
+    expect(milestones.pendingSpawnCount).toBe(4);
+  });
+
   it('uses runtimeProcessPendingCount instead of legacy runtimeAlivePendingCount for snapshot pending math', () => {
     const milestones = getLaunchJoinMilestonesFromMembers({
       members,

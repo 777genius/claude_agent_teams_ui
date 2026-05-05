@@ -16,13 +16,22 @@ export interface MockElectronAPI {
         projectId: string,
         cursor: string | null,
         limit?: number,
-        options?: { includeTotalCount?: boolean; prefilterAll?: boolean }
+        options?: { includeTotalCount?: boolean; prefilterAll?: boolean; metadataLevel?: 'light' | 'deep' }
       ) => Promise<{
         sessions: Session[];
         nextCursor: string | null;
         hasMore: boolean;
         totalCount: number;
       }>
+    >
+  >;
+  getSessionsByIds: ReturnType<
+    typeof vi.fn<
+      (
+        projectId: string,
+        sessionIds: string[],
+        options?: { metadataLevel?: 'light' | 'deep' }
+      ) => Promise<Session[]>
     >
   >;
   getSessionDetail: ReturnType<
@@ -90,6 +99,7 @@ export function createMockElectronAPI(): MockElectronAPI {
       hasMore: false,
       totalCount: 0,
     }),
+    getSessionsByIds: vi.fn().mockResolvedValue([]),
     getSessionDetail: vi.fn().mockResolvedValue(null),
     getRepositoryGroups: vi.fn().mockResolvedValue([]),
     getWorktreeSessions: vi.fn().mockResolvedValue([]),

@@ -70,6 +70,7 @@ const BOTTOM_SHEET_HEADER_HEIGHT = 40;
 const BOTTOM_SHEET_COLLAPSED_SNAP_INDEX = 1;
 const BOTTOM_SHEET_COMPOSER_SNAP_INDEX = 2;
 const BOTTOM_SHEET_FULL_SNAP_INDEX = 4;
+const OPENCODE_RUNTIME_DELIVERY_STATUS_REFRESH_DELAYS_MS = [15_000, 45_000, 90_000] as const;
 
 interface MessagesPanelProps {
   teamName: string;
@@ -246,6 +247,7 @@ export const MessagesPanel = memo(function MessagesPanel({
     sendMessageDebugDetails,
     lastSendMessageResult,
     clearSendMessageRuntimeDiagnostics,
+    refreshSendMessageRuntimeDeliveryStatus,
     teams,
     openTeamTab,
     messages,
@@ -262,6 +264,7 @@ export const MessagesPanel = memo(function MessagesPanel({
       sendMessageDebugDetails: s.sendMessageDebugDetails,
       lastSendMessageResult: s.lastSendMessageResult,
       clearSendMessageRuntimeDiagnostics: s.clearSendMessageRuntimeDiagnostics,
+      refreshSendMessageRuntimeDeliveryStatus: s.refreshSendMessageRuntimeDeliveryStatus,
       teams: s.teams,
       openTeamTab: s.openTeamTab,
       messages: selectTeamMessages(s, teamName),
@@ -575,6 +578,28 @@ export const MessagesPanel = memo(function MessagesPanel({
     clearSendMessageRuntimeDiagnostics,
     sendMessageDebugDetails?.messageId,
     sendMessageRuntimeReplyVisible,
+  ]);
+
+  useEffect(() => {
+    const debugDetails = sendMessageDebugDetails;
+    const messageId = debugDetails?.messageId;
+    if (!messageId || sendMessageRuntimeReplyVisible || debugDetails?.responsePending !== true) {
+      return;
+    }
+    const timers = OPENCODE_RUNTIME_DELIVERY_STATUS_REFRESH_DELAYS_MS.map((delayMs) =>
+      window.setTimeout(() => {
+        void refreshSendMessageRuntimeDeliveryStatus(teamName, messageId);
+      }, delayMs)
+    );
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [
+    refreshSendMessageRuntimeDeliveryStatus,
+    sendMessageDebugDetails?.messageId,
+    sendMessageDebugDetails?.responsePending,
+    sendMessageRuntimeReplyVisible,
+    teamName,
   ]);
 
   const handleSend = useCallback(

@@ -33,6 +33,7 @@ import { parseNumericSuffixName } from '@shared/utils/teamMemberName';
 import { Loader2 } from 'lucide-react';
 
 import {
+  buildEditTeamMemberRosterSnapshot,
   buildEditTeamSourceSnapshot,
   getLiveRosterIdentityChanges,
   getMemberRuntimeContractKey,
@@ -254,6 +255,27 @@ export const EditTeamDialog = ({
       new Map(builtMembers.map((member) => [member.name.trim().toLowerCase(), member] as const)),
     [builtMembers]
   );
+  const currentMemberRosterSnapshot = useMemo(
+    () => buildEditTeamMemberRosterSnapshot(currentMembers),
+    [currentMembers]
+  );
+  const nextMemberRosterSnapshot = useMemo(
+    () => buildEditTeamMemberRosterSnapshot(builtMembers),
+    [builtMembers]
+  );
+  const hasMemberRosterChanges = currentMemberRosterSnapshot !== nextMemberRosterSnapshot;
+  const currentMembersByName = useMemo(
+    () =>
+      new Map(currentMembers.map((member) => [member.name.trim().toLowerCase(), member] as const)),
+    [currentMembers]
+  );
+  const isLiveMixedOpenCodeSideLaneTeam = useMemo(
+    () =>
+      isTeamAlive &&
+      leadMember?.providerId !== 'opencode' &&
+      currentMembers.some((member) => !member.removedAt && member.providerId === 'opencode'),
+    [currentMembers, isTeamAlive, leadMember?.providerId]
+  );
   const effectiveMembersToRestart = useMemo(() => {
     const retryMembers = Object.entries(membersPendingRestartRetry).flatMap(
       ([normalizedName, expectedRuntimeContractKey]) => {
@@ -270,10 +292,35 @@ export const EditTeamDialog = ({
       new Set(
         [...membersToRestart, ...retryMembers]
           .map((memberName) => memberName.trim())
+          .filter((memberName) => {
+            const nextMember = builtMembersByName.get(memberName.toLowerCase());
+            return nextMember?.providerId !== 'opencode';
+          })
           .filter(Boolean)
       )
     );
   }, [builtMembersByName, membersPendingRestartRetry, membersToRestart]);
+  const openCodeMembersHandledByLiveRoster = useMemo(() => {
+    if (!isTeamAlive) {
+      return [];
+    }
+    return Array.from(
+      new Set(
+        membersToRestart
+          .map((memberName) => memberName.trim())
+          .filter((memberName) => {
+            const nextMember = builtMembersByName.get(memberName.toLowerCase());
+            return nextMember?.providerId === 'opencode';
+          })
+          .filter(Boolean)
+      )
+    );
+  }, [builtMembersByName, isTeamAlive, membersToRestart]);
+  const liveRuntimeRefreshMemberNames = useMemo(
+    () =>
+      Array.from(new Set([...effectiveMembersToRestart, ...openCodeMembersHandledByLiveRoster])),
+    [effectiveMembersToRestart, openCodeMembersHandledByLiveRoster]
+  );
   const liveIdentityChanges = useMemo(
     () =>
       isTeamAlive
@@ -289,6 +336,34 @@ export const EditTeamDialog = ({
     () => (isTeamAlive ? liveIdentityChanges.removed : []),
     [isTeamAlive, liveIdentityChanges.removed]
   );
+  const unsupportedLiveMixedPrimaryRuntimeChangeNames = useMemo(() => {
+    if (!isLiveMixedOpenCodeSideLaneTeam) {
+      return [];
+    }
+    return membersToRestart.filter((memberName) => {
+      const nextMember = builtMembersByName.get(memberName.trim().toLowerCase());
+      return nextMember?.providerId !== 'opencode';
+    });
+  }, [builtMembersByName, isLiveMixedOpenCodeSideLaneTeam, membersToRestart]);
+  const unsupportedLiveMixedPrimaryRemovalNames = useMemo(() => {
+    if (!isLiveMixedOpenCodeSideLaneTeam) {
+      return [];
+    }
+    return liveRemovedExistingMembers.filter((memberName) => {
+      const currentMember = currentMembersByName.get(memberName.trim().toLowerCase());
+      return currentMember?.providerId !== 'opencode';
+    });
+  }, [currentMembersByName, isLiveMixedOpenCodeSideLaneTeam, liveRemovedExistingMembers]);
+  const unsupportedLiveMixedPrimaryMutationNames = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...unsupportedLiveMixedPrimaryRuntimeChangeNames,
+          ...unsupportedLiveMixedPrimaryRemovalNames,
+        ])
+      ),
+    [unsupportedLiveMixedPrimaryRemovalNames, unsupportedLiveMixedPrimaryRuntimeChangeNames]
+  );
   const hasNewLiveTeammates = useMemo(
     () =>
       isTeamAlive && members.some((member) => !member.removedAt && !member.originalName?.trim()),
@@ -296,7 +371,7 @@ export const EditTeamDialog = ({
   );
   const memberWarningById = useMemo(() => {
     const restartNames = new Set(
-      effectiveMembersToRestart.map((memberName) => memberName.trim().toLowerCase())
+      liveRuntimeRefreshMemberNames.map((memberName) => memberName.trim().toLowerCase())
     );
     if (restartNames.size === 0) {
       return undefined;
@@ -309,7 +384,7 @@ export const EditTeamDialog = ({
           : null,
       ])
     );
-  }, [effectiveMembersToRestart, members]);
+  }, [liveRuntimeRefreshMemberNames, members]);
 
   const handleSave = (): void => {
     if (!name.trim()) {
@@ -359,12 +434,19 @@ export const EditTeamDialog = ({
       );
       return;
     }
+    if (unsupportedLiveMixedPrimaryMutationNames.length > 0) {
+      setError(
+        `Live edits to primary-owned teammates in mixed OpenCode teams are not supported yet. Stop the team, edit the roster, then relaunch. Affected: ${unsupportedLiveMixedPrimaryMutationNames.join(', ')}`
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaveOutcomeError(null);
     void (async () => {
       let configSaved = false;
       let membersSaved = false;
+      let refreshAfterSaveAttempted = false;
       let committedMembersForSnapshot: ResolvedTeamMember[] = currentMembers;
       try {
         await api.teams.updateConfig(teamName, {
@@ -373,14 +455,17 @@ export const EditTeamDialog = ({
           color,
         });
         configSaved = true;
-        for (const removedMemberName of liveRemovedExistingMembers) {
-          await api.teams.removeMember(teamName, removedMemberName);
-          committedMembersForSnapshot = applyRemovedMembersToSnapshot(committedMembersForSnapshot, [
-            removedMemberName,
-          ]);
+        if (hasMemberRosterChanges) {
+          for (const removedMemberName of liveRemovedExistingMembers) {
+            await api.teams.removeMember(teamName, removedMemberName);
+            committedMembersForSnapshot = applyRemovedMembersToSnapshot(
+              committedMembersForSnapshot,
+              [removedMemberName]
+            );
+          }
+          await api.teams.replaceMembers(teamName, { members: builtMembers });
+          membersSaved = true;
         }
-        await api.teams.replaceMembers(teamName, { members: builtMembers });
-        membersSaved = true;
         pendingCommittedSourceSnapshotRef.current = buildEditTeamSourceSnapshot({
           name: name.trim(),
           description: description.trim(),
@@ -409,6 +494,7 @@ export const EditTeamDialog = ({
           }
         }
 
+        refreshAfterSaveAttempted = true;
         await Promise.resolve(onSaved());
         if (restartFailures.length === 0) {
           setMembersPendingRestartRetry({});
@@ -445,6 +531,12 @@ export const EditTeamDialog = ({
             color: color.trim(),
             members: committedMembersForSnapshot,
           });
+          if (refreshAfterSaveAttempted) {
+            setSaveOutcomeError(
+              `Team settings were saved, but failed to refresh the latest view: ${message}`
+            );
+            return;
+          }
           let refreshErrorDetail: string | null = null;
           try {
             await Promise.resolve(onSaved());
@@ -601,12 +693,19 @@ export const EditTeamDialog = ({
               changes or stop the team first.
             </p>
           ) : null}
-          {isTeamAlive && effectiveMembersToRestart.length > 0 ? (
+          {unsupportedLiveMixedPrimaryMutationNames.length > 0 ? (
+            <p className="text-xs text-red-300">
+              Live edits/removals for primary-owned teammates in mixed OpenCode teams require
+              stopping and relaunching the team:{' '}
+              {unsupportedLiveMixedPrimaryMutationNames.join(', ')}.
+            </p>
+          ) : null}
+          {isTeamAlive && liveRuntimeRefreshMemberNames.length > 0 ? (
             <p className="text-xs text-amber-300">
-              Saving will restart{' '}
-              {effectiveMembersToRestart.length === 1 ? 'this teammate' : 'these teammates'} to
+              Saving will restart or relaunch{' '}
+              {liveRuntimeRefreshMemberNames.length === 1 ? 'this teammate' : 'these teammates'} to
               apply role, workflow, worktree isolation, provider, model, or effort changes:{' '}
-              {effectiveMembersToRestart.join(', ')}.
+              {liveRuntimeRefreshMemberNames.join(', ')}.
             </p>
           ) : null}
           <div>
@@ -662,7 +761,8 @@ export const EditTeamDialog = ({
               isTeamProvisioning ||
               !name.trim() ||
               hasDuplicateMembers ||
-              Boolean(invalidMemberNamesError)
+              Boolean(invalidMemberNamesError) ||
+              unsupportedLiveMixedPrimaryMutationNames.length > 0
             }
           >
             {saving && <Loader2 size={14} className="mr-1.5 animate-spin" />}

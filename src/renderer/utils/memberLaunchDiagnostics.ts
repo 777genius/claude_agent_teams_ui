@@ -27,6 +27,7 @@ export interface MemberLaunchDiagnosticsPayload {
   runtimeSessionId?: string;
   runtimeDiagnostic?: string;
   runtimeDiagnosticSeverity?: TeamAgentRuntimeDiagnosticSeverity;
+  bootstrapStalled?: boolean;
   diagnostics?: string[];
   updatedAt?: string;
 }
@@ -139,6 +140,7 @@ export function buildMemberLaunchDiagnosticsPayload(params: {
             spawnEntry?.runtimeDiagnosticSeverity ?? runtimeEntry?.runtimeDiagnosticSeverity,
         }
       : {}),
+    ...(spawnEntry?.bootstrapStalled === true ? { bootstrapStalled: true } : {}),
     ...(diagnostics ? { diagnostics } : {}),
     ...(boundedString(spawnEntry?.updatedAt ?? runtimeEntry?.updatedAt)
       ? { updatedAt: boundedString(spawnEntry?.updatedAt ?? runtimeEntry?.updatedAt) }
@@ -159,6 +161,7 @@ export function hasMemberLaunchDiagnosticsDetails(
   return Boolean(
     (payload.launchState && payload.launchState !== 'confirmed_alive') ||
     (payload.spawnStatus && payload.spawnStatus !== 'online') ||
+    payload.bootstrapStalled === true ||
     weakLiveness ||
     payload.runtimeDiagnostic ||
     payload.diagnostics?.length

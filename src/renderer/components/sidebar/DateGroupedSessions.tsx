@@ -4,7 +4,7 @@
  * Supports multi-select with bulk actions and hidden session filtering.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { recordRecentProjectOpenPaths } from '@features/recent-projects/renderer';
@@ -184,7 +184,7 @@ function matchesSessionSearch(session: Session, query: string): boolean {
   return haystack.includes(query);
 }
 
-export const DateGroupedSessions = (): React.JSX.Element => {
+export const DateGroupedSessions = memo((): React.JSX.Element => {
   const {
     sessions,
     selectedSessionId,
@@ -202,7 +202,6 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     toggleShowHiddenSessions,
     sidebarSelectedSessionIds,
     sidebarMultiSelectActive,
-    toggleSidebarSessionSelection,
     clearSidebarSelection,
     toggleSidebarMultiSelect,
     hideMultipleSessions,
@@ -239,7 +238,6 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       toggleShowHiddenSessions: s.toggleShowHiddenSessions,
       sidebarSelectedSessionIds: s.sidebarSelectedSessionIds,
       sidebarMultiSelectActive: s.sidebarMultiSelectActive,
-      toggleSidebarSessionSelection: s.toggleSidebarSessionSelection,
       clearSidebarSelection: s.clearSidebarSelection,
       toggleSidebarMultiSelect: s.toggleSidebarMultiSelect,
       hideMultipleSessions: s.hideMultipleSessions,
@@ -1104,7 +1102,6 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                     isHidden={item.isHidden}
                     multiSelectActive={sidebarMultiSelectActive}
                     isSelected={selectedSet.has(item.session.id)}
-                    onToggleSelect={() => toggleSidebarSessionSelection(item.session.id)}
                   />
                 )}
               </div>
@@ -1114,4 +1111,6 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       </div>
     </div>
   );
-};
+});
+
+DateGroupedSessions.displayName = 'DateGroupedSessions';

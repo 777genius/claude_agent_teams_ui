@@ -248,6 +248,10 @@
         "to": "runtime"
       },
       {
+        "from": "src/renderer/assets/participant-avatars",
+        "to": "participant-avatars"
+      },
+      {
         "from": "mcp-server/dist/index.js",
         "to": "mcp-server/index.js"
       },

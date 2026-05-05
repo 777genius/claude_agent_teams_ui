@@ -141,7 +141,7 @@ export interface ApplyOpenCodePromptDestinationProofInput {
   id: string;
   visibleReplyInbox: string;
   visibleReplyMessageId: string;
-  visibleReplyCorrelation: 'relayOfMessageId';
+  visibleReplyCorrelation: OpenCodeDeliveryVisibleReplyCorrelation;
   semanticallySufficient: boolean;
   diagnostics?: string[];
   observedAt: string;
@@ -357,10 +357,14 @@ export class OpenCodePromptDeliveryLedgerStore {
   async applyDestinationProof(
     input: ApplyOpenCodePromptDestinationProofInput
   ): Promise<OpenCodePromptDeliveryLedgerRecord> {
+    const responseState =
+      input.visibleReplyCorrelation === 'plain_assistant_text'
+        ? 'responded_plain_text'
+        : 'responded_visible_message';
     return await this.updateExisting(input.id, (record) => ({
       ...record,
       status: input.semanticallySufficient ? 'responded' : record.status,
-      responseState: 'responded_visible_message',
+      responseState,
       lastObservedAt: input.observedAt,
       respondedAt: input.semanticallySufficient
         ? (record.respondedAt ?? input.observedAt)
@@ -786,6 +790,14 @@ function isTaskRefArray(value: unknown): value is TaskRef[] {
 }
 
 function isTerminalForAutomaticSelection(record: OpenCodePromptDeliveryLedgerRecord): boolean {
+  if (
+    record.status === 'responded' &&
+    record.responseState === 'responded_plain_text' &&
+    !record.visibleReplyMessageId &&
+    !record.inboxReadCommittedAt
+  ) {
+    return false;
+  }
   return record.status === 'failed_terminal' || record.status === 'responded';
 }
 

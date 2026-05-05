@@ -52,11 +52,11 @@ describe('buildDetectedErrorFromTeam', () => {
     expect(result.teamEventType).toBe('rate_limit');
   });
 
-  it('constructs message from "from" and body', () => {
+  it('constructs message from "from", summary, and body', () => {
     const result = buildDetectedErrorFromTeam(
       makePayload({ from: 'bob', body: 'Something happened' })
     );
-    expect(result.message).toBe('[bob] Something happened');
+    expect(result.message).toBe('[bob] Hello from Alice: Something happened');
   });
 
   it('truncates body to 300 chars in message', () => {
@@ -88,17 +88,21 @@ describe('buildDetectedErrorFromTeam', () => {
 
   const EXPECTED_CONFIG: Record<TeamEventType, { triggerName: string; triggerColor: string }> = {
     rate_limit: { triggerName: 'Rate Limit', triggerColor: 'red' },
+    api_error: { triggerName: 'API Error', triggerColor: 'red' },
     lead_inbox: { triggerName: 'Team Inbox', triggerColor: 'blue' },
     user_inbox: { triggerName: 'User Inbox', triggerColor: 'green' },
     task_clarification: { triggerName: 'Clarification', triggerColor: 'orange' },
     task_status_change: { triggerName: 'Status Change', triggerColor: 'purple' },
     task_comment: { triggerName: 'Task Comment', triggerColor: 'cyan' },
+    task_review_requested: { triggerName: 'Review Requested', triggerColor: 'orange' },
+    task_blocked: { triggerName: 'Task Blocked', triggerColor: 'red' },
     task_created: { triggerName: 'Task Created', triggerColor: 'green' },
     all_tasks_completed: { triggerName: 'All Done', triggerColor: 'green' },
     cross_team_message: { triggerName: 'Cross-Team', triggerColor: 'cyan' },
     schedule_completed: { triggerName: 'Schedule Done', triggerColor: 'green' },
     schedule_failed: { triggerName: 'Schedule Failed', triggerColor: 'red' },
     team_launched: { triggerName: 'Team Launched', triggerColor: 'green' },
+    team_launch_incomplete: { triggerName: 'Launch Incomplete', triggerColor: 'orange' },
   };
 
   for (const [eventType, expected] of Object.entries(EXPECTED_CONFIG)) {

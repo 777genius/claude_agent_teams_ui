@@ -2,6 +2,7 @@
   "nav": {
     "features": "機能",
     "screenshots": "スクリーンショット",
+    "docs": "ドキュメント",
     "comparison": "比較",
     "download": "ダウンロード",
     "pricing": "無料",
@@ -13,6 +14,7 @@
     "downloadNow": "ダウンロード",
     "ctaPrimary": "{platform}版をダウンロード",
     "ctaSecondary": "比較する",
+    "ctaDocs": "ドキュメント",
     "preview": "製品プレビュー",
     "trust": {
       "agentTeams": "エージェントチーム",
@@ -44,8 +46,8 @@
     "sectionTitle": "100%無料。制約なし。",
     "sectionSubtitle": "オープンソース、APIキー不要、設定不要。インストールするだけ。",
     "getStarted": "ダウンロード",
-    "popular": "永久無料",
-    "note": "100%オープンソース。APIキー不要。設定不要。完全にローカルで動作。"
+    "popular": "無料",
+    "note": "オープンソース。APIキー不要。設定不要。完全にローカルで動作。"
   },
   "testimonials": {
     "sectionTitle": "開発者の声",

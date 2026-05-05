@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 
 import type { DetectedError } from '../services/error/ErrorMessageBuilder';
 import type { TriggerColor } from '@shared/constants/triggerColors';
-import type { TeamEventType } from '@shared/types/notifications';
+import type { NotificationTarget, TeamEventType } from '@shared/types/notifications';
 
 // Re-export for callers that import TeamEventType from this module
 export type { TeamEventType } from '@shared/types/notifications';
@@ -29,10 +29,18 @@ export interface TeamNotificationPayload {
   teamDisplayName: string;
   from: string;
   to?: string;
+  /** Optional team roster for resolving the same participant avatar shown in the UI. */
+  members?: readonly {
+    name: string;
+    removedAt?: number | string | null;
+    agentType?: string;
+  }[];
   summary: string;
   body: string;
   /** Stable key for storage deduplication. REQUIRED — no fallback to Date.now(). */
   dedupeKey: string;
+  /** Structured destination used by notification click handling. */
+  target?: NotificationTarget;
   projectPath?: string;
   /**
    * When true, the notification is stored in-app but no native OS toast is shown.
@@ -53,17 +61,21 @@ interface TeamNotificationConfig {
 
 const TEAM_NOTIFICATION_CONFIG: Record<TeamEventType, TeamNotificationConfig> = {
   rate_limit: { triggerName: 'Rate Limit', triggerColor: 'red' },
+  api_error: { triggerName: 'API Error', triggerColor: 'red' },
   lead_inbox: { triggerName: 'Team Inbox', triggerColor: 'blue' },
   user_inbox: { triggerName: 'User Inbox', triggerColor: 'green' },
   task_clarification: { triggerName: 'Clarification', triggerColor: 'orange' },
   task_status_change: { triggerName: 'Status Change', triggerColor: 'purple' },
   task_comment: { triggerName: 'Task Comment', triggerColor: 'cyan' },
+  task_review_requested: { triggerName: 'Review Requested', triggerColor: 'orange' },
+  task_blocked: { triggerName: 'Task Blocked', triggerColor: 'red' },
   task_created: { triggerName: 'Task Created', triggerColor: 'green' },
   all_tasks_completed: { triggerName: 'All Done', triggerColor: 'green' },
   cross_team_message: { triggerName: 'Cross-Team', triggerColor: 'cyan' },
   schedule_completed: { triggerName: 'Schedule Done', triggerColor: 'green' },
   schedule_failed: { triggerName: 'Schedule Failed', triggerColor: 'red' },
   team_launched: { triggerName: 'Team Launched', triggerColor: 'green' },
+  team_launch_incomplete: { triggerName: 'Launch Incomplete', triggerColor: 'orange' },
 };
 
 // =============================================================================
@@ -76,6 +88,9 @@ const TEAM_NOTIFICATION_CONFIG: Record<TeamEventType, TeamNotificationConfig> = 
  */
 export function buildDetectedErrorFromTeam(payload: TeamNotificationPayload): DetectedError {
   const config = TEAM_NOTIFICATION_CONFIG[payload.teamEventType];
+  const summary = stripAgentBlocks(payload.summary).replace(/\s+/g, ' ').trim();
+  const body = stripAgentBlocks(payload.body).replace(/\s+/g, ' ').trim();
+  const preview = summary && body ? `${summary}: ${body}` : summary || body;
 
   return {
     id: randomUUID(),
@@ -84,9 +99,10 @@ export function buildDetectedErrorFromTeam(payload: TeamNotificationPayload): De
     projectId: payload.teamName,
     filePath: '',
     source: payload.teamEventType,
-    message: `[${payload.from}] ${stripAgentBlocks(payload.body).trim().slice(0, 300)}`,
+    message: `[${payload.from}] ${preview.slice(0, 300)}`,
     category: 'team',
     teamEventType: payload.teamEventType,
+    target: payload.target,
     dedupeKey: payload.dedupeKey,
     triggerColor: config.triggerColor,
     triggerName: config.triggerName,

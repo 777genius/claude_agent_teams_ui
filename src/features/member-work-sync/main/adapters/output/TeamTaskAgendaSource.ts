@@ -22,7 +22,7 @@ import type { TeamTaskReader } from '@main/services/team/TeamTaskReader';
 import type { TeamMember } from '@shared/types';
 
 export interface TeamTaskAgendaSourceDeps {
-  configReader: TeamConfigReader;
+  configReader: Pick<TeamConfigReader, 'getConfig'>;
   taskReader: TeamTaskReader;
   kanbanManager: TeamKanbanManager;
   membersMetaStore: TeamMembersMetaStore;

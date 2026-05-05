@@ -1008,7 +1008,8 @@ export class FileWatcher extends EventEmitter {
     if (
       relative === 'config.json' ||
       relative === 'kanban-state.json' ||
-      relative === 'team.meta.json'
+      relative === 'team.meta.json' ||
+      relative === 'members.meta.json'
     ) {
       const event: TeamChangeEvent = {
         type: 'config',
