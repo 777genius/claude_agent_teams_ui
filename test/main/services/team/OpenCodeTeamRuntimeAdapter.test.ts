@@ -531,6 +531,7 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     expect(sentText).toContain('Include source="runtime_delivery"');
     expect(sentText).toContain('Include relayOfMessageId="msg-1"');
     expect(sentText).toContain('Action mode for this message: delegate.');
+    expect(sentText).toContain('You must not end this turn empty.');
     expect(sentText).toContain('<opencode_delivery_context>');
     expect(sentText).toContain('"kind":"opencode-delivery-context"');
     expect(sentText).toContain('"inboundMessageId":"msg-1"');

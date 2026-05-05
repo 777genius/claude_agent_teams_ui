@@ -27,4 +27,29 @@ describe('openCodeRuntimeDeliveryDiagnostics', () => {
       reason: 'empty_assistant_turn',
     });
   });
+
+  it('surfaces prompt delivery with no recorded assistant turn separately', () => {
+    const diagnostics = buildOpenCodeRuntimeDeliveryDiagnostics({
+      deliveredToInbox: true,
+      messageId: 'msg-no-assistant',
+      runtimeDelivery: {
+        providerId: 'opencode',
+        attempted: true,
+        delivered: false,
+        responsePending: false,
+        responseState: 'prompt_delivered_no_assistant_message',
+        ledgerStatus: 'failed_terminal',
+        reason: 'prompt_delivered_no_assistant_message',
+        diagnostics: ['prompt_delivered_no_assistant_message'],
+      },
+    });
+
+    expect(diagnostics.warning).toBe(
+      'OpenCode runtime delivery failed. Message was saved to inbox, but live delivery did not complete. Reason: OpenCode accepted the prompt, but no assistant turn was recorded.'
+    );
+    expect(diagnostics.debugDetails).toMatchObject({
+      responseState: 'prompt_delivered_no_assistant_message',
+      reason: 'prompt_delivered_no_assistant_message',
+    });
+  });
 });

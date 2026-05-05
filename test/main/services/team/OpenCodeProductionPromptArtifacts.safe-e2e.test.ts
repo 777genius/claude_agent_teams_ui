@@ -125,6 +125,7 @@ describe('OpenCode production prompt artifacts safe e2e', () => {
     expect(directCommand?.text).toContain('Include source="runtime_delivery"');
     expect(directCommand?.text).toContain('Include relayOfMessageId="semantic-direct-');
     expect(directCommand?.text).toContain('Action mode for this message: ask.');
+    expect(directCommand?.text).toContain('You must not end this turn empty.');
     expect(directCommand?.text).toContain('"displayId":"59560c95"');
     expect(directCommand?.text).toContain('Do not use SendMessage or runtime_deliver_message');
     expect(directCommand?.text).toContain('never use #00000000');

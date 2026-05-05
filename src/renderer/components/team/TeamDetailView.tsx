@@ -345,6 +345,33 @@ interface LeadContextBridgeProps {
   isThisTabActive: boolean;
 }
 
+const EMPTY_MESSAGES_PANEL_TASKS: TeamTaskWithKanban[] = [];
+
+function buildMessagesPanelTasksSignature(tasks: readonly TeamTaskWithKanban[]): string {
+  return JSON.stringify(
+    tasks.map((task) => [
+      task.id,
+      task.displayId ?? '',
+      task.subject,
+      task.owner ?? '',
+      task.reviewer ?? '',
+      task.status,
+      task.reviewState ?? '',
+      task.kanbanColumn ?? '',
+    ])
+  );
+}
+
+function useStableMessagesPanelTasks(
+  tasks: TeamTaskWithKanban[] | undefined
+): TeamTaskWithKanban[] {
+  const sourceTasks = tasks ?? EMPTY_MESSAGES_PANEL_TASKS;
+  const signature = useMemo(() => buildMessagesPanelTasksSignature(sourceTasks), [sourceTasks]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sourceTasks identity is gated by render-relevant task fields.
+  return useMemo(() => sourceTasks, [signature]);
+}
+
 // Codex/OpenCode lead sessions do not expose the Claude-style context data this panel expects yet.
 const LEAD_CONTEXT_UNSUPPORTED_PROVIDER_IDS = new Set<TeamProviderId>(['codex', 'opencode']);
 
@@ -1783,9 +1810,12 @@ export const TeamDetailView = memo(function TeamDetailView({
     }
   }, []);
 
-  const handleOpenTask = useCallback((task: TeamTaskWithKanban) => {
-    setSelectedTask(task);
-  }, []);
+  const handleOpenMessagePanelTask = useCallback(
+    (task: TeamTaskWithKanban) => {
+      handleOpenTaskById(task.id);
+    },
+    [handleOpenTaskById]
+  );
 
   const handleTaskIdClick = useCallback(
     (taskId: string) => {
@@ -2017,21 +2047,22 @@ export const TeamDetailView = memo(function TeamDetailView({
     })();
   };
 
+  const messagesPanelTasks = useStableMessagesPanelTasks(data?.tasks);
+
   const sharedMessagesPanelProps = useMemo<SharedTeamMessagesPanelProps>(
     () => ({
       teamName,
       onPositionChange: changeMessagesPanelMode,
       mountPoint: messagesPanelMountPoint,
       members: activeMembers,
-      tasks: data?.tasks ?? [],
+      tasks: messagesPanelTasks,
       isTeamAlive: data?.isAlive,
       timeWindow,
-      teamSessionIds,
       currentLeadSessionId: data?.config.leadSessionId,
       pendingRepliesByMember,
       onPendingReplyChange: setPendingRepliesByMember,
       onMemberClick: handleSelectMember,
-      onTaskClick: handleOpenTask,
+      onTaskClick: handleOpenMessagePanelTask,
       onCreateTaskFromMessage: handleCreateTaskFromMessage,
       onReplyToMessage: handleReplyToMessage,
       onRestartTeam: handleRestartTeam,
@@ -2042,17 +2073,16 @@ export const TeamDetailView = memo(function TeamDetailView({
       activeMembers,
       data?.config.leadSessionId,
       data?.isAlive,
-      data?.tasks,
       handleCreateTaskFromMessage,
-      handleOpenTask,
+      handleOpenMessagePanelTask,
       handleReplyToMessage,
       handleRestartTeam,
       handleSelectMember,
       handleTaskIdClick,
+      messagesPanelTasks,
       messagesPanelMountPoint,
       pendingRepliesByMember,
       teamName,
-      teamSessionIds,
       timeWindow,
       changeMessagesPanelMode,
     ]

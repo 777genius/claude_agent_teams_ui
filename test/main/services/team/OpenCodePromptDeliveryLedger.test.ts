@@ -255,6 +255,38 @@ describe('OpenCodePromptDeliveryLedger', () => {
     expect(emptyResult.responseState).toBe('empty_assistant_turn');
     expect(emptyResult.attempts).toBe(1);
 
+    const noAssistant = await store.ensurePending({
+      teamName: 'team-a',
+      memberName: 'jack',
+      laneId: 'secondary:opencode:jack',
+      inboxMessageId: 'msg-no-assistant',
+      inboxTimestamp: '2026-04-25T09:59:05.000Z',
+      source: 'watcher',
+      replyRecipient: 'user',
+      payloadHash: 'sha256:no-assistant',
+      now: '2026-04-25T10:00:06.000Z',
+    });
+    const noAssistantResult = await store.applyDeliveryResult({
+      id: noAssistant.id,
+      accepted: true,
+      attempted: true,
+      responseObservation: {
+        state: 'prompt_delivered_no_assistant_message',
+        deliveredUserMessageId: 'oc-user-no-assistant',
+        assistantMessageId: null,
+        toolCallNames: [],
+        visibleMessageToolCallId: null,
+        visibleReplyMessageId: null,
+        visibleReplyCorrelation: null,
+        latestAssistantPreview: null,
+        reason: 'prompt_delivered_no_assistant_message',
+      },
+      now: '2026-04-25T10:00:07.000Z',
+    });
+
+    expect(noAssistantResult.status).toBe('unanswered');
+    expect(noAssistantResult.responseState).toBe('prompt_delivered_no_assistant_message');
+
     const plain = await store.ensurePending({
       teamName: 'team-a',
       memberName: 'jack',

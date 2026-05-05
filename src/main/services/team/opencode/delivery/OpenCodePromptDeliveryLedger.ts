@@ -87,6 +87,7 @@ const OPENCODE_DELIVERY_RESPONSE_STATES = new Set<OpenCodeDeliveryResponseState>
   'permission_blocked',
   'tool_error',
   'empty_assistant_turn',
+  'prompt_delivered_no_assistant_message',
   'session_stale',
   'session_error',
   'reconcile_failed',
@@ -274,7 +275,7 @@ export class OpenCodePromptDeliveryLedgerStore {
       const responseState =
         observation?.state ?? (input.accepted ? record.responseState : 'not_observed');
       const responded = isOpenCodePromptResponseStateResponded(responseState);
-      const unanswered = responseState === 'empty_assistant_turn';
+      const unanswered = isOpenCodePromptDeliveryUnansweredResponseState(responseState);
       return {
         ...record,
         status: input.accepted
@@ -321,7 +322,9 @@ export class OpenCodePromptDeliveryLedgerStore {
   }): Promise<OpenCodePromptDeliveryLedgerRecord> {
     return await this.updateExisting(input.id, (record) => {
       const responded = isOpenCodePromptResponseStateResponded(input.responseObservation.state);
-      const unanswered = input.responseObservation.state === 'empty_assistant_turn';
+      const unanswered = isOpenCodePromptDeliveryUnansweredResponseState(
+        input.responseObservation.state
+      );
       return {
         ...record,
         status: responded
@@ -635,6 +638,12 @@ export function isOpenCodePromptResponseStateResponded(
     state === 'responded_tool_call' ||
     state === 'responded_plain_text'
   );
+}
+
+function isOpenCodePromptDeliveryUnansweredResponseState(
+  state: OpenCodeDeliveryResponseState
+): boolean {
+  return state === 'empty_assistant_turn' || state === 'prompt_delivered_no_assistant_message';
 }
 
 export function isOpenCodePromptDeliveryAttemptDue(

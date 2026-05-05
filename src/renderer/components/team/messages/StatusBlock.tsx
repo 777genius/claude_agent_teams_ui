@@ -66,12 +66,12 @@ export const StatusBlock = ({
     return hasActiveTasks;
   }, [hasActiveTasks, hasPendingReplies]);
 
-  // Only run the 1-second timer when the block actually has content to show.
+  // Only pending reply TTL labels need a 1-second refresh.
   useEffect(() => {
-    if (!hasItems) return;
+    if (!hasPendingReplies) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [hasItems]);
+  }, [hasPendingReplies]);
 
   if (!hasItems) return null;
 

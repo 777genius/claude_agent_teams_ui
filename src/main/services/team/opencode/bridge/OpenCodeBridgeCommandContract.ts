@@ -177,6 +177,7 @@ export type OpenCodeDeliveryResponseState =
   | 'permission_blocked'
   | 'tool_error'
   | 'empty_assistant_turn'
+  | 'prompt_delivered_no_assistant_message'
   | 'session_stale'
   | 'session_error'
   | 'reconcile_failed';

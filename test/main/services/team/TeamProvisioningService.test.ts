@@ -6955,22 +6955,123 @@ describe('TeamProvisioningService', () => {
         delivered: true,
         diagnostics: [],
       });
-      expect(sendMessageToMember).toHaveBeenCalledWith(
-        expect.objectContaining({
-          runId: 'opencode-run-durable',
-          teamName,
-          laneId,
+    expect(sendMessageToMember).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'opencode-run-durable',
+        teamName,
+        laneId,
           memberName: 'bob',
           cwd: '/repo',
           text: 'hello after restart',
           messageId: 'msg-after-restart',
-        })
-      );
-    });
+      })
+    );
+  });
 
-    it('blocks OpenCode secondary delivery when runtime session exists but bootstrap did not check in', async () => {
-      const svc = new TeamProvisioningService();
-      const teamName = 'team-a';
+  it('prefers live secondary lane runId over the primary tracked runId for OpenCode member delivery', async () => {
+    const svc = new TeamProvisioningService();
+    const teamName = 'team-a';
+    const laneId = 'secondary:opencode:bob';
+    const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
+      ok: true,
+      providerId: 'opencode',
+      memberName: String(input.memberName),
+      sessionId: 'oc-session-bob',
+      diagnostics: [],
+    }));
+    svc.setRuntimeAdapterRegistry(
+      new TeamRuntimeAdapterRegistry([
+        {
+          providerId: 'opencode',
+          prepare: vi.fn(),
+          launch: vi.fn(),
+          reconcile: vi.fn(),
+          stop: vi.fn(),
+          sendMessageToMember,
+        } as any,
+      ])
+    );
+
+    (svc as any).aliveRunByTeam.set(teamName, 'primary-run');
+    (svc as any).runs.set('primary-run', {
+      runId: 'primary-run',
+      teamName,
+      processKilled: false,
+      cancelRequested: false,
+      progress: { state: 'ready' },
+      request: { providerId: 'codex', cwd: '/repo' },
+      mixedSecondaryLanes: [
+        {
+          laneId,
+          providerId: 'opencode',
+          member: { name: 'bob', providerId: 'opencode', model: 'minimax-m2.5-free' },
+          runId: 'opencode-run-live',
+          state: 'finished',
+          result: {
+            members: {
+              bob: {
+                bootstrapConfirmed: true,
+                launchState: 'confirmed_alive',
+                sessionId: 'oc-session-bob',
+              },
+            },
+          },
+          warnings: [],
+          diagnostics: [],
+        },
+      ],
+    });
+    (svc as any).configReader = {
+      getConfig: vi.fn(async () => ({
+        projectPath: '/repo',
+        members: [
+          { name: 'team-lead', providerId: 'codex', model: 'gpt-5.4' },
+          { name: 'bob', providerId: 'opencode', model: 'minimax-m2.5-free' },
+        ],
+      })),
+    };
+    (svc as any).teamMetaStore = {
+      getMeta: vi.fn(async () => ({
+        launchIdentity: { providerId: 'codex' },
+        providerId: 'codex',
+      })),
+    };
+    (svc as any).membersMetaStore = {
+      getMembers: vi.fn(async () => [
+        {
+          name: 'bob',
+          providerId: 'opencode',
+          model: 'opencode/minimax-m2.5-free',
+        },
+      ]),
+    };
+
+    await expect(
+      svc.deliverOpenCodeMemberMessage(teamName, {
+        memberName: 'bob',
+        text: 'hello live lane',
+        messageId: 'msg-live-lane',
+      })
+    ).resolves.toMatchObject({
+      delivered: true,
+      diagnostics: [],
+    });
+    expect(sendMessageToMember).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'opencode-run-live',
+        teamName,
+        laneId,
+        memberName: 'bob',
+      })
+    );
+    expect(sendMessageToMember).not.toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'primary-run' })
+    );
+  });
+
+  it('blocks OpenCode secondary delivery when runtime session exists but bootstrap did not check in', async () => {
+    const svc = new TeamProvisioningService();
+    const teamName = 'team-a';
       const laneId = 'secondary:opencode:bob';
       const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
         ok: true,
@@ -12348,6 +12449,149 @@ describe('TeamProvisioningService', () => {
       bootstrapConfirmed: true,
       hardFailure: false,
       error: undefined,
+    });
+  });
+
+  it('heals terminal bootstrap-state failures when runtime proof confirms member_briefing', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-runtime-proof-heals';
+    const leadSessionId = 'lead-session';
+    const projectPath = '/Users/test/proj';
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const proofAt = new Date(Date.now() - 60_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+    const proofToken = 'proof-token-jack';
+    const runtimeEventsPath = path.join(tempTeamsBase, teamName, 'runtime', 'jack.runtime.jsonl');
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    const configPath = path.join(tempTeamsBase, teamName, 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      members: Array<Record<string, unknown>>;
+    };
+    config.members = config.members.map((member) =>
+      member.name === 'jack'
+        ? {
+            ...member,
+            agentId: `jack@${teamName}`,
+            bootstrapExpectedAfter: acceptedAt,
+            bootstrapProofToken: proofToken,
+            bootstrapRuntimeEventsPath: runtimeEventsPath,
+          }
+        : member
+    );
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+    fs.mkdirSync(path.dirname(runtimeEventsPath), { recursive: true });
+    fs.writeFileSync(
+      runtimeEventsPath,
+      `${JSON.stringify({
+        version: 1,
+        type: 'bootstrap_confirmed',
+        timestamp: proofAt,
+        pid: 1234,
+        teamName,
+        agentName: 'jack',
+        agentId: `jack@${teamName}`,
+        source: 'member_briefing_tool_success',
+        bootstrapProofToken: proofToken,
+      })}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('clean_success');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      runtimeAlive: true,
+      hardFailure: false,
+      error: undefined,
+    });
+  });
+
+  it('does not heal bootstrap-state failures from stale runtime proof before spawn acceptance', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-stale-runtime-proof-ignored';
+    const leadSessionId = 'lead-session';
+    const projectPath = '/Users/test/proj';
+    const proofAt = new Date(Date.now() - 120_000).toISOString();
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+    const proofToken = 'proof-token-jack';
+    const runtimeEventsPath = path.join(tempTeamsBase, teamName, 'runtime', 'jack.runtime.jsonl');
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    const configPath = path.join(tempTeamsBase, teamName, 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      members: Array<Record<string, unknown>>;
+    };
+    config.members = config.members.map((member) =>
+      member.name === 'jack'
+        ? {
+            ...member,
+            agentId: `jack@${teamName}`,
+            bootstrapExpectedAfter: acceptedAt,
+            bootstrapProofToken: proofToken,
+            bootstrapRuntimeEventsPath: runtimeEventsPath,
+          }
+        : member
+    );
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+    fs.mkdirSync(path.dirname(runtimeEventsPath), { recursive: true });
+    fs.writeFileSync(
+      runtimeEventsPath,
+      `${JSON.stringify({
+        version: 1,
+        type: 'bootstrap_confirmed',
+        timestamp: proofAt,
+        pid: 1234,
+        teamName,
+        agentName: 'jack',
+        agentId: `jack@${teamName}`,
+        source: 'member_briefing_tool_success',
+        bootstrapProofToken: proofToken,
+      })}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('partial_failure');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'error',
+      launchState: 'failed_to_start',
+      bootstrapConfirmed: false,
+      runtimeAlive: false,
+      hardFailure: true,
     });
   });
 

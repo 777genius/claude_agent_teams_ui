@@ -1,4 +1,5 @@
 import {
+  type ComponentProps,
   memo,
   type RefObject,
   useCallback,
@@ -216,6 +217,109 @@ export function hasVisibleReplyForSendMessageDiagnostics(
   });
 }
 
+const MessagesComposerSection = memo(MessageComposer);
+const MessagesStatusSection = memo(StatusBlock);
+
+type MessagesTimelineSectionProps = ComponentProps<typeof ActivityTimeline> & {
+  hasMore: boolean;
+  loadingOlderMessages: boolean;
+  onLoadOlderMessages: () => void;
+  expandedItem: TimelineItem | null;
+  expandedItemKey: string | null;
+  onExpandDialogChange: (open: boolean) => void;
+};
+
+const MessagesTimelineSection = memo(function MessagesTimelineSection({
+  hasMore,
+  loadingOlderMessages,
+  onLoadOlderMessages,
+  expandedItem,
+  expandedItemKey,
+  onExpandDialogChange,
+  messages,
+  teamName,
+  members,
+  readState,
+  allCollapsed,
+  expandOverrides,
+  onToggleExpandOverride,
+  currentLeadSessionId,
+  isTeamAlive,
+  leadActivity,
+  leadContextUpdatedAt,
+  teamNames,
+  teamColorByName,
+  onTeamClick,
+  onMemberClick,
+  onCreateTaskFromMessage,
+  onReplyToMessage,
+  onMessageVisible,
+  onRestartTeam,
+  onTaskIdClick,
+  onExpandItem,
+  onExpandContent,
+  viewport,
+}: MessagesTimelineSectionProps): React.JSX.Element {
+  return (
+    <>
+      <ActivityTimeline
+        messages={messages}
+        teamName={teamName}
+        members={members}
+        readState={readState}
+        allCollapsed={allCollapsed}
+        expandOverrides={expandOverrides}
+        onToggleExpandOverride={onToggleExpandOverride}
+        currentLeadSessionId={currentLeadSessionId}
+        isTeamAlive={isTeamAlive}
+        leadActivity={leadActivity}
+        leadContextUpdatedAt={leadContextUpdatedAt}
+        teamNames={teamNames}
+        teamColorByName={teamColorByName}
+        onTeamClick={onTeamClick}
+        onMemberClick={onMemberClick}
+        onCreateTaskFromMessage={onCreateTaskFromMessage}
+        onReplyToMessage={onReplyToMessage}
+        onMessageVisible={onMessageVisible}
+        onRestartTeam={onRestartTeam}
+        onTaskIdClick={onTaskIdClick}
+        onExpandItem={onExpandItem}
+        onExpandContent={onExpandContent}
+        viewport={viewport}
+      />
+      {hasMore && (
+        <div className="flex justify-center py-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-text-muted"
+            aria-busy={loadingOlderMessages}
+            disabled={loadingOlderMessages}
+            onClick={onLoadOlderMessages}
+          >
+            Load older messages
+          </Button>
+        </div>
+      )}
+      <MessageExpandDialog
+        expandedItem={expandedItem}
+        open={expandedItemKey !== null}
+        onOpenChange={onExpandDialogChange}
+        teamName={teamName}
+        members={members}
+        onCreateTaskFromMessage={onCreateTaskFromMessage}
+        onReplyToMessage={onReplyToMessage}
+        onMemberClick={onMemberClick}
+        onTaskIdClick={onTaskIdClick}
+        onRestartTeam={onRestartTeam}
+        teamNames={teamNames}
+        teamColorByName={teamColorByName}
+        onTeamClick={onTeamClick}
+      />
+    </>
+  );
+});
+
 export const MessagesPanel = memo(function MessagesPanel({
   teamName,
   position,
@@ -282,8 +386,10 @@ export const MessagesPanel = memo(function MessagesPanel({
     await loadOlderTeamMessages(teamName);
   }, [loadOlderTeamMessages, messagesState, teamName]);
 
-  const messagesLoading =
-    (messagesState?.loadingHead ?? false) || (messagesState?.loadingOlder ?? false);
+  const handleLoadOlderMessagesClick = useCallback(() => {
+    void loadOlderMessages();
+  }, [loadOlderMessages]);
+
   const loadingOlderMessages = messagesState?.loadingOlder ?? false;
   const hasMore = messagesState?.hasMore ?? false;
   const effectiveMessages = messages;
@@ -723,6 +829,99 @@ export const MessagesPanel = memo(function MessagesPanel({
     );
   }, [bottomSheetSnapIndex]);
 
+  const defaultComposerSection = (
+    <MessagesComposerSection
+      teamName={teamName}
+      members={members}
+      isTeamAlive={isTeamAlive}
+      sending={sendingMessage}
+      sendError={sendMessageError}
+      sendWarning={effectiveSendMessageWarning}
+      sendDebugDetails={effectiveSendMessageDebugDetails}
+      lastResult={lastSendMessageResult}
+      textareaRef={composerTextareaRef}
+      onSend={handleSend}
+      onCrossTeamSend={handleCrossTeamSend}
+    />
+  );
+
+  const compactComposerSection = (
+    <MessagesComposerSection
+      teamName={teamName}
+      layout="compact"
+      members={members}
+      isTeamAlive={isTeamAlive}
+      sending={sendingMessage}
+      sendError={sendMessageError}
+      sendWarning={effectiveSendMessageWarning}
+      sendDebugDetails={effectiveSendMessageDebugDetails}
+      lastResult={lastSendMessageResult}
+      textareaRef={composerTextareaRef}
+      onSend={handleSend}
+      onCrossTeamSend={handleCrossTeamSend}
+    />
+  );
+
+  const inlineStatusSection = (
+    <MessagesStatusSection
+      members={members}
+      tasks={tasks}
+      messages={effectiveMessages}
+      pendingRepliesByMember={pendingRepliesByMember}
+      layout="flow"
+      position="inline"
+      onMemberClick={onMemberClick}
+      onTaskClick={onTaskClick}
+    />
+  );
+
+  const sidebarStatusSection = (
+    <MessagesStatusSection
+      members={members}
+      tasks={tasks}
+      messages={effectiveMessages}
+      pendingRepliesByMember={pendingRepliesByMember}
+      layout="flow"
+      position="sidebar"
+      onMemberClick={onMemberClick}
+      onTaskClick={onTaskClick}
+    />
+  );
+
+  const timelineSection = (
+    <MessagesTimelineSection
+      messages={activityTimelineMessages}
+      teamName={teamName}
+      members={members}
+      readState={readState}
+      allCollapsed={messagesCollapsed}
+      expandOverrides={expandedSet}
+      onToggleExpandOverride={toggleExpandOverride}
+      currentLeadSessionId={currentLeadSessionId}
+      isTeamAlive={isTeamAlive}
+      leadActivity={leadActivity}
+      leadContextUpdatedAt={leadContextUpdatedAt}
+      teamNames={teamNames}
+      teamColorByName={teamColorByName}
+      onTeamClick={openTeamTab}
+      onMemberClick={onMemberClick}
+      onCreateTaskFromMessage={onCreateTaskFromMessage}
+      onReplyToMessage={onReplyToMessage}
+      onMessageVisible={handleMessageVisible}
+      onRestartTeam={onRestartTeam}
+      onTaskIdClick={onTaskIdClick}
+      onExpandItem={handleExpandItem}
+      onExpandContent={handleExpandContent}
+      viewport={activityTimelineViewport}
+      hasMore={hasMore}
+      loadingOlderMessages={loadingOlderMessages}
+      onLoadOlderMessages={handleLoadOlderMessagesClick}
+      expandedItem={expandedItem}
+      expandedItemKey={expandedItemKey}
+      onExpandDialogChange={handleExpandDialogChange}
+    />
+  );
+
   // ---- Shared content (used in both modes) ----
   const searchAndFilterControls = (
     <div className="flex items-center gap-2">
@@ -785,83 +984,9 @@ export const MessagesPanel = memo(function MessagesPanel({
 
   const messagesContent = (
     <div className="pb-14">
-      <MessageComposer
-        teamName={teamName}
-        members={members}
-        isTeamAlive={isTeamAlive}
-        sending={sendingMessage}
-        sendError={sendMessageError}
-        sendWarning={effectiveSendMessageWarning}
-        sendDebugDetails={effectiveSendMessageDebugDetails}
-        lastResult={lastSendMessageResult}
-        textareaRef={composerTextareaRef}
-        onSend={handleSend}
-        onCrossTeamSend={handleCrossTeamSend}
-      />
-      <StatusBlock
-        members={members}
-        tasks={tasks}
-        messages={effectiveMessages}
-        pendingRepliesByMember={pendingRepliesByMember}
-        layout="flow"
-        position="inline"
-        onMemberClick={onMemberClick}
-        onTaskClick={onTaskClick}
-      />
-      <ActivityTimeline
-        messages={activityTimelineMessages}
-        teamName={teamName}
-        members={members}
-        readState={readState}
-        allCollapsed={messagesCollapsed}
-        expandOverrides={expandedSet}
-        onToggleExpandOverride={toggleExpandOverride}
-        currentLeadSessionId={currentLeadSessionId}
-        isTeamAlive={isTeamAlive}
-        leadActivity={leadActivity}
-        leadContextUpdatedAt={leadContextUpdatedAt}
-        teamNames={teamNames}
-        teamColorByName={teamColorByName}
-        onTeamClick={openTeamTab}
-        onMemberClick={onMemberClick}
-        onCreateTaskFromMessage={onCreateTaskFromMessage}
-        onReplyToMessage={onReplyToMessage}
-        onMessageVisible={handleMessageVisible}
-        onRestartTeam={onRestartTeam}
-        onTaskIdClick={onTaskIdClick}
-        onExpandItem={handleExpandItem}
-        onExpandContent={handleExpandContent}
-        viewport={activityTimelineViewport}
-      />
-      {hasMore && (
-        <div className="flex justify-center py-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs text-text-muted"
-            aria-busy={loadingOlderMessages}
-            disabled={loadingOlderMessages}
-            onClick={() => void loadOlderMessages()}
-          >
-            Load older messages
-          </Button>
-        </div>
-      )}
-      <MessageExpandDialog
-        expandedItem={expandedItem}
-        open={expandedItemKey !== null}
-        onOpenChange={handleExpandDialogChange}
-        teamName={teamName}
-        members={members}
-        onCreateTaskFromMessage={onCreateTaskFromMessage}
-        onReplyToMessage={onReplyToMessage}
-        onMemberClick={onMemberClick}
-        onTaskIdClick={onTaskIdClick}
-        onRestartTeam={onRestartTeam}
-        teamNames={teamNames}
-        teamColorByName={teamColorByName}
-        onTeamClick={openTeamTab}
-      />
+      {defaultComposerSection}
+      {inlineStatusSection}
+      {timelineSection}
     </div>
   );
 
@@ -972,84 +1097,10 @@ export const MessagesPanel = memo(function MessagesPanel({
           onScroll={(e) => setMessagesScrollTop(e.currentTarget.scrollTop)}
         >
           <div className="pl-3">
-            <MessageComposer
-              teamName={teamName}
-              members={members}
-              isTeamAlive={isTeamAlive}
-              sending={sendingMessage}
-              sendError={sendMessageError}
-              sendWarning={effectiveSendMessageWarning}
-              sendDebugDetails={effectiveSendMessageDebugDetails}
-              lastResult={lastSendMessageResult}
-              textareaRef={composerTextareaRef}
-              onSend={handleSend}
-              onCrossTeamSend={handleCrossTeamSend}
-            />
-            <StatusBlock
-              members={members}
-              tasks={tasks}
-              messages={effectiveMessages}
-              pendingRepliesByMember={pendingRepliesByMember}
-              layout="flow"
-              position="sidebar"
-              onMemberClick={onMemberClick}
-              onTaskClick={onTaskClick}
-            />{' '}
+            {defaultComposerSection}
+            {sidebarStatusSection}
           </div>
-          <ActivityTimeline
-            messages={activityTimelineMessages}
-            teamName={teamName}
-            members={members}
-            readState={readState}
-            allCollapsed={messagesCollapsed}
-            expandOverrides={expandedSet}
-            onToggleExpandOverride={toggleExpandOverride}
-            currentLeadSessionId={currentLeadSessionId}
-            isTeamAlive={isTeamAlive}
-            leadActivity={leadActivity}
-            leadContextUpdatedAt={leadContextUpdatedAt}
-            teamNames={teamNames}
-            teamColorByName={teamColorByName}
-            onTeamClick={openTeamTab}
-            onMemberClick={onMemberClick}
-            onCreateTaskFromMessage={onCreateTaskFromMessage}
-            onReplyToMessage={onReplyToMessage}
-            onMessageVisible={handleMessageVisible}
-            onRestartTeam={onRestartTeam}
-            onTaskIdClick={onTaskIdClick}
-            onExpandItem={handleExpandItem}
-            onExpandContent={handleExpandContent}
-            viewport={activityTimelineViewport}
-          />
-          {hasMore && (
-            <div className="flex justify-center py-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs text-text-muted"
-                aria-busy={loadingOlderMessages}
-                disabled={loadingOlderMessages}
-                onClick={() => void loadOlderMessages()}
-              >
-                Load older messages
-              </Button>
-            </div>
-          )}
-          <MessageExpandDialog
-            expandedItem={expandedItem}
-            open={expandedItemKey !== null}
-            onOpenChange={handleExpandDialogChange}
-            teamName={teamName}
-            members={members}
-            onCreateTaskFromMessage={onCreateTaskFromMessage}
-            onReplyToMessage={onReplyToMessage}
-            onMemberClick={onMemberClick}
-            onTaskIdClick={onTaskIdClick}
-            onRestartTeam={onRestartTeam}
-            teamNames={teamNames}
-            teamColorByName={teamColorByName}
-            onTeamClick={openTeamTab}
-          />
+          {timelineSection}
         </div>
       </div>
     );
@@ -1256,91 +1307,10 @@ export const MessagesPanel = memo(function MessagesPanel({
                     {searchAndFilterControls}
                   </div>
                 )}
-                <div className="p-3">
-                  <MessageComposer
-                    teamName={teamName}
-                    layout="compact"
-                    members={members}
-                    isTeamAlive={isTeamAlive}
-                    sending={sendingMessage}
-                    sendError={sendMessageError}
-                    sendWarning={effectiveSendMessageWarning}
-                    sendDebugDetails={effectiveSendMessageDebugDetails}
-                    lastResult={lastSendMessageResult}
-                    textareaRef={composerTextareaRef}
-                    onSend={handleSend}
-                    onCrossTeamSend={handleCrossTeamSend}
-                  />
-                </div>
+                <div className="p-3">{compactComposerSection}</div>
               </div>
-              <div className="shrink-0 px-3 pt-2">
-                <StatusBlock
-                  members={members}
-                  tasks={tasks}
-                  messages={effectiveMessages}
-                  pendingRepliesByMember={pendingRepliesByMember}
-                  layout="flow"
-                  position="inline"
-                  onMemberClick={onMemberClick}
-                  onTaskClick={onTaskClick}
-                />
-              </div>
-              <div className="flex-1 px-3 pb-4 pt-2">
-                <ActivityTimeline
-                  messages={activityTimelineMessages}
-                  teamName={teamName}
-                  members={members}
-                  readState={readState}
-                  allCollapsed={messagesCollapsed}
-                  expandOverrides={expandedSet}
-                  onToggleExpandOverride={toggleExpandOverride}
-                  currentLeadSessionId={currentLeadSessionId}
-                  isTeamAlive={isTeamAlive}
-                  leadActivity={leadActivity}
-                  leadContextUpdatedAt={leadContextUpdatedAt}
-                  teamNames={teamNames}
-                  teamColorByName={teamColorByName}
-                  onTeamClick={openTeamTab}
-                  onMemberClick={onMemberClick}
-                  onCreateTaskFromMessage={onCreateTaskFromMessage}
-                  onReplyToMessage={onReplyToMessage}
-                  onMessageVisible={handleMessageVisible}
-                  onRestartTeam={onRestartTeam}
-                  onTaskIdClick={onTaskIdClick}
-                  onExpandItem={handleExpandItem}
-                  onExpandContent={handleExpandContent}
-                  viewport={activityTimelineViewport}
-                />
-                {hasMore && (
-                  <div className="flex justify-center py-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs text-text-muted"
-                      aria-busy={loadingOlderMessages}
-                      disabled={loadingOlderMessages}
-                      onClick={() => void loadOlderMessages()}
-                    >
-                      Load older messages
-                    </Button>
-                  </div>
-                )}
-              </div>
-              <MessageExpandDialog
-                expandedItem={expandedItem}
-                open={expandedItemKey !== null}
-                onOpenChange={handleExpandDialogChange}
-                teamName={teamName}
-                members={members}
-                onCreateTaskFromMessage={onCreateTaskFromMessage}
-                onReplyToMessage={onReplyToMessage}
-                onMemberClick={onMemberClick}
-                onTaskIdClick={onTaskIdClick}
-                onRestartTeam={onRestartTeam}
-                teamNames={teamNames}
-                teamColorByName={teamColorByName}
-                onTeamClick={openTeamTab}
-              />
+              <div className="shrink-0 px-3 pt-2">{inlineStatusSection}</div>
+              <div className="flex-1 px-3 pb-4 pt-2">{timelineSection}</div>
             </Sheet.Content>
           )}
         </Sheet.Container>

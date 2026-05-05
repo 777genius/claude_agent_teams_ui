@@ -798,6 +798,7 @@ function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput)
       ? `Include relayOfMessageId="${input.messageId}" in that message_send call.`
       : null,
     'After the message_send tool call succeeds, stop immediately. Do not send follow-up confirmations or repeat the same answer.',
+    'You must not end this turn empty.',
     'Do not call runtime_bootstrap_checkin or member_briefing just to answer this delivered app message.',
     'Do not answer only with plain assistant text when agent-teams_message_send is available.',
     'Do not use SendMessage or runtime_deliver_message for ordinary visible replies.',
