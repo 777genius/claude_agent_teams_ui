@@ -1,10 +1,11 @@
+import { extractMemberWorkSyncTaskId } from './MemberWorkSyncTaskImpactResolver';
+
 import type {
   MemberWorkSyncEventQueue,
   MemberWorkSyncTriggerReason,
 } from '../../infrastructure/MemberWorkSyncEventQueue';
 import type { MemberWorkSyncTaskImpactResolver } from './MemberWorkSyncTaskImpactResolver';
 import type { TeamChangeEvent, ToolActivityEventPayload } from '@shared/types';
-import { extractMemberWorkSyncTaskId } from './MemberWorkSyncTaskImpactResolver';
 
 interface MemberTurnSettledEventPayload {
   memberName?: string;
@@ -183,10 +184,11 @@ export class MemberWorkSyncTeamChangeRouter {
       await this.enqueueTeam(event.teamName, triggerReason);
       return;
     }
-    if (this.materializer) {
+    const materializer = this.materializer;
+    if (materializer) {
       await Promise.allSettled(
         impact.memberNames.map((memberName) =>
-          this.materializer?.materializeMember(event.teamName, memberName)
+          materializer.materializeMember(event.teamName, memberName)
         )
       );
     }
