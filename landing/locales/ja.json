@@ -83,6 +83,8 @@
       "flexAutonomy": "柔軟な自律性",
       "worktree": "Git worktree分離",
       "multiAgent": "マルチエージェントバックエンド",
+      "orgGovernance": "組織図 / ガバナンス",
+      "budgetControls": "予算管理",
       "price": "価格"
     }
   },

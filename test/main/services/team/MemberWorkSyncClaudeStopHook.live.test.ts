@@ -40,9 +40,11 @@ vi.mock('../../../../src/main/services/infrastructure/NotificationManager', () =
   },
 }));
 
+const allowConnectedClaudeAccount =
+  process.env.MEMBER_WORK_SYNC_CLAUDE_ALLOW_CONNECTED_ACCOUNT === '1';
 const liveDescribe =
   process.env.MEMBER_WORK_SYNC_CLAUDE_STOP_HOOK_LIVE === '1' &&
-  Boolean(process.env.ANTHROPIC_API_KEY?.trim())
+  (hasLiveAnthropicApiKey() || allowConnectedClaudeAccount)
     ? describe
     : describe.skip;
 
@@ -103,9 +105,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'member-work-sync-claude-stop-live-'));
     tempClaudeRoot = path.join(tempDir, '.claude');
-    tempHome = path.join(tempDir, 'home');
     await fs.mkdir(tempClaudeRoot, { recursive: true });
-    await fs.mkdir(tempHome, { recursive: true });
     setClaudeBasePathOverride(tempClaudeRoot);
 
     previousCliPath = process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH;
@@ -116,6 +116,12 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     previousHome = process.env.HOME;
     previousHistFile = process.env.HISTFILE;
     previousUserProfile = process.env.USERPROFILE;
+
+    const shouldUseConnectedAccountHome = allowConnectedClaudeAccount && !hasLiveAnthropicApiKey();
+    tempHome = shouldUseConnectedAccountHome
+      ? resolveConnectedClaudeHome(previousHome)
+      : path.join(tempDir, 'home');
+    await fs.mkdir(tempHome, { recursive: true });
 
     process.env.HOME = tempHome;
     process.env.HISTFILE = '/dev/null';
@@ -530,4 +536,20 @@ async function cleanupScopedClaudeStopHookLiveTempDirs(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
   }
+}
+
+function hasLiveAnthropicApiKey(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+}
+
+function resolveConnectedClaudeHome(previousHome: string | undefined): string {
+  const explicit = process.env.MEMBER_WORK_SYNC_CLAUDE_CONNECTED_HOME?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+  const previous = previousHome?.trim();
+  if (previous) {
+    return path.resolve(previous);
+  }
+  return os.userInfo().homedir;
 }

@@ -83,6 +83,8 @@
       "flexAutonomy": "灵活自主",
       "worktree": "Git worktree 隔离",
       "multiAgent": "多智能体后端",
+      "orgGovernance": "组织架构 / 治理",
+      "budgetControls": "预算控制",
       "price": "价格"
     }
   },

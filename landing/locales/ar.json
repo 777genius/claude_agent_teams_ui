@@ -83,6 +83,8 @@
       "flexAutonomy": "استقلالية مرنة",
       "worktree": "عزل Git worktree",
       "multiAgent": "خلفية متعددة الوكلاء",
+      "orgGovernance": "الهيكل التنظيمي / الحوكمة",
+      "budgetControls": "ضوابط الميزانية",
       "price": "السعر"
     }
   },

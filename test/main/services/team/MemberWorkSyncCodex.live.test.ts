@@ -56,6 +56,7 @@ liveDescribe('Member work sync Codex live e2e', () => {
   let previousCliFlavor: string | undefined;
   let previousControlUrl: string | undefined;
   let previousCodexHome: string | undefined;
+  let previousCodexIgnoreUserConfig: string | undefined;
   let codexHomeDir: string;
   let ownsCodexHomeDir: boolean;
   let codexAccountFeature: {
@@ -100,6 +101,7 @@ liveDescribe('Member work sync Codex live e2e', () => {
     previousCliFlavor = process.env.CLAUDE_TEAM_CLI_FLAVOR;
     previousControlUrl = process.env.CLAUDE_TEAM_CONTROL_URL;
     previousCodexHome = process.env.CODEX_HOME;
+    previousCodexIgnoreUserConfig = process.env.CLAUDE_CODE_CODEX_NATIVE_IGNORE_USER_CONFIG;
 
     const shouldUseConnectedAccountHome = allowConnectedChatGptAccount && !hasLiveCodexApiKey();
     if (shouldUseConnectedAccountHome) {
@@ -117,6 +119,7 @@ liveDescribe('Member work sync Codex live e2e', () => {
       process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
     process.env.CLAUDE_TEAM_CLI_FLAVOR = 'agent_teams_orchestrator';
     process.env.CODEX_HOME = codexHomeDir;
+    process.env.CLAUDE_CODE_CODEX_NATIVE_IGNORE_USER_CONFIG = 'true';
 
     codexAccountFeature = null;
     providerConnectionService = null;
@@ -141,6 +144,7 @@ liveDescribe('Member work sync Codex live e2e', () => {
     restoreEnv('CLAUDE_TEAM_CLI_FLAVOR', previousCliFlavor);
     restoreEnv('CLAUDE_TEAM_CONTROL_URL', previousControlUrl);
     restoreEnv('CODEX_HOME', previousCodexHome);
+    restoreEnv('CLAUDE_CODE_CODEX_NATIVE_IGNORE_USER_CONFIG', previousCodexIgnoreUserConfig);
     setClaudeBasePathOverride(null);
     if (process.env.MEMBER_WORK_SYNC_CODEX_KEEP_TEMP === '1') {
       console.info(`[MemberWorkSyncCodex.live] preserved temp dir: ${tempDir}`);
@@ -254,7 +258,7 @@ liveDescribe('Member work sync Codex live e2e', () => {
           prompt: [
             'Keep launch work minimal.',
             'If you receive a task, follow task instructions exactly.',
-            'Before going idle with unfinished assigned work, call member_work_sync_status and member_work_sync_report.',
+            'Do not call member_work_sync_status until a task instruction or member_work_sync_nudge provides exact teamName, memberName, and controlUrl.',
           ].join(' '),
           members: [],
         },
@@ -292,18 +296,15 @@ liveDescribe('Member work sync Codex live e2e', () => {
         ].join('\n'),
       });
       feature.noteTeamChange({ type: 'task', teamName, taskId: task.id });
+
+      const preRelayStatus = await feature.refreshStatus({ teamName, memberName });
+      expect(preRelayStatus.memberName).toBe(memberName);
+      expect(preRelayStatus.providerId).toBe('codex');
+      expect(preRelayStatus.agenda.items.some((item) => item.taskId === task.id)).toBe(true);
+      expect(preRelayStatus.shadow?.wouldNudge).toBe(true);
+
       const relay = await activeService.relayInboxFileToLiveRecipient(teamName, memberName);
       expect(relay.relayed).toBeGreaterThan(0);
-
-      await waitUntil(async () => {
-        const status = await feature!.getStatus({ teamName: teamName!, memberName });
-        return (
-          status.memberName === memberName &&
-          status.providerId === 'codex' &&
-          status.agenda.items.some((item) => item.taskId === task.id) &&
-          status.shadow?.wouldNudge === true
-        );
-      }, 30_000);
 
       await waitUntil(async () => {
         const fatalRuntimeMessage = await readFatalRuntimeMessage(teamName!);

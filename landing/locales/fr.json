@@ -83,6 +83,8 @@
       "flexAutonomy": "Autonomie flexible",
       "worktree": "Isolation Git worktree",
       "multiAgent": "Backend multi-agents",
+      "orgGovernance": "Organigramme / gouvernance",
+      "budgetControls": "Contrôle budgétaire",
       "price": "Prix"
     }
   },
