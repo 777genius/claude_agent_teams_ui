@@ -35,7 +35,7 @@ jobs:
           NUXT_APP_BASE_URL: /claude_agent_teams_ui/
           NUXT_PUBLIC_SITE_URL: https://777genius.github.io/claude_agent_teams_ui
           NUXT_PUBLIC_GITHUB_REPO: 777genius/claude_agent_teams_ui
-        run: npx nuxt generate
+        run: npm run generate:all
 
       - uses: actions/configure-pages@v5
 

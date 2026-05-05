@@ -4,29 +4,55 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  deleteSnapshotIfMatchesMock,
   deleteSnapshotMock,
   emptySnapshotMock,
   loadSnapshotMock,
   migrateLegacyMock,
   saveSnapshotMock,
-} = vi.hoisted(() => ({
-  deleteSnapshotMock: vi.fn(),
-  emptySnapshotMock: vi.fn((teamName: string) => ({
-    version: 1,
-    teamName,
-    text: '',
-    chips: [],
-    attachments: [],
-    actionMode: 'do',
-    updatedAt: Date.now(),
-  })),
-  loadSnapshotMock: vi.fn(),
-  migrateLegacyMock: vi.fn(),
-  saveSnapshotMock: vi.fn(),
-}));
+} = vi.hoisted(() => {
+  interface MockSnapshot {
+    version: number;
+    teamName: string;
+    text: string;
+    chips: unknown[];
+    attachments: unknown[];
+    actionMode?: string;
+    pendingSendId?: string;
+    updatedAt: number;
+  }
+
+  const deleteSnapshot = vi.fn();
+  const loadSnapshot = vi.fn();
+
+  return {
+    deleteSnapshotIfMatchesMock: vi.fn(
+      async (teamName: string, predicate: (snapshot: MockSnapshot | null) => boolean) => {
+        const snapshot = (await loadSnapshot(teamName)) as MockSnapshot | null;
+        if (predicate(snapshot)) {
+          await deleteSnapshot(teamName);
+        }
+      }
+    ),
+    deleteSnapshotMock: deleteSnapshot,
+    emptySnapshotMock: vi.fn((teamName: string) => ({
+      version: 1,
+      teamName,
+      text: '',
+      chips: [],
+      attachments: [],
+      actionMode: 'do',
+      updatedAt: Date.now(),
+    })),
+    loadSnapshotMock: loadSnapshot,
+    migrateLegacyMock: vi.fn(),
+    saveSnapshotMock: vi.fn(),
+  };
+});
 
 vi.mock('@renderer/services/composerDraftStorage', () => ({
   composerDraftStorage: {
+    deleteSnapshotIfMatches: deleteSnapshotIfMatchesMock,
     deleteSnapshot: deleteSnapshotMock,
     emptySnapshot: emptySnapshotMock,
     loadSnapshot: loadSnapshotMock,
@@ -90,6 +116,7 @@ async function renderLoadedHook(): Promise<{
 describe('useComposerDraft pending send lifecycle', () => {
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    deleteSnapshotIfMatchesMock.mockClear();
     deleteSnapshotMock.mockReset();
     emptySnapshotMock.mockClear();
     loadSnapshotMock.mockReset();

@@ -571,10 +571,10 @@ export function useComposerDraft(teamName: string): UseComposerDraftResult {
     (teamNameForDelete: string, submittedContent?: ComposerDraftContent) =>
       enqueuePersist(async () => {
         if (submittedContent != null) {
-          const currentSnapshot = await composerDraftStorage.loadSnapshot(teamNameForDelete);
-          if (!snapshotMatchesContent(currentSnapshot, submittedContent)) {
-            return;
-          }
+          await composerDraftStorage.deleteSnapshotIfMatches(teamNameForDelete, (snapshot) =>
+            snapshotMatchesContent(snapshot, submittedContent)
+          );
+          return;
         }
         await composerDraftStorage.deleteSnapshot(teamNameForDelete);
       }),
