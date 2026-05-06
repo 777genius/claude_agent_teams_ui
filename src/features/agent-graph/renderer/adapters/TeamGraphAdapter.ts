@@ -25,6 +25,10 @@ import {
 } from '@shared/utils/idleNotificationSemantics';
 import { isInboxNoiseMessage } from '@shared/utils/inboxNoise';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import {
+  isTeamTaskActivelyWorked,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import { buildOrderedVisibleTeamGraphOwnerIds } from '@shared/utils/teamGraphDefaultLayout';
 
 import {
@@ -41,6 +45,7 @@ import {
 import {
   isTaskBlocked,
   isTaskInReviewCycle,
+  resolveTaskGraphColumn,
   resolveTaskReviewer,
 } from '../../core/domain/taskGraphSemantics';
 
@@ -541,8 +546,17 @@ export class TeamGraphAdapter {
         spawn,
         pendingApprovalAgents?.has(member.name) ?? false
       );
+      const currentTask = member.currentTaskId
+        ? data.tasks.find((task) => task.id === member.currentTaskId)
+        : undefined;
+      const displayableCurrentTask =
+        currentTask && isTeamTaskActivelyWorked(currentTask) ? currentTask : undefined;
+      const presentationMember =
+        member.currentTaskId && !displayableCurrentTask
+          ? { ...member, currentTaskId: null }
+          : member;
       const launchPresentation = buildMemberLaunchPresentation({
-        member,
+        member: presentationMember,
         spawnStatus: spawn?.status,
         spawnLaunchState: spawn?.launchState,
         spawnLivenessSource: spawn?.livenessSource,
@@ -579,10 +593,8 @@ export class TeamGraphAdapter {
           ? (launchPresentation.launchStatusLabel ?? undefined)
           : undefined,
         avatarUrl: resolveMemberAvatarUrl(member, avatarMap, 96),
-        currentTaskId: member.currentTaskId ?? undefined,
-        currentTaskSubject: member.currentTaskId
-          ? data.tasks.find((t) => t.id === member.currentTaskId)?.subject
-          : undefined,
+        currentTaskId: displayableCurrentTask?.id,
+        currentTaskSubject: displayableCurrentTask?.subject,
         pendingApproval: pendingApprovalAgents?.has(member.name) ?? false,
         exceptionTone: exception?.exceptionTone,
         exceptionLabel: exception?.exceptionLabel,
@@ -632,12 +644,20 @@ export class TeamGraphAdapter {
     leadName?: string,
     activeTaskLogActivity?: Record<string, true>
   ): void {
-    const taskStateById = new Map<string, Pick<TeamGraphData['tasks'][number], 'status'>>();
+    const taskStateById = new Map<
+      string,
+      Pick<TeamGraphData['tasks'][number], 'status' | 'reviewState' | 'kanbanColumn' | 'deletedAt'>
+    >();
     const taskDisplayIds = new Map<string, string>();
     const memberColorByName = new Map<string, string>();
 
     for (const t of data.tasks) {
-      taskStateById.set(t.id, { status: t.status });
+      taskStateById.set(t.id, {
+        status: t.status,
+        ...(t.reviewState ? { reviewState: t.reviewState } : {}),
+        ...(t.kanbanColumn ? { kanbanColumn: t.kanbanColumn } : {}),
+        ...(t.deletedAt ? { deletedAt: t.deletedAt } : {}),
+      });
       taskDisplayIds.set(t.id, t.displayId ?? `#${t.id.slice(0, 6)}`);
     }
     for (const member of data.members) {
@@ -660,9 +680,19 @@ export class TeamGraphAdapter {
       const kanbanTaskState = data.kanbanState.tasks[task.id];
       const reviewerName = resolveTaskReviewer(task, kanbanTaskState);
       const isReviewCycle = isTaskInReviewCycle(task);
-
-      const taskStatus = TeamGraphAdapter.#mapTaskStatusLiteral(task.status);
-      const reviewState = TeamGraphAdapter.#mapReviewState(task.reviewState);
+      const graphColumn = resolveTaskGraphColumn(task);
+      const taskStatus =
+        graphColumn === 'approved'
+          ? 'completed'
+          : TeamGraphAdapter.#mapTaskStatusLiteral(task.status);
+      const reviewState =
+        graphColumn === 'approved'
+          ? 'approved'
+          : graphColumn === 'review'
+            ? isTeamTaskNeedsFixActionable(task)
+              ? 'needsFix'
+              : 'review'
+            : TeamGraphAdapter.#mapReviewState(task.reviewState);
 
       const blockedByDisplayIds = task.blockedBy?.length
         ? task.blockedBy.map((id) => taskDisplayIds.get(id) ?? `#${id.slice(0, 6)}`)
@@ -686,7 +716,8 @@ export class TeamGraphAdapter {
         kind: 'task',
         label: task.displayId ?? `#${task.id.slice(0, 6)}`,
         sublabel: task.subject,
-        state: TeamGraphAdapter.#mapTaskStatus(task.status),
+        state:
+          graphColumn === 'approved' ? 'complete' : TeamGraphAdapter.#mapTaskStatus(task.status),
         taskStatus,
         reviewState,
         reviewerName: isReviewCycle ? reviewerName : null,

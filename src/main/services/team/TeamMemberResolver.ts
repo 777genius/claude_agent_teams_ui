@@ -9,6 +9,8 @@ import {
 import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import { getStableTeamOwnerId } from '@shared/utils/teamStableOwnerId';
 
+import { selectCurrentActiveTeamTask } from './teamTaskActiveState';
+
 import type {
   PersistedTeamLaunchSnapshot,
   TeamConfig,
@@ -282,13 +284,7 @@ export class TeamMemberResolver {
     const members: TeamMemberSnapshot[] = [];
     for (const name of names) {
       const ownedTasks = tasks.filter((task) => task.owner === name);
-      const currentTask =
-        ownedTasks.find(
-          (task) =>
-            task.status === 'in_progress' &&
-            task.reviewState !== 'approved' &&
-            task.kanbanColumn !== 'approved'
-        ) ?? null;
+      const currentTask = selectCurrentActiveTeamTask(ownedTasks);
       const configMember = configMemberMap.get(name);
       const metaMember = metaMemberMap.get(name);
       const launchMember = launchMemberMap.get(name);

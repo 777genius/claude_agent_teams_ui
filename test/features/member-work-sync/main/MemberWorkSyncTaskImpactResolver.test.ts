@@ -129,4 +129,90 @@ describe('MemberWorkSyncTaskImpactResolver', () => {
       diagnostics: [],
     });
   });
+
+  it('does not target owners of already approved dependent tasks', async () => {
+    const tasks: TeamTask[] = [
+      {
+        id: 'task-a',
+        subject: 'Changed dependency',
+        status: 'completed',
+        owner: 'alice',
+      },
+      {
+        id: 'task-approved-dependent',
+        subject: 'Already approved dependent',
+        status: 'in_progress',
+        owner: 'tom',
+        blockedBy: ['task-a'],
+      },
+    ];
+    const resolver = new MemberWorkSyncTaskImpactResolver({
+      taskReader: { getTasks: vi.fn(async () => tasks) },
+      kanbanManager: {
+        getState: vi.fn(async () => ({
+          tasks: {
+            'task-approved-dependent': {
+              column: 'approved',
+              movedAt: '2026-05-06T19:06:07.257Z',
+            },
+          },
+        })),
+      },
+      activeMemberSource: {
+        loadActiveMemberNames: vi.fn(async () => ['alice', 'team-lead', 'tom']),
+      },
+    } as never);
+
+    await expect(resolver.resolve({ teamName: 'team-a', taskId: 'task-a' })).resolves.toEqual({
+      memberNames: ['alice'],
+      fallbackTeamWide: false,
+      diagnostics: [],
+    });
+  });
+
+  it('does not treat stale review state as reviewer-missing when kanban says approved', async () => {
+    const tasks: TeamTask[] = [
+      {
+        id: 'task-approved',
+        subject: 'Approved after review',
+        status: 'in_progress',
+        owner: 'alice',
+        reviewState: 'review',
+        historyEvents: [
+          {
+            id: 'evt-review',
+            type: 'review_requested',
+            timestamp: '2026-05-06T19:00:00.000Z',
+            from: 'none',
+            to: 'review',
+            reviewer: 'bob',
+          },
+        ],
+      },
+    ];
+    const resolver = new MemberWorkSyncTaskImpactResolver({
+      taskReader: { getTasks: vi.fn(async () => tasks) },
+      kanbanManager: {
+        getState: vi.fn(async () => ({
+          tasks: {
+            'task-approved': {
+              column: 'approved',
+              movedAt: '2026-05-06T19:06:07.257Z',
+            },
+          },
+        })),
+      },
+      activeMemberSource: {
+        loadActiveMemberNames: vi.fn(async () => ['alice', 'bob', 'team-lead']),
+      },
+    } as never);
+
+    await expect(
+      resolver.resolve({ teamName: 'team-a', taskId: 'task-approved' })
+    ).resolves.toEqual({
+      memberNames: ['alice'],
+      fallbackTeamWide: false,
+      diagnostics: [],
+    });
+  });
 });

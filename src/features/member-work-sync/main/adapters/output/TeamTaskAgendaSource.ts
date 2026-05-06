@@ -122,7 +122,13 @@ export class TeamTaskAgendaSource implements MemberWorkSyncAgendaSourcePort {
       teamName: input.teamName,
       memberName: input.memberName,
       generatedAt: this.deps.clock.now().toISOString(),
-      tasks,
+      tasks: tasks.map((task) => {
+        const kanbanColumn = kanban.tasks[task.id]?.column;
+        return {
+          ...task,
+          ...(kanbanColumn ? { kanbanColumn } : {}),
+        };
+      }),
       members: members.map(toMemberLike),
       kanbanReviewersByTaskId: Object.fromEntries(
         Object.entries(kanban.tasks).map(([taskId, value]) => [taskId, value.reviewer ?? null])

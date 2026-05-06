@@ -46,6 +46,9 @@ function formatOpenCodeRuntimeDeliveryFailureReason(reason: string | null | unde
   ) {
     return 'OpenCode created a reply without the required relayOfMessageId correlation.';
   }
+  if (normalized === 'non_visible_tool_without_task_progress') {
+    return 'OpenCode used tools, but did not create a visible reply or task progress proof.';
+  }
   return '';
 }
 

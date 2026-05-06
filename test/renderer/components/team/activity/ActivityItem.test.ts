@@ -541,4 +541,41 @@ describe('ActivityItem legacy system message fallback', () => {
       await Promise.resolve();
     });
   });
+
+  it('renders task stall remediation as a compact automation row', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    const message: InboxMessage = {
+      from: 'system',
+      to: 'jack',
+      text: 'Task #1c24a4c4 may be stalled after a low-signal progress update.',
+      summary: 'Potential stalled task',
+      timestamp: new Date('2026-04-13T13:36:00.000Z').toISOString(),
+      read: true,
+      source: 'system_notification',
+      messageKind: 'task_stall_remediation',
+      messageId: 'task-stall:demo:task-a:epoch-a',
+      taskRefs: [{ taskId: 'task-a', displayId: '#1c24a4c4', teamName: 'my-team' }],
+    };
+
+    await act(async () => {
+      root.render(React.createElement(ActivityItem, { message, teamName: 'my-team' }));
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain('automation');
+    expect(host.textContent).toContain('stall nudge');
+    expect(host.textContent).toContain('jack');
+    expect(host.textContent).toContain('#1c24a4c4');
+    expect(host.textContent).not.toContain('may be stalled after a low-signal progress update');
+    expect(host.textContent).not.toContain('Do not send acknowledgement-only replies');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
 });

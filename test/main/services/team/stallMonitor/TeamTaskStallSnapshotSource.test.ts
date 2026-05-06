@@ -37,6 +37,8 @@ describe('TeamTaskStallSnapshotSource', () => {
           },
         ],
       },
+      { id: 'task-approved', subject: 'Approved', status: 'in_progress' },
+      { id: 'task-reopened', subject: 'Reopened', status: 'pending', reviewState: 'approved' },
     ];
     const deletedTasks = [{ id: 'task-deleted', subject: 'D', status: 'deleted' }];
     const transcriptContext = {
@@ -98,6 +100,10 @@ describe('TeamTaskStallSnapshotSource', () => {
             movedAt: '2026-04-19T12:00:00.000Z',
             reviewer: 'alice',
           },
+          'task-approved': {
+            column: 'approved',
+            movedAt: '2026-04-19T12:05:00.000Z',
+          },
         },
       })),
     };
@@ -136,23 +142,30 @@ describe('TeamTaskStallSnapshotSource', () => {
     );
 
     const snapshot = await source.getSnapshot('demo');
+    const expectedWorkflowActiveTasks = [
+      activeTasks[0],
+      activeTasks[1],
+      { ...activeTasks[2], reviewState: 'approved' },
+      { ...activeTasks[3], reviewState: 'none' },
+    ];
 
     expect(snapshot).not.toBeNull();
     expect(batchIndexer.buildIndex).toHaveBeenCalledWith({
       teamName: 'demo',
-      tasks: [...activeTasks, ...deletedTasks],
+      tasks: [...expectedWorkflowActiveTasks, ...deletedTasks],
       messages: rawMessages,
     });
     expect(freshnessReader.readSignals).toHaveBeenCalledWith('/tmp/project', ['task-a', 'task-b']);
     expect(exactRowReader.parseFiles).toHaveBeenCalledWith(['/tmp/project/session-a.jsonl', '/tmp/project/session-b.jsonl']);
     expect(openCodeEvidenceSource.readEvidence).toHaveBeenCalledWith({
       teamName: 'demo',
-      tasks: [activeTasks[0], activeTasks[1]],
+      tasks: [expectedWorkflowActiveTasks[0], expectedWorkflowActiveTasks[1]],
       providerByMemberName: new Map([
         ['team-lead', 'codex'],
         ['alice', 'opencode'],
       ]),
     });
+    expect(snapshot?.activeTasks).toEqual(expectedWorkflowActiveTasks);
     expect(snapshot?.inProgressTasks.map((task) => task.id)).toEqual(['task-a']);
     expect(snapshot?.reviewOpenTasks.map((task) => task.id)).toEqual(['task-b']);
     expect(snapshot?.leadName).toBe('team-lead');

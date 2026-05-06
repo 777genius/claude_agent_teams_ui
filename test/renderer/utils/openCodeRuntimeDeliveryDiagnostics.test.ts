@@ -77,4 +77,25 @@ describe('openCodeRuntimeDeliveryDiagnostics', () => {
       reason: 'visible_reply_still_required',
     });
   });
+
+  it('surfaces missing task progress proof as a readable failure', () => {
+    const diagnostics = buildOpenCodeRuntimeDeliveryDiagnostics({
+      deliveredToInbox: true,
+      messageId: 'msg-progress-required',
+      runtimeDelivery: {
+        providerId: 'opencode',
+        attempted: true,
+        delivered: false,
+        responsePending: false,
+        responseState: 'responded_non_visible_tool',
+        ledgerStatus: 'failed_terminal',
+        reason: 'non_visible_tool_without_task_progress',
+        diagnostics: ['non_visible_tool_without_task_progress'],
+      },
+    });
+
+    expect(diagnostics.warning).toBe(
+      'OpenCode runtime delivery failed. Message was saved to inbox, but live delivery did not complete. Reason: OpenCode used tools, but did not create a visible reply or task progress proof.'
+    );
+  });
 });

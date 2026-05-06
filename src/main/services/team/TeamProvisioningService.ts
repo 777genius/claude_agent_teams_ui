@@ -85,6 +85,12 @@ import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isDefaultProviderModelSelection } from '@shared/utils/providerModelSelection';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskActivelyWorked,
+  isTeamTaskDeleted,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
+import {
   isTeamInternalControlMessageText,
   stripExactInternalControlEchoPrefix,
 } from '@shared/utils/teamInternalControlMessages';
@@ -163,7 +169,10 @@ import {
   type OpenCodePromptDeliveryLedgerStore,
   type OpenCodePromptDeliveryStatus,
 } from './opencode/delivery/OpenCodePromptDeliveryLedger';
-import { selectOpenCodeRuntimeDeliveryReason } from './opencode/delivery/OpenCodeRuntimeDeliveryDiagnostics';
+import {
+  isActionRequiredOpenCodeRuntimeDeliveryReason,
+  selectOpenCodeRuntimeDeliveryReason,
+} from './opencode/delivery/OpenCodeRuntimeDeliveryDiagnostics';
 import {
   decideOpenCodePromptDeliveryRepair,
   type OpenCodePromptDeliveryHardFailureKind,
@@ -4392,16 +4401,34 @@ function getAgentLanguageInstruction(): string {
   return `IMPORTANT: Communicate in ${languageName}. All messages, summaries, and task descriptions MUST be in ${languageName}.`;
 }
 
+function isTaskBoardSnapshotWorkCandidate(task: TeamTask): boolean {
+  if (!task.id || task.id.startsWith('_internal') || isTeamTaskDeleted(task)) {
+    return false;
+  }
+
+  const workflowColumn = getTeamTaskWorkflowColumn(task);
+  if (workflowColumn === 'review' || workflowColumn === 'approved') {
+    return false;
+  }
+
+  return (
+    task.status === 'pending' ||
+    isTeamTaskNeedsFixActionable(task) ||
+    isTeamTaskActivelyWorked(task)
+  );
+}
+
 /** Build a full task board snapshot for the lead. */
 function buildTaskBoardSnapshot(tasks: TeamTask[]): string {
-  const active = tasks.filter(
-    (t) => (t.status === 'pending' || t.status === 'in_progress') && !t.id.startsWith('_internal')
-  );
+  const active = tasks.filter(isTaskBoardSnapshotWorkCandidate);
   if (active.length === 0) return '\nNo pending tasks on the board.\n';
 
   const lines = active.map((t) => {
     const owner = t.owner ? ` (owner: ${t.owner})` : ' (unassigned)';
     const desc = t.description ? ` — ${t.description.slice(0, 120)}` : '';
+    const stateLabel = [t.status, isTeamTaskNeedsFixActionable(t) ? 'needsFix' : null]
+      .filter(Boolean)
+      .join(', ');
     const deps = t.blockedBy?.length
       ? ` [blocked by: ${t.blockedBy
           .map((id) => tasks.find((candidate) => candidate.id === id))
@@ -4409,9 +4436,9 @@ function buildTaskBoardSnapshot(tasks: TeamTask[]): string {
           .map((task) => formatTaskDisplayLabel(task))
           .join(', ')}]`
       : '';
-    return `  - ${formatTaskDisplayLabel(t)} (taskId: ${t.id}) [${t.status}]${owner} ${t.subject}${deps}${desc}`;
+    return `  - ${formatTaskDisplayLabel(t)} (taskId: ${t.id}) [${stateLabel}]${owner} ${t.subject}${deps}${desc}`;
   });
-  return `\nCurrent task board (in_progress/pending):\n${lines.join('\n')}\n`;
+  return `\nCurrent actionable task board (pending/in_progress/needsFix):\n${lines.join('\n')}\n`;
 }
 
 function buildDeterministicLaunchHydrationPrompt(
@@ -7523,16 +7550,56 @@ export class TeamProvisioningService {
         ...extra,
       })
     );
-    if (
-      event === 'opencode_prompt_delivery_terminal_failure' &&
-      record.status === 'failed_terminal'
-    ) {
+    const shouldNotifyTerminalFailure =
+      event === 'opencode_prompt_delivery_terminal_failure' && record.status === 'failed_terminal';
+    const shouldNotifyActionRequiredRetry =
+      !shouldNotifyTerminalFailure &&
+      this.shouldNotifyOpenCodeRuntimeDeliveryBeforeTerminal(record);
+    if (shouldNotifyTerminalFailure || shouldNotifyActionRequiredRetry) {
       void this.fireOpenCodeRuntimeDeliveryErrorNotification(record).catch((error) => {
         logger.warn(
           `[${record.teamName}] Failed to fire OpenCode runtime delivery error notification for ${record.memberName}: ${getErrorMessage(error)}`
         );
       });
+      return;
     }
+    if (this.shouldSurfaceOpenCodeRuntimeDeliveryAdvisory(record)) {
+      this.emitOpenCodeRuntimeDeliveryAdvisoryEvent(record);
+    }
+  }
+
+  private shouldSurfaceOpenCodeRuntimeDeliveryAdvisory(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): boolean {
+    if (!selectOpenCodeRuntimeDeliveryReason(record)) {
+      return false;
+    }
+    if (record.status === 'failed_terminal') {
+      return true;
+    }
+    if (record.status === 'responded') {
+      return false;
+    }
+    return (
+      record.responseState === 'session_error' ||
+      record.responseState === 'tool_error' ||
+      record.responseState === 'permission_blocked' ||
+      record.responseState === 'reconcile_failed'
+    );
+  }
+
+  private shouldNotifyOpenCodeRuntimeDeliveryBeforeTerminal(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): boolean {
+    if (!this.shouldSurfaceOpenCodeRuntimeDeliveryAdvisory(record)) {
+      return false;
+    }
+    if (record.status === 'failed_terminal') {
+      return false;
+    }
+    return isActionRequiredOpenCodeRuntimeDeliveryReason(
+      selectOpenCodeRuntimeDeliveryReason(record)
+    );
   }
 
   private async fireOpenCodeRuntimeDeliveryErrorNotification(
@@ -7596,7 +7663,8 @@ export class TeamProvisioningService {
       );
     }
 
-    const eventKey = `opencode_runtime_delivery_error:${record.teamName}:${record.memberName}:${record.id}`;
+    const reasonKey = this.getOpenCodeRuntimeDeliveryAdvisoryReasonKey(record);
+    const eventKey = `opencode_runtime_delivery_error:${record.teamName}:${record.memberName}:${record.id}:${reasonKey}`;
     const now = Date.now();
     this.pruneOpenCodeRuntimeDeliveryAdvisoryEventDedupe(now);
     if (this.openCodeRuntimeDeliveryAdvisoryEventSentAt.has(eventKey)) {
@@ -7624,6 +7692,20 @@ export class TeamProvisioningService {
         this.openCodeRuntimeDeliveryAdvisoryEventSentAt.delete(key);
       }
     }
+  }
+
+  private getOpenCodeRuntimeDeliveryAdvisoryReasonKey(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): string {
+    const reason =
+      selectOpenCodeRuntimeDeliveryReason(record) ?? record.responseState ?? record.status;
+    const normalized = reason
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 96);
+    return normalized || 'unknown';
   }
 
   private async notifyLeadAboutOpenCodeRuntimeDeliveryError(input: {
@@ -27536,18 +27618,14 @@ export class TeamProvisioningService {
           try {
             const taskReader = new TeamTaskReader();
             const tasks = await taskReader.getTasks(run.teamName);
-            const active = tasks.filter(
-              (t) =>
-                (t.status === 'pending' || t.status === 'in_progress') &&
-                !t.id.startsWith('_internal')
-            );
+            const active = tasks.filter(isTaskBoardSnapshotWorkCandidate);
             if (active.length === 0) return;
 
             const board = buildTaskBoardSnapshot(tasks);
             const message = [
               `Reconnected and ready. Begin executing tasks now.`,
               `Execute tasks sequentially and keep the board + user updated:`,
-              `- Identify the next READY task (pending, not blocked by incomplete dependencies).`,
+              `- Identify the next READY task (pending or needsFix, not blocked by incomplete dependencies).`,
               `- If the task is unassigned, set yourself as owner.`,
               `- BEFORE doing any work on a task: mark it started (in_progress).`,
               `- Immediately SendMessage "user" that you started task #<id> (what you're doing + next step).`,

@@ -2,7 +2,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
 import { resolveMemberRuntimeSummary } from '@renderer/utils/memberRuntimeSummary';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import { getTeamTaskWorkflowColumn } from '@shared/utils/teamTaskState';
 
 import { MemberCard } from './MemberCard';
 
@@ -425,7 +427,7 @@ export const MemberList = memo(function MemberList({
     const result = new Map<string, TeamTaskWithKanban>();
     if (!taskMap) return result;
     for (const task of taskMap.values()) {
-      if (task.reviewer && (task.reviewState === 'review' || task.kanbanColumn === 'review')) {
+      if (task.reviewer && getTeamTaskWorkflowColumn(task) === 'review') {
         result.set(task.reviewer, task);
       }
     }
@@ -455,11 +457,14 @@ export const MemberList = memo(function MemberList({
     <div ref={containerRef} className="flex flex-col gap-1">
       <div className={gridClass}>
         {activeMembers.map((member) => {
-          const currentTask =
+          const currentTaskCandidate =
             member.currentTaskId && taskMap ? (taskMap.get(member.currentTaskId) ?? null) : null;
+          const currentTask = isDisplayableCurrentTask(currentTaskCandidate)
+            ? currentTaskCandidate
+            : null;
           const reviewCandidate = reviewTaskByMember.get(member.name) ?? null;
           const reviewTask =
-            reviewCandidate && reviewCandidate.id !== member.currentTaskId ? reviewCandidate : null;
+            reviewCandidate && reviewCandidate.id !== currentTask?.id ? reviewCandidate : null;
           const spawnEntry = memberSpawnStatuses?.get(member.name);
           const runtimeEntry = memberRuntimeEntries?.get(member.name);
           return (

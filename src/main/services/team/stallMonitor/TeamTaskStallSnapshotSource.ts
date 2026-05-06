@@ -10,6 +10,7 @@ import { isBoardTaskExactLogsReadEnabled } from '../taskLogs/exact/featureGates'
 import { TeamKanbanManager } from '../TeamKanbanManager';
 import { TeamMembersMetaStore } from '../TeamMembersMetaStore';
 import { TeamTaskReader } from '../TeamTaskReader';
+import { getTeamTaskWorkflowColumn, isTeamTaskActivelyWorked } from '../teamTaskActiveState';
 
 import { BoardTaskActivityBatchIndexer } from './BoardTaskActivityBatchIndexer';
 import { OpenCodeTaskStallEvidenceSource } from './OpenCodeTaskStallEvidenceSource';
@@ -87,12 +88,47 @@ export class TeamTaskStallSnapshotSource {
       this.kanbanManager.getState(teamName),
       this.membersMetaStore.getMembers(teamName).catch(() => []),
     ]);
-    const allTasks = [...activeTasks, ...deletedTasks];
+    const withWorkflowOverlay = (task: TeamTask): TeamTask => {
+      const kanbanColumn = kanbanState.tasks[task.id]?.column;
+      const workflowColumn = getTeamTaskWorkflowColumn({
+        ...task,
+        ...(kanbanColumn ? { kanbanColumn } : {}),
+      });
+      if (workflowColumn) {
+        return task.reviewState !== workflowColumn
+          ? { ...task, reviewState: workflowColumn }
+          : task;
+      }
+      return task.reviewState === 'review' || task.reviewState === 'approved'
+        ? { ...task, reviewState: 'none' }
+        : task;
+    };
+    const workflowActiveTasks = activeTasks.map(withWorkflowOverlay);
+    const allTasks = [...workflowActiveTasks, ...deletedTasks];
     const allTasksById = new Map(allTasks.map((task) => [task.id, task] as const));
-    const inProgressTasks = activeTasks.filter(
-      (task) => task.status === 'in_progress' && task.reviewState !== 'review'
-    );
-    const reviewOpenTasks = activeTasks.filter((task) => task.reviewState === 'review');
+    const inProgressTasks = workflowActiveTasks.filter((task) => {
+      const kanbanColumn = kanbanState.tasks[task.id]?.column;
+      const workflowColumn = getTeamTaskWorkflowColumn({
+        ...task,
+        ...(kanbanColumn ? { kanbanColumn } : {}),
+      });
+      return (
+        workflowColumn !== 'review' &&
+        isTeamTaskActivelyWorked({
+          ...task,
+          ...(kanbanColumn ? { kanbanColumn } : {}),
+        })
+      );
+    });
+    const reviewOpenTasks = workflowActiveTasks.filter((task) => {
+      const kanbanColumn = kanbanState.tasks[task.id]?.column;
+      return (
+        getTeamTaskWorkflowColumn({
+          ...task,
+          ...(kanbanColumn ? { kanbanColumn } : {}),
+        }) === 'review'
+      );
+    });
     const resolvedReviewersByTaskId = buildResolvedReviewerIndex(activeTasks, kanbanState);
     const activityReadsEnabled = isBoardTaskActivityReadEnabled();
     const exactReadsEnabled = isBoardTaskExactLogsReadEnabled();
@@ -157,7 +193,7 @@ export class TeamTaskStallSnapshotSource {
       transcriptFiles: transcriptContext.transcriptFiles,
       activityReadsEnabled,
       exactReadsEnabled,
-      activeTasks,
+      activeTasks: workflowActiveTasks,
       deletedTasks,
       allTasksById,
       inProgressTasks,

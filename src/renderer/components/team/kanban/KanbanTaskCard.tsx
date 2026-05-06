@@ -13,6 +13,10 @@ import {
   buildTaskChangeRequestOptions,
   canDisplayTaskChangesForOptions,
 } from '@renderer/utils/taskChangeRequest';
+import {
+  isTeamTaskFinishedForDependency,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import { deriveTaskDisplayId, formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
   ArrowLeftFromLine,
@@ -65,7 +69,7 @@ const DependencyBadge = ({
   onScrollToTask,
 }: DependencyBadgeProps): React.JSX.Element => {
   const depTask = taskMap.get(taskId);
-  const isCompleted = depTask?.status === 'completed';
+  const isCompleted = depTask ? isTeamTaskFinishedForDependency(depTask) : false;
   const label = depTask
     ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
     : `#${deriveTaskDisplayId(taskId)}`;
@@ -334,7 +338,7 @@ export const KanbanTaskCard = memo(
               {task.needsClarification === 'user' ? 'Awaiting user' : 'Awaiting lead'}
             </span>
           ) : null}
-          {task.reviewState === 'needsFix' ? (
+          {isTeamTaskNeedsFixActionable(task) ? (
             <span
               className={`mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
             >

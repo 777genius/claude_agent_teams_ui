@@ -1,7 +1,10 @@
 import { useSyncExternalStore } from 'react';
 
 import { getSnapshot, getUnreadCount, subscribe } from '@renderer/services/commentReadStorage';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 
 export type TaskStatusFilterId =
   | 'todo'
@@ -50,10 +53,10 @@ export function taskMatchesStatus(
   if (statusIds.size === 0) return false;
   if (statusIds.size === STATUS_OPTIONS.length) return task.status !== 'deleted';
 
-  const kanbanColumn = getTaskKanbanColumn(task);
-  const inNeedsFix = task.reviewState === 'needsFix';
+  const kanbanColumn = getTeamTaskWorkflowColumn(task);
+  const inNeedsFix = isTeamTaskNeedsFixActionable(task);
   const inTodo = task.status === 'pending' && !kanbanColumn && !inNeedsFix;
-  const inProgress = task.status === 'in_progress' && !kanbanColumn;
+  const inProgress = task.status === 'in_progress' && !kanbanColumn && !inNeedsFix;
   const inDone = task.status === 'completed' && !kanbanColumn && !inNeedsFix;
   const inReview = kanbanColumn === 'review';
   const inApproved = kanbanColumn === 'approved';

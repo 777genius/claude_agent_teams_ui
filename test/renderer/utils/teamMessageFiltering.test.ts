@@ -534,4 +534,54 @@ Messages:
     expect(result).toHaveLength(1);
     expect(result[0].messageId).toBe('msg-2');
   });
+
+  it('hides task stall remediation automation rows from conversational message counts by default', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'task-stall:demo:task-a:epoch-a',
+        from: 'system',
+        to: 'jack',
+        source: 'system_notification',
+        messageKind: 'task_stall_remediation',
+        summary: 'Potential stalled task',
+        text: 'Task #abcd1234 may be stalled.',
+      }),
+      makeMessage({
+        messageId: 'msg-2',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['msg-2']);
+  });
+
+  it('can include task stall remediation automation rows for the activity timeline', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'task-stall:demo:task-a:legacy-epoch',
+        from: 'system',
+        to: 'jack',
+        source: 'system_notification',
+        summary: 'Potential stalled task',
+        text: 'Task #abcd1234 may be stalled.',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      includeAutomationEvents: true,
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual([
+      'task-stall:demo:task-a:legacy-epoch',
+    ]);
+  });
 });

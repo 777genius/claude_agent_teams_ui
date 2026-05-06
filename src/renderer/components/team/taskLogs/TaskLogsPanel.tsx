@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@renderer/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
 import { isTaskLogActivityChangeEvent } from '@renderer/utils/teamChangeEvents';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 
 import { ExecutionSessionsSection } from './ExecutionSessionsSection';
 import { isBoardTaskActivityUiEnabled, isBoardTaskExactLogsUiEnabled } from './featureGates';
@@ -66,7 +67,8 @@ export const TaskLogsPanel = ({
   const countReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countRequestSeqRef = useRef(0);
   const hasTaskLogStream = availableTabs.includes('stream');
-  const taskLogActivityTrackingEnabled = task.status === 'in_progress' && hasTaskLogStream;
+  const taskIsActivelyWorked = isDisplayableCurrentTask(task);
+  const taskLogActivityTrackingEnabled = taskIsActivelyWorked && hasTaskLogStream;
   const taskLogSummaryEnabled = hasOpenedContent && hasTaskLogStream;
 
   useEffect(() => {
@@ -261,7 +263,7 @@ export const TaskLogsPanel = ({
             teamName={teamName}
             taskId={task.id}
             taskStatus={task.status}
-            liveEnabled={isOpen && task.status === 'in_progress'}
+            liveEnabled={isOpen && taskIsActivelyWorked}
           />
         </TabsContent>
       ) : null}

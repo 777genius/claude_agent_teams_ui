@@ -131,8 +131,7 @@ function buildSyntheticBootstrapMessages(config: TeamConfig): InboxMessage[] {
         member &&
         member.name?.trim() &&
         member.name.trim().toLowerCase() !== normalizedLeadName &&
-        member.removedAt == null &&
-        (member as { isActive?: unknown }).isActive !== false
+        member.removedAt == null
     )
     .map((member) => ({
       from: leadName,

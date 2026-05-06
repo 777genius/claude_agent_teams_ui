@@ -9,7 +9,10 @@ import { buildMemberColorMap, REVIEW_STATE_DISPLAY } from '@renderer/utils/membe
 import { nameColorSet } from '@renderer/utils/projectColor';
 import { projectColor } from '@renderer/utils/projectColor';
 import { projectLabelFromPath } from '@renderer/utils/taskGrouping';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import { format, isThisYear, isToday, isYesterday } from 'date-fns';
 import { CheckCircle2, Circle, Eye, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -105,7 +108,7 @@ export const SidebarTaskItem = memo(function SidebarTaskItem({
     }
   }, [isRenaming, displaySubject]);
 
-  const reviewColumn = getTaskKanbanColumn(task);
+  const reviewColumn = getTeamTaskWorkflowColumn(task);
   const cfg =
     reviewColumn === 'approved'
       ? ({ icon: ShieldCheck, color: 'text-teal-400', label: 'approved' } as const)
@@ -212,7 +215,7 @@ export const SidebarTaskItem = memo(function SidebarTaskItem({
                     </span>
                   ))}
                 {displaySubject}
-                {task.reviewState === 'needsFix' && (
+                {isTeamTaskNeedsFixActionable(task) && (
                   <span
                     className={`ml-1.5 inline-block rounded-full px-1.5 py-0.5 align-middle text-[10px] font-medium leading-none ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
                   >

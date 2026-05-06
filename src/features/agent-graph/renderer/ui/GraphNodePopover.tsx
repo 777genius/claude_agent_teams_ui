@@ -13,6 +13,7 @@ import {
   buildMemberAvatarMap,
   buildMemberLaunchPresentation,
 } from '@renderer/utils/memberHelpers';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 import { buildTeamProvisioningPresentation } from '@renderer/utils/teamProvisioningPresentation';
 import { ExternalLink, Loader2, MessageSquare, Plus, User } from 'lucide-react';
 
@@ -309,6 +310,17 @@ const MemberPopoverContent = ({
   const avatarMap = useMemo(() => buildMemberAvatarMap(teamMembers), [teamMembers]);
   const avatarSrc = node.avatarUrl ?? avatarMap.get(memberName) ?? agentAvatarUrl(memberName, 64);
   const member = teamMembers.find((candidate) => candidate.name === memberName) ?? null;
+  const currentTaskCandidate =
+    member?.currentTaskId && teamData
+      ? (teamData.tasks.find((task) => task.id === member.currentTaskId) ?? null)
+      : null;
+  const displayableCurrentTask = isDisplayableCurrentTask(currentTaskCandidate)
+    ? currentTaskCandidate
+    : null;
+  const currentTaskIndicatorId =
+    displayableCurrentTask?.id ?? (!teamData ? node.currentTaskId : undefined);
+  const currentTaskIndicatorSubject =
+    displayableCurrentTask?.subject ?? (!teamData ? node.currentTaskSubject : undefined);
   const provisioningPresentation =
     teamData && teamName
       ? buildTeamProvisioningPresentation({
@@ -320,7 +332,10 @@ const MemberPopoverContent = ({
       : null;
   const launchPresentation = member
     ? buildMemberLaunchPresentation({
-        member,
+        member:
+          member.currentTaskId && !displayableCurrentTask
+            ? { ...member, currentTaskId: null }
+            : member,
         spawnStatus: spawnEntry?.status,
         spawnLaunchState: spawnEntry?.launchState,
         spawnLivenessSource: spawnEntry?.livenessSource,
@@ -444,7 +459,7 @@ const MemberPopoverContent = ({
       {/* Context usage stays hidden for now because lead context telemetry is still incomplete. */}
 
       {/* Current task indicator — reuses same pattern as MemberCard */}
-      {node.currentTaskId && node.currentTaskSubject && (
+      {currentTaskIndicatorId && currentTaskIndicatorSubject && (
         <div className="mt-2 flex items-center gap-1.5 text-[10px]">
           <Loader2
             className="size-3 shrink-0 animate-spin"
@@ -457,13 +472,13 @@ const MemberPopoverContent = ({
             style={{ border: `1px solid ${node.color ?? '#66ccff'}40` }}
             onClick={(e) => {
               e.stopPropagation();
-              onOpenTask?.(node.currentTaskId!);
+              onOpenTask?.(currentTaskIndicatorId);
               onClose();
             }}
           >
-            {node.currentTaskSubject.length > 30
-              ? `${node.currentTaskSubject.slice(0, 30)}…`
-              : node.currentTaskSubject}
+            {currentTaskIndicatorSubject.length > 30
+              ? `${currentTaskIndicatorSubject.slice(0, 30)}…`
+              : currentTaskIndicatorSubject}
           </button>
         </div>
       )}

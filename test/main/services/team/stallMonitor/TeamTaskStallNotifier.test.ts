@@ -68,6 +68,7 @@ describe('TeamTaskStallNotifier', () => {
         taskRefs: [alert.taskRef],
         actionMode: 'do',
         source: 'system_notification',
+        messageKind: 'task_stall_remediation',
       })
     );
     expect(teamProvisioningService.relayOpenCodeMemberInboxMessages).toHaveBeenCalledWith(

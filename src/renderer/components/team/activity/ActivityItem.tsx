@@ -63,6 +63,7 @@ import {
   getKnownSlashCommand,
   parseStandaloneSlashCommand,
 } from '@shared/utils/slashCommands';
+import { isTaskStallRemediationMessage } from '@shared/utils/teamAutomationMessages';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
   AlertTriangle,
@@ -371,6 +372,68 @@ const PassiveIdlePeerSummaryRow = ({
       ) : null}
       <span className="min-w-0 flex-1 truncate text-xs" style={{ color: CARD_TEXT_LIGHT }}>
         {body}
+      </span>
+      <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+        {timestamp}
+      </span>
+    </div>
+  );
+};
+
+const TaskStallRemediationRow = ({
+  teamName,
+  recipientName,
+  recipientColor,
+  taskRef,
+  timestamp,
+  onMemberNameClick,
+  onTaskIdClick,
+}: {
+  teamName: string;
+  recipientName: string;
+  recipientColor?: string;
+  taskRef?: NonNullable<InboxMessage['taskRefs']>[number];
+  timestamp: string;
+  onMemberNameClick?: (memberName: string) => void;
+  onTaskIdClick?: (taskId: string) => void;
+}): React.JSX.Element => {
+  const taskLabel = taskRef
+    ? formatTaskDisplayLabel({ id: taskRef.taskId, displayId: taskRef.displayId })
+    : null;
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5" style={{ opacity: 0.82 }}>
+      <span className="bg-amber-500/12 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300">
+        automation
+      </span>
+      <span className="text-[11px] uppercase tracking-wide" style={{ color: CARD_ICON_MUTED }}>
+        stall nudge
+      </span>
+      <MoveRight size={10} style={{ color: CARD_ICON_MUTED }} className="shrink-0" />
+      <MemberBadge
+        name={recipientName}
+        color={recipientColor}
+        teamName={teamName}
+        hideAvatar
+        onClick={onMemberNameClick}
+      />
+      <span className="min-w-0 flex-1 truncate text-[11px]" style={{ color: CARD_TEXT_LIGHT }}>
+        Asked teammate to continue stalled task
+        {taskRef && taskLabel ? (
+          <>
+            {' '}
+            <button
+              type="button"
+              className="font-medium text-blue-300 hover:text-blue-200"
+              onClick={(event) => {
+                event.stopPropagation();
+                onTaskIdClick?.(taskRef.taskId);
+              }}
+            >
+              {taskLabel}
+            </button>
+          </>
+        ) : null}
       </span>
       <span className="shrink-0 text-[10px]" style={{ color: CARD_ICON_MUTED }}>
         {timestamp}
@@ -922,6 +985,20 @@ export const ActivityItem = memo(
           summary={idleSemantic.peerSummary}
           timestamp={timestamp}
           onMemberNameClick={onMemberNameClick}
+        />
+      );
+    }
+
+    if (isTaskStallRemediationMessage(message)) {
+      return (
+        <TaskStallRemediationRow
+          teamName={teamName}
+          recipientName={message.to ?? 'teammate'}
+          recipientColor={recipientColor}
+          taskRef={message.taskRefs?.[0]}
+          timestamp={timestamp}
+          onMemberNameClick={onMemberNameClick}
+          onTaskIdClick={onTaskIdClick}
         />
       );
     }

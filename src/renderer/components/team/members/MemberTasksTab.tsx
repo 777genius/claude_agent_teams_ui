@@ -7,7 +7,10 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_STYLES,
 } from '@renderer/utils/memberHelpers';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 
 import type { TeamTaskWithKanban } from '@shared/types';
@@ -44,7 +47,7 @@ export const MemberTasksTab = ({ tasks, onTaskClick }: MemberTasksTabProps): Rea
     <div className="max-h-[320px] overflow-y-auto">
       <div className="flex flex-col gap-1">
         {visibleTasks.map((task) => {
-          const col = getTaskKanbanColumn(task);
+          const col = getTeamTaskWorkflowColumn(task);
           const style =
             col && KANBAN_COLUMN_DISPLAY[col]
               ? { bg: KANBAN_COLUMN_DISPLAY[col].bg, text: KANBAN_COLUMN_DISPLAY[col].text }
@@ -71,7 +74,7 @@ export const MemberTasksTab = ({ tasks, onTaskClick }: MemberTasksTabProps): Rea
               >
                 {label}
               </span>
-              {task.reviewState === 'needsFix' ? (
+              {isTeamTaskNeedsFixActionable(task) ? (
                 <span
                   className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
                 >

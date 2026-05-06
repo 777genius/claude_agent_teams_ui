@@ -19,6 +19,25 @@ const GENERIC_DELIVERY_DIAGNOSTIC_TOKENS = [
   'visible_reply_ack_only_still_requires_answer',
   'visible_reply_destination_not_found_yet',
   'visible_reply_missing_relayofmessageid',
+  'non_visible_tool_without_task_progress',
+] as const;
+
+const ACTION_REQUIRED_DELIVERY_ERROR_TOKENS = [
+  'auth_unavailable',
+  'no auth available',
+  'authentication_failed',
+  'unauthorized',
+  'forbidden',
+  'invalid api key',
+  'api key',
+  'does not have access',
+  'please run /login',
+  'insufficient credits',
+  'quota exceeded',
+  'quota exhausted',
+  'capacity exceeded',
+  'key limit exceeded',
+  'total limit',
 ] as const;
 
 export function normalizeOpenCodeRuntimeDeliveryDiagnostic(
@@ -61,6 +80,16 @@ export function selectOpenCodeRuntimeDeliveryReason(
   return normalized.length > 0 ? 'OpenCode runtime delivery did not complete.' : null;
 }
 
+export function isActionRequiredOpenCodeRuntimeDeliveryReason(
+  message: string | null | undefined
+): boolean {
+  const normalized = normalizeOpenCodeRuntimeDeliveryDiagnostic(message)?.toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return ACTION_REQUIRED_DELIVERY_ERROR_TOKENS.some((token) => normalized.includes(token));
+}
+
 function getOpenCodeRuntimeDeliveryStateFallback(
   record: OpenCodePromptDeliveryLedgerRecord
 ): string | null {
@@ -87,6 +116,9 @@ function getOpenCodeRuntimeDeliveryStateFallback(
     reason === 'visible_reply_missing_relayOfMessageId'
   ) {
     return 'OpenCode created a reply without the required relayOfMessageId correlation.';
+  }
+  if (reason === 'non_visible_tool_without_task_progress') {
+    return 'OpenCode used tools, but did not create a visible reply or task progress proof.';
   }
   return null;
 }

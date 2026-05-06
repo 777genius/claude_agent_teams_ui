@@ -47,6 +47,8 @@ const QUOTA_EXHAUSTED_TOKENS = [
   'quota exceeded',
   'quota exhausted',
   'insufficient credits',
+  'key limit exceeded',
+  'total limit',
 ];
 const RATE_LIMITED_TOKENS = [
   'rate limit',
@@ -82,6 +84,18 @@ const PROVIDER_OVERLOADED_TOKENS = [
   'temporarily unavailable',
   'service unavailable',
   '503',
+];
+const PROTOCOL_PROOF_MISSING_TOKENS = [
+  'non_visible_tool_without_task_progress',
+  'visible_reply_still_required',
+  'visible_reply_ack_only_still_requires_answer',
+  'plain_text_ack_only_still_requires_answer',
+  'visible_reply_destination_not_found_yet',
+  'visible_reply_missing_relayofmessageid',
+  'did not create a visible reply',
+  'did not create a visible message_send reply',
+  'did not create a visible reply or task progress proof',
+  'without the required relayofmessageid correlation',
 ];
 const logger = createLogger('Service:TeamMemberRuntimeAdvisory');
 
@@ -122,6 +136,9 @@ function classifyRetryReason(message: string | undefined): MemberRuntimeAdvisory
   }
   if (includesAnyToken(normalized, PROVIDER_OVERLOADED_TOKENS)) {
     return 'provider_overloaded';
+  }
+  if (includesAnyToken(normalized, PROTOCOL_PROOF_MISSING_TOKENS)) {
+    return 'protocol_proof_missing';
   }
   return 'backend_error';
 }

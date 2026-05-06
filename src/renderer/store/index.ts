@@ -13,6 +13,7 @@ import {
   canDisplayTaskChangesForOptions,
 } from '@renderer/utils/taskChangeRequest';
 import { isTaskLogActivityChangeEvent } from '@renderer/utils/teamChangeEvents';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 import { createLogger } from '@shared/utils/logger';
 import { isVersionOlder, normalizeVersion } from '@shared/utils/version';
 import { create } from 'zustand';
@@ -736,7 +737,7 @@ export function initializeNotificationListeners(): () => void {
         }
 
         const candidateTasks = teamData.tasks.filter((task) => {
-          if (task.status !== 'in_progress') {
+          if (!isDisplayableCurrentTask(task)) {
             return false;
           }
           return canDisplayTaskChangesForOptions(buildTaskChangeRequestOptions(task));
@@ -770,7 +771,7 @@ export function initializeNotificationListeners(): () => void {
         }
 
         const currentTask = currentTeamData.tasks.find((task) => task.id === nextTask.id);
-        if (currentTask?.status !== 'in_progress') {
+        if (!isDisplayableCurrentTask(currentTask)) {
           continue;
         }
 

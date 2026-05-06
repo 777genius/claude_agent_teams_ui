@@ -107,6 +107,7 @@ export class TeamTaskStallNotifier {
         taskRefs: [args.alert.taskRef],
         actionMode: 'do',
         source: 'system_notification',
+        messageKind: 'task_stall_remediation',
       };
       await this.inboxWriter.sendMessage(args.teamName, request);
       return true;

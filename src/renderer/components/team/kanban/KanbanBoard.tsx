@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui
 import { useResizableColumns } from '@renderer/hooks/useResizableColumns';
 import { cn } from '@renderer/lib/utils';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { isTeamTaskNeedsFixActionable } from '@shared/utils/teamTaskState';
 import {
   CheckCircle2,
   ChevronDown,
@@ -161,7 +162,7 @@ function estimateGridSkeletonCardHeight(
   if (task.subject.length > 54) height += 10;
   if (task.subject.length > 92) height += 8;
   if (task.needsClarification) height += 16;
-  if (task.reviewState === 'needsFix') height += 14;
+  if (isTeamTaskNeedsFixActionable(task)) height += 14;
   if ((task.blockedBy?.length ?? 0) > 0) height += 18;
   if ((task.blocks?.length ?? 0) > 0) height += 18;
 

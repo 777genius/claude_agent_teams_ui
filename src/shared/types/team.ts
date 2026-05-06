@@ -434,6 +434,7 @@ export type InboxMessageKind =
   | 'slash_command'
   | 'slash_command_result'
   | 'task_comment_notification'
+  | 'task_stall_remediation'
   | 'member_work_sync_nudge'
   | 'agent_error';
 
@@ -828,6 +829,7 @@ export interface MemberRuntimeAdvisory {
     | 'codex_native_timeout'
     | 'network_error'
     | 'provider_overloaded'
+    | 'protocol_proof_missing'
     | 'backend_error'
     | 'unknown';
   message?: string;

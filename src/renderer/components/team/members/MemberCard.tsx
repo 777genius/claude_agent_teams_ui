@@ -163,8 +163,15 @@ export const MemberCard = memo(function MemberCard({
     selectedTeamName ? selectResolvedMembersForTeamName(s, selectedTeamName) : []
   );
   const avatarMap = useMemo(() => buildMemberAvatarMap(teamMembers), [teamMembers]);
+  const presentationMember =
+    member.currentTaskId && !currentTask
+      ? {
+          ...member,
+          currentTaskId: null,
+        }
+      : member;
   const launchPresentation = buildMemberLaunchPresentation({
-    member,
+    member: presentationMember,
     spawnStatus,
     spawnLaunchState,
     spawnLivenessSource,

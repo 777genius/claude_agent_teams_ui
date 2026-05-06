@@ -1239,7 +1239,9 @@ function normalizeFallbackReviewState(value: unknown, status: string): string {
   if (status === 'in_progress' || status === 'deleted') return 'none';
   if (status === 'pending') return reviewState === 'needsFix' ? 'needsFix' : 'none';
   if (status === 'completed') {
-    return reviewState === 'review' || reviewState === 'approved' ? reviewState : 'none';
+    return reviewState === 'review' || reviewState === 'approved' || reviewState === 'needsFix'
+      ? reviewState
+      : 'none';
   }
   return reviewState;
 }
@@ -1444,9 +1446,11 @@ async function readTasksDirForTeam(
         parsed.status === 'deleted'
           ? (parsed.status as string)
           : 'pending';
+      const derivedReviewState = deriveReviewStateFromEvents(historyEvents);
       const reviewState =
-        deriveReviewStateFromEvents(historyEvents) ??
-        normalizeFallbackReviewState(parsed.reviewState, status);
+        derivedReviewState !== null
+          ? normalizeFallbackReviewState(derivedReviewState, status)
+          : normalizeFallbackReviewState(parsed.reviewState, status);
 
       const task = {
         id: typeof parsed.id === 'string' || typeof parsed.id === 'number' ? String(parsed.id) : '',

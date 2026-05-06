@@ -6,6 +6,7 @@ import {
   getSpawnCardClass,
   getMemberRuntimeAdvisoryLabel,
   getMemberRuntimeAdvisoryTitle,
+  getMemberRuntimeAdvisoryTone,
   isOpenCodeRelaunchActionable,
 } from '@renderer/utils/memberHelpers';
 
@@ -703,15 +704,18 @@ describe('memberHelpers spawn-aware presence', () => {
     const advisory = {
       kind: 'api_error' as const,
       observedAt: '2026-04-07T09:00:00.000Z',
-      reasonCode: 'backend_error' as const,
+      reasonCode: 'protocol_proof_missing' as const,
       message: 'visible_reply_still_required',
     };
 
-    expect(getMemberRuntimeAdvisoryLabel(advisory, 'opencode')).toBe('OpenCode delivery error');
+    expect(getMemberRuntimeAdvisoryLabel(advisory, 'opencode')).toBe('OpenCode proof missing');
+    expect(getMemberRuntimeAdvisoryTone(advisory)).toBe('warning');
 
     const title = getMemberRuntimeAdvisoryTitle(advisory, 'opencode');
 
-    expect(title).toContain('OpenCode runtime delivery error.');
+    expect(title).toContain(
+      'OpenCode delivery completed without required visible/progress proof.'
+    );
     expect(title).toContain('OpenCode responded, but did not create a visible message_send reply.');
     expect(title).not.toContain('visible_reply_still_required');
   });
@@ -730,6 +734,42 @@ describe('memberHelpers spawn-aware presence', () => {
 
     expect(title).toContain('OpenCode runtime delivery did not complete.');
     expect(title).not.toContain('runtime_bootstrap_checkin');
+  });
+
+  it('formats non-visible tool progress advisory reasons before showing them in titles', () => {
+    const title = getMemberRuntimeAdvisoryTitle(
+      {
+        kind: 'api_error',
+        observedAt: '2026-04-07T09:00:00.000Z',
+        reasonCode: 'protocol_proof_missing',
+        message: 'non_visible_tool_without_task_progress',
+      },
+      'opencode'
+    );
+
+    expect(
+      getMemberRuntimeAdvisoryLabel(
+        {
+          kind: 'api_error',
+          observedAt: '2026-04-07T09:00:00.000Z',
+          reasonCode: 'protocol_proof_missing',
+          message: 'non_visible_tool_without_task_progress',
+        },
+        'opencode'
+      )
+    ).toBe('OpenCode proof missing');
+    expect(
+      getMemberRuntimeAdvisoryTone({
+        kind: 'api_error',
+        observedAt: '2026-04-07T09:00:00.000Z',
+        reasonCode: 'protocol_proof_missing',
+        message: 'non_visible_tool_without_task_progress',
+      })
+    ).toBe('warning');
+    expect(title).toContain(
+      'OpenCode used tools, but did not create a visible reply or task progress proof.'
+    );
+    expect(title).not.toContain('non_visible_tool_without_task_progress');
   });
 
   it('renders Codex native timeout separately from network errors', () => {

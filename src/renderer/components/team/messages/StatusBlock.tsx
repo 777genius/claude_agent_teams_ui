@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { computePendingCrossTeamReplies } from '@renderer/utils/crossTeamPendingReplies';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 import { ChevronRight } from 'lucide-react';
 
 import { ActiveTasksBlock } from '../activity/ActiveTasksBlock';
@@ -55,8 +56,7 @@ export const StatusBlock = ({
     return members.some((m) => {
       if (!m.currentTaskId) return false;
       const task = tMap.get(m.currentTaskId);
-      if (task && (task.reviewState === 'approved' || task.status === 'completed')) return false;
-      return true;
+      return isDisplayableCurrentTask(task);
     });
   }, [members, tasks]);
 

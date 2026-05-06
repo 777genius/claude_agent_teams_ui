@@ -1,4 +1,8 @@
 import { isLeadMember } from '@shared/utils/leadDetection';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskTerminalForActionableWork,
+} from '@shared/utils/teamTaskState';
 
 import { normalizeMemberName, resolveCurrentReviewOwner } from '../../../core/domain';
 
@@ -18,10 +22,6 @@ export interface MemberWorkSyncTaskImpactResolverResult {
   memberNames: string[];
   fallbackTeamWide: boolean;
   diagnostics: string[];
-}
-
-function isTerminalTask(task: Pick<TeamTask, 'status' | 'deletedAt'>): boolean {
-  return task.status === 'completed' || task.status === 'deleted' || Boolean(task.deletedAt);
 }
 
 function isDeletedTask(task: Pick<TeamTask, 'status' | 'deletedAt'>): boolean {
@@ -127,13 +127,6 @@ export class MemberWorkSyncTaskImpactResolver {
 
     addMember(task.owner);
 
-    const reviewOwner = resolveCurrentReviewOwner({
-      reviewState: task.reviewState,
-      kanbanReviewer: kanban.tasks[task.id]?.reviewer ?? null,
-      historyEvents: task.historyEvents,
-    });
-    addMember(reviewOwner?.reviewer);
-
     if (!normalizeMemberName(task.owner)) {
       addLead();
       addDiagnostic('task_owner_missing');
@@ -142,7 +135,23 @@ export class MemberWorkSyncTaskImpactResolver {
       addDiagnostic('task_owner_inactive');
     }
 
-    if (task.reviewState === 'review' && !reviewOwner?.reviewer) {
+    const taskKanbanColumn = kanban.tasks[task.id]?.column;
+    const taskWorkflowColumn = getTeamTaskWorkflowColumn({
+      ...task,
+      ...(taskKanbanColumn ? { kanbanColumn: taskKanbanColumn } : {}),
+    });
+
+    const reviewOwner =
+      taskWorkflowColumn === 'review'
+        ? resolveCurrentReviewOwner({
+            reviewState: task.reviewState,
+            kanbanReviewer: kanban.tasks[task.id]?.reviewer ?? null,
+            historyEvents: task.historyEvents,
+          })
+        : null;
+    addMember(reviewOwner?.reviewer);
+
+    if (taskWorkflowColumn === 'review' && !reviewOwner?.reviewer) {
       addLead();
       addDiagnostic('task_reviewer_missing');
     }
@@ -166,7 +175,14 @@ export class MemberWorkSyncTaskImpactResolver {
     }
 
     for (const candidate of tasks) {
-      if (candidate.id === task.id || isTerminalTask(candidate)) {
+      const kanbanColumn = kanban.tasks[candidate.id]?.column;
+      if (
+        candidate.id === task.id ||
+        isTeamTaskTerminalForActionableWork({
+          ...candidate,
+          ...(kanbanColumn ? { kanbanColumn } : {}),
+        })
+      ) {
         continue;
       }
       if (

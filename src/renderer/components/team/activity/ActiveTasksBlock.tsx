@@ -10,7 +10,9 @@ import {
   buildMemberColorMap,
   displayMemberName,
 } from '@renderer/utils/memberHelpers';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
+import { getTeamTaskWorkflowColumn } from '@shared/utils/teamTaskState';
 import { ChevronRight } from 'lucide-react';
 
 import type { ResolvedTeamMember, TeamTaskWithKanban } from '@shared/types';
@@ -27,7 +29,7 @@ interface ActiveTasksBlockProps {
 
 interface ActivityEntry {
   member: ResolvedTeamMember;
-  task: TeamTaskWithKanban | undefined;
+  task: TeamTaskWithKanban;
   taskId: string;
   kind: 'working' | 'reviewing';
 }
@@ -53,8 +55,8 @@ export const ActiveTasksBlock = memo(function ActiveTasksBlock({
   for (const m of members) {
     if (!m.currentTaskId) continue;
     const task = taskMap.get(m.currentTaskId);
-    // Defense-in-depth: hide banner for approved/completed tasks even if currentTaskId is stale
-    if (task && (task.reviewState === 'approved' || task.status === 'completed')) continue;
+    // Defense-in-depth: hide stale currentTaskId until backend refresh clears it.
+    if (!isDisplayableCurrentTask(task)) continue;
     workingMemberNames.add(m.name);
     entries.push({ member: m, task, taskId: m.currentTaskId, kind: 'working' });
   }
@@ -63,7 +65,7 @@ export const ActiveTasksBlock = memo(function ActiveTasksBlock({
   for (const m of members) {
     if (workingMemberNames.has(m.name)) continue;
     const reviewTask = tasks.find(
-      (t) => t.reviewer === m.name && (t.reviewState === 'review' || t.kanbanColumn === 'review')
+      (t) => t.reviewer === m.name && getTeamTaskWorkflowColumn(t) === 'review'
     );
     if (reviewTask) {
       entries.push({ member: m, task: reviewTask, taskId: reviewTask.id, kind: 'reviewing' });

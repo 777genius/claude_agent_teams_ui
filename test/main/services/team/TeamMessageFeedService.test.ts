@@ -252,7 +252,7 @@ Messages:
     expect(getInboxMessages).toHaveBeenCalledTimes(2);
   });
 
-  it('adds UI-only OpenCode bootstrap start rows for side-lane teammates', async () => {
+  it('adds UI-only bootstrap start rows for side-lane teammates', async () => {
     const opencodeConfig: TeamConfig = {
       name: 'relay-works-14',
       description: 'relay-works-14 team for provisioning flow',
@@ -281,7 +281,7 @@ Messages:
       from: 'team-lead',
       to: 'bob',
       source: 'system_notification',
-      messageId: 'opencode-bootstrap-start:relay-works-14:bob',
+      messageId: 'bootstrap-start:relay-works-14:bob',
       timestamp: '2026-04-30T17:42:26.947Z',
     });
     expect(feed.messages[0]?.text).toContain('Provider override for this teammate: opencode.');
@@ -291,5 +291,40 @@ Messages:
     expect(feed.messages[0]?.text).toContain(
       'The team has already been created and you are being attached as a persistent teammate.'
     );
+  });
+
+  it('keeps UI-only bootstrap start rows for members with stale inactive config flags', async () => {
+    const configWithStaleInactiveMember: TeamConfig = {
+      name: 'atlas-hq',
+      description: 'atlas-hq team for provisioning flow',
+      members: [
+        { name: 'team-lead', role: 'Lead', providerId: 'codex' },
+        {
+          name: 'alice',
+          role: 'reviewer',
+          providerId: 'anthropic',
+          model: 'claude-opus-4-6',
+          joinedAt: 1778102486293,
+          isActive: false,
+        } as NonNullable<TeamConfig['members']>[number],
+      ],
+    };
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => configWithStaleInactiveMember),
+      getInboxMessages: vi.fn(async () => []),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('atlas-hq');
+
+    expect(feed.messages).toHaveLength(1);
+    expect(feed.messages[0]).toMatchObject({
+      from: 'team-lead',
+      to: 'alice',
+      source: 'system_notification',
+      messageId: 'bootstrap-start:atlas-hq:alice',
+      timestamp: '2026-05-06T21:21:26.293Z',
+    });
   });
 });
