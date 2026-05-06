@@ -1623,7 +1623,7 @@ describe('team change throttling', () => {
     expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
   });
 
-  it('schedules a bounded team data refresh for visible task log signals', async () => {
+  it('pulses visible task log activity without refreshing team data for explicit log signals', async () => {
     const state = useStore.getState();
     const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
 
@@ -1638,11 +1638,13 @@ describe('team change throttling', () => {
     );
 
     expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
+      'task-live': true,
+    });
 
     await vi.advanceTimersByTimeAsync(800);
 
-    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
-    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
   });
 
   it('refreshes visible team data for task change freshness without pulsing live log activity', async () => {
@@ -1660,6 +1662,30 @@ describe('team change throttling', () => {
     );
 
     expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+  });
+
+  it('keeps the bounded team data refresh for legacy task log change events', async () => {
+    const state = useStore.getState();
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      {
+        type: 'task-log-change',
+        teamName: 'my-team',
+        taskId: 'task-live',
+        detail: 'opencode-runtime-task-event:start',
+      }
+    );
+
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
+      'task-live': true,
+    });
 
     await vi.advanceTimersByTimeAsync(800);
 
@@ -1696,6 +1722,12 @@ describe('team change throttling', () => {
   it('extends task log activity pulse on repeated log signals and ignores hidden teams', async () => {
     const state = useStore.getState();
     const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+    const activitySnapshots: Array<Record<string, true> | undefined> = [];
+    const unsubscribeActivitySnapshots = useStore.subscribe((nextState, prevState) => {
+      if (nextState.activeTaskLogActivityByTeam !== prevState.activeTaskLogActivityByTeam) {
+        activitySnapshots.push(nextState.activeTaskLogActivityByTeam['my-team']);
+      }
+    });
 
     hoisted.onTeamChangeCb?.({}, {
       type: 'task-log-change',
@@ -1703,9 +1735,11 @@ describe('team change throttling', () => {
       taskId: 'task-live',
       taskSignalKind: 'log',
     });
+
+    expect(activitySnapshots).toEqual([{ 'task-live': true }]);
 
     await vi.advanceTimersByTimeAsync(2000);
-    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
 
     hoisted.onTeamChangeCb?.({}, {
       type: 'task-log-change',
@@ -1714,14 +1748,17 @@ describe('team change throttling', () => {
       taskSignalKind: 'log',
     });
 
+    expect(activitySnapshots).toEqual([{ 'task-live': true }]);
+
     await vi.advanceTimersByTimeAsync(2499);
-    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(2);
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
     expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
       'task-live': true,
     });
 
     await vi.advanceTimersByTimeAsync(1);
     expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+    expect(activitySnapshots).toEqual([{ 'task-live': true }, undefined]);
 
     useStore.setState({
       paneLayout: {
@@ -1740,7 +1777,8 @@ describe('team change throttling', () => {
     expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
 
     await vi.advanceTimersByTimeAsync(800);
-    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(2);
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+    unsubscribeActivitySnapshots();
   });
 
   it('applies targeted tool resets without clearing sibling tools', async () => {

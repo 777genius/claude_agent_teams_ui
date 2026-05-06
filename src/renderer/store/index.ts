@@ -581,15 +581,19 @@ export function initializeNotificationListeners(): () => void {
   };
   const markTaskLogActivity = (teamName: string, taskId: string): void => {
     clearTaskLogActivityTimer(teamName, taskId);
-    useStore.setState((prev) => ({
-      activeTaskLogActivityByTeam: {
-        ...prev.activeTaskLogActivityByTeam,
-        [teamName]: {
-          ...(prev.activeTaskLogActivityByTeam[teamName] ?? {}),
-          [taskId]: true,
+    const isAlreadyActive =
+      useStore.getState().activeTaskLogActivityByTeam[teamName]?.[taskId] === true;
+    if (!isAlreadyActive) {
+      useStore.setState((prev) => ({
+        activeTaskLogActivityByTeam: {
+          ...prev.activeTaskLogActivityByTeam,
+          [teamName]: {
+            ...(prev.activeTaskLogActivityByTeam[teamName] ?? {}),
+            [taskId]: true,
+          },
         },
-      },
-    }));
+      }));
+    }
     const timerKey = buildTaskLogActivityTimerKey(teamName, taskId);
     const timer = setTimeout(() => {
       taskLogActivityTimers.delete(timerKey);
@@ -1703,8 +1707,12 @@ export function initializeNotificationListeners(): () => void {
         seedCurrentRunIdIfMissing();
         const visible = isTeamVisibleInAnyPane(event.teamName);
         if (event.taskId && visible) {
-          if (isTaskLogActivityChangeEvent(event)) {
+          const isLogActivitySignal = isTaskLogActivityChangeEvent(event);
+          if (isLogActivitySignal) {
             markTaskLogActivity(event.teamName, event.taskId);
+          }
+          if (event.taskSignalKind === 'log') {
+            return;
           }
           const existingDetailTimer = teamRefreshTimers.get(event.teamName);
           noteTeamRefreshFanout({
