@@ -4,7 +4,14 @@ const hoisted = vi.hoisted(() => ({
   onTeamChangeCb: null as
     | ((
         event: unknown,
-        data: { type?: string; teamName: string; detail?: string; runId?: string }
+        data: {
+          type?: string;
+          teamName: string;
+          detail?: string;
+          runId?: string;
+          taskId?: string;
+          taskSignalKind?: 'log' | 'change';
+        }
       ) => void)
     | null,
   onProvisioningProgressCb: null as
@@ -36,11 +43,19 @@ vi.mock('@renderer/api', () => ({
     teams: {
       setChangePresenceTracking: vi.fn(async () => undefined),
       setToolActivityTracking: vi.fn(async () => undefined),
+      setTaskLogStreamTracking: vi.fn(async () => undefined),
       onTeamChange: vi.fn(
         (
           cb: (
             event: unknown,
-            data: { teamName: string; type?: string; detail?: string; runId?: string }
+            data: {
+              teamName: string;
+              type?: string;
+              detail?: string;
+              runId?: string;
+              taskId?: string;
+              taskSignalKind?: 'log' | 'change';
+            }
           ) => void
         ): (() => void) => {
           hoisted.onTeamChangeCb = cb;
@@ -112,6 +127,7 @@ describe('team change throttling', () => {
       currentRuntimeRunIdByTeam: {},
       ignoredProvisioningRunIds: {},
       ignoredRuntimeRunIds: {},
+      activeTaskLogActivityByTeam: {},
       memberSpawnStatusesByTeam: {},
       memberSpawnSnapshotsByTeam: {},
       teamAgentRuntimeByTeam: {},
@@ -1541,6 +1557,190 @@ describe('team change throttling', () => {
 
     await vi.advanceTimersByTimeAsync(0);
     expect(setToolActivityTrackingSpy).toHaveBeenCalledWith('my-team', false);
+  });
+
+  it('tracks visible team tabs for task log activity and disables tracking when tab disappears', async () => {
+    const setTaskLogStreamTrackingSpy = vi.mocked(api.teams.setTaskLogStreamTracking);
+    setTaskLogStreamTrackingSpy.mockClear();
+
+    cleanup?.();
+    cleanup = initializeNotificationListeners();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(setTaskLogStreamTrackingSpy).toHaveBeenCalledWith('my-team', true);
+
+    useStore.setState({
+      paneLayout: {
+        focusedPaneId: 'p1',
+        panes: [{ id: 'p1', widthFraction: 1, tabs: [], activeTabId: null }],
+      },
+    } as never);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(setTaskLogStreamTrackingSpy).toHaveBeenCalledWith('my-team', false);
+  });
+
+  it('pulses task log activity only for real log signals and clears it after inactivity', async () => {
+    hoisted.onTeamChangeCb?.({}, {
+      type: 'task-log-change',
+      teamName: 'my-team',
+      taskId: 'task-change-only',
+      taskSignalKind: 'change',
+    });
+
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+
+    useStore.setState({ currentRuntimeRunIdByTeam: { 'my-team': 'run-current' } } as never);
+    hoisted.onTeamChangeCb?.({}, {
+      type: 'task-log-change',
+      teamName: 'my-team',
+      runId: 'run-old',
+      taskId: 'task-stale',
+      taskSignalKind: 'log',
+    });
+
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+
+    hoisted.onTeamChangeCb?.({}, {
+      type: 'task-log-change',
+      teamName: 'my-team',
+      runId: 'run-current',
+      taskId: 'task-live',
+      taskSignalKind: 'log',
+    });
+
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
+      'task-live': true,
+    });
+
+    await vi.advanceTimersByTimeAsync(2499);
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
+      'task-live': true,
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+  });
+
+  it('schedules a bounded team data refresh for visible task log signals', async () => {
+    const state = useStore.getState();
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      {
+        type: 'task-log-change',
+        teamName: 'my-team',
+        taskId: 'task-live',
+        taskSignalKind: 'log',
+      }
+    );
+
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+  });
+
+  it('refreshes visible team data for task change freshness without pulsing live log activity', async () => {
+    const state = useStore.getState();
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      {
+        type: 'task-log-change',
+        teamName: 'my-team',
+        taskId: 'task-completed',
+        taskSignalKind: 'change',
+      }
+    );
+
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
+    expect(refreshTeamDataSpy).toHaveBeenCalledWith('my-team', { withDedup: true });
+  });
+
+  it('skips the bounded task log refresh if the team is hidden before execution', async () => {
+    const state = useStore.getState();
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.(
+      {},
+      {
+        type: 'task-log-change',
+        teamName: 'my-team',
+        taskId: 'task-live',
+        taskSignalKind: 'log',
+      }
+    );
+
+    useStore.setState({
+      paneLayout: {
+        focusedPaneId: 'p1',
+        panes: [{ id: 'p1', widthFraction: 1, tabs: [], activeTabId: null }],
+      },
+    } as never);
+
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(refreshTeamDataSpy).not.toHaveBeenCalled();
+  });
+
+  it('extends task log activity pulse on repeated log signals and ignores hidden teams', async () => {
+    const state = useStore.getState();
+    const refreshTeamDataSpy = vi.spyOn(state, 'refreshTeamData');
+
+    hoisted.onTeamChangeCb?.({}, {
+      type: 'task-log-change',
+      teamName: 'my-team',
+      taskId: 'task-live',
+      taskSignalKind: 'log',
+    });
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(1);
+
+    hoisted.onTeamChangeCb?.({}, {
+      type: 'task-log-change',
+      teamName: 'my-team',
+      taskId: 'task-live',
+      taskSignalKind: 'log',
+    });
+
+    await vi.advanceTimersByTimeAsync(2499);
+    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(2);
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
+      'task-live': true,
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+
+    useStore.setState({
+      paneLayout: {
+        focusedPaneId: 'p1',
+        panes: [{ id: 'p1', widthFraction: 1, tabs: [], activeTabId: null }],
+      },
+    } as never);
+
+    hoisted.onTeamChangeCb?.({}, {
+      type: 'task-log-change',
+      teamName: 'my-team',
+      taskId: 'task-hidden',
+      taskSignalKind: 'log',
+    });
+
+    expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(refreshTeamDataSpy).toHaveBeenCalledTimes(2);
   });
 
   it('applies targeted tool resets without clearing sibling tools', async () => {

@@ -12,6 +12,7 @@ import {
   buildTaskChangeRequestOptions,
   canDisplayTaskChangesForOptions,
 } from '@renderer/utils/taskChangeRequest';
+import { isTaskLogActivityChangeEvent } from '@renderer/utils/teamChangeEvents';
 import { createLogger } from '@shared/utils/logger';
 import { isVersionOlder, normalizeVersion } from '@shared/utils/version';
 import { create } from 'zustand';
@@ -87,6 +88,7 @@ const TEAM_CHANGE_EVENT_WARN_THROTTLE_MS = 2_000;
 const TEAM_VISIBLE_IDLE_WATCHDOG_POLL_MS = 10_000;
 const TEAM_VISIBLE_IDLE_WATCHDOG_STALE_MS = 30_000;
 const TEAM_MESSAGE_FALLBACK_POLL_MS = 10_000;
+const TASK_LOG_ACTIVITY_PULSE_MS = 2_500;
 const ACTIVE_PROVISIONING_STATES_FOR_PROCESS_LITE: ReadonlySet<TeamProvisioningProgress['state']> =
   new Set(['validating', 'spawning', 'configuring', 'assembling', 'finalizing', 'verifying']);
 export const TEAM_PROCESS_LITE_FANOUT_STORAGE_KEY = 'team:processLiteFanout';
@@ -273,6 +275,7 @@ export function initializeNotificationListeners(): () => void {
   let memberSpawnRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let teamAgentRuntimeRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let toolActivityTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let taskLogActivityTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let processLiteStructuralReconcileTimers = new Map<
     string,
     { firstScheduledAt: number; timer: ReturnType<typeof setTimeout> }
@@ -546,6 +549,67 @@ export function initializeNotificationListeners(): () => void {
       clearTimeout(timer);
       toolActivityTimers.delete(key);
     }
+  };
+  const buildTaskLogActivityTimerKey = (teamName: string, taskId: string): string =>
+    `${teamName}\u0000${taskId}`;
+  const clearTaskLogActivityTimer = (teamName: string, taskId: string): void => {
+    const key = buildTaskLogActivityTimerKey(teamName, taskId);
+    const existing = taskLogActivityTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+      taskLogActivityTimers.delete(key);
+    }
+  };
+  const clearTaskLogActivityTimersForTeam = (teamName: string): void => {
+    const prefix = `${teamName}\u0000`;
+    for (const [key, timer] of taskLogActivityTimers.entries()) {
+      if (!key.startsWith(prefix)) continue;
+      clearTimeout(timer);
+      taskLogActivityTimers.delete(key);
+    }
+  };
+  const clearTaskLogActivityStateForTeam = (teamName: string): void => {
+    clearTaskLogActivityTimersForTeam(teamName);
+    useStore.setState((prev) => {
+      if (!(teamName in prev.activeTaskLogActivityByTeam)) {
+        return {};
+      }
+      const next = { ...prev.activeTaskLogActivityByTeam };
+      delete next[teamName];
+      return { activeTaskLogActivityByTeam: next };
+    });
+  };
+  const markTaskLogActivity = (teamName: string, taskId: string): void => {
+    clearTaskLogActivityTimer(teamName, taskId);
+    useStore.setState((prev) => ({
+      activeTaskLogActivityByTeam: {
+        ...prev.activeTaskLogActivityByTeam,
+        [teamName]: {
+          ...(prev.activeTaskLogActivityByTeam[teamName] ?? {}),
+          [taskId]: true,
+        },
+      },
+    }));
+    const timerKey = buildTaskLogActivityTimerKey(teamName, taskId);
+    const timer = setTimeout(() => {
+      taskLogActivityTimers.delete(timerKey);
+      useStore.setState((prev) => {
+        const teamActivity = prev.activeTaskLogActivityByTeam[teamName];
+        if (!teamActivity?.[taskId]) {
+          return {};
+        }
+        const nextTeamActivity = { ...teamActivity };
+        delete nextTeamActivity[taskId];
+        const nextByTeam = { ...prev.activeTaskLogActivityByTeam };
+        if (Object.keys(nextTeamActivity).length === 0) {
+          delete nextByTeam[teamName];
+        } else {
+          nextByTeam[teamName] = nextTeamActivity;
+        }
+        return { activeTaskLogActivityByTeam: nextByTeam };
+      });
+    }, TASK_LOG_ACTIVITY_PULSE_MS);
+    taskLogActivityTimers.set(timerKey, timer);
   };
   const clearRuntimeToolStateForTeam = (
     prev: AppState,
@@ -857,6 +921,10 @@ export function initializeNotificationListeners(): () => void {
   };
 
   const getTrackedToolActivityTeams = (): Set<string> => {
+    return getVisibleTeamNamesInAnyPane();
+  };
+
+  const getTrackedTaskLogActivityTeams = (): Set<string> => {
     return getVisibleTeamNamesInAnyPane();
   };
 
@@ -1220,6 +1288,46 @@ export function initializeNotificationListeners(): () => void {
     });
   }
 
+  if (api.teams?.setTaskLogStreamTracking) {
+    let trackedTeamNames = new Set<string>();
+    const syncVisibleTeamTracking = (): void => {
+      const nextTrackedTeamNames = getTrackedTaskLogActivityTeams();
+
+      for (const teamName of nextTrackedTeamNames) {
+        if (!trackedTeamNames.has(teamName)) {
+          void api.teams.setTaskLogStreamTracking(teamName, true).catch(() => undefined);
+        }
+      }
+
+      for (const teamName of trackedTeamNames) {
+        if (!nextTrackedTeamNames.has(teamName)) {
+          void api.teams.setTaskLogStreamTracking(teamName, false).catch(() => undefined);
+          clearTaskLogActivityStateForTeam(teamName);
+        }
+      }
+
+      trackedTeamNames = nextTrackedTeamNames;
+    };
+
+    syncVisibleTeamTracking();
+
+    const unsubscribeVisibleTeamTracking = useStore.subscribe((state, prevState) => {
+      if (state.paneLayout === prevState.paneLayout) {
+        return;
+      }
+      syncVisibleTeamTracking();
+    });
+
+    cleanupFns.push(() => {
+      unsubscribeVisibleTeamTracking();
+      for (const teamName of trackedTeamNames) {
+        void api.teams.setTaskLogStreamTracking(teamName, false).catch(() => undefined);
+        clearTaskLogActivityStateForTeam(teamName);
+      }
+      trackedTeamNames.clear();
+    });
+  }
+
   // Listen for task-list file changes to refresh currently viewed session metadata
   if (api.onTodoChange) {
     const cleanup = api.onTodoChange((event) => {
@@ -1422,6 +1530,8 @@ export function initializeNotificationListeners(): () => void {
             nextState.leadContextByTeam = { ...prev.leadContextByTeam };
             delete nextState.leadContextByTeam[event.teamName];
             Object.assign(nextState, clearRuntimeToolStateForTeam(prev, event.teamName));
+            nextState.activeTaskLogActivityByTeam = { ...prev.activeTaskLogActivityByTeam };
+            delete nextState.activeTaskLogActivityByTeam[event.teamName];
             nextState.currentRuntimeRunIdByTeam = { ...prev.currentRuntimeRunIdByTeam };
             delete nextState.currentRuntimeRunIdByTeam[event.teamName];
             nextState.ignoredRuntimeRunIds = event.runId
@@ -1431,6 +1541,7 @@ export function initializeNotificationListeners(): () => void {
                 }
               : prev.ignoredRuntimeRunIds;
             clearToolActivityTimersForTeam(event.teamName);
+            clearTaskLogActivityTimersForTeam(event.teamName);
           }
 
           return nextState as typeof prev;
@@ -1581,6 +1692,55 @@ export function initializeNotificationListeners(): () => void {
           }
         } catch {
           /* ignore malformed detail */
+        }
+        return;
+      }
+
+      if (event.type === 'task-log-change') {
+        if (isStaleRuntimeEvent) {
+          return;
+        }
+        seedCurrentRunIdIfMissing();
+        const visible = isTeamVisibleInAnyPane(event.teamName);
+        if (event.taskId && visible) {
+          if (isTaskLogActivityChangeEvent(event)) {
+            markTaskLogActivity(event.teamName, event.taskId);
+          }
+          const existingDetailTimer = teamRefreshTimers.get(event.teamName);
+          noteTeamRefreshFanout({
+            teamName: event.teamName,
+            surface: 'team-change-listener',
+            phase: existingDetailTimer ? 'coalesced' : 'scheduled',
+            reason: 'event:task-log-change:task-state-safety',
+            operation: 'refreshTeamData',
+            eventType: event.type,
+            selected: useStore.getState().selectedTeamName === event.teamName,
+            visible,
+            activeTab: getFocusedVisibleTeamName() === event.teamName,
+          });
+          if (!existingDetailTimer) {
+            const timer = setTimeout(() => {
+              teamRefreshTimers.delete(event.teamName);
+              const current = useStore.getState();
+              const visibleAtExecution = isTeamVisibleInAnyPane(event.teamName);
+              noteTeamRefreshFanout({
+                teamName: event.teamName,
+                surface: 'team-change-listener',
+                phase: visibleAtExecution ? 'executed' : 'skipped',
+                reason: 'event:task-log-change:task-state-safety',
+                operation: 'refreshTeamData',
+                eventType: event.type,
+                selected: current.selectedTeamName === event.teamName,
+                visible: visibleAtExecution,
+                activeTab: getFocusedVisibleTeamName() === event.teamName,
+              });
+              if (!visibleAtExecution) {
+                return;
+              }
+              void current.refreshTeamData(event.teamName, { withDedup: true });
+            }, TEAM_REFRESH_THROTTLE_MS);
+            teamRefreshTimers.set(event.teamName, timer);
+          }
         }
         return;
       }
@@ -1870,6 +2030,8 @@ export function initializeNotificationListeners(): () => void {
         teamAgentRuntimeRefreshTimers = new Map();
         for (const t of toolActivityTimers.values()) clearTimeout(t);
         toolActivityTimers = new Map();
+        for (const t of taskLogActivityTimers.values()) clearTimeout(t);
+        taskLogActivityTimers = new Map();
         for (const state of processLiteStructuralReconcileTimers.values()) {
           clearTimeout(state.timer);
         }

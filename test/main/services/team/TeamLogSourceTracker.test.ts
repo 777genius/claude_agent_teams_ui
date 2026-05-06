@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
+import { mkdtemp, mkdir, rm, stat, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -55,6 +55,7 @@ describe('TeamLogSourceTracker', () => {
         type: 'task-log-change',
         teamName: 'demo',
         taskId,
+        taskSignalKind: 'log',
       });
     });
 
@@ -95,6 +96,7 @@ describe('TeamLogSourceTracker', () => {
         type: 'task-log-change',
         teamName: 'demo',
         taskId,
+        taskSignalKind: 'log',
       });
     });
 
@@ -104,6 +106,167 @@ describe('TeamLogSourceTracker', () => {
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     expect(emitter).not.toHaveBeenCalled();
+  });
+
+  it('creates transcript freshness dirs without creating missing live cwd roots', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-missing-root-'));
+    const transcriptProjectDir = path.join(tempDir, 'transcript-project');
+    const missingWorkspaceDir = path.join(tempDir, 'missing-workspace');
+
+    const logsFinder = {
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
+        projectDir: transcriptProjectDir,
+        projectPath: missingWorkspaceDir,
+        taskFreshnessRootDirs: [missingWorkspaceDir],
+        sessionIds: [],
+        watchSessionIds: [],
+      })),
+    } as unknown as TeamMemberLogsFinder;
+
+    const tracker = new TeamLogSourceTracker(logsFinder);
+    const emitter = vi.fn<(event: TeamChangeEvent) => void>();
+    tracker.setEmitter(emitter);
+
+    await tracker.enableTracking('demo', 'task_log_stream');
+    emitter.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect((await stat(path.join(transcriptProjectDir, '.board-task-log-freshness'))).isDirectory())
+      .toBe(true);
+    await expect(stat(missingWorkspaceDir)).rejects.toThrow();
+
+    const taskId = 'transcript-root-task';
+    await writeFile(
+      path.join(
+        transcriptProjectDir,
+        '.board-task-log-freshness',
+        `${encodeURIComponent(taskId)}.json`
+      ),
+      JSON.stringify({ taskId }),
+      'utf8'
+    );
+
+    await vi.waitFor(() => {
+      expect(emitter).toHaveBeenCalledWith({
+        type: 'task-log-change',
+        teamName: 'demo',
+        taskId,
+        taskSignalKind: 'log',
+      });
+    });
+
+    await tracker.disableTracking('demo', 'task_log_stream');
+  });
+
+  it('emits log freshness kind from Windows-safe hashed task-log freshness files', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-safe-log-'));
+
+    const logsFinder = {
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
+        projectDir: tempDir!,
+        sessionIds: [],
+        watchSessionIds: [],
+      })),
+    } as unknown as TeamMemberLogsFinder;
+
+    const tracker = new TeamLogSourceTracker(logsFinder);
+    const emitter = vi.fn<(event: TeamChangeEvent) => void>();
+    tracker.setEmitter(emitter);
+
+    await tracker.enableTracking('demo', 'task_log_stream');
+    emitter.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const taskId = 'AUX';
+    const signalDir = path.join(tempDir, '.board-task-log-freshness');
+    await mkdir(signalDir, { recursive: true });
+    await writeFile(
+      path.join(signalDir, `${safeTaskIdSegment(taskId)}.json`),
+      JSON.stringify({ taskId, updatedAt: '2026-04-19T12:00:00.000Z' }),
+      'utf8'
+    );
+
+    await vi.waitFor(() => {
+      expect(emitter).toHaveBeenCalledWith({
+        type: 'task-log-change',
+        teamName: 'demo',
+        taskId,
+        taskSignalKind: 'log',
+      });
+    });
+
+    await tracker.disableTracking('demo', 'task_log_stream');
+  });
+
+  it('watches live cwd freshness roots used by Codex Native traces', async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'team-log-source-tracker-codex-root-'));
+    const transcriptProjectDir = path.join(tempDir, 'transcripts');
+    const workspaceProjectDir = path.join(tempDir, 'workspace');
+    const memberProjectDir = path.join(tempDir, 'member-workspace');
+    await mkdir(transcriptProjectDir, { recursive: true });
+    await mkdir(workspaceProjectDir, { recursive: true });
+    await mkdir(memberProjectDir, { recursive: true });
+
+    const logsFinder = {
+      getLiveLogSourceWatchContext: vi.fn(async () => ({
+        projectDir: transcriptProjectDir,
+        projectPath: workspaceProjectDir,
+        taskFreshnessRootDirs: [workspaceProjectDir, memberProjectDir],
+        sessionIds: [],
+        watchSessionIds: [],
+      })),
+    } as unknown as TeamMemberLogsFinder;
+
+    const tracker = new TeamLogSourceTracker(logsFinder);
+    const emitter = vi.fn<(event: TeamChangeEvent) => void>();
+    tracker.setEmitter(emitter);
+
+    await tracker.enableTracking('demo', 'task_log_stream');
+    emitter.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const logTaskId = 'codex-task-1';
+    await writeFile(
+      path.join(
+        memberProjectDir,
+        '.board-task-log-freshness',
+        `${encodeURIComponent(logTaskId)}.json`
+      ),
+      JSON.stringify({ taskId: logTaskId, source: 'codex-native-trace' }),
+      'utf8'
+    );
+
+    await vi.waitFor(() => {
+      expect(emitter).toHaveBeenCalledWith({
+        type: 'task-log-change',
+        teamName: 'demo',
+        taskId: logTaskId,
+        taskSignalKind: 'log',
+      });
+    });
+
+    emitter.mockClear();
+    const changeTaskId = 'codex-task-2';
+    await writeFile(
+      path.join(
+        workspaceProjectDir,
+        '.board-task-change-freshness',
+        `${encodeURIComponent(changeTaskId)}.json`
+      ),
+      JSON.stringify({ taskId: changeTaskId }),
+      'utf8'
+    );
+
+    await vi.waitFor(() => {
+      expect(emitter).toHaveBeenCalledWith({
+        type: 'task-log-change',
+        teamName: 'demo',
+        taskId: changeTaskId,
+        taskSignalKind: 'change',
+      });
+    });
+
+    await tracker.disableTracking('demo', 'task_log_stream');
   });
 
   it('emits log-source-change for scoped root transcripts', async () => {
@@ -275,6 +438,7 @@ describe('TeamLogSourceTracker', () => {
         type: 'task-log-change',
         teamName: 'demo',
         taskId,
+        taskSignalKind: 'log',
       });
     });
 
@@ -314,6 +478,7 @@ describe('TeamLogSourceTracker', () => {
         type: 'task-log-change',
         teamName: 'demo',
         taskId,
+        taskSignalKind: 'change',
       });
     });
     expect(emitter.mock.calls).not.toContainEqual([

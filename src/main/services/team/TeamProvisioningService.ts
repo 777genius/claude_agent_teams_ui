@@ -10645,6 +10645,7 @@ export class TeamProvisioningService {
       runId,
       taskId,
       detail: `opencode-runtime-task-event:${event}`,
+      taskSignalKind: 'log',
     });
 
     return {

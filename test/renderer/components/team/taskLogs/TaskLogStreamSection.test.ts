@@ -478,7 +478,12 @@ describe('TaskLogStreamSection', () => {
     expect(handler).toBeTypeOf('function');
 
     await act(async () => {
-      handler?.(null, { teamName: 'other-team', type: 'task-log-change', taskId: 'task-a' });
+      handler?.(null, {
+        teamName: 'other-team',
+        type: 'task-log-change',
+        taskId: 'task-a',
+        taskSignalKind: 'log',
+      });
       vi.advanceTimersByTime(400);
       await flushMicrotasks();
     });
@@ -486,7 +491,12 @@ describe('TaskLogStreamSection', () => {
     expect(apiState.getTaskLogStream).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-b' });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-b',
+        taskSignalKind: 'log',
+      });
       vi.advanceTimersByTime(400);
       await flushMicrotasks();
     });
@@ -494,7 +504,25 @@ describe('TaskLogStreamSection', () => {
     expect(apiState.getTaskLogStream).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-a' });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-a',
+        taskSignalKind: 'change',
+      });
+      vi.advanceTimersByTime(400);
+      await flushMicrotasks();
+    });
+
+    expect(apiState.getTaskLogStream).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-a',
+        taskSignalKind: 'log',
+      });
       vi.advanceTimersByTime(400);
       await flushMicrotasks();
     });
@@ -586,7 +614,12 @@ describe('TaskLogStreamSection', () => {
     ).toBe('false');
 
     await act(async () => {
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-a' });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-a',
+        taskSignalKind: 'log',
+      });
       vi.advanceTimersByTime(400);
       await flushMicrotasks();
     });

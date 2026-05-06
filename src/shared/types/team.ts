@@ -1208,6 +1208,8 @@ export interface TeamChangeEvent {
   runId?: string;
   detail?: string;
   taskId?: string;
+  /** Distinguishes real task log freshness from task-change presence freshness. */
+  taskSignalKind?: 'log' | 'change';
 }
 
 export interface ProjectBranchChangeEvent {

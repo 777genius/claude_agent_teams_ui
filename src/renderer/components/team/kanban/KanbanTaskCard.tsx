@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 
+import { OngoingIndicator } from '@renderer/components/common/OngoingIndicator';
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
 import { UnreadCommentsBadge } from '@renderer/components/team/UnreadCommentsBadge';
 import { Button } from '@renderer/components/ui/button';
@@ -38,6 +39,7 @@ interface KanbanTaskCardProps {
   compact?: boolean;
   taskMap: Map<string, TeamTask>;
   memberColorMap: Map<string, string>;
+  hasLiveTaskLogs?: boolean;
   onRequestReview: (taskId: string) => void;
   onApprove: (taskId: string) => void;
   onRequestChanges: (taskId: string) => void;
@@ -227,6 +229,7 @@ export const KanbanTaskCard = memo(
     compact,
     taskMap,
     memberColorMap,
+    hasLiveTaskLogs = false,
     onRequestReview,
     onApprove,
     onRequestChanges,
@@ -304,8 +307,13 @@ export const KanbanTaskCard = memo(
           }
         }}
       >
-        <span className="absolute left-[3px] top-[2px] text-[9px] leading-none text-[var(--color-text-muted)]">
-          {formatTaskDisplayLabel(task)}
+        <span className="absolute left-[3px] top-[2px] flex max-w-[calc(100%-72px)] items-center gap-1 text-[9px] leading-none text-[var(--color-text-muted)]">
+          <span className="truncate">{formatTaskDisplayLabel(task)}</span>
+          {hasLiveTaskLogs ? (
+            <span aria-label="Task logs active" className="inline-flex">
+              <OngoingIndicator size="sm" title="New task logs arriving" />
+            </span>
+          ) : null}
         </span>
         {task.owner ? (
           <span className="absolute right-[6px] top-[2px]">
@@ -491,6 +499,7 @@ export const KanbanTaskCard = memo(
     prev.compact === next.compact &&
     prev.taskMap === next.taskMap &&
     prev.memberColorMap === next.memberColorMap &&
+    prev.hasLiveTaskLogs === next.hasLiveTaskLogs &&
     prev.onRequestReview === next.onRequestReview &&
     prev.onApprove === next.onApprove &&
     prev.onRequestChanges === next.onRequestChanges &&

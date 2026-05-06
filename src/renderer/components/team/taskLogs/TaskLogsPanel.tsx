@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
+import { isTaskLogActivityChangeEvent } from '@renderer/utils/teamChangeEvents';
 
 import { ExecutionSessionsSection } from './ExecutionSessionsSection';
 import { isBoardTaskActivityUiEnabled, isBoardTaskExactLogsUiEnabled } from './featureGates';
@@ -187,7 +188,7 @@ export const TaskLogsPanel = ({
     const unsubscribe = api.teams.onTeamChange?.((_event, event) => {
       if (
         event.teamName !== teamName ||
-        event.type !== 'task-log-change' ||
+        !isTaskLogActivityChangeEvent(event) ||
         event.taskId !== task.id
       ) {
         return;

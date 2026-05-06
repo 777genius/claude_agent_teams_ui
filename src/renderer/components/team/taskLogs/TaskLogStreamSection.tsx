@@ -14,6 +14,7 @@ import { useStore } from '@renderer/store';
 import { selectResolvedMembersForTeamName } from '@renderer/store/slices/teamSlice';
 import { asEnhancedChunkArray } from '@renderer/types/data';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { isTaskLogActivityChangeEvent } from '@renderer/utils/teamChangeEvents';
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { AlertCircle, Clock, FileText, Loader2 } from 'lucide-react';
 
@@ -375,7 +376,7 @@ export const TaskLogStreamSection = ({
       }
       const shouldReload =
         event.type === 'log-source-change' ||
-        (event.type === 'task-log-change' && event.taskId === taskId);
+        (isTaskLogActivityChangeEvent(event) && event.taskId === taskId);
       if (!shouldReload) {
         return;
       }

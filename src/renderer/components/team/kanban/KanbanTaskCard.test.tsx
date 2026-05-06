@@ -274,3 +274,46 @@ describe('KanbanTaskCard blocked border', () => {
     }
   );
 });
+
+describe('KanbanTaskCard live log indicator', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('shows the live log indicator only when task log activity is active', async () => {
+    const { host, root } = await renderTaskCard({ hasLiveTaskLogs: true });
+
+    expect(host.querySelector('[aria-label="Task logs active"]')).not.toBeNull();
+
+    await act(async () => {
+      root.render(
+        React.createElement(KanbanTaskCard, {
+          task: baseTask,
+          teamName: 'my-team',
+          columnId: 'in_progress',
+          hasReviewers: true,
+          compact: false,
+          taskMap: new Map(),
+          memberColorMap: new Map([['alice', 'blue']]),
+          onRequestReview: noop,
+          onApprove: noop,
+          onRequestChanges: noop,
+          onMoveBackToDone: noop,
+          onStartTask: noop,
+          onCompleteTask: noop,
+          onCancelTask: noop,
+          onViewChanges: noop,
+          hasLiveTaskLogs: false,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.querySelector('[aria-label="Task logs active"]')).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+});

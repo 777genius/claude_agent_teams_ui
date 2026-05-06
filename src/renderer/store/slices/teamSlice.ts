@@ -328,6 +328,7 @@ function collectTeamScopedStateRemovals(
     | 'provisioningStartedAtFloorByTeam'
     | 'leadActivityByTeam'
     | 'leadContextByTeam'
+    | 'activeTaskLogActivityByTeam'
     | 'activeToolsByTeam'
     | 'finishedVisibleByTeam'
     | 'toolHistoryByTeam'
@@ -353,6 +354,7 @@ function collectTeamScopedStateRemovals(
   );
   const nextLeadActivity = omitTeamKey(state.leadActivityByTeam, teamName);
   const nextLeadContext = omitTeamKey(state.leadContextByTeam, teamName);
+  const nextActiveTaskLogActivity = omitTeamKey(state.activeTaskLogActivityByTeam, teamName);
   const nextActiveTools = omitTeamKey(state.activeToolsByTeam, teamName);
   const nextFinishedVisible = omitTeamKey(state.finishedVisibleByTeam, teamName);
   const nextToolHistory = omitTeamKey(state.toolHistoryByTeam, teamName);
@@ -378,6 +380,9 @@ function collectTeamScopedStateRemovals(
       : {}),
     ...(nextLeadActivity ? { leadActivityByTeam: nextLeadActivity } : {}),
     ...(nextLeadContext ? { leadContextByTeam: nextLeadContext } : {}),
+    ...(nextActiveTaskLogActivity
+      ? { activeTaskLogActivityByTeam: nextActiveTaskLogActivity }
+      : {}),
     ...(nextActiveTools ? { activeToolsByTeam: nextActiveTools } : {}),
     ...(nextFinishedVisible ? { finishedVisibleByTeam: nextFinishedVisible } : {}),
     ...(nextToolHistory ? { toolHistoryByTeam: nextToolHistory } : {}),
@@ -2385,6 +2390,7 @@ export interface TeamSlice {
   provisioningStartedAtFloorByTeam: Record<string, string>;
   leadActivityByTeam: Record<string, LeadActivityState>;
   leadContextByTeam: Record<string, LeadContextUsage>;
+  activeTaskLogActivityByTeam: Record<string, Record<string, true>>;
   activeToolsByTeam: Record<string, Record<string, Record<string, ActiveToolCall>>>;
   finishedVisibleByTeam: Record<string, Record<string, Record<string, ActiveToolCall>>>;
   toolHistoryByTeam: Record<string, Record<string, ActiveToolCall[]>>;
@@ -2727,6 +2733,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   provisioningStartedAtFloorByTeam: {},
   leadActivityByTeam: {},
   leadContextByTeam: {},
+  activeTaskLogActivityByTeam: {},
   activeToolsByTeam: {},
   finishedVisibleByTeam: {},
   toolHistoryByTeam: {},

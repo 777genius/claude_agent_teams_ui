@@ -69,8 +69,20 @@ type DecodedFreshnessTaskId =
   | { kind: 'opaque-safe-segment' }
   | { kind: 'invalid' };
 
+type TaskFreshnessSignalKind = NonNullable<TeamChangeEvent['taskSignalKind']>;
+
 function isOpaqueSafeTaskIdSegment(segment: string): boolean {
   return /^task-id-[0-9a-f]{32}$/.test(segment);
+}
+
+function pushUniqueNormalizedPath(paths: string[], candidate: string | undefined): void {
+  if (!candidate || !path.isAbsolute(candidate)) {
+    return;
+  }
+  const normalized = path.normalize(candidate);
+  if (!paths.some((existing) => path.normalize(existing) === normalized)) {
+    paths.push(normalized);
+  }
 }
 
 export function shouldIgnoreLogSourceWatcherPath(
@@ -368,14 +380,20 @@ export class TeamLogSourceTracker {
       return;
     }
 
-    await this.ensureLogSourceFreshnessDirs(context.projectDir).catch((error) => {
+    const taskFreshnessRootDirs = this.getTaskFreshnessRootDirs(context);
+    const taskFreshnessWatchRootDirs = await this.ensureLogSourceFreshnessDirs(
+      context.projectDir,
+      taskFreshnessRootDirs
+    ).catch((error) => {
       logger.debug(`Failed to ensure log-source freshness dirs for ${teamName}: ${String(error)}`);
+      return [path.normalize(context.projectDir)];
     });
 
     const { targets, scopedSessionIds } = await this.buildScopedWatchTargets(
       context.projectDir,
       context.watchSessionIds,
-      this.getPendingUnknownSessionIds(state)
+      this.getPendingUnknownSessionIds(state),
+      taskFreshnessWatchRootDirs
     );
     if (!this.isTrackingCurrent(teamName, expectedVersion)) {
       return;
@@ -411,6 +429,18 @@ export class TeamLogSourceTracker {
       ) {
         return;
       }
+      const eventTaskFreshnessRootDirs = this.getTaskFreshnessRootDirs(current.activeContext);
+      pushUniqueNormalizedPath(eventTaskFreshnessRootDirs, current.projectDir);
+      if (
+        this.handleTaskFreshnessSignalChangeForRoots(
+          teamName,
+          changedPath,
+          eventTaskFreshnessRootDirs
+        )
+      ) {
+        return;
+      }
+
       const action = classifyLogSourceWatcherEvent({
         projectDir: current.projectDir,
         changedPath,
@@ -420,21 +450,6 @@ export class TeamLogSourceTracker {
       });
 
       if (action.kind === 'task-freshness') {
-        if (
-          !this.handleTaskFreshnessSignalChange(
-            teamName,
-            current.projectDir,
-            changedPath,
-            BOARD_TASK_LOG_FRESHNESS_DIRNAME
-          )
-        ) {
-          this.handleTaskFreshnessSignalChange(
-            teamName,
-            current.projectDir,
-            changedPath,
-            BOARD_TASK_CHANGE_FRESHNESS_DIRNAME
-          );
-        }
         return;
       }
 
@@ -458,24 +473,74 @@ export class TeamLogSourceTracker {
     });
   }
 
-  private async ensureLogSourceFreshnessDirs(projectDir: string): Promise<void> {
+  private getTaskFreshnessRootDirs(context: TeamLogSourceLiveContext | null): string[] {
+    const roots: string[] = [];
+    pushUniqueNormalizedPath(roots, context?.projectDir);
+    pushUniqueNormalizedPath(roots, context?.projectPath);
+    for (const rootDir of context?.taskFreshnessRootDirs ?? []) {
+      pushUniqueNormalizedPath(roots, rootDir);
+    }
+    return roots;
+  }
+
+  private async ensureLogSourceFreshnessDirs(
+    transcriptProjectDir: string,
+    projectDirs: readonly string[]
+  ): Promise<string[]> {
+    const watchRootDirs: string[] = [];
+    const normalizedTranscriptProjectDir = path.normalize(transcriptProjectDir);
+    pushUniqueNormalizedPath(watchRootDirs, normalizedTranscriptProjectDir);
+
     await Promise.all([
-      fs.mkdir(path.join(projectDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME), { recursive: true }),
-      fs.mkdir(path.join(projectDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME), { recursive: true }),
+      fs.mkdir(path.join(normalizedTranscriptProjectDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME), {
+        recursive: true,
+      }),
+      fs.mkdir(path.join(normalizedTranscriptProjectDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME), {
+        recursive: true,
+      }),
     ]);
+
+    await Promise.all(
+      projectDirs.map(async (projectDir) => {
+        try {
+          const normalizedProjectDir = path.normalize(projectDir);
+          if (normalizedProjectDir === normalizedTranscriptProjectDir) {
+            return;
+          }
+          if (!(await this.isDirectory(normalizedProjectDir))) {
+            return;
+          }
+          await Promise.all([
+            fs.mkdir(path.join(normalizedProjectDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME), {
+              recursive: true,
+            }),
+            fs.mkdir(path.join(normalizedProjectDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME), {
+              recursive: true,
+            }),
+          ]);
+          pushUniqueNormalizedPath(watchRootDirs, normalizedProjectDir);
+        } catch (error) {
+          logger.debug(`Failed to ensure task freshness dirs in ${projectDir}: ${String(error)}`);
+        }
+      })
+    );
+    return watchRootDirs;
   }
 
   private async buildScopedWatchTargets(
     projectDir: string,
     confirmedSessionIds: readonly string[],
-    pendingRootSessionIds: readonly string[]
+    pendingRootSessionIds: readonly string[],
+    taskFreshnessRootDirs: readonly string[] = [projectDir]
   ): Promise<{ targets: string[]; scopedSessionIds: Set<string> }> {
     const targets = new Set<string>();
     const scopedSessionIds = new Set<string>();
 
     targets.add(projectDir);
-    targets.add(path.join(projectDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME));
-    targets.add(path.join(projectDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME));
+    for (const freshnessRootDir of taskFreshnessRootDirs) {
+      targets.add(path.join(freshnessRootDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME));
+      targets.add(path.join(freshnessRootDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME));
+    }
 
     for (const rawSessionId of confirmedSessionIds) {
       const sessionId = normalizeLogSourceSessionId(rawSessionId);
@@ -664,11 +729,10 @@ export class TeamLogSourceTracker {
 
   private handleTaskFreshnessSignalChange(
     teamName: string,
-    projectDir: string,
     changedPath: string,
-    signalDirName: string
+    signalDir: string,
+    taskSignalKind: TaskFreshnessSignalKind
   ): boolean {
-    const signalDir = path.join(projectDir, signalDirName);
     const relativePath = path.relative(signalDir, changedPath);
     if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
       return path.normalize(changedPath) === path.normalize(signalDir);
@@ -687,7 +751,7 @@ export class TeamLogSourceTracker {
       return true;
     }
     if (decoded.kind === 'opaque-safe-segment') {
-      void this.emitTaskFreshnessSignalFromFile(teamName, changedPath);
+      void this.emitTaskFreshnessSignalFromFile(teamName, changedPath, taskSignalKind);
       return true;
     }
 
@@ -695,6 +759,7 @@ export class TeamLogSourceTracker {
       type: 'task-log-change',
       teamName,
       taskId: decoded.taskId,
+      taskSignalKind,
     });
     return true;
   }
@@ -720,7 +785,11 @@ export class TeamLogSourceTracker {
     }
   }
 
-  private async emitTaskFreshnessSignalFromFile(teamName: string, filePath: string): Promise<void> {
+  private async emitTaskFreshnessSignalFromFile(
+    teamName: string,
+    filePath: string,
+    taskSignalKind: TaskFreshnessSignalKind
+  ): Promise<void> {
     try {
       const raw = await fs.readFile(filePath, 'utf8');
       const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -733,6 +802,7 @@ export class TeamLogSourceTracker {
           type: 'task-log-change',
           teamName,
           taskId,
+          taskSignalKind,
         });
         return;
       }
@@ -740,6 +810,36 @@ export class TeamLogSourceTracker {
       // Deletions or partially unavailable files still need a team-level refresh.
     }
     this.emitLogSourceChange(teamName);
+  }
+
+  private handleTaskFreshnessSignalChangeForRoots(
+    teamName: string,
+    changedPath: string,
+    taskFreshnessRootDirs: readonly string[]
+  ): boolean {
+    for (const freshnessRootDir of taskFreshnessRootDirs) {
+      if (
+        this.handleTaskFreshnessSignalChange(
+          teamName,
+          changedPath,
+          path.join(freshnessRootDir, BOARD_TASK_LOG_FRESHNESS_DIRNAME),
+          'log'
+        )
+      ) {
+        return true;
+      }
+      if (
+        this.handleTaskFreshnessSignalChange(
+          teamName,
+          changedPath,
+          path.join(freshnessRootDir, BOARD_TASK_CHANGE_FRESHNESS_DIRNAME),
+          'change'
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private async recompute(teamName: string): Promise<TeamLogSourceSnapshot> {

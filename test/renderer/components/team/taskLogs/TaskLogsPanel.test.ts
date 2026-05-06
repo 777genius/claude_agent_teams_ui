@@ -341,15 +341,36 @@ describe('TaskLogsPanel', () => {
     expect(apiState.setTaskLogStreamTracking).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      handler?.(null, { teamName: 'other-team', type: 'task-log-change', taskId: 'task-1' });
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-2' });
+      handler?.(null, {
+        teamName: 'other-team',
+        type: 'task-log-change',
+        taskId: 'task-1',
+        taskSignalKind: 'log',
+      });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-2',
+        taskSignalKind: 'log',
+      });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-1',
+        taskSignalKind: 'change',
+      });
       await flushMicrotasks();
     });
 
     expect(activityStates).toEqual([false]);
 
     await act(async () => {
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-1' });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-1',
+        taskSignalKind: 'log',
+      });
       await flushMicrotasks();
     });
 
@@ -411,7 +432,12 @@ describe('TaskLogsPanel', () => {
     expect(activityStates).toEqual([false]);
 
     await act(async () => {
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-1' });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-1',
+        taskSignalKind: 'log',
+      });
       await flushMicrotasks();
     });
 
@@ -443,7 +469,12 @@ describe('TaskLogsPanel', () => {
     expect(handler).toBeTypeOf('function');
 
     await act(async () => {
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-1' });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-1',
+        taskSignalKind: 'log',
+      });
       await flushMicrotasks();
     });
 
@@ -564,7 +595,12 @@ describe('TaskLogsPanel', () => {
     expect(counts).toEqual([undefined, 4]);
 
     await act(async () => {
-      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-1' });
+      handler?.(null, {
+        teamName: 'demo',
+        type: 'task-log-change',
+        taskId: 'task-1',
+        taskSignalKind: 'log',
+      });
       vi.advanceTimersByTime(350);
       await flushMicrotasks();
     });
