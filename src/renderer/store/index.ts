@@ -88,7 +88,7 @@ const TEAM_CHANGE_EVENT_WARN_THROTTLE_MS = 2_000;
 const TEAM_VISIBLE_IDLE_WATCHDOG_POLL_MS = 10_000;
 const TEAM_VISIBLE_IDLE_WATCHDOG_STALE_MS = 30_000;
 const TEAM_MESSAGE_FALLBACK_POLL_MS = 10_000;
-const TASK_LOG_ACTIVITY_PULSE_MS = 2_500;
+const TASK_LOG_ACTIVITY_PULSE_MS = 3_500;
 const ACTIVE_PROVISIONING_STATES_FOR_PROCESS_LITE: ReadonlySet<TeamProvisioningProgress['state']> =
   new Set(['validating', 'spawning', 'configuring', 'assembling', 'finalizing', 'verifying']);
 export const TEAM_PROCESS_LITE_FANOUT_STORAGE_KEY = 'team:processLiteFanout';

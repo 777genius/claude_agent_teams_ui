@@ -1614,7 +1614,7 @@ describe('team change throttling', () => {
       'task-live': true,
     });
 
-    await vi.advanceTimersByTimeAsync(2499);
+    await vi.advanceTimersByTimeAsync(3499);
     expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
       'task-live': true,
     });
@@ -1750,7 +1750,7 @@ describe('team change throttling', () => {
 
     expect(activitySnapshots).toEqual([{ 'task-live': true }]);
 
-    await vi.advanceTimersByTimeAsync(2499);
+    await vi.advanceTimersByTimeAsync(3499);
     expect(refreshTeamDataSpy).not.toHaveBeenCalled();
     expect(useStore.getState().activeTaskLogActivityByTeam['my-team']).toEqual({
       'task-live': true,
