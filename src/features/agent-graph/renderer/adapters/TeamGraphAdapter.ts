@@ -118,7 +118,8 @@ export class TeamGraphAdapter {
     memberSpawnSnapshot?: MemberSpawnStatusesSnapshot,
     slotAssignments?: Record<string, GraphOwnerSlotAssignment>,
     layoutMode: GraphLayoutMode = 'radial',
-    gridOwnerOrder?: readonly string[]
+    gridOwnerOrder?: readonly string[],
+    activeTaskLogActivity?: Record<string, true>
   ): GraphDataPort {
     if (teamData?.teamName !== teamName) {
       return TeamGraphAdapter.#emptyResult(teamName);
@@ -203,7 +204,8 @@ export class TeamGraphAdapter {
       commentReadState,
       memberNodeIdByAlias,
       leadId,
-      leadName
+      leadName,
+      activeTaskLogActivity
     );
     this.#buildProcessNodes(nodes, edges, teamData, teamName, memberNodeIdByAlias);
     this.#attachActivityFeeds(nodes, teamData, teamName, leadId, leadName);
@@ -627,7 +629,8 @@ export class TeamGraphAdapter {
     commentReadState?: Record<string, unknown>,
     memberNodeIdByAlias?: ReadonlyMap<string, string>,
     leadId?: string,
-    leadName?: string
+    leadName?: string,
+    activeTaskLogActivity?: Record<string, true>
   ): void {
     const taskStateById = new Map<string, Pick<TeamGraphData['tasks'][number], 'status'>>();
     const taskDisplayIds = new Map<string, string>();
@@ -698,6 +701,7 @@ export class TeamGraphAdapter {
         blocksDisplayIds,
         totalCommentCount: totalCommentCount > 0 ? totalCommentCount : undefined,
         unreadCommentCount: unreadCommentCount > 0 ? unreadCommentCount : undefined,
+        hasLiveTaskLogs: activeTaskLogActivity?.[task.id] === true ? true : undefined,
         domainRef: { kind: 'task', teamName, taskId: task.id },
       });
     }

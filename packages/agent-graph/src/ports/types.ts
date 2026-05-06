@@ -164,6 +164,8 @@ export interface GraphNode {
   totalCommentCount?: number;
   /** Unread comment count on this task */
   unreadCommentCount?: number;
+  /** Recent live log activity is arriving for this task */
+  hasLiveTaskLogs?: boolean;
   /** Synthetic overflow stack node instead of hidden task tails */
   isOverflowStack?: boolean;
   /** Number of hidden tasks behind this overflow stack */
