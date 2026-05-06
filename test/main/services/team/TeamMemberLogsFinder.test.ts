@@ -99,9 +99,9 @@ describe('TeamMemberLogsFinder', () => {
     ]);
     expect(context?.sessionIds).toEqual(context?.watchSessionIds);
     expect(context?.taskFreshnessRootDirs).toEqual([
-      projectPath,
-      memberProjectPath,
-      runtimeProjectPath,
+      path.normalize(projectPath),
+      path.normalize(memberProjectPath),
+      path.normalize(runtimeProjectPath),
     ]);
   });
 
