@@ -37,6 +37,81 @@ describe('filterTeamMessages', () => {
     expect(result[0].source).toBe('lead_process');
   });
 
+  it('hides native app-managed bootstrap private control messages', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'native-bootstrap-private-check',
+        source: 'system_notification',
+        text: '<agent_teams_native_app_managed_bootstrap_check>\nprivate\n</agent_teams_native_app_managed_bootstrap_check>',
+      }),
+      makeMessage({
+        messageId: 'visible-message',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['visible-message']);
+  });
+
+  it('hides leaked lead inbox relay prompt echoes', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'lead-relay-echo',
+        source: 'lead_process',
+        to: 'user',
+        text: `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+If action is required, delegate via task creation or SendMessage, and keep responses minimal.
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+      }),
+      makeMessage({
+        messageId: 'visible-message',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['visible-message']);
+  });
+
+  it('hides Human-prefixed teammate protocol echoes', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'teammate-protocol-echo',
+        source: 'lead_process',
+        text: 'Human: <teammate-message teammate_id="alice">{"type":"idle_notification"}</teammate-message>',
+      }),
+      makeMessage({
+        messageId: 'visible-message',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['visible-message']);
+  });
+
   it('hides relay bridge copies when the original message is visible', () => {
     const messages = [
       makeMessage({

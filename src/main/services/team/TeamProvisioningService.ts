@@ -88,6 +88,7 @@ import {
   parseAllTeammateMessages,
   type ParsedTeammateContent,
 } from '@shared/utils/teammateMessageParser';
+import { isTeamInternalControlMessageText } from '@shared/utils/teamInternalControlMessages';
 import { buildTeamMemberColorMap } from '@shared/utils/teamMemberColors';
 import { createCliAutoSuffixNameGuard, parseNumericSuffixName } from '@shared/utils/teamMemberName';
 import {
@@ -19400,24 +19401,28 @@ export class TeamProvisioningService {
       // that is not meant for the human user.
       const cleanReply = replyText ? stripAgentBlocks(replyText) : null;
       if (cleanReply) {
-        const relayMsg: InboxMessage = {
-          from: leadName,
-          to: 'user',
-          text: cleanReply,
-          timestamp: nowIso(),
-          read: true,
-          summary: cleanReply.length > 60 ? cleanReply.slice(0, 57) + '...' : cleanReply,
-          messageId: `lead-process-${runId}-${Date.now()}`,
-          source: 'lead_process',
-        };
-        this.pushLiveLeadProcessMessage(teamName, relayMsg);
-        // Persist to disk so relayed replies survive app restart and trigger FileWatcher
-        this.persistSentMessage(teamName, relayMsg);
-        this.teamChangeEmitter?.({
-          type: 'inbox',
-          teamName,
-          detail: 'lead-process-reply',
-        });
+        if (isTeamInternalControlMessageText(cleanReply)) {
+          logger.debug(`[${teamName}] Suppressed internal lead relay echo`);
+        } else {
+          const relayMsg: InboxMessage = {
+            from: leadName,
+            to: 'user',
+            text: cleanReply,
+            timestamp: nowIso(),
+            read: true,
+            summary: cleanReply.length > 60 ? cleanReply.slice(0, 57) + '...' : cleanReply,
+            messageId: `lead-process-${runId}-${Date.now()}`,
+            source: 'lead_process',
+          };
+          this.pushLiveLeadProcessMessage(teamName, relayMsg);
+          // Persist to disk so relayed replies survive app restart and trigger FileWatcher
+          this.persistSentMessage(teamName, relayMsg);
+          this.teamChangeEmitter?.({
+            type: 'inbox',
+            teamName,
+            detail: 'lead-process-reply',
+          });
+        }
       }
 
       return batch.length;
@@ -25426,7 +25431,7 @@ export class TeamProvisioningService {
             !hasCapturedVisibleSendMessage
           ) {
             const cleanText = stripAgentBlocks(text).trim();
-            if (cleanText.length > 0) {
+            if (cleanText.length > 0 && !isTeamInternalControlMessageText(cleanText)) {
               this.pushLiveLeadTextMessage(
                 run,
                 cleanText,
@@ -25440,7 +25445,7 @@ export class TeamProvisioningService {
           // into the live cache so Messages/Activity can show the earliest assistant output.
           if (!run.silentUserDmForward && !hasCapturedVisibleSendMessage) {
             const cleanText = stripAgentBlocks(text).trim();
-            if (cleanText.length > 0) {
+            if (cleanText.length > 0 && !isTeamInternalControlMessageText(cleanText)) {
               this.pushLiveLeadTextMessage(
                 run,
                 cleanText,

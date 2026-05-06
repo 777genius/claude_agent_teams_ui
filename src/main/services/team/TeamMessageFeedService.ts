@@ -1,6 +1,7 @@
 import { classifyIdleNotificationText } from '@shared/utils/idleNotificationSemantics';
 import { createLogger } from '@shared/utils/logger';
 import { buildStandaloneSlashCommandMeta } from '@shared/utils/slashCommands';
+import { isTeamInternalControlMessageText } from '@shared/utils/teamInternalControlMessages';
 import { createHash } from 'crypto';
 
 import { getEffectiveInboxMessageId } from './inboxMessageIdentity';
@@ -136,6 +137,10 @@ function buildSyntheticOpenCodeBootstrapMessages(config: TeamConfig): InboxMessa
       source: 'system_notification' as const,
       messageId: `opencode-bootstrap-start:${config.name}:${member.name}`,
     }));
+}
+
+function isVisibleTeamMessage(message: InboxMessage): boolean {
+  return !isTeamInternalControlMessageText(message.text);
 }
 
 function annotateSlashCommandResponses(messages: InboxMessage[]): void {
@@ -499,7 +504,9 @@ export class TeamMessageFeedService {
 
     const normalizeStartedAt = Date.now();
     const syntheticMessages = buildSyntheticOpenCodeBootstrapMessages(config);
-    let messages = [...inboxMessages, ...leadTexts, ...sentMessages, ...syntheticMessages];
+    let messages = [...inboxMessages, ...leadTexts, ...sentMessages, ...syntheticMessages].filter(
+      isVisibleTeamMessage
+    );
     messages = dedupeLeadProcessCopies(messages, leadTexts);
     messages = ensureEffectiveMessageIds(messages);
     messages = dedupeByMessageId(messages);

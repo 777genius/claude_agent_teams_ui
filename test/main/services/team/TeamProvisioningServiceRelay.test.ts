@@ -306,6 +306,42 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(service.getLiveLeadProcessMessages(teamName)).toHaveLength(1);
   });
 
+  it('does not persist echoed lead relay prompts as user-visible replies', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'tom',
+        text: '#f8d7235a done.',
+        timestamp: '2026-02-23T10:00:00.000Z',
+        read: false,
+        summary: '#f8d7235a done',
+        messageId: 'm-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    const payload = JSON.parse(String(writeSpy.mock.calls[0]?.[0] ?? '{}')) as {
+      message?: { content?: Array<{ text?: string }> };
+    };
+    const relayedPrompt = payload.message?.content?.[0]?.text ?? '';
+
+    expect(relayedPrompt).toContain('You have new inbox messages addressed to you');
+
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: `Human: ${relayedPrompt}` }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+    await expect(relayPromise).resolves.toBe(1);
+    expect(service.getLiveLeadProcessMessages(teamName)).toHaveLength(0);
+    expect(hoisted.files.get(`/mock/teams/${teamName}/sentMessages.json`)).toBeUndefined();
+  });
+
   it('treats member work sync nudges as actionable in lead relay prompt', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';
@@ -434,6 +470,37 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
       clearTimeout(run.leadRelayCapture.timeoutHandle);
       run.leadRelayCapture = null;
     }
+  });
+
+  it('does not show internal control echoes as late lead thoughts', () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    attachAliveRun(service, teamName);
+
+    const run = (service as unknown as { runs: Map<string, unknown> }).runs.get('run-1') as {
+      leadRelayCapture: null;
+    };
+
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [
+        {
+          type: 'text',
+          text: `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+If action is required, delegate via task creation or SendMessage, and keep responses minimal.
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+        },
+      ],
+    });
+
+    expect(service.getLiveLeadProcessMessages(teamName)).toHaveLength(0);
   });
 
   it('adds substantive-only task comment guidance for lead relay prompts', async () => {

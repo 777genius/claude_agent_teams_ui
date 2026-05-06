@@ -245,6 +245,7 @@ export const KanbanTaskCard = memo(
     const blocksIds = task.blocks?.filter((id) => id.length > 0) ?? [];
     const hasBlockedBy = blockedByIds.length > 0;
     const hasBlocks = blocksIds.length > 0;
+    const shouldHighlightBlocked = hasBlockedBy && columnId !== 'done' && columnId !== 'approved';
     const cardSurfaceClass = isLight ? 'bg-white' : 'bg-[var(--color-surface-raised)]';
 
     const taskChangeRequestOptions = useMemo(() => buildTaskChangeRequestOptions(task), [task]);
@@ -288,8 +289,8 @@ export const KanbanTaskCard = memo(
     return (
       <div
         data-task-id={task.id}
-        className={`relative cursor-pointer rounded-md border px-1.5 py-3 transition-colors hover:border-[var(--color-border-emphasis)] ${
-          hasBlockedBy
+        className={`kanban-task-card relative cursor-pointer rounded-md border px-1.5 py-3 hover:border-[var(--color-border-emphasis)] ${
+          shouldHighlightBlocked
             ? `border-yellow-500/30 ${cardSurfaceClass}`
             : `border-[var(--color-border)] ${cardSurfaceClass}`
         }`}

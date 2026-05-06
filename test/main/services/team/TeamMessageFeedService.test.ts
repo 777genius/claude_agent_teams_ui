@@ -74,6 +74,29 @@ describe('TeamMessageFeedService', () => {
     expect(second.messages).toHaveLength(1);
   });
 
+  it('hides native app-managed bootstrap private control messages from the feed', async () => {
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages: vi.fn(async () => [
+        makeMessage({
+          messageId: 'native-bootstrap-private-check',
+          source: 'system_notification',
+          text: '<agent_teams_native_app_managed_bootstrap_check>\nprivate\n</agent_teams_native_app_managed_bootstrap_check>',
+        }),
+        makeMessage({
+          messageId: 'visible-user-message',
+          text: 'Visible message',
+        }),
+      ]),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('signal-ops-4');
+
+    expect(feed.messages.map((message) => message.messageId)).toEqual(['visible-user-message']);
+  });
+
   it('refreshes the durable feed after cache expiry even when the dirty signal was missed', async () => {
     let inboxMessages: InboxMessage[] = [makeMessage()];
     const getInboxMessages = vi.fn(async () => inboxMessages);

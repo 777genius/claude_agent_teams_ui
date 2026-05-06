@@ -4,6 +4,10 @@ import {
   getTeamModelLabel,
   getTeamProviderLabel,
 } from '@renderer/utils/teamModelCatalog';
+import {
+  isNativeAppManagedBootstrapCheckText,
+  isTeamInternalControlMessageText,
+} from '@shared/utils/teamInternalControlMessages';
 
 import type { InboxMessage, TeamProviderId } from '@shared/types';
 
@@ -125,6 +129,29 @@ export interface BootstrapAcknowledgementDisplay {
   body: string;
 }
 
+export interface InternalControlMessageDisplay {
+  summary: string;
+  body: string;
+}
+
+export function getInternalControlMessageDisplay(
+  message: Pick<InboxMessage, 'text'>
+): InternalControlMessageDisplay | null {
+  if (isNativeAppManagedBootstrapCheckText(message.text)) {
+    return {
+      summary: 'Internal bootstrap check',
+      body: 'Internal bootstrap check hidden in the UI.',
+    };
+  }
+  if (!isTeamInternalControlMessageText(message.text)) {
+    return null;
+  }
+  return {
+    summary: 'Internal control message',
+    body: 'Internal control message hidden in the UI.',
+  };
+}
+
 export function getBootstrapPromptDisplay(
   message: Pick<InboxMessage, 'text' | 'to'>
 ): BootstrapPromptDisplay | null {
@@ -211,6 +238,7 @@ export function getBootstrapAcknowledgementDisplay(
 
 export function getSanitizedInboxMessageText(message: Pick<InboxMessage, 'text' | 'to'>): string {
   return (
+    getInternalControlMessageDisplay(message)?.body ??
     getBootstrapPromptDisplay(message)?.body ??
     getBootstrapAcknowledgementDisplay(message as Pick<InboxMessage, 'text' | 'from'>)?.body ??
     message.text ??
@@ -222,6 +250,7 @@ export function getSanitizedInboxMessageSummary(
   message: Pick<InboxMessage, 'text' | 'to' | 'from' | 'summary'>
 ): string {
   return (
+    getInternalControlMessageDisplay(message)?.summary ??
     getBootstrapPromptDisplay(message)?.summary ??
     getBootstrapAcknowledgementDisplay(message)?.summary ??
     message.summary ??

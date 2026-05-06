@@ -20,6 +20,9 @@
   /* Subtle borders */
   --color-border-emphasis: rgba(148, 163, 184, 0.12);
   /* Emphasis borders */
+  --kanban-task-card-hover-shadow:
+    0 0 0 1px rgba(129, 140, 248, 0.28), 0 10px 30px rgba(37, 99, 235, 0.24),
+    0 0 22px rgba(129, 140, 248, 0.16);
   --color-text: #f1f5f9;
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
@@ -269,6 +272,19 @@
   overflow: visible;
 }
 
+.kanban-task-card {
+  box-shadow: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.kanban-task-card:hover,
+.kanban-task-card:focus-visible {
+  box-shadow: var(--kanban-task-card-hover-shadow);
+}
+
 .kanban-grid-item-wrapper {
   height: 100%;
 }
@@ -466,6 +482,9 @@
   /* Warm subtle border */
   --color-border-emphasis: #a8a5a0;
   /* Warm emphasis border */
+  --kanban-task-card-hover-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.28), 0 10px 26px rgba(37, 99, 235, 0.18),
+    0 0 18px rgba(79, 70, 229, 0.12);
   --color-text: #1c1b19;
   /* Warm near-black text */
   --color-text-secondary: #4d4b46;
