@@ -97,6 +97,32 @@ describe('TeamMessageFeedService', () => {
     expect(feed.messages.map((message) => message.messageId)).toEqual(['visible-user-message']);
   });
 
+  it('does not hide user-authored text just because it resembles an internal prompt', async () => {
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages: vi.fn(async () => [
+        makeMessage({
+          messageId: 'quoted-control-prompt',
+          source: 'user_sent',
+          text: `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+        }),
+      ]),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('signal-ops-4');
+
+    expect(feed.messages.map((message) => message.messageId)).toEqual(['quoted-control-prompt']);
+  });
+
   it('refreshes the durable feed after cache expiry even when the dirty signal was missed', async () => {
     let inboxMessages: InboxMessage[] = [makeMessage()];
     const getInboxMessages = vi.fn(async () => inboxMessages);

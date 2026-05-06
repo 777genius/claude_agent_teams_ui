@@ -2,7 +2,14 @@ const NATIVE_APP_MANAGED_BOOTSTRAP_CHECK_OPEN = '<agent_teams_native_app_managed
 const LEAD_INBOX_RELAY_PROMPT_OPEN = 'You have new inbox messages addressed to you (team lead ';
 const TEAMMATE_MESSAGE_OPEN_RE = /^<teammate-message\s/i;
 
-function stripTranscriptSpeakerPrefix(value: string): string {
+const INTERNAL_CONTROL_MESSAGE_SOURCES = new Set([
+  'lead_process',
+  'lead_session',
+  'runtime_delivery',
+  'system_notification',
+]);
+
+export function stripTranscriptSpeakerPrefix(value: string): string {
   let normalized = value.trim();
   for (let i = 0; i < 3; i += 1) {
     const next = normalized.replace(/^(?:Human|User):\s*/i, '').trimStart();
@@ -44,4 +51,26 @@ export function isTeamInternalControlMessageText(value: unknown): boolean {
     isLeadInboxRelayControlPromptText(value) ||
     isTeammateProtocolControlText(value)
   );
+}
+
+export function isTeamInternalControlMessageEnvelope(message: {
+  text?: unknown;
+  source?: unknown;
+}): boolean {
+  if (!isTeamInternalControlMessageText(message.text)) {
+    return false;
+  }
+  return typeof message.source === 'string' && INTERNAL_CONTROL_MESSAGE_SOURCES.has(message.source);
+}
+
+export function stripExactInternalControlEchoPrefix(
+  value: string,
+  expectedControlText: string
+): string {
+  const text = stripTranscriptSpeakerPrefix(value);
+  const expected = stripTranscriptSpeakerPrefix(expectedControlText);
+  if (!expected || !text.startsWith(expected)) {
+    return value.trim();
+  }
+  return text.slice(expected.length).trim();
 }

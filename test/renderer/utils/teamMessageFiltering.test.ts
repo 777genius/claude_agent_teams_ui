@@ -90,6 +90,31 @@ Messages:
     expect(result.map((message) => message.messageId)).toEqual(['visible-message']);
   });
 
+  it('does not hide user-authored text that quotes an internal prompt', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'quoted-control-prompt',
+        source: 'user_sent',
+        text: `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['quoted-control-prompt']);
+  });
+
   it('hides Human-prefixed teammate protocol echoes', () => {
     const messages = [
       makeMessage({

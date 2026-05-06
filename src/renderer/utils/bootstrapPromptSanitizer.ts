@@ -6,7 +6,7 @@ import {
 } from '@renderer/utils/teamModelCatalog';
 import {
   isNativeAppManagedBootstrapCheckText,
-  isTeamInternalControlMessageText,
+  isTeamInternalControlMessageEnvelope,
 } from '@shared/utils/teamInternalControlMessages';
 
 import type { InboxMessage, TeamProviderId } from '@shared/types';
@@ -135,16 +135,16 @@ export interface InternalControlMessageDisplay {
 }
 
 export function getInternalControlMessageDisplay(
-  message: Pick<InboxMessage, 'text'>
+  message: Pick<InboxMessage, 'text'> & Partial<Pick<InboxMessage, 'source'>>
 ): InternalControlMessageDisplay | null {
+  if (!isTeamInternalControlMessageEnvelope(message)) {
+    return null;
+  }
   if (isNativeAppManagedBootstrapCheckText(message.text)) {
     return {
       summary: 'Internal bootstrap check',
       body: 'Internal bootstrap check hidden in the UI.',
     };
-  }
-  if (!isTeamInternalControlMessageText(message.text)) {
-    return null;
   }
   return {
     summary: 'Internal control message',
@@ -236,7 +236,9 @@ export function getBootstrapAcknowledgementDisplay(
   };
 }
 
-export function getSanitizedInboxMessageText(message: Pick<InboxMessage, 'text' | 'to'>): string {
+export function getSanitizedInboxMessageText(
+  message: Pick<InboxMessage, 'text' | 'to'> & Partial<Pick<InboxMessage, 'source'>>
+): string {
   return (
     getInternalControlMessageDisplay(message)?.body ??
     getBootstrapPromptDisplay(message)?.body ??
@@ -247,7 +249,8 @@ export function getSanitizedInboxMessageText(message: Pick<InboxMessage, 'text' 
 }
 
 export function getSanitizedInboxMessageSummary(
-  message: Pick<InboxMessage, 'text' | 'to' | 'from' | 'summary'>
+  message: Pick<InboxMessage, 'text' | 'to' | 'from' | 'summary'> &
+    Partial<Pick<InboxMessage, 'source'>>
 ): string {
   return (
     getInternalControlMessageDisplay(message)?.summary ??

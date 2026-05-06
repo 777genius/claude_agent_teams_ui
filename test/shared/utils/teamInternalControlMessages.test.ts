@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  isTeamInternalControlMessageEnvelope,
   isLeadInboxRelayControlPromptText,
   isTeamInternalControlMessageText,
   isTeammateProtocolControlText,
+  stripExactInternalControlEchoPrefix,
 } from '@shared/utils/teamInternalControlMessages';
 
 const leadRelayPrompt = `You have new inbox messages addressed to you (team lead "team-lead").
@@ -38,5 +40,37 @@ describe('teamInternalControlMessages', () => {
 
     expect(isTeammateProtocolControlText(text)).toBe(true);
     expect(isTeamInternalControlMessageText(text)).toBe(true);
+  });
+
+  it('only treats internal-looking text as hidden for internal message sources', () => {
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        source: 'lead_process',
+        text: `Human: ${leadRelayPrompt}`,
+      })
+    ).toBe(true);
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        source: 'user_sent',
+        text: `Human: ${leadRelayPrompt}`,
+      })
+    ).toBe(false);
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        text: `Human: ${leadRelayPrompt}`,
+      })
+    ).toBe(false);
+  });
+
+  it('strips an exact echoed control prefix while preserving visible trailing text', () => {
+    expect(stripExactInternalControlEchoPrefix(`Human: ${leadRelayPrompt}`, leadRelayPrompt)).toBe(
+      ''
+    );
+    expect(
+      stripExactInternalControlEchoPrefix(
+        `Human: ${leadRelayPrompt}\n\nDelegated to bob.`,
+        leadRelayPrompt
+      )
+    ).toBe('Delegated to bob.');
   });
 });

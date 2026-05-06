@@ -1,7 +1,7 @@
 import { classifyIdleNotificationText } from '@shared/utils/idleNotificationSemantics';
 import { createLogger } from '@shared/utils/logger';
 import { buildStandaloneSlashCommandMeta } from '@shared/utils/slashCommands';
-import { isTeamInternalControlMessageText } from '@shared/utils/teamInternalControlMessages';
+import { isTeamInternalControlMessageEnvelope } from '@shared/utils/teamInternalControlMessages';
 import { createHash } from 'crypto';
 
 import { getEffectiveInboxMessageId } from './inboxMessageIdentity';
@@ -140,7 +140,7 @@ function buildSyntheticOpenCodeBootstrapMessages(config: TeamConfig): InboxMessa
 }
 
 function isVisibleTeamMessage(message: InboxMessage): boolean {
-  return !isTeamInternalControlMessageText(message.text);
+  return !isTeamInternalControlMessageEnvelope(message);
 }
 
 function annotateSlashCommandResponses(messages: InboxMessage[]): void {

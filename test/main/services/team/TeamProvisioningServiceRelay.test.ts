@@ -342,6 +342,47 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(hoisted.files.get(`/mock/teams/${teamName}/sentMessages.json`)).toBeUndefined();
   });
 
+  it('preserves visible summary text after stripping an echoed lead relay prompt', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    seedConfig(teamName);
+    seedLeadInbox(teamName, [
+      {
+        from: 'tom',
+        text: '#f8d7235a done.',
+        timestamp: '2026-02-23T10:00:00.000Z',
+        read: false,
+        summary: '#f8d7235a done',
+        messageId: 'm-1',
+      },
+    ]);
+
+    const { writeSpy } = attachAliveRun(service, teamName);
+    const relayPromise = service.relayLeadInboxMessages(teamName);
+    const run = await waitForCapture(service);
+    const payload = JSON.parse(String(writeSpy.mock.calls[0]?.[0] ?? '{}')) as {
+      message?: { content?: Array<{ text?: string }> };
+    };
+    const relayedPrompt = payload.message?.content?.[0]?.text ?? '';
+
+    (service as any).handleStreamJsonMessage(run, {
+      type: 'assistant',
+      content: [{ type: 'text', text: `Human: ${relayedPrompt}\n\nDelegated to bob.` }],
+    });
+    (service as any).handleStreamJsonMessage(run, { type: 'result', subtype: 'success' });
+
+    await expect(relayPromise).resolves.toBe(1);
+    expect(service.getLiveLeadProcessMessages(teamName).map((message) => message.text)).toEqual([
+      'Delegated to bob.',
+    ]);
+    const sentRows = JSON.parse(
+      hoisted.files.get(`/mock/teams/${teamName}/sentMessages.json`) ?? '[]'
+    ) as Array<{
+      text?: string;
+    }>;
+    expect(sentRows.map((message) => message.text)).toEqual(['Delegated to bob.']);
+  });
+
   it('treats member work sync nudges as actionable in lead relay prompt', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';

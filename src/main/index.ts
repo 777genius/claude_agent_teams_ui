@@ -90,8 +90,8 @@ import {
 } from '@shared/constants';
 import { shouldSuppressDesktopNotificationForInboxText } from '@shared/utils/idleNotificationSemantics';
 import { parseInboxJson } from '@shared/utils/inboxNoise';
-import { isTeamInternalControlMessageText } from '@shared/utils/teamInternalControlMessages';
 import { createLogger } from '@shared/utils/logger';
+import { isTeamInternalControlMessageEnvelope } from '@shared/utils/teamInternalControlMessages';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -473,7 +473,7 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
       if (msg.source && suppressedSources.has(msg.source)) continue;
       // Skip app-owned private bootstrap/control prompts. They are durable runtime proof inputs,
       // not user-visible conversation messages.
-      if (isTeamInternalControlMessageText(msg.text)) continue;
+      if (isTeamInternalControlMessageEnvelope(msg)) continue;
       // Skip internal coordination noise (idle_notification, shutdown_*, etc.)
       if (shouldSuppressDesktopNotificationForInboxText(msg.text)) continue;
 

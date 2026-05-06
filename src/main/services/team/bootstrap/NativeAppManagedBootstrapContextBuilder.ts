@@ -1,9 +1,9 @@
+import { getClaudeBasePath } from '@main/utils/pathDecoder';
+import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 import * as agentTeamsControllerModule from 'agent-teams-controller';
 import { createHash } from 'crypto';
 
-import { getClaudeBasePath } from '@main/utils/pathDecoder';
 import type { TeamCreateRequest, TeamProviderId } from '@shared/types';
-import { normalizeOptionalTeamProviderId } from '@shared/utils/teamProvider';
 
 const { createController } = agentTeamsControllerModule;
 
@@ -41,7 +41,7 @@ function redactNativeBootstrapContextText(input: string): string {
     .replace(/sk-ant-[A-Za-z0-9_-]+/g, '[REDACTED_ANTHROPIC_API_KEY]')
     .replace(/sk-[A-Za-z0-9_-]{20,}/g, '[REDACTED_API_KEY]')
     .replace(/(ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY)=\S+/g, '$1=[REDACTED]')
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]');
+    .replace(/Bearer\s+[A-Z0-9._-]+/gi, 'Bearer [REDACTED]');
 }
 
 function boundText(input: string, maxChars: number): string {

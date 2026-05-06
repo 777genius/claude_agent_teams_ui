@@ -85,10 +85,13 @@ import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isDefaultProviderModelSelection } from '@shared/utils/providerModelSelection';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
+  isTeamInternalControlMessageText,
+  stripExactInternalControlEchoPrefix,
+} from '@shared/utils/teamInternalControlMessages';
+import {
   parseAllTeammateMessages,
   type ParsedTeammateContent,
 } from '@shared/utils/teammateMessageParser';
-import { isTeamInternalControlMessageText } from '@shared/utils/teamInternalControlMessages';
 import { buildTeamMemberColorMap } from '@shared/utils/teamMemberColors';
 import { createCliAutoSuffixNameGuard, parseNumericSuffixName } from '@shared/utils/teamMemberName';
 import {
@@ -143,6 +146,14 @@ import {
   type TeamRuntimeSettingsJson,
 } from '../runtime/teamRuntimeSettingsBundle';
 
+import {
+  parseBootstrapRuntimeProofDetail,
+  validateBootstrapRuntimeProofEnvelope,
+} from './bootstrap/BootstrapProofValidation';
+import {
+  buildNativeAppManagedBootstrapSpecs,
+  type NativeAppManagedBootstrapSpec,
+} from './bootstrap/NativeAppManagedBootstrapContextBuilder';
 import {
   createOpenCodePromptDeliveryLedgerStore,
   hashOpenCodePromptDeliveryPayload,
@@ -256,14 +267,6 @@ import {
 import { TeamSentMessagesStore } from './TeamSentMessagesStore';
 import { TeamTaskReader } from './TeamTaskReader';
 import { TeamTranscriptProjectResolver } from './TeamTranscriptProjectResolver';
-import {
-  buildNativeAppManagedBootstrapSpecs,
-  type NativeAppManagedBootstrapSpec,
-} from './bootstrap/NativeAppManagedBootstrapContextBuilder';
-import {
-  parseBootstrapRuntimeProofDetail,
-  validateBootstrapRuntimeProofEnvelope,
-} from './bootstrap/BootstrapProofValidation';
 
 import type {
   OpenCodeCommittedBootstrapSessionRecord,
@@ -19399,7 +19402,12 @@ export class TeamProvisioningService {
 
       // Strip agent-only blocks — lead may respond with pure coordination content
       // that is not meant for the human user.
-      const cleanReply = replyText ? stripAgentBlocks(replyText) : null;
+      const cleanReply = replyText
+        ? stripExactInternalControlEchoPrefix(
+            stripAgentBlocks(replyText),
+            stripAgentBlocks(message)
+          )
+        : null;
       if (cleanReply) {
         if (isTeamInternalControlMessageText(cleanReply)) {
           logger.debug(`[${teamName}] Suppressed internal lead relay echo`);

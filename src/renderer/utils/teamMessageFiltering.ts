@@ -4,7 +4,7 @@ import {
 } from '@renderer/utils/bootstrapPromptSanitizer';
 import { shouldKeepIdleMessageInActivityWhenNoiseHidden } from '@renderer/utils/idleNotificationSemantics';
 import { isInboxNoiseMessage } from '@shared/utils/inboxNoise';
-import { isTeamInternalControlMessageText } from '@shared/utils/teamInternalControlMessages';
+import { isTeamInternalControlMessageEnvelope } from '@shared/utils/teamInternalControlMessages';
 
 import type { InboxMessage } from '@shared/types';
 
@@ -127,8 +127,7 @@ export function filterTeamMessages(
   const leadNames = normalizeLeadNames(rawLeadNames);
 
   let list = messages.filter(
-    (m) =>
-      m.messageKind !== 'task_comment_notification' && !isTeamInternalControlMessageText(m.text)
+    (m) => m.messageKind !== 'task_comment_notification' && !isTeamInternalControlMessageEnvelope(m)
   );
   if (timeWindow) {
     list = list.filter((m) => {
