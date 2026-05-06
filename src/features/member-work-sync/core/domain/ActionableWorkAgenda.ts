@@ -182,7 +182,7 @@ export function buildActionableWorkAgenda(
 
       const reviewOwner = isReviewWorkflow
         ? resolveCurrentReviewOwner({
-            reviewState: task.reviewState,
+            reviewState: workflowColumn,
             kanbanReviewer: input.kanbanReviewersByTaskId?.[task.id] ?? null,
             historyEvents: task.historyEvents,
           })
