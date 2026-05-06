@@ -6,6 +6,7 @@ import {
   createOpenCodeBridgeHandshakeIdentityHash,
   createOpenCodeBridgeIdempotencyKey,
   isOpenCodeBridgeCommandName,
+  OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION,
   OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION,
   parseSingleBridgeJsonResult,
   stableHash,
@@ -312,6 +313,8 @@ function peerIdentity(
         'opencode.launchTeam',
         'opencode.stopTeam',
       ],
+      opencodeAppManagedBootstrapContractVersion:
+        OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION,
     },
     runtime: {
       providerId: 'opencode',

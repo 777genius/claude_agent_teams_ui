@@ -43,7 +43,7 @@ declare module 'agent-teams-controller' {
     unlinkTask(taskId: string, targetId: string, linkType: string): unknown;
     memberBriefing(
       memberName: string,
-      options?: { runtimeProvider?: 'native' | 'opencode' }
+      options?: { runtimeProvider?: 'native' | 'opencode'; includeActiveProcesses?: boolean }
     ): Promise<string>;
     leadBriefing(): Promise<string>;
     taskBriefing(memberName: string): Promise<string>;

@@ -119,7 +119,14 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
         selectedModel,
       });
       launchedLanes.push(launchInput);
-      const launchResult = await adapter.launch(launchInput);
+      const rawLaunchResult = await adapter.launch(launchInput);
+      const launchResult = await commitMixedOpenCodeLaunchResult({
+        service: svc,
+        teamName,
+        laneId: launchInput.laneId ?? 'secondary:opencode:bob',
+        memberName: 'bob',
+        result: rawLaunchResult,
+      });
       expectCleanOpenCodeLaunch(launchResult);
       expect(launchResult.members.bob).toMatchObject({
         launchState: 'confirmed_alive',
@@ -226,7 +233,14 @@ liveDescribe('OpenCode mixed recovery live e2e', () => {
             selectedModel,
           });
           launchedLanes.push(launchInput);
-          const launchResult = await adapter.launch(launchInput);
+          const rawLaunchResult = await adapter.launch(launchInput);
+          const launchResult = await commitMixedOpenCodeLaunchResult({
+            service: svc,
+            teamName,
+            laneId: launchInput.laneId ?? `secondary:opencode:${memberName}`,
+            memberName,
+            result: rawLaunchResult,
+          });
           expectCleanOpenCodeLaunch(launchResult);
           expect(launchResult.members[memberName]).toMatchObject({
             launchState: 'confirmed_alive',
@@ -325,6 +339,21 @@ function expectCleanOpenCodeLaunch(
     );
   }
   expect(launchResult.teamLaunchState).toBe('clean_success');
+}
+
+async function commitMixedOpenCodeLaunchResult(input: {
+  service: TeamProvisioningService;
+  teamName: string;
+  laneId: string;
+  memberName: string;
+  result: Awaited<ReturnType<OpenCodeTeamRuntimeAdapter['launch']>>;
+}): Promise<Awaited<ReturnType<OpenCodeTeamRuntimeAdapter['launch']>>> {
+  return (input.service as any).guardCommittedOpenCodeSecondaryLaneEvidence({
+    teamName: input.teamName,
+    laneId: input.laneId,
+    memberName: input.memberName,
+    result: input.result,
+  });
 }
 
 async function writeMixedRecoveryFixtures(input: {

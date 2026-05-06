@@ -1834,6 +1834,94 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
     expect(rows[0].read).toBe(false);
   });
 
+  it('keeps accepted OpenCode prompt rows pending without warning when response proof is terminally absent', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    hoisted.files.set(
+      `/mock/teams/${teamName}/config.json`,
+      JSON.stringify({
+        name: teamName,
+        projectPath: '/tmp/my-team',
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'jack', role: 'developer', providerId: 'opencode', model: 'openrouter/test' },
+        ],
+      })
+    );
+    seedMemberInbox(teamName, 'jack', [
+      {
+        from: 'bob',
+        to: 'jack',
+        text: 'Please sync your current task.',
+        timestamp: '2026-02-23T17:04:00.000Z',
+        read: false,
+        messageId: 'opencode-accepted-terminal-empty-1',
+        actionMode: 'do',
+        messageKind: 'member_work_sync_nudge',
+      },
+    ]);
+    vi.spyOn(service, 'deliverOpenCodeMemberMessage').mockResolvedValue({
+      delivered: false,
+      accepted: true,
+      responsePending: false,
+      responseState: 'empty_assistant_turn',
+      ledgerStatus: 'failed_terminal',
+      ledgerRecordId: 'ledger-1',
+      laneId: 'secondary:opencode:jack',
+      reason: 'empty_assistant_turn',
+      diagnostics: ['empty_assistant_turn'],
+    });
+
+    const relay = await service.relayOpenCodeMemberInboxMessages(teamName, 'jack');
+
+    expect(relay).toMatchObject({
+      relayed: 0,
+      attempted: 1,
+      delivered: 0,
+      failed: 0,
+      lastDelivery: {
+        delivered: false,
+        accepted: true,
+        responsePending: false,
+        ledgerStatus: 'failed_terminal',
+        reason: 'empty_assistant_turn',
+      },
+    });
+    expect(vi.mocked(console.warn)).not.toHaveBeenCalledWith(
+      expect.stringContaining('OpenCode inbox relay failed')
+    );
+    const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
+    expect(rows[0].read).toBe(false);
+  });
+
+  it('does not treat empty OpenCode observations as accepted without delivered prompt proof', () => {
+    const service = new TeamProvisioningService();
+    const isAccepted = (
+      service as unknown as {
+        isOpenCodePromptAcceptedByObservation: (observation?: unknown) => boolean;
+      }
+    ).isOpenCodePromptAcceptedByObservation.bind(service);
+
+    expect(
+      isAccepted({
+        state: 'empty_assistant_turn',
+        deliveredUserMessageId: null,
+      })
+    ).toBe(false);
+    expect(
+      isAccepted({
+        state: 'prompt_delivered_no_assistant_message',
+        deliveredUserMessageId: '',
+      })
+    ).toBe(false);
+    expect(
+      isAccepted({
+        state: 'empty_assistant_turn',
+        deliveredUserMessageId: 'opencode-user-message-1',
+      })
+    ).toBe(true);
+  });
+
   it('reuses existing OpenCode prompt ledger metadata during watchdog relay retries', async () => {
     const service = new TeamProvisioningService();
     const teamName = 'my-team';
@@ -1899,6 +1987,91 @@ describe('TeamProvisioningService relayLeadInboxMessages', () => {
         source: 'manual',
       })
     );
+  });
+
+  it('ignores stale OpenCode watchdog jobs after the runtime lane is no longer active', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new TeamProvisioningService();
+      const teamName = 'my-team';
+      hoisted.files.set(
+        `/mock/teams/${teamName}/config.json`,
+        JSON.stringify({
+          name: teamName,
+          projectPath: '/tmp/my-team',
+          members: [
+            { name: 'team-lead', agentType: 'team-lead' },
+            { name: 'jack', role: 'developer', providerId: 'opencode', model: 'openrouter/test' },
+          ],
+        })
+      );
+      seedMemberInbox(teamName, 'jack', [
+        {
+          from: 'bob',
+          to: 'jack',
+          text: 'Please sync.',
+          timestamp: '2026-02-23T17:00:00.000Z',
+          read: false,
+          messageId: 'opencode-stale-watchdog-1',
+        },
+      ]);
+      const deliverSpy = vi
+        .spyOn(service, 'deliverOpenCodeMemberMessage')
+        .mockRejectedValue(
+          new Error('OpenCode prompt delivery record not found: opencode-prompt:stale')
+        );
+
+      (service as any).scheduleOpenCodePromptDeliveryWatchdog({
+        teamName,
+        memberName: 'jack',
+        messageId: 'opencode-stale-watchdog-1',
+        delayMs: 500,
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      await Promise.resolve();
+
+      expect(deliverSpy).not.toHaveBeenCalled();
+      expect(vi.mocked(console.warn)).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not classify missing OpenCode watchdog ledger rows as stale while the lane is active', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    attachAliveRun(service, teamName);
+    hoisted.files.set(
+      `/mock/teams/${teamName}/config.json`,
+      JSON.stringify({
+        name: teamName,
+        projectPath: '/tmp/my-team',
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'jack', role: 'developer', providerId: 'opencode', model: 'openrouter/test' },
+        ],
+      })
+    );
+    seedMemberInbox(teamName, 'jack', [
+      {
+        from: 'bob',
+        to: 'jack',
+        text: 'Please sync.',
+        timestamp: '2026-02-23T17:00:00.000Z',
+        read: false,
+        messageId: 'opencode-active-watchdog-1',
+      },
+    ]);
+    vi.spyOn(service as any, 'isOpenCodeRuntimeLaneIndexActive').mockResolvedValue(true);
+
+    await expect(
+      (service as any).isStaleOpenCodePromptDeliveryWatchdogError({
+        teamName,
+        memberName: 'jack',
+        messageId: 'opencode-active-watchdog-1',
+        error: new Error('OpenCode prompt delivery record not found: opencode-prompt:active'),
+      })
+    ).resolves.toBe(false);
   });
 
   it('skips failed-terminal OpenCode rows without blocking newer unread rows', async () => {

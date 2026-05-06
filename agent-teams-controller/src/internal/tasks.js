@@ -911,14 +911,17 @@ async function memberBriefing(context, memberName, options = {}) {
         config.projectPath.trim() :
         '';
 
-    const activeProcesses = processStore
-        .listProcesses(context.paths)
-        .filter(
-            (entry) =>
-            entry &&
-            entry.alive &&
-            normalizeMemberName(entry.registeredBy) === normalizeMemberName(requestedMemberName)
-        );
+    const includeActiveProcesses = options.includeActiveProcesses !== false;
+    const activeProcesses = includeActiveProcesses ?
+        processStore
+            .listProcesses(context.paths)
+            .filter(
+                (entry) =>
+                entry &&
+                entry.alive &&
+                normalizeMemberName(entry.registeredBy) === normalizeMemberName(requestedMemberName)
+            ) :
+        [];
 
     const taskQueue = await taskBriefing(context, requestedMemberName);
     const completionNotifyExample = messagingProtocol.buildLeadMessageExample({

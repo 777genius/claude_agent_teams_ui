@@ -622,8 +622,9 @@ export function registerTaskTools(server: Pick<FastMCP, 'addTool'>) {
       ...toolContextSchema,
       memberName: z.string().min(1),
       runtimeProvider: z.enum(['native', 'opencode']).optional(),
+      includeActiveProcesses: z.boolean().optional(),
     }),
-    execute: async ({ teamName, claudeDir, memberName, runtimeProvider }) => {
+    execute: async ({ teamName, claudeDir, memberName, runtimeProvider, includeActiveProcesses }) => {
       assertConfiguredTeam(teamName, claudeDir);
       return {
         content: [
@@ -631,6 +632,7 @@ export function registerTaskTools(server: Pick<FastMCP, 'addTool'>) {
             type: 'text' as const,
             text: await getController(teamName, claudeDir).tasks.memberBriefing(memberName, {
               ...(runtimeProvider ? { runtimeProvider } : {}),
+              ...(includeActiveProcesses !== undefined ? { includeActiveProcesses } : {}),
             }),
           },
         ],

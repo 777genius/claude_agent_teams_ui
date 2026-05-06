@@ -1,6 +1,9 @@
 import type {
   EffortLevel,
   MemberLaunchState,
+  OpenCodeAppManagedBootstrapCandidate,
+  OpenCodeBootstrapEvidenceSource,
+  OpenCodeBootstrapMode,
   PersistedTeamLaunchPhase,
   PersistedTeamLaunchSnapshot,
   TeamAgentRuntimeBackendType,
@@ -79,6 +82,9 @@ export interface TeamRuntimeMemberLaunchEvidence {
   hardFailureReason?: string;
   pendingPermissionRequestIds?: string[];
   sessionId?: string;
+  bootstrapEvidenceSource?: OpenCodeBootstrapEvidenceSource;
+  bootstrapMode?: OpenCodeBootstrapMode;
+  appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
   backendType?: TeamAgentRuntimeBackendType;
   runtimePid?: number;
   livenessKind?: TeamAgentRuntimeLivenessKind;

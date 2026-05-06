@@ -1005,6 +1005,27 @@ export interface PersistedTeamLaunchMemberSources {
   duplicateRespawnBlocked?: boolean;
 }
 
+export interface OpenCodeAppManagedBootstrapCandidate {
+  schemaVersion: 1;
+  source: 'app_managed_bootstrap';
+  teamName: string;
+  memberName: string;
+  runId: string;
+  laneId: string;
+  runtimeSessionId: string;
+  messageID: string;
+  contextHash: string;
+  briefingHash: string;
+  injectionVerifiedAt: string;
+  candidateAt: string;
+  model?: string;
+  agent?: string;
+}
+
+export type OpenCodeBootstrapEvidenceSource = 'runtime_bootstrap_checkin' | 'app_managed_bootstrap';
+
+export type OpenCodeBootstrapMode = 'model_tool_checkin' | 'app_managed_context';
+
 export interface PersistedTeamLaunchMemberState {
   name: string;
   providerId?: TeamProviderId;
@@ -1032,6 +1053,9 @@ export interface PersistedTeamLaunchMemberState {
   /** OpenCode runtime run id that produced the current runtimeSessionId/liveness evidence. */
   runtimeRunId?: string;
   runtimeSessionId?: string;
+  bootstrapEvidenceSource?: OpenCodeBootstrapEvidenceSource;
+  bootstrapMode?: OpenCodeBootstrapMode;
+  appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
   livenessKind?: TeamAgentRuntimeLivenessKind;
   pidSource?: TeamAgentRuntimePidSource;
   runtimeDiagnostic?: string;
