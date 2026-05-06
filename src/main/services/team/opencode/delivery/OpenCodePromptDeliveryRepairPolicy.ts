@@ -116,7 +116,13 @@ function hasSideEffectTool(tools: Set<string>): boolean {
 }
 
 function taskIdList(taskRefs: TaskRef[]): string | null {
-  const ids = [...new Set(taskRefs.map((taskRef) => taskRef.taskId?.trim()).filter(Boolean))];
+  const ids = [
+    ...new Set(
+      taskRefs
+        .map((taskRef) => taskRef.taskId?.trim())
+        .filter((taskId): taskId is string => Boolean(taskId))
+    ),
+  ];
   return ids.length > 0 ? ids.map((id) => `"${id}"`).join(', ') : null;
 }
 
