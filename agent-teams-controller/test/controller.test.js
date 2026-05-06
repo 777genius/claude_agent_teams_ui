@@ -717,6 +717,27 @@ describe('agent-teams-controller API', () => {
     ]);
   });
 
+  it('tracks owner assignment history without duplicate same-owner events', () => {
+    const claudeDir = makeClaudeDir();
+    const controller = createController({ teamName: 'my-team', claudeDir });
+    const task = controller.tasks.createTask({ subject: 'Owner history' });
+
+    controller.tasks.setTaskOwner(task.id, 'bob', 'team-lead');
+    controller.tasks.setTaskOwner(task.id, 'bob', 'team-lead');
+    controller.tasks.setTaskOwner(task.id, 'alice', 'team-lead');
+    controller.tasks.setTaskOwner(task.id, null, 'team-lead');
+
+    const ownerEvents = controller.tasks
+      .getTask(task.id)
+      .historyEvents.filter((event) => event.type === 'owner_changed');
+
+    expect(ownerEvents).toHaveLength(3);
+    expect(ownerEvents[0]).toMatchObject({ to: 'bob', actor: 'team-lead' });
+    expect(ownerEvents[1]).toMatchObject({ from: 'bob', to: 'alice', actor: 'team-lead' });
+    expect(ownerEvents[2]).toMatchObject({ from: 'alice', actor: 'team-lead' });
+    expect(ownerEvents[2].to).toBeUndefined();
+  });
+
   it('wraps review instructions in the canonical agent block format used by the UI', () => {
     const claudeDir = makeClaudeDir();
     const controller = createController({ teamName: 'my-team', claudeDir });

@@ -2137,7 +2137,7 @@ export class TeamDataService {
   }
 
   async updateTaskOwner(teamName: string, taskId: string, owner: string | null): Promise<void> {
-    this.getController(teamName).tasks.setTaskOwner(taskId, owner);
+    this.getController(teamName).tasks.setTaskOwner(taskId, owner, 'user');
     this.invalidateGlobalTaskProjectionCache();
   }
 

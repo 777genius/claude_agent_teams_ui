@@ -601,15 +601,36 @@ describe('agent-teams-mcp tools', () => {
     );
     expect(unlinked.blockedBy ?? []).not.toContain(dependencyTask.id);
 
+    await getTool('task_set_owner').execute({
+      claudeDir,
+      teamName,
+      taskId: createdTask.id,
+      owner: null,
+      actor: 'lead',
+    });
+
     const owned = parseJsonToolResult(
       await getTool('task_set_owner').execute({
         claudeDir,
         teamName,
         taskId: createdTask.id,
         owner: 'alice',
+        actor: 'lead',
       })
     );
     expect(owned.owner).toBe('alice');
+    const ownedFull = parseJsonToolResult(
+      await getTool('task_get').execute({
+        claudeDir,
+        teamName,
+        taskId: createdTask.id,
+      })
+    );
+    expect(ownedFull.historyEvents.at(-1)).toMatchObject({
+      type: 'owner_changed',
+      to: 'alice',
+      actor: 'lead',
+    });
 
     const commented = parseJsonToolResult(
       await getTool('task_add_comment').execute({

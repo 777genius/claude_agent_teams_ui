@@ -472,13 +472,13 @@ function restoreTask(context, taskId, actor) {
     });
 }
 
-function setTaskOwner(context, taskId, owner) {
+function setTaskOwner(context, taskId, owner, actor) {
     const { previousTask, updatedTask } = withTeamBoardLock(context.paths, () => {
         const before = taskStore.readTask(context.paths, taskId, { includeDeleted: true });
         const nextOwner = isClearOwnerValue(owner)
             ? owner
             : assertKnownTaskActor(context, owner, 'task owner');
-        const after = taskStore.setTaskOwner(context.paths, taskId, nextOwner);
+        const after = taskStore.setTaskOwner(context.paths, taskId, nextOwner, normalizeActorName(actor) || undefined);
         return {
             previousTask: before,
             updatedTask: after,
@@ -707,7 +707,7 @@ function buildMemberTaskProtocol(teamName, messagingProtocol = createMemberMessa
    - Human-facing summaries should use the short display label like #abcd1234 for readability.
 1. If you are about to do implementation/fix work on a task yourself, make sure the owner reflects the actual implementer:
    - If the task is unassigned or assigned to someone else, FIRST reassign it to yourself with MCP tool task_set_owner:
-     { teamName: "${teamName}", taskId: "<taskId>", owner: "<your-name>" }
+     { teamName: "${teamName}", taskId: "<taskId>", owner: "<your-name>", actor: "<your-name>" }
    - Do this only when you are genuinely taking over the work.
    - Reviewing, approving, or leaving comments does NOT require changing ownership.
 2. Use MCP tool task_start to mark task started:

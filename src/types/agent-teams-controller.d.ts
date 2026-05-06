@@ -31,7 +31,7 @@ declare module 'agent-teams-controller' {
     completeTask(taskId: string, actor?: string): unknown;
     softDeleteTask(taskId: string, actor?: string): unknown;
     restoreTask(taskId: string, actor?: string): unknown;
-    setTaskOwner(taskId: string, owner: string | null): unknown;
+    setTaskOwner(taskId: string, owner: string | null, actor?: string): unknown;
     updateTaskFields(taskId: string, fields: { subject?: string; description?: string }): unknown;
     addTaskComment(taskId: string, flags: Record<string, unknown>): unknown;
     attachTaskFile(taskId: string, flags: Record<string, unknown>): unknown;

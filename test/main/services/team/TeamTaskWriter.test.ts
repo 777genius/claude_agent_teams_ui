@@ -332,5 +332,42 @@ describe('TeamTaskWriter', () => {
         actor: 'user',
       });
     });
+
+    it('updateOwner appends owner_changed event', async () => {
+      hoisted.files.set(
+        taskPath,
+        JSON.stringify({
+          id: '12',
+          subject: 'task',
+          owner: 'alice',
+          status: 'pending',
+          historyEvents: [
+            { type: 'task_created', id: 'ev1', status: 'pending', timestamp: '2024-01-01T00:00:00.000Z' },
+          ],
+        })
+      );
+
+      await writer.updateOwner('my-team', '12', 'bob');
+      await writer.updateOwner('my-team', '12', 'bob');
+      await writer.updateOwner('my-team', '12', null);
+
+      const persisted = JSON.parse(hoisted.files.get(taskPath) ?? '{}');
+      const ownerEvents = persisted.historyEvents.filter(
+        (event: Record<string, unknown>) => event.type === 'owner_changed'
+      );
+      expect(ownerEvents).toHaveLength(2);
+      expect(ownerEvents[0]).toMatchObject({
+        type: 'owner_changed',
+        from: 'alice',
+        to: 'bob',
+        actor: 'user',
+      });
+      expect(ownerEvents[1]).toMatchObject({
+        type: 'owner_changed',
+        from: 'bob',
+        actor: 'user',
+      });
+      expect(ownerEvents[1].to).toBeUndefined();
+    });
   });
 });

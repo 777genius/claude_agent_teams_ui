@@ -413,18 +413,19 @@ export function registerTaskTools(server: Pick<FastMCP, 'addTool'>) {
 
   server.addTool({
     name: 'task_set_owner',
-    description: 'Assign or clear task owner',
+    description: 'Assign, reassign, or clear task owner',
     parameters: z.object({
       ...toolContextSchema,
       taskId: z.string().min(1),
       owner: z.string().nullable(),
+      actor: z.string().optional(),
     }),
-    execute: async ({ teamName, claudeDir, taskId, owner }) => {
+    execute: async ({ teamName, claudeDir, taskId, owner, actor }) => {
       assertConfiguredTeam(teamName, claudeDir);
       return await Promise.resolve(
         jsonTextContent(
           slimTask(
-            getController(teamName, claudeDir).tasks.setTaskOwner(taskId, owner) as Record<
+            getController(teamName, claudeDir).tasks.setTaskOwner(taskId, owner, actor) as Record<
               string,
               unknown
             >
@@ -624,7 +625,13 @@ export function registerTaskTools(server: Pick<FastMCP, 'addTool'>) {
       runtimeProvider: z.enum(['native', 'opencode']).optional(),
       includeActiveProcesses: z.boolean().optional(),
     }),
-    execute: async ({ teamName, claudeDir, memberName, runtimeProvider, includeActiveProcesses }) => {
+    execute: async ({
+      teamName,
+      claudeDir,
+      memberName,
+      runtimeProvider,
+      includeActiveProcesses,
+    }) => {
       assertConfiguredTeam(teamName, claudeDir);
       return {
         content: [

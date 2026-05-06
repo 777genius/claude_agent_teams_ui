@@ -126,6 +126,12 @@ export interface TaskStatusChangedEvent extends TaskHistoryEventBase {
   to: TeamTaskStatus;
 }
 
+export interface TaskOwnerChangedEvent extends TaskHistoryEventBase {
+  type: 'owner_changed';
+  from?: string;
+  to?: string;
+}
+
 export interface TaskReviewRequestedEvent extends TaskHistoryEventBase {
   type: 'review_requested';
   from: TeamReviewState;
@@ -157,6 +163,7 @@ export interface TaskReviewStartedEvent extends TaskHistoryEventBase {
 export type TaskHistoryEvent =
   | TaskCreatedEvent
   | TaskStatusChangedEvent
+  | TaskOwnerChangedEvent
   | TaskReviewRequestedEvent
   | TaskReviewChangesRequestedEvent
   | TaskReviewApprovedEvent
