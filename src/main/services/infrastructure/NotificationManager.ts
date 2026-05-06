@@ -826,6 +826,9 @@ export class NotificationManager extends EventEmitter {
       .catch(() => undefined)
       .then(() => writeNotificationsFileAtomically(notificationsPath, data))
       .catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return;
+        }
         logger.error('Error saving notifications:', error);
       });
   }
@@ -1031,7 +1034,7 @@ export class NotificationManager extends EventEmitter {
   ): void {
     const NotificationClass = getNotificationClass();
     if (!NotificationClass || !this.isNativeNotificationSupported()) {
-      logger.warn('[team-toast] native notifications not supported — skipping');
+      logger.debug('[team-toast] native notifications not supported - skipping');
       return;
     }
 

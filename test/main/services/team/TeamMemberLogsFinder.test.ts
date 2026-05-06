@@ -24,13 +24,15 @@ describe('TeamMemberLogsFinder', () => {
 
     const teamName = 'live-context-team';
     const projectPath = '/Users/test/live-context';
+    const memberProjectPath = '/Users/test/member-cwd';
+    const runtimeProjectPath = '/Users/test/runtime-bob-cwd';
     const projectRoot = path.join(tmpDir, 'projects', '-Users-test-live-context');
     const config = {
       name: teamName,
       projectPath,
       leadSessionId: 'lead-session',
       sessionHistory: ['old-session', 'recent-session'],
-      members: [],
+      members: [{ name: 'bob', cwd: memberProjectPath }],
     };
     await fs.mkdir(projectRoot, { recursive: true });
 
@@ -61,6 +63,7 @@ describe('TeamMemberLogsFinder', () => {
             bootstrapConfirmed: false,
             hardFailure: false,
             runtimeSessionId: 'runtime-bob',
+            cwd: runtimeProjectPath,
             updatedAt: '2026-05-03T12:00:00.000Z',
           },
         },
@@ -81,7 +84,10 @@ describe('TeamMemberLogsFinder', () => {
 
     expect(projectResolver.getLiveBaseContext).toHaveBeenCalledWith(
       teamName,
-      expect.objectContaining({ forceRefresh: true })
+      expect.objectContaining({
+        forceRefresh: true,
+        extraProjectPathCandidates: [runtimeProjectPath],
+      })
     );
     expect(projectResolver.getContext).not.toHaveBeenCalled();
     expect(context?.projectDir).toBe(projectRoot);
@@ -92,6 +98,11 @@ describe('TeamMemberLogsFinder', () => {
       'old-session',
     ]);
     expect(context?.sessionIds).toEqual(context?.watchSessionIds);
+    expect(context?.taskFreshnessRootDirs).toEqual([
+      path.normalize(projectPath),
+      path.normalize(memberProjectPath),
+      path.normalize(runtimeProjectPath),
+    ]);
   });
 
   it('returns subagent logs for a member and lead session for team-lead', async () => {

@@ -5,6 +5,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION,
   createOpenCodeBridgeHandshakeIdentityHash,
   type OpenCodeBridgeCommandName,
   type OpenCodeBridgeHandshake,
@@ -272,6 +273,8 @@ function peerIdentity(
         'opencode.launchTeam',
         'opencode.stopTeam',
       ],
+      opencodeAppManagedBootstrapContractVersion:
+        OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION,
     },
     runtime: {
       providerId: 'opencode',

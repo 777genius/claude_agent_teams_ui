@@ -6,7 +6,7 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_STYLES,
 } from '@renderer/utils/memberHelpers';
-import { ArrowRight, Eye, MessageSquareX, Plus, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Eye, MessageSquareX, Plus, ShieldCheck, UserRound } from 'lucide-react';
 
 import type { TaskHistoryEvent, TeamReviewState, TeamTaskStatus } from '@shared/types';
 
@@ -107,6 +107,52 @@ const EventContent = ({
           <StatusBadge status={event.to} />
         </span>
       );
+    case 'owner_changed':
+      return (
+        <span className="flex items-center gap-1">
+          <UserRound size={10} className="text-cyan-400" />
+          {event.from && event.to ? (
+            <>
+              Reassigned
+              <MemberBadge
+                name={event.from}
+                color={memberColorMap?.get(event.from)}
+                size="sm"
+                hideAvatar
+              />
+              <ArrowRight size={10} className="text-[var(--color-text-muted)]" />
+              <MemberBadge
+                name={event.to}
+                color={memberColorMap?.get(event.to)}
+                size="sm"
+                hideAvatar
+              />
+            </>
+          ) : event.to ? (
+            <>
+              Assigned to
+              <MemberBadge
+                name={event.to}
+                color={memberColorMap?.get(event.to)}
+                size="sm"
+                hideAvatar
+              />
+            </>
+          ) : event.from ? (
+            <>
+              Unassigned from
+              <MemberBadge
+                name={event.from}
+                color={memberColorMap?.get(event.from)}
+                size="sm"
+                hideAvatar
+              />
+            </>
+          ) : (
+            'Owner changed'
+          )}
+        </span>
+      );
     case 'review_requested':
       return (
         <span className="flex items-center gap-1">
@@ -181,6 +227,8 @@ function dotColor(event: TaskHistoryEvent): string {
       return dotColorForStatus(event.status);
     case 'status_changed':
       return dotColorForStatus(event.to);
+    case 'owner_changed':
+      return 'bg-cyan-400';
     case 'review_requested':
       return 'bg-purple-400';
     case 'review_started':

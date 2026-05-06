@@ -14,7 +14,7 @@ import { classifyIdleNotificationText } from '@shared/utils/idleNotificationSema
 import { isLeadMember } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
 import { migrateProviderBackendId } from '@shared/utils/providerBackend';
-import { getKanbanColumnFromReviewState, getReviewStateFromTask } from '@shared/utils/reviewState';
+import { getReviewStateFromTask } from '@shared/utils/reviewState';
 import { buildStandaloneSlashCommandMeta } from '@shared/utils/slashCommands';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import { buildTeamMemberColorMap } from '@shared/utils/teamMemberColors';
@@ -62,6 +62,7 @@ import { TeamTaskCommentNotificationJournal } from './TeamTaskCommentNotificatio
 import { TeamTaskReader } from './TeamTaskReader';
 import { TeamTaskWriter } from './TeamTaskWriter';
 import { TeamTranscriptProjectResolver } from './TeamTranscriptProjectResolver';
+import { getTeamTaskWorkflowColumn, selectCurrentActiveTeamTask } from './teamTaskActiveState';
 
 import type { PersistedTaskChangePresenceIndex } from './cache/taskChangePresenceCacheTypes';
 import type { TaskChangePresenceRepository } from './cache/TaskChangePresenceRepository';
@@ -550,13 +551,7 @@ export class TeamDataService {
     const launchIdentity = teamMeta?.launchIdentity;
     const leadName = 'team-lead';
     const ownedTasks = tasks.filter((task) => task.owner === leadName);
-    const currentTask =
-      ownedTasks.find(
-        (task) =>
-          task.status === 'in_progress' &&
-          task.reviewState !== 'approved' &&
-          task.kanbanColumn !== 'approved'
-      ) ?? null;
+    const currentTask = selectCurrentActiveTeamTask(ownedTasks);
 
     members.unshift({
       name: leadName,
@@ -600,12 +595,35 @@ export class TeamDataService {
     task: Pick<TeamTask, 'reviewState' | 'historyEvents' | 'status'>,
     kanbanTaskState?: KanbanState['tasks'][string]
   ): 'none' | 'review' | 'needsFix' | 'approved' {
-    return getReviewStateFromTask({
+    const kanbanColumn = kanbanTaskState?.column;
+    const kanbanWorkflowColumn = kanbanColumn
+      ? getTeamTaskWorkflowColumn({
+          status: task.status,
+          reviewState: 'none',
+          kanbanColumn,
+        })
+      : undefined;
+    if (kanbanWorkflowColumn) {
+      return kanbanWorkflowColumn;
+    }
+
+    const reviewState = getReviewStateFromTask({
       historyEvents: task.historyEvents,
       reviewState: task.reviewState,
       status: task.status,
-      kanbanColumn: kanbanTaskState?.column,
+      ...(kanbanColumn ? { kanbanColumn } : {}),
     });
+    const workflowColumn = getTeamTaskWorkflowColumn({
+      status: task.status,
+      reviewState,
+      ...(kanbanColumn ? { kanbanColumn } : {}),
+    });
+
+    if (workflowColumn) {
+      return workflowColumn;
+    }
+
+    return reviewState;
   }
 
   private attachKanbanCompatibility(
@@ -614,12 +632,25 @@ export class TeamDataService {
   ): TeamTaskWithKanban {
     const reviewState = this.resolveTaskReviewState(task, kanbanTaskState);
     const reviewer = this.resolveReviewerFromHistory(task, kanbanTaskState, reviewState) ?? null;
+    const kanbanColumn = this.resolveTaskKanbanColumn(task, kanbanTaskState, reviewState);
     return {
       ...task,
       reviewState,
-      kanbanColumn: getKanbanColumnFromReviewState(reviewState),
+      ...(kanbanColumn ? { kanbanColumn } : {}),
       reviewer,
     };
+  }
+
+  private resolveTaskKanbanColumn(
+    task: Pick<TeamTask, 'status'>,
+    kanbanTaskState?: KanbanState['tasks'][string],
+    reviewState: 'none' | 'review' | 'needsFix' | 'approved' = 'none'
+  ): 'review' | 'approved' | undefined {
+    return getTeamTaskWorkflowColumn({
+      status: task.status,
+      reviewState,
+      ...(kanbanTaskState?.column ? { kanbanColumn: kanbanTaskState.column } : {}),
+    });
   }
 
   /**
@@ -1023,7 +1054,7 @@ export class TeamDataService {
       const info = teamInfoMap.get(task.teamName)!;
       const kanbanTaskState = kanbanByTeam.get(task.teamName)?.tasks[task.id];
       const reviewState = this.resolveTaskReviewState(task, kanbanTaskState);
-      const kanbanColumn = getKanbanColumnFromReviewState(reviewState);
+      const kanbanColumn = this.resolveTaskKanbanColumn(task, kanbanTaskState, reviewState);
 
       // IPC payload safety: GlobalTask lists can be enormous (especially comments and large nested fields).
       // Return a "light" task object and defer heavy details to team/task detail views.
@@ -2137,7 +2168,7 @@ export class TeamDataService {
   }
 
   async updateTaskOwner(teamName: string, taskId: string, owner: string | null): Promise<void> {
-    this.getController(teamName).tasks.setTaskOwner(taskId, owner);
+    this.getController(teamName).tasks.setTaskOwner(taskId, owner, 'user');
     this.invalidateGlobalTaskProjectionCache();
   }
 

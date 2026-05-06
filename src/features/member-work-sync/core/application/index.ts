@@ -1,6 +1,7 @@
 export * from './MemberWorkSyncAudit';
 export * from './MemberWorkSyncDiagnosticsReader';
 export * from './MemberWorkSyncMetricsReader';
+export * from './MemberWorkSyncNudgeActivationPolicy';
 export * from './MemberWorkSyncNudgeDispatcher';
 export * from './MemberWorkSyncNudgeOutboxPlanner';
 export * from './MemberWorkSyncPendingReportIntentReplayer';

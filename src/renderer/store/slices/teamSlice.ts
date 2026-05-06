@@ -13,12 +13,15 @@ import { extractProviderScopedBaseModel } from '@renderer/utils/teamModelContext
 import { IpcError, unwrapIpc } from '@renderer/utils/unwrapIpc';
 import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { DEFAULT_TOOL_APPROVAL_SETTINGS } from '@shared/types/team';
-import { isLeadMember } from '@shared/utils/leadDetection';
 import { createLogger } from '@shared/utils/logger';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import { buildTeamGraphDefaultLayoutSeed } from '@shared/utils/teamGraphDefaultLayout';
 import { getStableTeamOwnerId } from '@shared/utils/teamStableOwnerId';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskFinalForCompletionNotification,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 
 import { noteTeamRefreshFanout } from '../teamRefreshFanoutDiagnostics';
 import { getWorktreeNavigationState } from '../utils/stateResetHelpers';
@@ -328,6 +331,7 @@ function collectTeamScopedStateRemovals(
     | 'provisioningStartedAtFloorByTeam'
     | 'leadActivityByTeam'
     | 'leadContextByTeam'
+    | 'activeTaskLogActivityByTeam'
     | 'activeToolsByTeam'
     | 'finishedVisibleByTeam'
     | 'toolHistoryByTeam'
@@ -353,6 +357,7 @@ function collectTeamScopedStateRemovals(
   );
   const nextLeadActivity = omitTeamKey(state.leadActivityByTeam, teamName);
   const nextLeadContext = omitTeamKey(state.leadContextByTeam, teamName);
+  const nextActiveTaskLogActivity = omitTeamKey(state.activeTaskLogActivityByTeam, teamName);
   const nextActiveTools = omitTeamKey(state.activeToolsByTeam, teamName);
   const nextFinishedVisible = omitTeamKey(state.finishedVisibleByTeam, teamName);
   const nextToolHistory = omitTeamKey(state.toolHistoryByTeam, teamName);
@@ -378,6 +383,9 @@ function collectTeamScopedStateRemovals(
       : {}),
     ...(nextLeadActivity ? { leadActivityByTeam: nextLeadActivity } : {}),
     ...(nextLeadContext ? { leadContextByTeam: nextLeadContext } : {}),
+    ...(nextActiveTaskLogActivity
+      ? { activeTaskLogActivityByTeam: nextActiveTaskLogActivity }
+      : {}),
     ...(nextActiveTools ? { activeToolsByTeam: nextActiveTools } : {}),
     ...(nextFinishedVisible ? { finishedVisibleByTeam: nextFinishedVisible } : {}),
     ...(nextToolHistory ? { toolHistoryByTeam: nextToolHistory } : {}),
@@ -1382,11 +1390,12 @@ function detectStatusChangeNotifications(
     if (!oldTask) continue;
 
     // Detect kanbanColumn change to 'approved' (status stays 'completed', column changes)
-    const taskKanbanColumn = getTaskKanbanColumn(task);
-    const oldTaskKanbanColumn = getTaskKanbanColumn(oldTask);
+    const taskKanbanColumn = getTeamTaskWorkflowColumn(task);
+    const oldTaskKanbanColumn = getTeamTaskWorkflowColumn(oldTask);
     const becameApproved = taskKanbanColumn === 'approved' && oldTaskKanbanColumn !== 'approved';
     const becameReview = taskKanbanColumn === 'review' && oldTaskKanbanColumn !== 'review';
-    const becameNeedsFix = task.reviewState === 'needsFix' && oldTask.reviewState !== 'needsFix';
+    const becameNeedsFix =
+      isTeamTaskNeedsFixActionable(task) && !isTeamTaskNeedsFixActionable(oldTask);
 
     const statusChanged = oldTask.status !== task.status;
     if (!statusChanged && !becameApproved && !becameReview && !becameNeedsFix) continue;
@@ -1681,7 +1690,7 @@ function detectAllTasksCompletedNotification(
 
   for (const [teamName, tasks] of teamTasks) {
     if (tasks.length === 0) continue;
-    const allCompleted = tasks.every((t) => t.status === 'completed' || t.status === 'deleted');
+    const allCompleted = tasks.every(isTeamTaskFinalForCompletionNotification);
     if (!allCompleted) {
       // Reset so we can notify again if tasks become all-completed later
       notifiedAllCompletedTeams.delete(teamName);
@@ -1692,8 +1701,7 @@ function detectAllTasksCompletedNotification(
     // Check that at least one task was NOT completed before (real transition)
     const oldTeamTasks = oldTasks.filter((t) => t.teamName === teamName);
     const wasAlreadyAllCompleted =
-      oldTeamTasks.length > 0 &&
-      oldTeamTasks.every((t) => t.status === 'completed' || t.status === 'deleted');
+      oldTeamTasks.length > 0 && oldTeamTasks.every(isTeamTaskFinalForCompletionNotification);
     if (wasAlreadyAllCompleted) {
       notifiedAllCompletedTeams.add(teamName);
       continue;
@@ -2385,6 +2393,7 @@ export interface TeamSlice {
   provisioningStartedAtFloorByTeam: Record<string, string>;
   leadActivityByTeam: Record<string, LeadActivityState>;
   leadContextByTeam: Record<string, LeadContextUsage>;
+  activeTaskLogActivityByTeam: Record<string, Record<string, true>>;
   activeToolsByTeam: Record<string, Record<string, Record<string, ActiveToolCall>>>;
   finishedVisibleByTeam: Record<string, Record<string, Record<string, ActiveToolCall>>>;
   toolHistoryByTeam: Record<string, Record<string, ActiveToolCall[]>>;
@@ -2727,6 +2736,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
   provisioningStartedAtFloorByTeam: {},
   leadActivityByTeam: {},
   leadContextByTeam: {},
+  activeTaskLogActivityByTeam: {},
   activeToolsByTeam: {},
   finishedVisibleByTeam: {},
   toolHistoryByTeam: {},
@@ -3038,13 +3048,13 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
                 );
               }
               notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:${task.status}`);
-              if (task.reviewState === 'needsFix') {
+              if (isTeamTaskNeedsFixActionable(task)) {
                 notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:needsFix`);
               }
-              if (getTaskKanbanColumn(task) === 'approved') {
+              if (getTeamTaskWorkflowColumn(task) === 'approved') {
                 notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:approved`);
               }
-              if (getTaskKanbanColumn(task) === 'review') {
+              if (getTeamTaskWorkflowColumn(task) === 'review') {
                 notifiedStatusChangeKeys.add(`${task.teamName}:${task.id}:review`);
               }
               // Seed comment keys to prevent false notifications
@@ -3062,7 +3072,7 @@ export const createTeamSlice: StateCreator<AppState, [], [], TeamSlice> = (set, 
               teamTasksMap.set(task.teamName, list);
             }
             for (const [teamName, teamTasks] of teamTasksMap) {
-              if (teamTasks.every((t) => t.status === 'completed' || t.status === 'deleted')) {
+              if (teamTasks.every(isTeamTaskFinalForCompletionNotification)) {
                 notifiedAllCompletedTeams.add(teamName);
               }
             }

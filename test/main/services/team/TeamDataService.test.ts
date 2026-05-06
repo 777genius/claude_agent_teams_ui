@@ -1908,6 +1908,188 @@ describe('TeamDataService', () => {
     });
   });
 
+  it('preserves kanban approved overlay even when task status is still in_progress', async () => {
+    const harness = createGetTeamDataHarness({
+      config: {
+        name: 'My team',
+        members: [{ name: 'jack', role: 'developer' }],
+      },
+      getTasks: async (): Promise<TeamTask[]> => [
+        {
+          id: 'task-approved',
+          subject: 'Approved but stale status',
+          status: 'in_progress',
+          owner: 'jack',
+          reviewState: 'none',
+        },
+      ],
+      getState: async () => ({
+        teamName: 'my-team',
+        reviewers: [],
+        tasks: {
+          'task-approved': {
+            column: 'approved',
+            movedAt: '2026-05-06T19:06:07.257Z',
+          },
+        },
+      }),
+    });
+
+    const data = await harness.service.getTeamData('my-team');
+
+    expect(data.tasks[0]).toMatchObject({
+      id: 'task-approved',
+      status: 'in_progress',
+      reviewState: 'approved',
+      kanbanColumn: 'approved',
+    });
+    expect(harness.resolveMembersSpy).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Array),
+      expect.any(Array),
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'task-approved',
+          kanbanColumn: 'approved',
+        }),
+      ]),
+      expect.any(Object)
+    );
+  });
+
+  it('lets current kanban approved overlay win over stale review history', async () => {
+    const harness = createGetTeamDataHarness({
+      config: {
+        name: 'My team',
+        members: [{ name: 'jack', role: 'developer' }],
+      },
+      getTasks: async () => [
+        {
+          id: 'task-approved',
+          subject: 'Approved after review',
+          status: 'in_progress',
+          owner: 'jack',
+          reviewState: 'none',
+          historyEvents: [
+            {
+              id: 'review-started',
+              type: 'review_started',
+              timestamp: '2026-05-06T19:00:00.000Z',
+              from: 'none',
+              to: 'review',
+            },
+          ],
+        },
+      ],
+      getState: async () => ({
+        teamName: 'my-team',
+        reviewers: [],
+        tasks: {
+          'task-approved': {
+            column: 'approved',
+            movedAt: '2026-05-06T19:06:07.257Z',
+          },
+        },
+      }),
+    });
+
+    const data = await harness.service.getTeamData('my-team');
+
+    expect(data.tasks[0]).toMatchObject({
+      id: 'task-approved',
+      status: 'in_progress',
+      reviewState: 'approved',
+      kanbanColumn: 'approved',
+      reviewer: null,
+    });
+  });
+
+  it('lets current kanban review overlay win over stale approved review state', async () => {
+    const harness = createGetTeamDataHarness({
+      config: {
+        name: 'My team',
+        members: [{ name: 'jack', role: 'developer' }],
+      },
+      getTasks: async () => [
+        {
+          id: 'task-review',
+          subject: 'Moved back to review',
+          status: 'completed',
+          owner: 'jack',
+          reviewState: 'approved',
+        },
+      ],
+      getState: async () => ({
+        teamName: 'my-team',
+        reviewers: [],
+        tasks: {
+          'task-review': {
+            column: 'review',
+            reviewer: 'carol',
+            movedAt: '2026-05-06T19:06:07.257Z',
+          },
+        },
+      }),
+    });
+
+    const data = await harness.service.getTeamData('my-team');
+
+    expect(data.tasks[0]).toMatchObject({
+      id: 'task-review',
+      status: 'completed',
+      reviewState: 'review',
+      kanbanColumn: 'review',
+      reviewer: 'carol',
+    });
+  });
+
+  it('does not preserve stale kanban approved overlay for reopened pending tasks', async () => {
+    const harness = createGetTeamDataHarness({
+      config: {
+        name: 'My team',
+        members: [{ name: 'jack', role: 'developer' }],
+      },
+      getTasks: async () => [
+        {
+          id: 'task-reopened',
+          subject: 'Reopened pending task',
+          status: 'pending',
+          owner: 'jack',
+          reviewState: 'none',
+          historyEvents: [
+            {
+              id: 'review-approved',
+              type: 'review_approved',
+              timestamp: '2026-05-06T19:00:00.000Z',
+              from: 'review',
+              to: 'approved',
+              actor: 'carol',
+            },
+          ],
+        },
+      ],
+      getState: async () => ({
+        teamName: 'my-team',
+        reviewers: [],
+        tasks: {
+          'task-reopened': {
+            column: 'approved',
+            movedAt: '2026-05-06T19:06:07.257Z',
+          },
+        },
+      }),
+    });
+
+    const data = await harness.service.getTeamData('my-team');
+
+    expect(data.tasks[0]).toMatchObject({
+      id: 'task-reopened',
+      status: 'pending',
+      reviewState: 'none',
+    });
+    expect(data.tasks[0]?.kanbanColumn).toBeUndefined();
+  });
+
   it('applies kanban overlay review state in global task projections', async () => {
     const service = new TeamDataService(
       {
@@ -1964,6 +2146,66 @@ describe('TeamDataService', () => {
       id: 'task-global-review',
       reviewState: 'review',
       kanbanColumn: 'review',
+    });
+  });
+
+  it('lets kanban approved overlay win over stale review history in global task projections', async () => {
+    const service = new TeamDataService(
+      {
+        listTeams: vi.fn(async () => [
+          {
+            teamName: 'my-team',
+            displayName: 'My team',
+            projectPath: '/repo',
+          },
+        ]),
+      } as never,
+      {
+        getAllTasks: vi.fn(async () => [
+          {
+            id: 'task-global-approved',
+            teamName: 'my-team',
+            subject: 'Global approved task',
+            status: 'completed',
+            owner: 'bob',
+            reviewState: 'none',
+            historyEvents: [
+              {
+                id: 'evt-review',
+                type: 'review_started',
+                from: 'none',
+                to: 'review',
+                timestamp: '2026-03-01T09:00:00.000Z',
+              },
+            ],
+          },
+        ]),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        getState: vi.fn(async () => ({
+          teamName: 'my-team',
+          reviewers: [],
+          tasks: {
+            'task-global-approved': {
+              column: 'approved',
+              reviewer: 'carol',
+              movedAt: '2026-03-01T10:00:00.000Z',
+            },
+          },
+        })),
+      } as never
+    );
+
+    const tasks = await service.getAllTasks();
+
+    expect(tasks[0]).toMatchObject({
+      id: 'task-global-approved',
+      reviewState: 'approved',
+      kanbanColumn: 'approved',
     });
   });
 

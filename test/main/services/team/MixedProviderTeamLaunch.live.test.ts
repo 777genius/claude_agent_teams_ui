@@ -283,7 +283,8 @@ async function assertExecutable(filePath: string): Promise<void> {
 }
 
 async function writeTrustedClaudeConfig(configDir: string, projectPath: string): Promise<void> {
-  const normalizedProjectPath = path.normalize(projectPath).replace(/\\/g, '/');
+  const canonicalProjectPath = await fs.realpath(projectPath).catch(() => projectPath);
+  const normalizedProjectPath = path.normalize(canonicalProjectPath).replace(/\\/g, '/');
   const approvedApiKeySuffix = process.env.ANTHROPIC_API_KEY?.trim().slice(-20);
   const config: {
     projects: Record<string, { hasTrustDialogAccepted: true }>;

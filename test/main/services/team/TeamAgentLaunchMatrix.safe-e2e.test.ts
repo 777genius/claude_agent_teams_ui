@@ -5052,7 +5052,6 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.launchInputs.length === 2);
     await waitForCondition(() =>
       run.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -5094,7 +5093,6 @@ describe('Team agent launch matrix safe e2e', () => {
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.launchInputs.length === 2);
     await waitForCondition(() =>
       run.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
@@ -5146,13 +5144,17 @@ describe('Team agent launch matrix safe e2e', () => {
     const svc = new TeamProvisioningService();
     svc.setRuntimeAdapterRegistry(new TeamRuntimeAdapterRegistry([adapter]));
     const run = createMixedLiveRun({ teamName, projectPath, primaryProviderId: 'anthropic' });
+    removeMixedOpenCodeLaneForTest(run, 'bob');
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
     await waitForCondition(() =>
       run.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
+    expect(adapter.launchInputs.map((input) => input.expectedMembers.map((member) => member.name))).toEqual([
+      ['tom'],
+    ]);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
 
@@ -5215,15 +5217,19 @@ describe('Team agent launch matrix safe e2e', () => {
             model: 'opencode/nemotron-3-super-free',
           },
         ],
-      ]);
+    ]);
     const run = createMixedLiveRun({ teamName, projectPath, primaryProviderId: 'anthropic' });
+    removeMixedOpenCodeLaneForTest(run, 'bob');
     trackLiveRun(svc, run);
 
     await (svc as any).launchMixedSecondaryLaneIfNeeded(run);
-    await waitForCondition(() => adapter.launchInputs.length === 2);
+    await waitForCondition(() => adapter.launchInputs.length === 1);
     await waitForCondition(() =>
       run.mixedSecondaryLanes.every((lane: { state: string }) => lane.state === 'finished')
     );
+    expect(adapter.launchInputs.map((input) => input.expectedMembers.map((member) => member.name))).toEqual([
+      ['tom'],
+    ]);
 
     const statuses = await svc.getMemberSpawnStatuses(teamName);
 
@@ -17441,6 +17447,15 @@ function markMixedOpenCodeLaneConfirmedForTest(run: any, memberName: string): vo
     warnings: [],
     diagnostics: ['fake OpenCode launch ready'],
   };
+}
+
+function removeMixedOpenCodeLaneForTest(run: any, memberName: string): void {
+  run.allEffectiveMembers = (run.allEffectiveMembers ?? []).filter(
+    (member: { name?: string }) => member.name !== memberName
+  );
+  run.mixedSecondaryLanes = (run.mixedSecondaryLanes ?? []).filter(
+    (lane: { member?: { name?: string } }) => lane.member?.name !== memberName
+  );
 }
 
 function addGeminiPrimaryToMixedRun(run: any): void {

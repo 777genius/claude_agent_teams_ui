@@ -14,18 +14,8 @@ export function normalizeReviewState(value: unknown): TeamReviewState {
 }
 
 export function getReviewStateFromTask(task: ReviewStateLike): TeamReviewState {
-  // Prefer derivation from historyEvents when available
-  if (Array.isArray(task.historyEvents) && task.historyEvents.length > 0) {
-    const derived = getDerivedReviewStateFromHistory({
-      historyEvents: task.historyEvents as TaskHistoryEvent[],
-    });
-    if (derived) {
-      return derived;
-    }
-  }
-
   const fallbackStatus = typeof task.status === 'string' ? task.status : null;
-  const normalizeFallback = (value: unknown): TeamReviewState | null => {
+  const normalizeForStatus = (value: unknown): TeamReviewState | null => {
     const explicit = normalizeReviewState(value);
     if (explicit === 'none') return null;
 
@@ -36,16 +26,28 @@ export function getReviewStateFromTask(task: ReviewStateLike): TeamReviewState {
       return explicit === 'needsFix' ? 'needsFix' : 'none';
     }
     if (fallbackStatus === 'completed') {
-      return explicit === 'review' || explicit === 'approved' ? explicit : 'none';
+      return explicit === 'review' || explicit === 'approved' || explicit === 'needsFix'
+        ? explicit
+        : 'none';
     }
     return explicit;
   };
 
-  const explicit = normalizeFallback(task.reviewState);
+  // Prefer derivation from historyEvents when available
+  if (Array.isArray(task.historyEvents) && task.historyEvents.length > 0) {
+    const derived = getDerivedReviewStateFromHistory({
+      historyEvents: task.historyEvents as TaskHistoryEvent[],
+    });
+    if (derived !== null) {
+      return normalizeForStatus(derived) ?? 'none';
+    }
+  }
+
+  const explicit = normalizeForStatus(task.reviewState);
   if (explicit) return explicit;
 
   if (task.kanbanColumn === 'review' || task.kanbanColumn === 'approved') {
-    return normalizeFallback(task.kanbanColumn) ?? 'none';
+    return normalizeForStatus(task.kanbanColumn) ?? 'none';
   }
 
   return 'none';

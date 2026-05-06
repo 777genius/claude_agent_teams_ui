@@ -46,6 +46,7 @@ const SCAN_CONCURRENCY = 15;
 
 /** TTL for discoverProjectSessions cache — avoids re-reading config/dirs within rapid successive calls. */
 const DISCOVERY_CACHE_TTL = 30_000;
+const MAX_TASK_FRESHNESS_ROOT_DIRS = 64;
 
 /** Signal sources for subagent member attribution, ordered by reliability. */
 type AttributionSignalSource = 'process_team' | 'routing_sender' | 'teammate_id' | 'text_mention';
@@ -116,6 +117,7 @@ export interface MemberLogFileRef {
 export interface TeamLogSourceLiveContext {
   projectDir: string;
   projectPath?: string;
+  taskFreshnessRootDirs?: string[];
   leadSessionId?: string;
   sessionIds: string[];
   watchSessionIds: string[];
@@ -141,6 +143,30 @@ async function mapLimit<T, R>(
   });
   await Promise.all(workers);
   return results;
+}
+
+function collectTaskFreshnessRootDirs(candidates: readonly unknown[]): string[] {
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+    const trimmed = candidate.trim();
+    if (!trimmed || !path.isAbsolute(trimmed)) {
+      continue;
+    }
+    const normalized = path.normalize(trimmed);
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    roots.push(normalized);
+    if (roots.length >= MAX_TASK_FRESHNESS_ROOT_DIRS) {
+      break;
+    }
+  }
+  return roots;
 }
 
 export class TeamMemberLogsFinder {
@@ -286,13 +312,13 @@ export class TeamMemberLogsFinder {
       readBootstrapLaunchSnapshot(teamName).catch(() => null),
     ]);
     const preferredSnapshot = choosePreferredLaunchSnapshot(bootstrapSnapshot, launchSnapshot);
-    const extraProjectPathCandidates = Object.values(preferredSnapshot?.members ?? {}).map(
+    const runtimeMemberCwdCandidates = Object.values(preferredSnapshot?.members ?? {}).map(
       (member) => member.cwd
     );
 
     const base = await this.projectResolver.getLiveBaseContext(teamName, {
       forceRefresh: options?.forceRefresh,
-      extraProjectPathCandidates,
+      extraProjectPathCandidates: runtimeMemberCwdCandidates,
     });
     if (!base) {
       return null;
@@ -308,6 +334,11 @@ export class TeamMemberLogsFinder {
     return {
       projectDir: base.projectDir,
       projectPath: base.config.projectPath,
+      taskFreshnessRootDirs: collectTaskFreshnessRootDirs([
+        base.config.projectPath,
+        ...(base.config.members ?? []).map((member) => member.cwd),
+        ...runtimeMemberCwdCandidates,
+      ]),
       leadSessionId: base.config.leadSessionId ?? preferredSnapshot?.leadSessionId,
       sessionIds: watchSessionIds,
       watchSessionIds,

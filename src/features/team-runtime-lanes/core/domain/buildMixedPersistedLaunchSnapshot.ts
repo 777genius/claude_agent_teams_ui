@@ -6,6 +6,9 @@ import type {
   MemberLaunchState,
   MemberSpawnLivenessSource,
   MemberSpawnStatusEntry,
+  OpenCodeAppManagedBootstrapCandidate,
+  OpenCodeBootstrapEvidenceSource,
+  OpenCodeBootstrapMode,
   PersistedTeamLaunchMemberSources,
   PersistedTeamLaunchMemberState,
   PersistedTeamLaunchPhase,
@@ -43,6 +46,9 @@ export interface MixedSecondaryLaneMemberStateInput {
     runtimePid?: number;
     runtimeSessionId?: string;
     sessionId?: string;
+    bootstrapEvidenceSource?: OpenCodeBootstrapEvidenceSource;
+    bootstrapMode?: OpenCodeBootstrapMode;
+    appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
     livenessKind?: TeamAgentRuntimeLivenessKind;
     pidSource?: TeamAgentRuntimePidSource;
     runtimeDiagnostic?: string;
@@ -348,6 +354,9 @@ function createSecondaryLaneMemberState(
         ? Math.trunc(evidence.runtimePid)
         : undefined,
     runtimeSessionId: evidence?.runtimeSessionId ?? evidence?.sessionId,
+    bootstrapEvidenceSource: evidence?.bootstrapEvidenceSource,
+    bootstrapMode: evidence?.bootstrapMode,
+    appManagedBootstrapCandidate: evidence?.appManagedBootstrapCandidate,
     livenessKind: evidence?.livenessKind,
     pidSource: evidence?.pidSource,
     runtimeDiagnostic: evidence?.runtimeDiagnostic,

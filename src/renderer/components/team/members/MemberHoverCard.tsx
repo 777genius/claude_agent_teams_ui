@@ -24,6 +24,7 @@ import {
   buildMemberLaunchPresentation,
   displayMemberName,
 } from '@renderer/utils/memberHelpers';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 import {
   buildMemberLaunchDiagnosticsPayload,
   getMemberLaunchDiagnosticsErrorMessage,
@@ -31,6 +32,7 @@ import {
   hasMemberLaunchDiagnosticsError,
 } from '@renderer/utils/memberLaunchDiagnostics';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import { getTeamTaskWorkflowColumn } from '@shared/utils/teamTaskState';
 import { ExternalLink } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -126,8 +128,19 @@ export const MemberHoverCard = memo(function MemberHoverCard({
     progress?.state === 'ready' && getLaunchJoinState(launchJoinMilestones).hasMembersStillJoining;
   const colors = getTeamColorSet(color ?? member.color ?? '');
   const roleLabel = formatAgentRole(member.role) ?? formatAgentRole(member.agentType);
+  const currentTaskCandidate: TeamTaskWithKanban | null = member.currentTaskId
+    ? (tasks.find((t) => t.id === member.currentTaskId) ?? null)
+    : null;
+  const currentTask = isDisplayableCurrentTask(currentTaskCandidate) ? currentTaskCandidate : null;
+  const presentationMember =
+    member.currentTaskId && !currentTask
+      ? {
+          ...member,
+          currentTaskId: null,
+        }
+      : member;
   const launchPresentation = buildMemberLaunchPresentation({
-    member,
+    member: presentationMember,
     spawnStatus: spawnEntry?.status,
     spawnLaunchState: spawnEntry?.launchState,
     spawnLivenessSource: spawnEntry?.livenessSource,
@@ -171,15 +184,12 @@ export const MemberHoverCard = memo(function MemberHoverCard({
   const showCopyDiagnostics =
     hasMemberLaunchDiagnosticsError(launchDiagnosticsPayload) &&
     hasMemberLaunchDiagnosticsDetails(launchDiagnosticsPayload);
-  const currentTask: TeamTaskWithKanban | null = member.currentTaskId
-    ? (tasks.find((t) => t.id === member.currentTaskId) ?? null)
-    : null;
   const reviewTask: TeamTaskWithKanban | null = tasks
     ? (tasks.find(
         (task) =>
           task.reviewer === member.name &&
-          task.id !== member.currentTaskId &&
-          (task.reviewState === 'review' || task.kanbanColumn === 'review')
+          task.id !== currentTask?.id &&
+          getTeamTaskWorkflowColumn(task) === 'review'
       ) ?? null)
     : null;
 

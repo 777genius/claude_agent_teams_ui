@@ -33,6 +33,22 @@ function formatOpenCodeRuntimeDeliveryFailureReason(reason: string | null | unde
   if (normalized === 'prompt_delivered_no_assistant_message') {
     return 'OpenCode accepted the prompt, but no assistant turn was recorded.';
   }
+  if (
+    normalized === 'visible_reply_still_required' ||
+    normalized === 'visible_reply_ack_only_still_requires_answer' ||
+    normalized === 'plain_text_ack_only_still_requires_answer'
+  ) {
+    return 'OpenCode responded, but did not create a visible message_send reply.';
+  }
+  if (
+    normalized === 'visible_reply_destination_not_found_yet' ||
+    normalized === 'visible_reply_missing_relayOfMessageId'
+  ) {
+    return 'OpenCode created a reply without the required relayOfMessageId correlation.';
+  }
+  if (normalized === 'non_visible_tool_without_task_progress') {
+    return 'OpenCode used tools, but did not create a visible reply or task progress proof.';
+  }
   return '';
 }
 

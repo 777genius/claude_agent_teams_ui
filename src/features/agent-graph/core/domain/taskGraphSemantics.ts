@@ -1,27 +1,34 @@
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskDeleted,
+  isTeamTaskFinishedForDependency,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
+
 import type { KanbanColumnId, KanbanTaskState, TeamTask, TeamTaskWithKanban } from '@shared/types';
 
-type TaskColumnInput = Pick<TeamTaskWithKanban, 'status' | 'reviewState' | 'kanbanColumn'>;
+type TaskColumnInput = Pick<
+  TeamTaskWithKanban,
+  'status' | 'reviewState' | 'kanbanColumn' | 'deletedAt'
+>;
 type TaskReviewerInput = Pick<TeamTaskWithKanban, 'reviewer' | 'reviewState' | 'kanbanColumn'>;
 type TaskBlockInput = Pick<TeamTask, 'blockedBy'>;
-type TaskBlockState = Pick<TeamTask, 'status'>;
+type TaskBlockState = Pick<
+  TeamTaskWithKanban,
+  'status' | 'reviewState' | 'kanbanColumn' | 'deletedAt'
+>;
 
 export function resolveTaskGraphColumn(task: TaskColumnInput): KanbanColumnId {
-  if (task.reviewState === 'approved') return 'approved';
-  if (task.reviewState === 'review' || task.reviewState === 'needsFix') return 'review';
-  if (task.kanbanColumn === 'review' || task.kanbanColumn === 'approved') {
-    return task.kanbanColumn;
-  }
+  const workflowColumn = getTeamTaskWorkflowColumn(task);
+  if (workflowColumn) return workflowColumn;
+  if (isTeamTaskNeedsFixActionable(task)) return 'review';
   if (task.status === 'in_progress') return 'in_progress';
   if (task.status === 'completed') return 'done';
   return 'todo';
 }
 
 export function isTaskInReviewCycle(task: TaskColumnInput): boolean {
-  return (
-    task.reviewState === 'review' ||
-    task.reviewState === 'needsFix' ||
-    task.kanbanColumn === 'review'
-  );
+  return isTeamTaskNeedsFixActionable(task) || getTeamTaskWorkflowColumn(task) === 'review';
 }
 
 export function resolveTaskReviewer(
@@ -43,6 +50,6 @@ export function isTaskBlocked(
 
   return blockedBy.some((taskId) => {
     const blocker = taskStateById.get(taskId);
-    return !blocker || (blocker.status !== 'completed' && blocker.status !== 'deleted');
+    return !blocker || (!isTeamTaskFinishedForDependency(blocker) && !isTeamTaskDeleted(blocker));
   });
 }

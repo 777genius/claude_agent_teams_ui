@@ -41,6 +41,86 @@ describe('TeamMemberResolver', () => {
     expect(lead?.agentType).toBe('team-lead');
   });
 
+  it('does not expose completed, deleted, or approved tasks as current work', () => {
+    const resolver = new TeamMemberResolver();
+    const config: TeamConfig = {
+      name: 'Team',
+      members: [
+        { name: 'team-lead', agentType: 'team-lead', role: 'lead' },
+        { name: 'alice', agentType: 'general-purpose' },
+        { name: 'bob', agentType: 'general-purpose' },
+        { name: 'carol', agentType: 'general-purpose' },
+        { name: 'dave', agentType: 'general-purpose' },
+      ],
+    };
+    const tasks: TeamTaskWithKanban[] = [
+      {
+        id: 'task-completed',
+        subject: 'Done',
+        status: 'completed',
+        owner: 'alice',
+      },
+      {
+        id: 'task-deleted',
+        subject: 'Deleted',
+        status: 'deleted',
+        owner: 'bob',
+        deletedAt: '2026-05-06T00:00:00.000Z',
+      },
+      {
+        id: 'task-approved-review',
+        subject: 'Approved review',
+        status: 'in_progress',
+        owner: 'carol',
+        reviewState: 'approved',
+      },
+      {
+        id: 'task-approved-kanban',
+        subject: 'Approved kanban',
+        status: 'in_progress',
+        owner: 'dave',
+        kanbanColumn: 'approved',
+      },
+      {
+        id: 'task-review-kanban',
+        subject: 'Review kanban',
+        status: 'in_progress',
+        owner: 'dave',
+        kanbanColumn: 'review',
+      },
+    ];
+
+    const members = resolver.resolveMembers(config, [], [], tasks);
+
+    expect(members.find((member) => member.name === 'alice')?.currentTaskId).toBeNull();
+    expect(members.find((member) => member.name === 'bob')?.currentTaskId).toBeNull();
+    expect(members.find((member) => member.name === 'carol')?.currentTaskId).toBeNull();
+    expect(members.find((member) => member.name === 'dave')?.currentTaskId).toBeNull();
+  });
+
+  it('keeps real in-progress task as current work', () => {
+    const resolver = new TeamMemberResolver();
+    const config: TeamConfig = {
+      name: 'Team',
+      members: [
+        { name: 'team-lead', agentType: 'team-lead', role: 'lead' },
+        { name: 'alice', agentType: 'general-purpose' },
+      ],
+    };
+    const tasks: TeamTaskWithKanban[] = [
+      {
+        id: 'task-active',
+        subject: 'Active',
+        status: 'in_progress',
+        owner: 'alice',
+      },
+    ];
+
+    const members = resolver.resolveMembers(config, [], [], tasks);
+
+    expect(members.find((member) => member.name === 'alice')?.currentTaskId).toBe('task-active');
+  });
+
   it('filters out "user" pseudo-member even when present in config, meta, or inboxNames', () => {
     const resolver = new TeamMemberResolver();
     const config: TeamConfig = {

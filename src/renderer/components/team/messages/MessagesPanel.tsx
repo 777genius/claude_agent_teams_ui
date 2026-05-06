@@ -23,6 +23,7 @@ import { filterTeamMessages } from '@renderer/utils/teamMessageFiltering';
 import { toMessageKey } from '@renderer/utils/teamMessageKey';
 import { shouldExcludeInboxTextFromReplyCandidates } from '@shared/utils/idleNotificationSemantics';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import { isTaskStallRemediationMessage } from '@shared/utils/teamAutomationMessages';
 import {
   CheckCheck,
   ChevronsDownUp,
@@ -587,6 +588,7 @@ export const MessagesPanel = memo(function MessagesPanel({
 
   const activityTimelineMessages = useMemo(() => {
     return filterTeamMessages(effectiveMessages, {
+      includeAutomationEvents: true,
       includePassiveIdlePeerSummariesWhenNoiseHidden: true,
       leadNames,
       timeWindow,
@@ -600,6 +602,7 @@ export const MessagesPanel = memo(function MessagesPanel({
       effectiveMessages.filter(
         (m) =>
           m.messageKind !== 'task_comment_notification' &&
+          !isTaskStallRemediationMessage(m) &&
           !shouldExcludeInboxTextFromReplyCandidates(typeof m.text === 'string' ? m.text : '')
       ),
     [effectiveMessages]

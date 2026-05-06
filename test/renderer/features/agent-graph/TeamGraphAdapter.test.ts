@@ -62,6 +62,31 @@ function findNode(graph: GraphDataPort, nodeId: string) {
   return graph.nodes.find((node) => node.id === nodeId);
 }
 
+function adaptWithActiveTaskLogActivity(
+  adapter: TeamGraphAdapter,
+  teamData: TeamGraphData,
+  activeTaskLogActivity: Record<string, true>
+): GraphDataPort {
+  return adapter.adapt(
+    teamData,
+    'my-team',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    activeTaskLogActivity
+  );
+}
+
 describe('TeamGraphAdapter particles', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -1629,6 +1654,47 @@ describe('TeamGraphAdapter particles', () => {
 
     expect(findNode(unreadGraph, 'task:my-team:task-comments')?.unreadCommentCount).toBe(1);
     expect(findNode(readGraph, 'task:my-team:task-comments')?.unreadCommentCount).toBeUndefined();
+  });
+
+  it('projects live task log activity onto visible task nodes and overflow stacks', () => {
+    const adapter = TeamGraphAdapter.create();
+    const graph = adaptWithActiveTaskLogActivity(
+      adapter,
+      createBaseTeamData({
+        tasks: [
+          {
+            id: 'task-live-visible',
+            displayId: '#1',
+            subject: 'Visible live logs',
+            owner: 'alice',
+            status: 'in_progress',
+            reviewState: 'none',
+          },
+          ...Array.from({ length: 5 }, (_, index) => ({
+            id: `task-overflow-${index + 1}`,
+            displayId: `#${index + 2}`,
+            subject: `Overflow task ${index + 1}`,
+            owner: 'alice',
+            status: 'in_progress',
+            reviewState: 'none',
+          })),
+        ] as TeamTaskWithKanban[],
+      }),
+      {
+        'task-live-visible': true,
+        'task-overflow-5': true,
+      }
+    );
+
+    const visibleLiveTask = findNode(graph, 'task:my-team:task-live-visible');
+    const overflowNode = graph.nodes.find((node) => node.kind === 'task' && node.isOverflowStack);
+
+    expect(visibleLiveTask).toMatchObject({ hasLiveTaskLogs: true });
+    expect(overflowNode).toMatchObject({
+      hasLiveTaskLogs: true,
+      overflowTaskIds: expect.arrayContaining(['task-overflow-5']),
+    });
+    expect(findNode(graph, 'task:my-team:task-overflow-1')?.hasLiveTaskLogs).toBeUndefined();
   });
 
   it('dedupes symmetric blocking links and ignores completed blockers for blocked state', () => {

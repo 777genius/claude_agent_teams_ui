@@ -475,13 +475,34 @@ function setTaskStatus(paths, taskRef, nextStatus, actor) {
   });
 }
 
-function setTaskOwner(paths, taskRef, owner) {
+function normalizeOwnerValue(owner) {
+  if (owner == null || owner === 'clear' || owner === 'none') {
+    return undefined;
+  }
+  const normalized = String(owner).trim();
+  return normalized ? normalized : undefined;
+}
+
+function setTaskOwner(paths, taskRef, owner, actor) {
   return updateTask(paths, taskRef, (task) => {
-    if (owner == null || owner === 'clear' || owner === 'none') {
-      delete task.owner;
+    const previousOwner = normalizeOwnerValue(task.owner);
+    const nextOwner = normalizeOwnerValue(owner);
+
+    if (nextOwner) {
+      task.owner = nextOwner;
     } else {
-      task.owner = String(owner).trim();
+      delete task.owner;
     }
+
+    if (previousOwner !== nextOwner) {
+      task.historyEvents = appendHistoryEvent(task.historyEvents, {
+        type: 'owner_changed',
+        ...(previousOwner ? { from: previousOwner } : {}),
+        ...(nextOwner ? { to: nextOwner } : {}),
+        ...(actor ? { actor } : {}),
+      });
+    }
+
     return task;
   });
 }

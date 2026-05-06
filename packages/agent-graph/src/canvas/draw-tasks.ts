@@ -39,7 +39,7 @@ export function drawTasks(
     ctx.globalAlpha = opacity;
 
     if (simplify) {
-      drawTaskPillLod(ctx, x, y, node, isSelected, isHovered);
+      drawTaskPillLod(ctx, x, y, node, time, isSelected, isHovered);
     } else {
       drawTaskPill(ctx, x, y, node, time, isSelected, isHovered);
     }
@@ -145,6 +145,10 @@ function drawTaskPill(
     ctx.stroke();
   }
 
+  if (node.hasLiveTaskLogs) {
+    drawLiveTaskLogIndicator(ctx, -halfW + 8, -halfH + 8, time);
+  }
+
   // Subject (main title — large)
   if (node.sublabel) {
     ctx.font = `bold ${TASK_PILL.idFontSize}px sans-serif`;
@@ -235,6 +239,7 @@ function drawTaskPillLod(
   x: number,
   y: number,
   node: GraphNode,
+  time: number,
   isSelected: boolean,
   isHovered: boolean
 ): void {
@@ -276,6 +281,45 @@ function drawTaskPillLod(
     ctx.fill();
   }
 
+  if (node.hasLiveTaskLogs) {
+    drawLiveTaskLogIndicator(ctx, -halfW + 8, -halfH + 8, time, true);
+  }
+
+  ctx.restore();
+}
+
+function drawLiveTaskLogIndicator(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  time: number,
+  compact = false
+): void {
+  const coreRadius = compact ? 2.5 : 3.4;
+  const glowRadius = compact ? 7 : 10;
+  const pulse = 0.55 + 0.25 * Math.sin(time * 6);
+  const color = COLORS.reviewApproved;
+
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
+  glow.addColorStop(0, hexWithAlpha(color, 0.35 + pulse * 0.28));
+  glow.addColorStop(1, hexWithAlpha(color, 0));
+
+  ctx.save();
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = hexWithAlpha(color, 0.95);
+  ctx.beginPath();
+  ctx.arc(x, y, coreRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = hexWithAlpha(color, pulse);
+  ctx.lineWidth = compact ? 0.8 : 1;
+  ctx.beginPath();
+  ctx.arc(x, y, coreRadius + (compact ? 1.2 : 1.8), 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 

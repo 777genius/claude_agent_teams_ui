@@ -163,6 +163,10 @@ describe('TeamMemberRuntimeAdvisoryService', () => {
       'All credentials for model claude-opus-4-6 are cooling down via provider claude.',
     ],
     ['auth_error', 'Authentication failed due to invalid API key.'],
+    [
+      'quota_exhausted',
+      'Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys',
+    ],
     ['codex_native_timeout', 'Codex native exec timed out after 120000ms.'],
     ['network_error', 'Fetch failed because the network connection timed out.'],
     ['provider_overloaded', 'Service unavailable: provider temporarily unavailable (503).'],
@@ -255,6 +259,307 @@ describe('TeamMemberRuntimeAdvisoryService', () => {
 
     expect(advisory?.kind).toBe('api_error');
     expect(advisory?.reasonCode).toBe('auth_error');
+  });
+
+  it('surfaces recent OpenCode prompt delivery provider failures as member advisories', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-advisory-'));
+    setClaudeBasePathOverride(tmpDir);
+
+    const teamName = 'signal-ops';
+    const laneId = 'secondary:opencode:bob';
+    const nowIso = new Date().toISOString();
+    const laneDir = path.join(
+      tmpDir,
+      'teams',
+      teamName,
+      '.opencode-runtime',
+      'lanes',
+      encodeURIComponent(laneId)
+    );
+    await fs.mkdir(laneDir, { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, 'teams', teamName, '.opencode-runtime', 'lanes.json'),
+      JSON.stringify({
+        version: 1,
+        updatedAt: nowIso,
+        lanes: {
+          [laneId]: { laneId, state: 'active', updatedAt: nowIso },
+        },
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(laneDir, 'opencode-prompt-delivery-ledger.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: nowIso,
+        data: [
+          {
+            id: 'opencode-prompt:test',
+            teamName,
+            memberName: 'bob',
+            laneId,
+            runId: 'run-1',
+            runtimeSessionId: 'ses-1',
+            inboxMessageId: 'msg-1',
+            inboxTimestamp: nowIso,
+            source: 'watcher',
+            messageKind: null,
+            replyRecipient: 'team-lead',
+            actionMode: null,
+            taskRefs: [],
+            payloadHash: 'sha256:test',
+            status: 'failed_terminal',
+            responseState: 'empty_assistant_turn',
+            attempts: 3,
+            maxAttempts: 3,
+            acceptanceUnknown: false,
+            nextAttemptAt: null,
+            lastAttemptAt: nowIso,
+            lastObservedAt: nowIso,
+            acceptedAt: nowIso,
+            respondedAt: null,
+            failedAt: nowIso,
+            inboxReadCommittedAt: null,
+            inboxReadCommitError: null,
+            prePromptCursor: null,
+            postPromptCursor: null,
+            deliveredUserMessageId: 'delivered-1',
+            observedAssistantMessageId: 'assistant-1',
+            observedAssistantPreview: null,
+            observedToolCallNames: [],
+            observedVisibleMessageId: null,
+            visibleReplyMessageId: null,
+            visibleReplyInbox: null,
+            visibleReplyCorrelation: null,
+            lastReason: 'empty_assistant_turn',
+            diagnostics: [
+              'OpenCode bridge command timed out',
+              'Latest assistant message msg_1 failed with APIError - Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+              'empty_assistant_turn',
+            ],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+      }),
+      'utf8'
+    );
+
+    const service = new TeamMemberRuntimeAdvisoryService({
+      findMemberLogs: vi.fn(async () => {
+        throw new Error('log scan should not be needed when OpenCode ledger has an error');
+      }),
+    });
+    const advisory = await service.getMemberAdvisory(teamName, 'bob');
+
+    expect(advisory).toMatchObject({
+      kind: 'api_error',
+      reasonCode: 'quota_exhausted',
+    });
+    expect(advisory?.message).toContain('Insufficient credits');
+    expect(advisory?.message).not.toContain('Latest assistant message');
+  });
+
+  it('classifies terminal OpenCode protocol proof failures as warnings, not provider errors', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-advisory-'));
+    setClaudeBasePathOverride(tmpDir);
+
+    const teamName = 'relay-works';
+    const laneId = 'secondary:opencode:jack';
+    const nowIso = new Date().toISOString();
+    const laneDir = path.join(
+      tmpDir,
+      'teams',
+      teamName,
+      '.opencode-runtime',
+      'lanes',
+      encodeURIComponent(laneId)
+    );
+    await fs.mkdir(laneDir, { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, 'teams', teamName, '.opencode-runtime', 'lanes.json'),
+      JSON.stringify({
+        version: 1,
+        updatedAt: nowIso,
+        lanes: {
+          [laneId]: { laneId, state: 'active', updatedAt: nowIso },
+        },
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(laneDir, 'opencode-prompt-delivery-ledger.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: nowIso,
+        data: [
+          {
+            id: 'opencode-prompt:proof-missing',
+            teamName,
+            memberName: 'jack',
+            laneId,
+            runId: 'run-1',
+            runtimeSessionId: 'ses-1',
+            inboxMessageId: 'msg-1',
+            inboxTimestamp: nowIso,
+            source: 'watcher',
+            messageKind: null,
+            replyRecipient: 'team-lead',
+            actionMode: null,
+            taskRefs: [{ taskId: 'task-1', displayId: 'task-1', teamName }],
+            payloadHash: 'sha256:test',
+            status: 'failed_terminal',
+            responseState: 'responded_non_visible_tool',
+            attempts: 3,
+            maxAttempts: 3,
+            acceptanceUnknown: false,
+            nextAttemptAt: null,
+            lastAttemptAt: nowIso,
+            lastObservedAt: nowIso,
+            acceptedAt: nowIso,
+            respondedAt: nowIso,
+            failedAt: nowIso,
+            inboxReadCommittedAt: null,
+            inboxReadCommitError: null,
+            prePromptCursor: null,
+            postPromptCursor: null,
+            deliveredUserMessageId: 'delivered-1',
+            observedAssistantMessageId: 'assistant-1',
+            observedAssistantPreview: null,
+            observedToolCallNames: ['task_get'],
+            observedVisibleMessageId: null,
+            visibleReplyMessageId: null,
+            visibleReplyInbox: null,
+            visibleReplyCorrelation: null,
+            lastReason: 'non_visible_tool_without_task_progress',
+            diagnostics: ['non_visible_tool_without_task_progress'],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+      }),
+      'utf8'
+    );
+
+    const service = new TeamMemberRuntimeAdvisoryService({
+      findMemberLogs: vi.fn(async () => []),
+    });
+    const advisory = await service.getMemberAdvisory(teamName, 'jack');
+
+    expect(advisory).toMatchObject({
+      kind: 'api_error',
+      reasonCode: 'protocol_proof_missing',
+      message: 'OpenCode used tools, but did not create a visible reply or task progress proof.',
+    });
+  });
+
+  it('suppresses stale OpenCode prompt delivery advisories after a visible runtime reply exists', async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-team-advisory-'));
+    setClaudeBasePathOverride(tmpDir);
+
+    const teamName = 'forge-labs';
+    const laneId = 'secondary:opencode:jack';
+    const laneDir = path.join(
+      tmpDir,
+      'teams',
+      teamName,
+      '.opencode-runtime',
+      'lanes',
+      encodeURIComponent(laneId)
+    );
+    await fs.mkdir(laneDir, { recursive: true });
+    await fs.mkdir(path.join(tmpDir, 'teams', teamName, 'inboxes'), { recursive: true });
+    await fs.writeFile(
+      path.join(tmpDir, 'teams', teamName, '.opencode-runtime', 'lanes.json'),
+      JSON.stringify({
+        version: 1,
+        updatedAt: '2026-05-06T18:37:22.058Z',
+        lanes: {
+          [laneId]: { laneId, state: 'active', updatedAt: '2026-05-06T18:37:22.058Z' },
+        },
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(laneDir, 'opencode-prompt-delivery-ledger.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: '2026-05-06T18:37:22.058Z',
+        data: [
+          {
+            id: 'opencode-prompt:visible-required',
+            teamName,
+            memberName: 'jack',
+            laneId,
+            runId: 'run-1',
+            runtimeSessionId: 'ses-1',
+            inboxMessageId: 'comment-forward-1',
+            inboxTimestamp: '2026-05-06T18:35:46.580Z',
+            source: 'watcher',
+            messageKind: null,
+            replyRecipient: 'team-lead',
+            actionMode: null,
+            taskRefs: [],
+            payloadHash: 'sha256:test',
+            status: 'failed_terminal',
+            responseState: 'responded_non_visible_tool',
+            attempts: 3,
+            maxAttempts: 3,
+            acceptanceUnknown: false,
+            nextAttemptAt: null,
+            lastAttemptAt: '2026-05-06T18:37:22.019Z',
+            lastObservedAt: '2026-05-06T18:37:22.019Z',
+            acceptedAt: '2026-05-06T18:35:58.744Z',
+            respondedAt: '2026-05-06T18:36:38.565Z',
+            failedAt: '2026-05-06T18:37:22.056Z',
+            inboxReadCommittedAt: null,
+            inboxReadCommitError: null,
+            prePromptCursor: null,
+            postPromptCursor: null,
+            deliveredUserMessageId: 'delivered-1',
+            observedAssistantMessageId: 'assistant-1',
+            observedAssistantPreview: null,
+            observedToolCallNames: ['task_get'],
+            observedVisibleMessageId: null,
+            visibleReplyMessageId: null,
+            visibleReplyInbox: null,
+            visibleReplyCorrelation: null,
+            lastReason: 'visible_reply_still_required',
+            diagnostics: [
+              'OpenCode bootstrap MCP did not complete required tools before assistant response: runtime_bootstrap_checkin, member_briefing',
+              'visible_reply_still_required',
+            ],
+            createdAt: '2026-05-06T18:35:46.752Z',
+            updatedAt: '2026-05-06T18:37:22.056Z',
+          },
+        ],
+      }),
+      'utf8'
+    );
+    await fs.writeFile(
+      path.join(tmpDir, 'teams', teamName, 'inboxes', 'team-lead.json'),
+      JSON.stringify([
+        {
+          from: 'jack',
+          to: 'team-lead',
+          text: 'Готово, детали ниже.',
+          timestamp: '2026-05-06T18:43:01.248Z',
+          read: true,
+          relayOfMessageId: 'comment-forward-1',
+          source: 'runtime_delivery',
+          messageId: 'visible-reply-1',
+        },
+      ]),
+      'utf8'
+    );
+
+    const service = new TeamMemberRuntimeAdvisoryService({
+      findMemberLogs: vi.fn(async () => []),
+    });
+    const advisory = await service.getMemberAdvisory(teamName, 'jack');
+
+    expect(advisory).toBeNull();
   });
 
   it('ignores expired retry advisories', async () => {
@@ -350,9 +655,8 @@ describe('TeamMemberRuntimeAdvisoryService', () => {
 
     const firstRequest = service.getMemberAdvisories('signal-ops', [buildMember('Alice')]);
     const secondRequest = service.getMemberAdvisories('signal-ops', [buildMember('Alice')]);
-    await Promise.resolve();
 
-    expect(logsFinder.findMemberLogs).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(logsFinder.findMemberLogs).toHaveBeenCalledTimes(1));
 
     gate.resolve();
     const [first, second] = await Promise.all([firstRequest, secondRequest]);

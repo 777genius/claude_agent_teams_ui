@@ -126,6 +126,12 @@ export interface TaskStatusChangedEvent extends TaskHistoryEventBase {
   to: TeamTaskStatus;
 }
 
+export interface TaskOwnerChangedEvent extends TaskHistoryEventBase {
+  type: 'owner_changed';
+  from?: string;
+  to?: string;
+}
+
 export interface TaskReviewRequestedEvent extends TaskHistoryEventBase {
   type: 'review_requested';
   from: TeamReviewState;
@@ -157,6 +163,7 @@ export interface TaskReviewStartedEvent extends TaskHistoryEventBase {
 export type TaskHistoryEvent =
   | TaskCreatedEvent
   | TaskStatusChangedEvent
+  | TaskOwnerChangedEvent
   | TaskReviewRequestedEvent
   | TaskReviewChangesRequestedEvent
   | TaskReviewApprovedEvent
@@ -427,6 +434,7 @@ export type InboxMessageKind =
   | 'slash_command'
   | 'slash_command_result'
   | 'task_comment_notification'
+  | 'task_stall_remediation'
   | 'member_work_sync_nudge'
   | 'agent_error';
 
@@ -821,6 +829,7 @@ export interface MemberRuntimeAdvisory {
     | 'codex_native_timeout'
     | 'network_error'
     | 'provider_overloaded'
+    | 'protocol_proof_missing'
     | 'backend_error'
     | 'unknown';
   message?: string;
@@ -1005,6 +1014,27 @@ export interface PersistedTeamLaunchMemberSources {
   duplicateRespawnBlocked?: boolean;
 }
 
+export interface OpenCodeAppManagedBootstrapCandidate {
+  schemaVersion: 1;
+  source: 'app_managed_bootstrap';
+  teamName: string;
+  memberName: string;
+  runId: string;
+  laneId: string;
+  runtimeSessionId: string;
+  messageID: string;
+  contextHash: string;
+  briefingHash: string;
+  injectionVerifiedAt: string;
+  candidateAt: string;
+  model?: string;
+  agent?: string;
+}
+
+export type OpenCodeBootstrapEvidenceSource = 'runtime_bootstrap_checkin' | 'app_managed_bootstrap';
+
+export type OpenCodeBootstrapMode = 'model_tool_checkin' | 'app_managed_context';
+
 export interface PersistedTeamLaunchMemberState {
   name: string;
   providerId?: TeamProviderId;
@@ -1032,6 +1062,9 @@ export interface PersistedTeamLaunchMemberState {
   /** OpenCode runtime run id that produced the current runtimeSessionId/liveness evidence. */
   runtimeRunId?: string;
   runtimeSessionId?: string;
+  bootstrapEvidenceSource?: OpenCodeBootstrapEvidenceSource;
+  bootstrapMode?: OpenCodeBootstrapMode;
+  appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
   livenessKind?: TeamAgentRuntimeLivenessKind;
   pidSource?: TeamAgentRuntimePidSource;
   runtimeDiagnostic?: string;
@@ -1170,12 +1203,15 @@ export interface TeamChangeEvent {
     | 'lead-message'
     | 'tool-activity'
     | 'member-turn-settled'
+    | 'member-advisory'
     | 'process'
     | 'member-spawn';
   teamName: string;
   runId?: string;
   detail?: string;
   taskId?: string;
+  /** Distinguishes real task log freshness from task-change presence freshness. */
+  taskSignalKind?: 'log' | 'change';
 }
 
 export interface ProjectBranchChangeEvent {

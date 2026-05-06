@@ -6,6 +6,7 @@ import type {
   MemberLaunchState,
   MemberSpawnLivenessSource,
   MemberSpawnStatusEntry,
+  OpenCodeAppManagedBootstrapCandidate,
   PersistedTeamLaunchMemberSources,
   PersistedTeamLaunchMemberState,
   PersistedTeamLaunchPhase,
@@ -174,6 +175,60 @@ function normalizeDiagnosticSeverity(
 
 function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeOpenCodeAppManagedBootstrapCandidate(
+  value: unknown
+): OpenCodeAppManagedBootstrapCandidate | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.schemaVersion !== 1 || record.source !== 'app_managed_bootstrap') {
+    return undefined;
+  }
+  const teamName = normalizeOptionalString(record.teamName);
+  const memberName = normalizeOptionalString(record.memberName);
+  const runId = normalizeOptionalString(record.runId);
+  const laneId = normalizeOptionalString(record.laneId);
+  const runtimeSessionId = normalizeOptionalString(record.runtimeSessionId);
+  const messageID = normalizeOptionalString(record.messageID);
+  const contextHash = normalizeOptionalString(record.contextHash);
+  const briefingHash = normalizeOptionalString(record.briefingHash);
+  const injectionVerifiedAt = normalizeOptionalString(record.injectionVerifiedAt);
+  const candidateAt = normalizeOptionalString(record.candidateAt);
+  if (
+    !teamName ||
+    !memberName ||
+    !runId ||
+    !laneId ||
+    !runtimeSessionId ||
+    !messageID ||
+    !contextHash ||
+    !briefingHash ||
+    !injectionVerifiedAt ||
+    !candidateAt
+  ) {
+    return undefined;
+  }
+  const model = normalizeOptionalString(record.model);
+  const agent = normalizeOptionalString(record.agent);
+  return {
+    schemaVersion: 1,
+    source: 'app_managed_bootstrap',
+    teamName,
+    memberName,
+    runId,
+    laneId,
+    runtimeSessionId,
+    messageID,
+    contextHash,
+    briefingHash,
+    injectionVerifiedAt,
+    candidateAt,
+    ...(model ? { model } : {}),
+    ...(agent ? { agent } : {}),
+  };
 }
 
 function decodeJsonStringLiteral(value: string): string {
@@ -601,6 +656,19 @@ function normalizePersistedMemberState(
     runtimePid: normalizeRuntimePid(parsed.runtimePid),
     runtimeRunId: normalizeOptionalString(parsed.runtimeRunId),
     runtimeSessionId: normalizeOptionalString(parsed.runtimeSessionId),
+    bootstrapEvidenceSource:
+      parsed.bootstrapEvidenceSource === 'runtime_bootstrap_checkin' ||
+      parsed.bootstrapEvidenceSource === 'app_managed_bootstrap'
+        ? parsed.bootstrapEvidenceSource
+        : undefined,
+    bootstrapMode:
+      parsed.bootstrapMode === 'model_tool_checkin' ||
+      parsed.bootstrapMode === 'app_managed_context'
+        ? parsed.bootstrapMode
+        : undefined,
+    appManagedBootstrapCandidate: normalizeOpenCodeAppManagedBootstrapCandidate(
+      parsed.appManagedBootstrapCandidate
+    ),
     livenessKind,
     pidSource: normalizePidSource(parsed.pidSource),
     runtimeDiagnostic: normalizeOptionalString(parsed.runtimeDiagnostic),

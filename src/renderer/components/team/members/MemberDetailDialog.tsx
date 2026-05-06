@@ -18,7 +18,9 @@ import {
   getRuntimeMemorySourceLabel,
   resolveMemberRuntimeSummary,
 } from '@renderer/utils/memberRuntimeSummary';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 import { isLeadMember } from '@shared/utils/leadDetection';
+import { isTeamTaskFinishedForDependency } from '@shared/utils/teamTaskState';
 import {
   BarChart3,
   FileText,
@@ -155,12 +157,22 @@ export const MemberDetailDialog = ({
   }, [member, memberMessages, members, tasks, teamName]);
 
   const inProgressTasks = useMemo(
-    () => memberTasks.filter((t) => t.status === 'in_progress').length,
+    () => memberTasks.filter(isDisplayableCurrentTask).length,
     [memberTasks]
   );
+  const currentTaskCandidate = useMemo(
+    () =>
+      member?.currentTaskId
+        ? (tasks.find((task) => task.id === member.currentTaskId) ?? null)
+        : null,
+    [member?.currentTaskId, tasks]
+  );
+  const displayableCurrentTask = isDisplayableCurrentTask(currentTaskCandidate)
+    ? currentTaskCandidate
+    : null;
 
   const completedTasks = useMemo(
-    () => memberTasks.filter((t) => t.status === 'completed').length,
+    () => memberTasks.filter(isTeamTaskFinishedForDependency).length,
     [memberTasks]
   );
 
@@ -255,7 +267,11 @@ export const MemberDetailDialog = ({
         <div className="flex items-start gap-4">
           <DialogHeader className="shrink-0">
             <MemberDetailHeader
-              member={member}
+              member={
+                member.currentTaskId && !displayableCurrentTask
+                  ? { ...member, currentTaskId: null }
+                  : member
+              }
               runtimeSummary={runtimeSummary}
               isTeamAlive={isTeamAlive}
               isTeamProvisioning={isTeamProvisioning}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getInternalControlMessageDisplay,
   getBootstrapPromptDisplay,
   getSanitizedInboxMessageText,
 } from '@renderer/utils/bootstrapPromptSanitizer';
@@ -63,5 +64,69 @@ Do NOT send acknowledgement-only messages such as "ready" or "online".`);
     const display = getBootstrapPromptDisplay(message);
 
     expect(display?.runtime).toBe('GPT-5.4 Mini');
+  });
+
+  it('sanitizes native app-managed bootstrap private control prompts defensively', () => {
+    const message = makeMessage(
+      `<agent_teams_native_app_managed_bootstrap_check>
+Your Agent Teams startup context was already loaded by the app.
+</agent_teams_native_app_managed_bootstrap_check>`,
+      { source: undefined }
+    );
+
+    expect(getInternalControlMessageDisplay(message)?.summary).toBe('Internal bootstrap check');
+    expect(getSanitizedInboxMessageText(message)).toBe('Internal bootstrap check hidden in the UI.');
+  });
+
+  it('does not sanitize user-authored native bootstrap marker quotes', () => {
+    const text = `<agent_teams_native_app_managed_bootstrap_check>
+Your Agent Teams startup context was already loaded by the app.
+</agent_teams_native_app_managed_bootstrap_check>`;
+    const message = makeMessage(text, { from: 'user', source: 'user_sent' });
+
+    expect(getInternalControlMessageDisplay(message)).toBeNull();
+    expect(getSanitizedInboxMessageText(message)).toBe(text);
+  });
+
+  it('does not sanitize visible lead text that only mentions the native bootstrap marker', () => {
+    const text =
+      'Visible note quoting <agent_teams_native_app_managed_bootstrap_check> for diagnostics.';
+    const message = makeMessage(text, { from: 'team-lead', source: 'lead_process' });
+
+    expect(getInternalControlMessageDisplay(message)).toBeNull();
+    expect(getSanitizedInboxMessageText(message)).toBe(text);
+  });
+
+  it('sanitizes leaked lead inbox relay prompts defensively', () => {
+    const message = makeMessage(
+      `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+If action is required, delegate via task creation or SendMessage, and keep responses minimal.
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+      { source: 'lead_process' }
+    );
+
+    expect(getInternalControlMessageDisplay(message)?.summary).toBe('Internal control message');
+    expect(getSanitizedInboxMessageText(message)).toBe('Internal control message hidden in the UI.');
+  });
+
+  it('does not sanitize user-authored text that quotes an internal prompt', () => {
+    const text = `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`;
+    const message = makeMessage(text, { source: 'user_sent' });
+
+    expect(getInternalControlMessageDisplay(message)).toBeNull();
+    expect(getSanitizedInboxMessageText(message)).toBe(text);
   });
 });

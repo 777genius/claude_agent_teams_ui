@@ -1243,6 +1243,7 @@ export const TeamDetailView = memo(function TeamDetailView({
     restoreTask,
     fetchDeletedTasks,
     deletedTasks,
+    activeTaskLogActivity,
     launchParams,
     messagesPanelMode,
     messagesPanelWidth,
@@ -1299,6 +1300,7 @@ export const TeamDetailView = memo(function TeamDetailView({
       restoreTask: s.restoreTask,
       fetchDeletedTasks: s.fetchDeletedTasks,
       deletedTasks: s.deletedTasks,
+      activeTaskLogActivity: teamName ? s.activeTaskLogActivityByTeam[teamName] : undefined,
       launchParams: teamName ? s.launchParamsByTeam[teamName] : undefined,
       messagesPanelMode: s.messagesPanelMode,
       messagesPanelWidth: s.messagesPanelWidth,
@@ -2554,6 +2556,7 @@ export const TeamDetailView = memo(function TeamDetailView({
                   sessions={teamSessions}
                   leadSessionId={data.config.leadSessionId}
                   members={activeMembers}
+                  activeTaskLogActivity={activeTaskLogActivity}
                   forceShowAllTasks={isKanbanSearchActive}
                   onFilterChange={setKanbanFilter}
                   onSortChange={setKanbanSort}

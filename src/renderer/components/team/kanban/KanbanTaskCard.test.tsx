@@ -81,6 +81,41 @@ const baseTask: TeamTaskWithKanban = {
 
 const noop = (): void => undefined;
 
+async function renderTaskCard(
+  props: Partial<React.ComponentProps<typeof KanbanTaskCard>> = {}
+): Promise<{ host: HTMLDivElement; root: ReturnType<typeof createRoot> }> {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+
+  await act(async () => {
+    root.render(
+      React.createElement(KanbanTaskCard, {
+        task: baseTask,
+        teamName: 'my-team',
+        columnId: 'in_progress',
+        hasReviewers: true,
+        compact: false,
+        taskMap: new Map(),
+        memberColorMap: new Map([['alice', 'blue']]),
+        onRequestReview: noop,
+        onApprove: noop,
+        onRequestChanges: noop,
+        onMoveBackToDone: noop,
+        onStartTask: noop,
+        onCompleteTask: noop,
+        onCancelTask: noop,
+        onViewChanges: noop,
+        ...props,
+      })
+    );
+    await Promise.resolve();
+  });
+
+  return { host, root };
+}
+
 describe('KanbanTaskCard change badge', () => {
   afterEach(() => {
     document.body.innerHTML = '';
@@ -190,6 +225,91 @@ describe('KanbanTaskCard change badge', () => {
     });
 
     expect(host.querySelector('[aria-label="Changes"]')).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+});
+
+describe('KanbanTaskCard blocked border', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('highlights blocked tasks outside final columns', async () => {
+    const { host, root } = await renderTaskCard({
+      task: { ...baseTask, blockedBy: ['task-2'] },
+      columnId: 'in_progress',
+    });
+
+    const card = host.querySelector('[data-task-id="task-1"]');
+    expect(card?.className).toContain('kanban-task-card');
+    expect(card?.className).toContain('border-yellow-500/30');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it.each(['done', 'approved'] as const)(
+    'does not highlight blocked tasks in %s',
+    async (columnId) => {
+      const { host, root } = await renderTaskCard({
+        task: { ...baseTask, blockedBy: ['task-2'] },
+        columnId,
+      });
+
+      const card = host.querySelector('[data-task-id="task-1"]');
+      expect(card?.className).not.toContain('border-yellow-500/30');
+      expect(card?.className).toContain('border-[var(--color-border)]');
+      expect(host.textContent).toContain('Blocked by');
+
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+    }
+  );
+});
+
+describe('KanbanTaskCard live log indicator', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('shows the live log indicator only when task log activity is active', async () => {
+    const { host, root } = await renderTaskCard({ hasLiveTaskLogs: true });
+
+    expect(host.querySelector('[aria-label="Task logs active"]')).not.toBeNull();
+
+    await act(async () => {
+      root.render(
+        React.createElement(KanbanTaskCard, {
+          task: baseTask,
+          teamName: 'my-team',
+          columnId: 'in_progress',
+          hasReviewers: true,
+          compact: false,
+          taskMap: new Map(),
+          memberColorMap: new Map([['alice', 'blue']]),
+          onRequestReview: noop,
+          onApprove: noop,
+          onRequestChanges: noop,
+          onMoveBackToDone: noop,
+          onStartTask: noop,
+          onCompleteTask: noop,
+          onCancelTask: noop,
+          onViewChanges: noop,
+          hasLiveTaskLogs: false,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.querySelector('[aria-label="Task logs active"]')).toBeNull();
 
     await act(async () => {
       root.unmount();

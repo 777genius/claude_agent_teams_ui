@@ -107,6 +107,7 @@ export function collapseOverflowStacksWithMeta(
         ? 'has_changes'
         : undefined,
       isBlocked: hiddenTasks.some((task) => task.isBlocked),
+      hasLiveTaskLogs: hiddenTasks.some((task) => task.hasLiveTaskLogs) ? true : undefined,
       isOverflowStack: true,
       overflowCount: hiddenTasks.length,
       overflowTaskIds,

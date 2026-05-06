@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui
 import { useResizableColumns } from '@renderer/hooks/useResizableColumns';
 import { cn } from '@renderer/lib/utils';
 import { buildMemberColorMap } from '@renderer/utils/memberHelpers';
+import { isTeamTaskNeedsFixActionable } from '@shared/utils/teamTaskState';
 import {
   CheckCircle2,
   ChevronDown,
@@ -78,6 +79,7 @@ interface KanbanBoardProps {
   sessions: Session[];
   leadSessionId?: string;
   members: ResolvedTeamMember[];
+  activeTaskLogActivity?: Record<string, true>;
   /** Shows all cards when another UI flow, such as search, must not hide matches. */
   forceShowAllTasks?: boolean;
   onFilterChange: (filter: KanbanFilterState) => void;
@@ -160,7 +162,7 @@ function estimateGridSkeletonCardHeight(
   if (task.subject.length > 54) height += 10;
   if (task.subject.length > 92) height += 8;
   if (task.needsClarification) height += 16;
-  if (task.reviewState === 'needsFix') height += 14;
+  if (isTeamTaskNeedsFixActionable(task)) height += 14;
   if ((task.blockedBy?.length ?? 0) > 0) height += 18;
   if ((task.blocks?.length ?? 0) > 0) height += 18;
 
@@ -244,6 +246,7 @@ interface SortableKanbanTaskCardProps {
   compact?: boolean;
   taskMap: Map<string, TeamTask>;
   memberColorMap: Map<string, string>;
+  hasLiveTaskLogs?: boolean;
   onRequestReview: (taskId: string) => void;
   onApprove: (taskId: string) => void;
   onRequestChanges: (taskId: string) => void;
@@ -265,6 +268,7 @@ const SortableKanbanTaskCard = ({
   compact,
   taskMap,
   memberColorMap,
+  hasLiveTaskLogs,
   onRequestReview,
   onApprove,
   onRequestChanges,
@@ -300,6 +304,7 @@ const SortableKanbanTaskCard = ({
         compact={compact}
         taskMap={taskMap}
         memberColorMap={memberColorMap}
+        hasLiveTaskLogs={hasLiveTaskLogs}
         onRequestReview={onRequestReview}
         onApprove={onApprove}
         onRequestChanges={onRequestChanges}
@@ -325,6 +330,7 @@ export const KanbanBoard = memo(function KanbanBoard({
   sessions,
   leadSessionId,
   members,
+  activeTaskLogActivity,
   forceShowAllTasks = false,
   onFilterChange,
   onSortChange,
@@ -578,6 +584,7 @@ export const KanbanBoard = memo(function KanbanBoard({
                   compact={compact}
                   taskMap={taskMap}
                   memberColorMap={memberColorMap}
+                  hasLiveTaskLogs={Boolean(activeTaskLogActivity?.[task.id])}
                   onRequestReview={onRequestReview}
                   onApprove={onApprove}
                   onRequestChanges={onRequestChanges}
@@ -610,6 +617,7 @@ export const KanbanBoard = memo(function KanbanBoard({
               compact={compact}
               taskMap={taskMap}
               memberColorMap={memberColorMap}
+              hasLiveTaskLogs={Boolean(activeTaskLogActivity?.[task.id])}
               onRequestReview={onRequestReview}
               onApprove={onApprove}
               onRequestChanges={onRequestChanges}
@@ -630,6 +638,7 @@ export const KanbanBoard = memo(function KanbanBoard({
     },
     [
       enableTaskSorting,
+      activeTaskLogActivity,
       handleScrollToTask,
       hasReviewers,
       kanbanState,

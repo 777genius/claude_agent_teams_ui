@@ -185,6 +185,7 @@ liveDescribe('Member work sync Claude Stop hook live e2e', () => {
     teamName = `member-work-sync-claude-stop-${scenario.markerSuffix}-${startedAt}`;
     const projectPath = path.join(tempDir, 'project');
     await fs.mkdir(projectPath, { recursive: true });
+    await writeTrustedClaudeConfig(tempClaudeRoot, projectPath);
     await fs.writeFile(
       path.join(projectPath, 'README.md'),
       '# Member work sync Claude Stop hook live e2e\n\nKeep this project intentionally tiny.\n',
@@ -514,10 +515,25 @@ async function removeTempDirAfterLateShellWrites(tempDir: string): Promise<void>
   // Claude Code can leave child shells that write ~/.zsh_history just after stopTeam cleanup.
   // Bounded repeated passes keep live tests from leaving tiny recreated HOME directories behind.
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDirBestEffort(tempDir);
     if (attempt < 5) {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
+  }
+}
+
+async function removeTempDirBestEffort(tempDir: string): Promise<void> {
+  try {
+    await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+  } catch (error) {
+    const code = typeof error === 'object' && error ? (error as { code?: unknown }).code : null;
+    if (code === 'ENOENT') {
+      return;
+    }
+    // Live Claude processes can briefly recreate files under the temp HOME while
+    // the test harness is tearing down. The repeated outer cleanup loop handles
+    // those late writes, so cleanup must not turn an already-finished live e2e
+    // assertion into a false failure.
   }
 }
 
@@ -533,7 +549,7 @@ async function cleanupScopedClaudeStopHookLiveTempDirs(): Promise<void> {
     await Promise.all(
       entries
         .filter((entry) => entry.isDirectory() && entry.name.startsWith('member-work-sync-claude-stop-live-'))
-        .map((entry) => fs.rm(path.join(tmpRoot, entry.name), { recursive: true, force: true }))
+        .map((entry) => removeTempDirBestEffort(path.join(tmpRoot, entry.name)))
     );
     if (attempt < 5) {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -543,6 +559,33 @@ async function cleanupScopedClaudeStopHookLiveTempDirs(): Promise<void> {
 
 function hasLiveAnthropicApiKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+}
+
+async function writeTrustedClaudeConfig(configDir: string, projectPath: string): Promise<void> {
+  const canonicalProjectPath = await fs.realpath(projectPath).catch(() => projectPath);
+  const normalizedProjectPath = path.normalize(canonicalProjectPath).replace(/\\/g, '/');
+  const approvedApiKeySuffix = process.env.ANTHROPIC_API_KEY?.trim().slice(-20);
+  const config: {
+    projects: Record<string, { hasTrustDialogAccepted: true }>;
+    customApiKeyResponses?: { approved: string[]; rejected: string[] };
+  } = {
+    projects: {
+      [normalizedProjectPath]: {
+        hasTrustDialogAccepted: true,
+      },
+    },
+  };
+  if (approvedApiKeySuffix) {
+    config.customApiKeyResponses = {
+      approved: [approvedApiKeySuffix],
+      rejected: [],
+    };
+  }
+  await fs.writeFile(
+    path.join(configDir, '.claude.json'),
+    `${JSON.stringify(config, null, 2)}\n`,
+    'utf8'
+  );
 }
 
 function resolveConnectedClaudeHome(previousHome: string | undefined): string {

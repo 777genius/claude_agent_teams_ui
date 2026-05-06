@@ -74,6 +74,78 @@ describe('TeamMessageFeedService', () => {
     expect(second.messages).toHaveLength(1);
   });
 
+  it('hides native app-managed bootstrap private control messages from the feed', async () => {
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages: vi.fn(async () => [
+        makeMessage({
+          from: 'team-lead',
+          to: undefined,
+          messageId: 'native-bootstrap-private-check',
+          source: undefined,
+          text: '<agent_teams_native_app_managed_bootstrap_check>\nprivate\n</agent_teams_native_app_managed_bootstrap_check>',
+        }),
+        makeMessage({
+          messageId: 'visible-user-message',
+          text: 'Visible message',
+        }),
+      ]),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('signal-ops-4');
+
+    expect(feed.messages.map((message) => message.messageId)).toEqual(['visible-user-message']);
+  });
+
+  it('does not hide user-authored text just because it resembles an internal prompt', async () => {
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages: vi.fn(async () => [
+        makeMessage({
+          messageId: 'quoted-control-prompt',
+          source: 'user_sent',
+          text: `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+        }),
+      ]),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('signal-ops-4');
+
+    expect(feed.messages.map((message) => message.messageId)).toEqual(['quoted-control-prompt']);
+  });
+
+  it('does not hide user-authored native bootstrap marker quotes from the feed', async () => {
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages: vi.fn(async () => [
+        makeMessage({
+          messageId: 'quoted-native-bootstrap-control',
+          source: 'user_sent',
+          text: '<agent_teams_native_app_managed_bootstrap_check>\nquoted\n</agent_teams_native_app_managed_bootstrap_check>',
+        }),
+      ]),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('signal-ops-4');
+
+    expect(feed.messages.map((message) => message.messageId)).toEqual([
+      'quoted-native-bootstrap-control',
+    ]);
+  });
+
   it('refreshes the durable feed after cache expiry even when the dirty signal was missed', async () => {
     let inboxMessages: InboxMessage[] = [makeMessage()];
     const getInboxMessages = vi.fn(async () => inboxMessages);
@@ -180,7 +252,7 @@ describe('TeamMessageFeedService', () => {
     expect(getInboxMessages).toHaveBeenCalledTimes(2);
   });
 
-  it('adds UI-only OpenCode bootstrap start rows for side-lane teammates', async () => {
+  it('adds UI-only bootstrap start rows for side-lane teammates', async () => {
     const opencodeConfig: TeamConfig = {
       name: 'relay-works-14',
       description: 'relay-works-14 team for provisioning flow',
@@ -209,7 +281,7 @@ describe('TeamMessageFeedService', () => {
       from: 'team-lead',
       to: 'bob',
       source: 'system_notification',
-      messageId: 'opencode-bootstrap-start:relay-works-14:bob',
+      messageId: 'bootstrap-start:relay-works-14:bob',
       timestamp: '2026-04-30T17:42:26.947Z',
     });
     expect(feed.messages[0]?.text).toContain('Provider override for this teammate: opencode.');
@@ -219,5 +291,40 @@ describe('TeamMessageFeedService', () => {
     expect(feed.messages[0]?.text).toContain(
       'The team has already been created and you are being attached as a persistent teammate.'
     );
+  });
+
+  it('keeps UI-only bootstrap start rows for members with stale inactive config flags', async () => {
+    const configWithStaleInactiveMember: TeamConfig = {
+      name: 'atlas-hq',
+      description: 'atlas-hq team for provisioning flow',
+      members: [
+        { name: 'team-lead', role: 'Lead', providerId: 'codex' },
+        {
+          name: 'alice',
+          role: 'reviewer',
+          providerId: 'anthropic',
+          model: 'claude-opus-4-6',
+          joinedAt: 1778102486293,
+          isActive: false,
+        } as NonNullable<TeamConfig['members']>[number],
+      ],
+    };
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => configWithStaleInactiveMember),
+      getInboxMessages: vi.fn(async () => []),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('atlas-hq');
+
+    expect(feed.messages).toHaveLength(1);
+    expect(feed.messages[0]).toMatchObject({
+      from: 'team-lead',
+      to: 'alice',
+      source: 'system_notification',
+      messageId: 'bootstrap-start:atlas-hq:alice',
+      timestamp: '2026-05-06T21:21:26.293Z',
+    });
   });
 });

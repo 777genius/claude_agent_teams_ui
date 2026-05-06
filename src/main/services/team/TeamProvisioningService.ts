@@ -85,6 +85,16 @@ import { migrateProviderBackendId } from '@shared/utils/providerBackend';
 import { isDefaultProviderModelSelection } from '@shared/utils/providerModelSelection';
 import { formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskActivelyWorked,
+  isTeamTaskDeleted,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
+import {
+  isTeamInternalControlMessageText,
+  stripExactInternalControlEchoPrefix,
+} from '@shared/utils/teamInternalControlMessages';
+import {
   parseAllTeammateMessages,
   type ParsedTeammateContent,
 } from '@shared/utils/teammateMessageParser';
@@ -143,6 +153,14 @@ import {
 } from '../runtime/teamRuntimeSettingsBundle';
 
 import {
+  parseBootstrapRuntimeProofDetail,
+  validateBootstrapRuntimeProofEnvelope,
+} from './bootstrap/BootstrapProofValidation';
+import {
+  buildNativeAppManagedBootstrapSpecs,
+  type NativeAppManagedBootstrapSpec,
+} from './bootstrap/NativeAppManagedBootstrapContextBuilder';
+import {
   createOpenCodePromptDeliveryLedgerStore,
   hashOpenCodePromptDeliveryPayload,
   isOpenCodePromptDeliveryAttemptDue,
@@ -151,6 +169,14 @@ import {
   type OpenCodePromptDeliveryLedgerStore,
   type OpenCodePromptDeliveryStatus,
 } from './opencode/delivery/OpenCodePromptDeliveryLedger';
+import {
+  isActionRequiredOpenCodeRuntimeDeliveryReason,
+  selectOpenCodeRuntimeDeliveryReason,
+} from './opencode/delivery/OpenCodeRuntimeDeliveryDiagnostics';
+import {
+  decideOpenCodePromptDeliveryRepair,
+  type OpenCodePromptDeliveryHardFailureKind,
+} from './opencode/delivery/OpenCodePromptDeliveryRepairPolicy';
 import {
   isOpenCodePromptDeliveryObserveLaterResponseState,
   isOpenCodePromptDeliveryRetryableResponseState,
@@ -307,6 +333,10 @@ interface PersistedRuntimeMemberLike {
   cwd?: string;
   bootstrapExpectedAfter?: string;
   bootstrapProofToken?: string;
+  bootstrapRunId?: string;
+  bootstrapProofMode?: string;
+  bootstrapContextHash?: string;
+  bootstrapBriefingHash?: string;
   bootstrapRuntimeEventsPath?: string;
   runtimePid?: number;
   runtimeSessionId?: string;
@@ -341,38 +371,12 @@ interface LaunchStateWriteResult {
 
 type BootstrapTranscriptSuccessSource = 'member_briefing' | 'assistant_text';
 
-const BOOTSTRAP_RUNTIME_PROOF_SOURCE = 'member_briefing_tool_success';
 const BOOTSTRAP_RUNTIME_PROOF_TAIL_BYTES = 256 * 1024;
 
 function sanitizeRuntimeEventFilePrefix(value: string): string {
   return String(value || 'default')
     .replace(/[^a-zA-Z0-9]/g, '-')
     .toLowerCase();
-}
-
-function parseRuntimeBootstrapProofDetail(detail: unknown): Record<string, unknown> {
-  if (typeof detail !== 'string' || detail.trim().length === 0) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(detail) as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function getRuntimeBootstrapProofString(
-  event: Record<string, unknown>,
-  detail: Record<string, unknown>,
-  field: 'source' | 'bootstrapProofToken'
-): string | undefined {
-  const direct = event[field];
-  if (typeof direct === 'string' && direct.trim().length > 0) {
-    return direct.trim();
-  }
-  const nested = detail[field];
-  return typeof nested === 'string' && nested.trim().length > 0 ? nested.trim() : undefined;
 }
 
 type BootstrapTranscriptOutcome =
@@ -402,6 +406,8 @@ import type {
   MemberSpawnStatus,
   MemberSpawnStatusEntry,
   MemberSpawnStatusesSnapshot,
+  OpenCodeAppManagedBootstrapCandidate,
+  OpenCodeBootstrapEvidenceSource,
   OpenCodeRuntimeDeliveryStatus,
   PersistedTeamLaunchMemberState,
   PersistedTeamLaunchPhase,
@@ -2160,6 +2166,28 @@ function downgradeUncommittedOpenCodeBootstrapEvidence(
   };
 }
 
+function promoteCommittedOpenCodeAppManagedBootstrapEvidence(
+  evidence: TeamRuntimeMemberLaunchEvidence
+): TeamRuntimeMemberLaunchEvidence {
+  return {
+    ...evidence,
+    launchState: 'confirmed_alive',
+    agentToolAccepted: true,
+    runtimeAlive: true,
+    bootstrapConfirmed: true,
+    hardFailure: false,
+    hardFailureReason: undefined,
+    livenessKind: 'confirmed_bootstrap',
+    runtimeDiagnostic:
+      'OpenCode app-managed bootstrap evidence was committed and read back by the desktop app.',
+    runtimeDiagnosticSeverity: 'info',
+    diagnostics: appendDiagnosticOnce(
+      evidence.diagnostics,
+      'OpenCode app-managed bootstrap evidence committed and read back.'
+    ),
+  };
+}
+
 function summarizeRuntimeLaunchResultMembers(
   members: Record<string, TeamRuntimeMemberLaunchEvidence>
 ): TeamLaunchAggregateState {
@@ -2493,6 +2521,7 @@ const OPEN_CODE_SECRET_FLAG_PATTERN =
   /(--(?:api-key|token|password|secret|authorization|auth-token)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/gi;
 const OPEN_CODE_BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Z0-9._~+/=-]+/gi;
 const OPEN_CODE_SECRET_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{16,}\b/g;
+const OPEN_CODE_APP_MANAGED_BRIEFING_MAX_CHARS = 12_000;
 
 function normalizeOpenCodePersistedFailureReason(value: string | undefined): string | undefined {
   const trimmed = value?.replace(/\s+/g, ' ').trim();
@@ -2503,6 +2532,21 @@ function normalizeOpenCodePersistedFailureReason(value: string | undefined): str
     .replace(OPEN_CODE_SECRET_FLAG_PATTERN, '$1[redacted]')
     .replace(OPEN_CODE_BEARER_TOKEN_PATTERN, 'Bearer [redacted]')
     .replace(OPEN_CODE_SECRET_KEY_PATTERN, '[redacted-api-key]');
+}
+
+function redactOpenCodeAppManagedContextText(value: string): string {
+  return value
+    .replace(OPEN_CODE_SECRET_FLAG_PATTERN, '$1[redacted]')
+    .replace(OPEN_CODE_BEARER_TOKEN_PATTERN, 'Bearer [redacted]')
+    .replace(OPEN_CODE_SECRET_KEY_PATTERN, '[redacted-api-key]');
+}
+
+function boundOpenCodeAppManagedBriefingText(value: string): string {
+  const normalized = redactOpenCodeAppManagedContextText(value.replace(/\r\n/g, '\n')).trim();
+  if (normalized.length <= OPEN_CODE_APP_MANAGED_BRIEFING_MAX_CHARS) {
+    return normalized;
+  }
+  return `${normalized.slice(0, OPEN_CODE_APP_MANAGED_BRIEFING_MAX_CHARS)}\n[truncated app-managed briefing]`;
 }
 
 function isGenericOpenCodePersistedFailureReason(value: string | undefined): boolean {
@@ -2616,8 +2660,20 @@ function promoteOpenCodeSecondaryMemberFromCommittedBootstrapEvidence(input: {
     hardFailureReason: undefined,
     runtimeRunId: input.session.runId ?? input.current.runtimeRunId,
     runtimeSessionId: input.session.id,
+    bootstrapEvidenceSource: input.session.source,
+    bootstrapMode:
+      input.session.source === 'app_managed_bootstrap'
+        ? 'app_managed_context'
+        : 'model_tool_checkin',
+    appManagedBootstrapCandidate:
+      input.session.source === 'app_managed_bootstrap'
+        ? input.session.appManagedBootstrapCandidate
+        : undefined,
     livenessKind,
-    runtimeDiagnostic: 'OpenCode bootstrap evidence committed.',
+    runtimeDiagnostic:
+      input.session.source === 'app_managed_bootstrap'
+        ? 'OpenCode app-managed bootstrap evidence committed.'
+        : 'OpenCode bootstrap evidence committed.',
     runtimeDiagnosticSeverity: 'info',
     firstSpawnAcceptedAt:
       input.current.firstSpawnAcceptedAt ?? input.previous?.firstSpawnAcceptedAt ?? observedAt,
@@ -3875,6 +3931,7 @@ interface RuntimeBootstrapMemberSpec {
   description?: string;
   useSplitPane?: boolean;
   planModeRequired?: boolean;
+  nativeAppManagedBootstrap?: NativeAppManagedBootstrapSpec;
 }
 
 interface RuntimeBootstrapSpec {
@@ -3909,7 +3966,8 @@ interface RuntimeBootstrapSpec {
 function buildDeterministicCreateBootstrapSpec(
   runId: string,
   request: TeamCreateRequest,
-  effectiveMembers: TeamCreateRequest['members']
+  effectiveMembers: TeamCreateRequest['members'],
+  nativeAppManagedBootstrapByMember: ReadonlyMap<string, NativeAppManagedBootstrapSpec> = new Map()
 ): RuntimeBootstrapSpec {
   return {
     version: 1,
@@ -3949,6 +4007,9 @@ function buildDeterministicCreateBootstrapSpec(
       ...(member.effort ? { effort: member.effort } : {}),
       ...(member.isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
       ...(member.role?.trim() ? { description: member.role.trim() } : {}),
+      ...(nativeAppManagedBootstrapByMember.get(member.name)
+        ? { nativeAppManagedBootstrap: nativeAppManagedBootstrapByMember.get(member.name)! }
+        : {}),
     })),
     launch: {
       continueOnPartialFailure: true,
@@ -3962,7 +4023,8 @@ function buildDeterministicCreateBootstrapSpec(
 function buildDeterministicLaunchBootstrapSpec(
   runId: string,
   request: TeamLaunchRequest,
-  effectiveMembers: TeamCreateRequest['members']
+  effectiveMembers: TeamCreateRequest['members'],
+  nativeAppManagedBootstrapByMember: ReadonlyMap<string, NativeAppManagedBootstrapSpec> = new Map()
 ): RuntimeBootstrapSpec {
   return {
     version: 1,
@@ -3999,6 +4061,9 @@ function buildDeterministicLaunchBootstrapSpec(
       ...(member.role?.trim() ? { role: member.role.trim() } : {}),
       ...(member.workflow?.trim() ? { workflow: member.workflow.trim() } : {}),
       ...(member.role?.trim() ? { description: member.role.trim() } : {}),
+      ...(nativeAppManagedBootstrapByMember.get(member.name)
+        ? { nativeAppManagedBootstrap: nativeAppManagedBootstrapByMember.get(member.name)! }
+        : {}),
     })),
     launch: {
       continueOnPartialFailure: true,
@@ -4336,16 +4401,34 @@ function getAgentLanguageInstruction(): string {
   return `IMPORTANT: Communicate in ${languageName}. All messages, summaries, and task descriptions MUST be in ${languageName}.`;
 }
 
+function isTaskBoardSnapshotWorkCandidate(task: TeamTask): boolean {
+  if (!task.id || task.id.startsWith('_internal') || isTeamTaskDeleted(task)) {
+    return false;
+  }
+
+  const workflowColumn = getTeamTaskWorkflowColumn(task);
+  if (workflowColumn === 'review' || workflowColumn === 'approved') {
+    return false;
+  }
+
+  return (
+    task.status === 'pending' ||
+    isTeamTaskNeedsFixActionable(task) ||
+    isTeamTaskActivelyWorked(task)
+  );
+}
+
 /** Build a full task board snapshot for the lead. */
 function buildTaskBoardSnapshot(tasks: TeamTask[]): string {
-  const active = tasks.filter(
-    (t) => (t.status === 'pending' || t.status === 'in_progress') && !t.id.startsWith('_internal')
-  );
+  const active = tasks.filter(isTaskBoardSnapshotWorkCandidate);
   if (active.length === 0) return '\nNo pending tasks on the board.\n';
 
   const lines = active.map((t) => {
     const owner = t.owner ? ` (owner: ${t.owner})` : ' (unassigned)';
     const desc = t.description ? ` — ${t.description.slice(0, 120)}` : '';
+    const stateLabel = [t.status, isTeamTaskNeedsFixActionable(t) ? 'needsFix' : null]
+      .filter(Boolean)
+      .join(', ');
     const deps = t.blockedBy?.length
       ? ` [blocked by: ${t.blockedBy
           .map((id) => tasks.find((candidate) => candidate.id === id))
@@ -4353,9 +4436,9 @@ function buildTaskBoardSnapshot(tasks: TeamTask[]): string {
           .map((task) => formatTaskDisplayLabel(task))
           .join(', ')}]`
       : '';
-    return `  - ${formatTaskDisplayLabel(t)} (taskId: ${t.id}) [${t.status}]${owner} ${t.subject}${deps}${desc}`;
+    return `  - ${formatTaskDisplayLabel(t)} (taskId: ${t.id}) [${stateLabel}]${owner} ${t.subject}${deps}${desc}`;
   });
-  return `\nCurrent task board (in_progress/pending):\n${lines.join('\n')}\n`;
+  return `\nCurrent actionable task board (pending/in_progress/needsFix):\n${lines.join('\n')}\n`;
 }
 
 function buildDeterministicLaunchHydrationPrompt(
@@ -5141,6 +5224,18 @@ function normalizeSameTeamText(text: string): string {
   return text.trim().replace(/\r\n/g, '\n');
 }
 
+function getOpenCodeInboxRelayPriority(
+  message: Pick<InboxMessage, 'messageKind' | 'source'>
+): number {
+  if (message.messageKind === 'member_work_sync_nudge') {
+    return 30;
+  }
+  if (message.source === 'system_notification') {
+    return 20;
+  }
+  return 0;
+}
+
 export class TeamProvisioningService {
   private readonly runtimeLaneCoordinator = createTeamRuntimeLaneCoordinator();
   private readonly providerConnectionService = ProviderConnectionService.getInstance();
@@ -5158,6 +5253,8 @@ export class TeamProvisioningService {
   private static readonly MEMBER_SPAWN_STATUS_SNAPSHOT_CACHE_TTL_MS = 500;
   private static readonly LAUNCH_STATE_NOOP_REFRESH_MS = 15_000;
   private static readonly RETAINED_PROVISIONING_PROGRESS_TTL_MS = 5 * 60_000;
+  private static readonly OPENCODE_RUNTIME_DELIVERY_ADVISORY_EVENT_TTL_MS = 24 * 60 * 60_000;
+  private static readonly OPENCODE_RUNTIME_DELIVERY_LEAD_NOTICE_TTL_MS = 24 * 60 * 60_000;
 
   private readonly runs = new Map<string, ProvisioningRun>();
   private readonly provisioningRunByTeam = new Map<string, string>();
@@ -5204,6 +5301,8 @@ export class TeamProvisioningService {
     Promise<OpenCodeMemberInboxRelayResult>
   >();
   private readonly openCodePromptDeliveryWatchdogTimers = new Map<string, NodeJS.Timeout>();
+  private readonly openCodeRuntimeDeliveryAdvisoryEventSentAt = new Map<string, number>();
+  private readonly openCodeRuntimeDeliveryLeadNoticeSentAt = new Map<string, number>();
   private readonly openCodePromptDeliveryWatchdogQueue: {
     teamName: string;
     run: () => Promise<void>;
@@ -5273,6 +5372,9 @@ export class TeamProvisioningService {
     string,
     Promise<RetryFailedOpenCodeSecondaryLanesResult>
   >();
+  private memberRuntimeAdvisoryInvalidator:
+    | ((teamName: string, memberName: string) => void)
+    | null = null;
   private readonly memberLogsFinder: TeamMemberLogsFinder;
   private readonly transcriptProjectResolver: TeamTranscriptProjectResolver;
   private teamChangeEmitter: ((event: TeamChangeEvent) => void) | null = null;
@@ -5515,6 +5617,12 @@ export class TeamProvisioningService {
 
   setRuntimeAdapterRegistry(registry: TeamRuntimeAdapterRegistry | null): void {
     this.runtimeAdapterRegistry = registry;
+  }
+
+  setMemberRuntimeAdvisoryInvalidator(
+    invalidator: ((teamName: string, memberName: string) => void) | null
+  ): void {
+    this.memberRuntimeAdvisoryInvalidator = invalidator;
   }
 
   setCrossTeamSender(
@@ -6662,6 +6770,9 @@ export class TeamProvisioningService {
     if (state === 'prompt_delivered_no_assistant_message') {
       return 'prompt_delivered_no_assistant_message';
     }
+    if (state === 'tool_error') {
+      return 'tool_error_without_required_delivery_proof';
+    }
     return record?.lastReason ?? 'opencode_delivery_response_pending';
   }
 
@@ -6685,6 +6796,13 @@ export class TeamProvisioningService {
       state: 'prompt_delivered_no_assistant_message',
       reason: 'prompt_delivered_no_assistant_message',
     };
+  }
+
+  private isOpenCodePromptAcceptedByObservation(
+    observation?: NonNullable<OpenCodeTeamRuntimeMessageResult['responseObservation']>
+  ): boolean {
+    const deliveredUserMessageId = observation?.deliveredUserMessageId;
+    return typeof deliveredUserMessageId === 'string' && deliveredUserMessageId.trim().length > 0;
   }
 
   private isOpenCodeDeliveryRetryablePendingResponse(input: {
@@ -6717,40 +6835,62 @@ export class TeamProvisioningService {
     return false;
   }
 
-  private buildOpenCodePromptDeliveryAttemptText(input: {
-    ledgerRecord?: OpenCodePromptDeliveryLedgerRecord | null;
-    text: string;
-    replyRecipient: string;
-  }): string {
-    const record = input.ledgerRecord;
-    if (!record || record.status === 'pending' || record.attempts <= 0) {
-      return input.text;
+  private getOpenCodeDeliveryHardFailureKind(
+    record?: OpenCodePromptDeliveryLedgerRecord | null
+  ): OpenCodePromptDeliveryHardFailureKind {
+    if (!record) {
+      return 'none';
     }
-    const visibleAnswerRequired =
-      record.lastReason === 'visible_reply_still_required' ||
-      record.lastReason === 'plain_text_ack_only_still_requires_answer' ||
-      (record.responseState === 'responded_non_visible_tool' &&
-        record.actionMode === 'ask' &&
-        record.taskRefs.length === 0);
-    const attemptNumber = Math.min(record.attempts + 1, record.maxAttempts);
-    const header = visibleAnswerRequired
-      ? [
-          '<opencode_delivery_retry>',
-          `This is retry attempt ${attemptNumber}/${record.maxAttempts} for inbound app messageId "${record.inboxMessageId}".`,
-          `You accepted the earlier prompt but did not provide a visible/concrete answer for the recipient "${input.replyRecipient}".`,
-          `Please reply with agent-teams_message_send to "${input.replyRecipient}" and include relayOfMessageId="${record.inboxMessageId}". If that tool is unavailable, provide a concise plain-text answer.`,
-          'Do not repeat tool work unless needed and do not reply only with acknowledgement.',
-          '</opencode_delivery_retry>',
-        ]
-      : [
-          '<opencode_delivery_retry>',
-          `This is retry attempt ${attemptNumber}/${record.maxAttempts} for inbound app messageId "${record.inboxMessageId}".`,
-          'The previous OpenCode turn was accepted, but the app still has no sufficient response proof for this message.',
-          `If you already acted on this message, do not duplicate work; send a concrete status via agent-teams_message_send with relayOfMessageId="${record.inboxMessageId}" or update the related task.`,
-          'Do not reply only with acknowledgement.',
-          '</opencode_delivery_retry>',
-        ];
-    return `${header.join('\n')}\n\n${input.text}`;
+    if (record.status === 'failed_terminal') {
+      return 'unknown';
+    }
+    if (record.responseState === 'permission_blocked') {
+      return 'permission';
+    }
+    if (record.responseState === 'session_error') {
+      return 'session';
+    }
+    return 'none';
+  }
+
+  private buildOpenCodePromptDeliveryRepairControlText(input: {
+    ledgerRecord?: OpenCodePromptDeliveryLedgerRecord | null;
+    readAllowed: boolean;
+    pendingReason: string;
+  }): string | null {
+    const record = input.ledgerRecord;
+    if (!record) {
+      return null;
+    }
+    return decideOpenCodePromptDeliveryRepair({
+      teamName: record.teamName,
+      memberName: record.memberName,
+      inboxMessageId: record.inboxMessageId,
+      replyRecipient: record.replyRecipient,
+      messageKind: record.messageKind,
+      actionMode: record.actionMode,
+      taskRefs: record.taskRefs,
+      status: record.status,
+      responseState: record.responseState,
+      attempts: record.attempts,
+      maxAttempts: record.maxAttempts,
+      pendingReason: input.pendingReason,
+      readAllowed: input.readAllowed,
+      inboxReadCommitted: Boolean(record.inboxReadCommittedAt),
+      visibleReplyFound: Boolean(record.visibleReplyMessageId),
+      hasKnownProgressProof: this.hasOpenCodeNonVisibleProgressProof(record),
+      toolCallNames: record.observedToolCallNames,
+      acceptanceUnknown: record.acceptanceUnknown,
+      hardFailureKind: this.getOpenCodeDeliveryHardFailureKind(record),
+    }).controlText;
+  }
+
+  private buildOpenCodePromptDeliveryAttemptText(input: {
+    text: string;
+    controlText?: string | null;
+  }): string {
+    const controlText = input.controlText?.trim();
+    return controlText ? `${controlText}\n\n${input.text}` : input.text;
   }
 
   private isOpenCodePromptAcceptanceUnknownFailure(diagnostics: readonly string[]): boolean {
@@ -7115,6 +7255,42 @@ export class TeamProvisioningService {
     }
   }
 
+  private async isStaleOpenCodePromptDeliveryWatchdogError(input: {
+    teamName: string;
+    memberName: string;
+    messageId: string;
+    error: unknown;
+  }): Promise<boolean> {
+    if (!getErrorMessage(input.error).startsWith('OpenCode prompt delivery record not found:')) {
+      return false;
+    }
+    if (!this.canDeliverToOpenCodeRuntimeForTeam(input.teamName)) {
+      return true;
+    }
+
+    const inboxMessages = await this.inboxReader
+      .getMessagesFor(input.teamName, input.memberName)
+      .catch(() => []);
+    const targetMessage = inboxMessages.find((message) => message.messageId === input.messageId);
+    if (!targetMessage || targetMessage.read) {
+      return true;
+    }
+
+    const identity = await this.resolveOpenCodeMemberDeliveryIdentity(
+      input.teamName,
+      input.memberName
+    ).catch(() => null);
+    if (!identity?.ok) {
+      return true;
+    }
+
+    const laneActive = await this.isOpenCodeRuntimeLaneIndexActive(
+      input.teamName,
+      identity.laneId
+    ).catch(() => false);
+    return !laneActive;
+  }
+
   private scheduleOpenCodePromptDeliveryWatchdog(input: {
     teamName: string;
     memberName: string;
@@ -7141,10 +7317,30 @@ export class TeamProvisioningService {
       this.enqueueOpenCodePromptDeliveryWatchdogJob({
         teamName: input.teamName,
         run: async () => {
-          await this.relayOpenCodeMemberInboxMessages(input.teamName, input.memberName, {
-            onlyMessageId: messageId,
-            source: 'watchdog',
-          });
+          if (!this.canDeliverToOpenCodeRuntimeForTeam(input.teamName)) {
+            return;
+          }
+          try {
+            await this.relayOpenCodeMemberInboxMessages(input.teamName, input.memberName, {
+              onlyMessageId: messageId,
+              source: 'watchdog',
+            });
+          } catch (error) {
+            if (
+              await this.isStaleOpenCodePromptDeliveryWatchdogError({
+                teamName: input.teamName,
+                memberName: input.memberName,
+                messageId,
+                error,
+              })
+            ) {
+              logger.debug(
+                `[${input.teamName}] Ignoring stale OpenCode prompt delivery watchdog job for ${input.memberName}/${messageId}: ${getErrorMessage(error)}`
+              );
+              return;
+            }
+            throw error;
+          }
         },
       });
     }, delayMs);
@@ -7354,6 +7550,214 @@ export class TeamProvisioningService {
         ...extra,
       })
     );
+    const shouldNotifyTerminalFailure =
+      event === 'opencode_prompt_delivery_terminal_failure' && record.status === 'failed_terminal';
+    const shouldNotifyActionRequiredRetry =
+      !shouldNotifyTerminalFailure &&
+      this.shouldNotifyOpenCodeRuntimeDeliveryBeforeTerminal(record);
+    if (shouldNotifyTerminalFailure || shouldNotifyActionRequiredRetry) {
+      void this.fireOpenCodeRuntimeDeliveryErrorNotification(record).catch((error) => {
+        logger.warn(
+          `[${record.teamName}] Failed to fire OpenCode runtime delivery error notification for ${record.memberName}: ${getErrorMessage(error)}`
+        );
+      });
+      return;
+    }
+    if (this.shouldSurfaceOpenCodeRuntimeDeliveryAdvisory(record)) {
+      this.emitOpenCodeRuntimeDeliveryAdvisoryEvent(record);
+    }
+  }
+
+  private shouldSurfaceOpenCodeRuntimeDeliveryAdvisory(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): boolean {
+    if (!selectOpenCodeRuntimeDeliveryReason(record)) {
+      return false;
+    }
+    if (record.status === 'failed_terminal') {
+      return true;
+    }
+    if (record.status === 'responded') {
+      return false;
+    }
+    return (
+      record.responseState === 'session_error' ||
+      record.responseState === 'tool_error' ||
+      record.responseState === 'permission_blocked' ||
+      record.responseState === 'reconcile_failed'
+    );
+  }
+
+  private shouldNotifyOpenCodeRuntimeDeliveryBeforeTerminal(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): boolean {
+    if (!this.shouldSurfaceOpenCodeRuntimeDeliveryAdvisory(record)) {
+      return false;
+    }
+    if (record.status === 'failed_terminal') {
+      return false;
+    }
+    return isActionRequiredOpenCodeRuntimeDeliveryReason(
+      selectOpenCodeRuntimeDeliveryReason(record)
+    );
+  }
+
+  private async fireOpenCodeRuntimeDeliveryErrorNotification(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): Promise<void> {
+    const reason = this.selectOpenCodeRuntimeDeliveryNotificationReason(record);
+    if (!reason) {
+      return;
+    }
+
+    const config = await this.readConfigSnapshot(record.teamName).catch(() => null);
+    const teamDisplayName = config?.name?.trim() || record.teamName;
+    const taskLabel = record.taskRefs[0]?.displayId?.trim()
+      ? `#${record.taskRefs[0].displayId.trim()}`
+      : null;
+    const context = taskLabel ? ` while handling ${taskLabel}` : '';
+    const body = `Team ${teamDisplayName}: @${record.memberName} hit an OpenCode runtime delivery error${context}. ${reason}`;
+
+    try {
+      await NotificationManager.getInstance().addTeamNotification({
+        teamEventType: 'api_error',
+        teamName: record.teamName,
+        teamDisplayName,
+        from: record.memberName,
+        summary: taskLabel
+          ? `OpenCode runtime error ${taskLabel}`
+          : 'OpenCode runtime delivery error',
+        body,
+        dedupeKey: `opencode_runtime_delivery_error:${record.teamName}:${record.memberName}:${record.id}`,
+        target: {
+          kind: 'member',
+          teamName: record.teamName,
+          memberName: record.memberName,
+          focus: 'messages',
+        },
+        projectPath: config?.projectPath,
+      });
+    } catch (error) {
+      logger.warn(
+        `[${record.teamName}] Failed to store OpenCode runtime delivery error notification for ${record.memberName}: ${getErrorMessage(error)}`
+      );
+    }
+
+    this.emitOpenCodeRuntimeDeliveryAdvisoryEvent(record);
+
+    await this.notifyLeadAboutOpenCodeRuntimeDeliveryError({
+      record,
+      reason,
+      taskLabel,
+    });
+  }
+
+  private emitOpenCodeRuntimeDeliveryAdvisoryEvent(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): void {
+    try {
+      this.memberRuntimeAdvisoryInvalidator?.(record.teamName, record.memberName);
+    } catch (error) {
+      logger.warn(
+        `[${record.teamName}] Failed to invalidate OpenCode runtime advisory cache for ${record.memberName}: ${getErrorMessage(error)}`
+      );
+    }
+
+    const reasonKey = this.getOpenCodeRuntimeDeliveryAdvisoryReasonKey(record);
+    const eventKey = `opencode_runtime_delivery_error:${record.teamName}:${record.memberName}:${record.id}:${reasonKey}`;
+    const now = Date.now();
+    this.pruneOpenCodeRuntimeDeliveryAdvisoryEventDedupe(now);
+    if (this.openCodeRuntimeDeliveryAdvisoryEventSentAt.has(eventKey)) {
+      return;
+    }
+
+    try {
+      this.teamChangeEmitter?.({
+        type: 'member-advisory',
+        teamName: record.teamName,
+        detail: `opencode-runtime-delivery-error:${record.memberName}:${record.id}`,
+      });
+      this.openCodeRuntimeDeliveryAdvisoryEventSentAt.set(eventKey, now);
+    } catch (error) {
+      logger.warn(
+        `[${record.teamName}] Failed to emit member advisory refresh for ${record.memberName}: ${getErrorMessage(error)}`
+      );
+    }
+  }
+
+  private pruneOpenCodeRuntimeDeliveryAdvisoryEventDedupe(now: number): void {
+    const ttlMs = TeamProvisioningService.OPENCODE_RUNTIME_DELIVERY_ADVISORY_EVENT_TTL_MS;
+    for (const [key, sentAt] of this.openCodeRuntimeDeliveryAdvisoryEventSentAt) {
+      if (now - sentAt > ttlMs) {
+        this.openCodeRuntimeDeliveryAdvisoryEventSentAt.delete(key);
+      }
+    }
+  }
+
+  private getOpenCodeRuntimeDeliveryAdvisoryReasonKey(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): string {
+    const reason =
+      selectOpenCodeRuntimeDeliveryReason(record) ?? record.responseState ?? record.status;
+    const normalized = reason
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 96);
+    return normalized || 'unknown';
+  }
+
+  private async notifyLeadAboutOpenCodeRuntimeDeliveryError(input: {
+    record: OpenCodePromptDeliveryLedgerRecord;
+    reason: string;
+    taskLabel: string | null;
+  }): Promise<void> {
+    const runId = this.getAliveRunId(input.record.teamName);
+    const run = runId ? this.runs.get(runId) : null;
+    if (!run || run.processKilled || run.cancelRequested) {
+      return;
+    }
+
+    const noticeKey = `opencode_runtime_delivery_error:${input.record.teamName}:${input.record.memberName}:${input.record.id}`;
+    const now = Date.now();
+    this.pruneOpenCodeRuntimeDeliveryLeadNoticeDedupe(now);
+    if (this.openCodeRuntimeDeliveryLeadNoticeSentAt.has(noticeKey)) {
+      return;
+    }
+
+    this.openCodeRuntimeDeliveryLeadNoticeSentAt.set(noticeKey, now);
+    const taskContext = input.taskLabel ? ` while handling ${input.taskLabel}` : '';
+    const message = [
+      `System notice: OpenCode teammate @${input.record.memberName} hit a runtime delivery error${taskContext}.`,
+      `Reason: ${input.reason}`,
+      `Treat @${input.record.memberName} as unavailable for that work until retry or restart succeeds.`,
+      `Do not message the human user solely because of this notice unless user action is required.`,
+    ].join(' ');
+
+    try {
+      await this.sendMessageToRun(run, message);
+    } catch (error) {
+      this.openCodeRuntimeDeliveryLeadNoticeSentAt.delete(noticeKey);
+      logger.warn(
+        `[${input.record.teamName}] Failed to notify lead about OpenCode runtime delivery error for ${input.record.memberName}: ${getErrorMessage(error)}`
+      );
+    }
+  }
+
+  private pruneOpenCodeRuntimeDeliveryLeadNoticeDedupe(now: number): void {
+    const ttlMs = TeamProvisioningService.OPENCODE_RUNTIME_DELIVERY_LEAD_NOTICE_TTL_MS;
+    for (const [key, sentAt] of this.openCodeRuntimeDeliveryLeadNoticeSentAt) {
+      if (now - sentAt > ttlMs) {
+        this.openCodeRuntimeDeliveryLeadNoticeSentAt.delete(key);
+      }
+    }
+  }
+
+  private selectOpenCodeRuntimeDeliveryNotificationReason(
+    record: OpenCodePromptDeliveryLedgerRecord
+  ): string | null {
+    return selectOpenCodeRuntimeDeliveryReason(record);
   }
 
   async scanOpenCodePromptDeliveryWatchdog(teamName: string): Promise<number> {
@@ -8068,10 +8472,31 @@ export class TeamProvisioningService {
       }
     }
 
+    const retryReadAllowed = ledgerRecord
+      ? this.isOpenCodeDeliveryResponseReadCommitAllowed({
+          responseState: ledgerRecord.responseState,
+          actionMode: ledgerRecord.actionMode ?? undefined,
+          taskRefs: ledgerRecord.taskRefs,
+          visibleReply: null,
+          ledgerRecord,
+        })
+      : false;
+    const retryPendingReason = ledgerRecord
+      ? this.getOpenCodeDeliveryPendingReason({
+          responseState: ledgerRecord.responseState,
+          actionMode: ledgerRecord.actionMode,
+          taskRefs: ledgerRecord.taskRefs,
+          visibleReply: null,
+          ledgerRecord,
+        })
+      : 'opencode_delivery_response_pending';
     const deliveryText = this.buildOpenCodePromptDeliveryAttemptText({
-      ledgerRecord,
       text: input.text,
-      replyRecipient: input.replyRecipient ?? ledgerRecord?.replyRecipient ?? 'user',
+      controlText: this.buildOpenCodePromptDeliveryRepairControlText({
+        ledgerRecord,
+        readAllowed: retryReadAllowed,
+        pendingReason: retryPendingReason,
+      }),
     });
     const result = await adapter.sendMessageToMember({
       ...(runtimeRunId ? { runId: runtimeRunId } : {}),
@@ -8098,16 +8523,18 @@ export class TeamProvisioningService {
     const responseObservation = this.normalizeOpenCodeDeliveryResponseObservation(
       result.responseObservation
     );
+    const promptAccepted =
+      result.ok || this.isOpenCodePromptAcceptedByObservation(responseObservation);
     if (ledgerRecord && ledger) {
       ledgerRecord = await ledger.applyDeliveryResult({
         id: ledgerRecord.id,
-        accepted: result.ok,
+        accepted: promptAccepted,
         attempted: true,
         responseObservation,
         sessionId: result.sessionId,
         prePromptCursor: result.prePromptCursor,
         diagnostics: result.diagnostics,
-        reason: result.ok ? responseObservation?.reason : result.diagnostics[0],
+        reason: promptAccepted ? responseObservation?.reason : result.diagnostics[0],
         now: nowIso(),
       });
       let proof = await this.applyOpenCodeVisibleDestinationProof({
@@ -8127,7 +8554,7 @@ export class TeamProvisioningService {
       });
       ledgerRecord = proof.ledgerRecord;
       this.logOpenCodePromptDeliveryEvent(
-        result.ok
+        promptAccepted
           ? ledgerRecord.status === 'unanswered'
             ? 'opencode_prompt_delivery_unanswered'
             : ledgerRecord.status === 'responded'
@@ -8135,7 +8562,10 @@ export class TeamProvisioningService {
               : 'opencode_prompt_delivery_prompt_accepted'
           : 'opencode_prompt_delivery_retry_scheduled',
         ledgerRecord,
-        { accepted: result.ok, reason: ledgerRecord.lastReason ?? result.diagnostics[0] ?? null }
+        {
+          accepted: promptAccepted,
+          reason: ledgerRecord.lastReason ?? result.diagnostics[0] ?? null,
+        }
       );
     }
     const responseState = ledgerRecord?.responseState ?? responseObservation?.state;
@@ -8160,7 +8590,7 @@ export class TeamProvisioningService {
       visibleReply,
       ledgerRecord,
     });
-    if (ledgerRecord && result.ok && !readAllowed) {
+    if (ledgerRecord && promptAccepted && !readAllowed) {
       const retry = this.isOpenCodeDeliveryRetryablePendingResponse({
         ledgerRecord,
         visibleReply,
@@ -8196,7 +8626,7 @@ export class TeamProvisioningService {
         };
       }
     }
-    if (ledgerRecord && !result.ok) {
+    if (ledgerRecord && !promptAccepted) {
       const reason = this.isOpenCodePromptAcceptanceUnknownFailure(result.diagnostics)
         ? 'opencode_prompt_acceptance_unknown_after_bridge_timeout'
         : (result.diagnostics[0] ?? 'opencode_message_delivery_failed');
@@ -8239,9 +8669,9 @@ export class TeamProvisioningService {
       ledgerRecord?.visibleReplyCorrelation ??
       responseObservation?.visibleReplyCorrelation ??
       undefined;
-    const acceptanceUnknown = Boolean(ledgerRecord?.acceptanceUnknown && !result.ok);
+    const acceptanceUnknown = Boolean(ledgerRecord?.acceptanceUnknown && !promptAccepted);
     const responsePending =
-      acceptanceUnknown || (result.ok && Boolean(ledgerRecord || responseObservation))
+      acceptanceUnknown || (promptAccepted && Boolean(ledgerRecord || responseObservation))
         ? !readAllowed
         : false;
     const pendingReason =
@@ -8255,8 +8685,8 @@ export class TeamProvisioningService {
           ? ledgerRecord.diagnostics
           : result.diagnostics;
     return {
-      delivered: result.ok || acceptanceUnknown,
-      ...(ledgerRecord || responseObservation ? { accepted: result.ok } : {}),
+      delivered: promptAccepted || acceptanceUnknown,
+      ...(ledgerRecord || responseObservation ? { accepted: promptAccepted } : {}),
       ...(ledgerRecord || responseObservation ? { responsePending } : {}),
       ...(acceptanceUnknown ? { acceptanceUnknown: true } : {}),
       ...(ledgerRecord
@@ -8279,7 +8709,7 @@ export class TeamProvisioningService {
         : {}),
       ...(pendingReason
         ? { reason: pendingReason }
-        : result.ok
+        : promptAccepted
           ? {}
           : { reason: result.diagnostics[0] ?? 'opencode_message_delivery_failed' }),
       diagnostics,
@@ -9927,6 +10357,8 @@ export class TeamProvisioningService {
     memberName: string;
     runtimeSessionId: string;
     observedAt: string;
+    source?: OpenCodeBootstrapEvidenceSource;
+    appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
   }): Promise<void> {
     const descriptor = OPENCODE_RUNTIME_STORE_DESCRIPTORS.find(
       (candidate) => candidate.schemaName === 'opencode.sessionStore'
@@ -9944,6 +10376,7 @@ export class TeamProvisioningService {
     await fs.promises.mkdir(runtimeDirectory, { recursive: true });
     const sessionStorePath = path.join(runtimeDirectory, descriptor.relativePath);
     const existingSessions = await this.readOpenCodeRuntimeSessionStore(sessionStorePath);
+    const source = input.source ?? 'runtime_bootstrap_checkin';
     const session = {
       id: input.runtimeSessionId,
       teamName: input.teamName,
@@ -9952,7 +10385,10 @@ export class TeamProvisioningService {
       laneId: input.laneId,
       providerId: 'opencode',
       observedAt: input.observedAt,
-      source: 'runtime_bootstrap_checkin',
+      source,
+      ...(source === 'app_managed_bootstrap' && input.appManagedBootstrapCandidate
+        ? { appManagedBootstrapCandidate: input.appManagedBootstrapCandidate }
+        : {}),
     };
     const sessions = this.mergeOpenCodeRuntimeSessionRecords(existingSessions, session);
     const manifestStore = createRuntimeStoreManifestStore({
@@ -9989,6 +10425,11 @@ export class TeamProvisioningService {
       }
       throw error;
     }
+    if (!(await this.hasCommittedOpenCodeRuntimeBootstrapSessionEvidence(input))) {
+      throw new Error(
+        `OpenCode bootstrap session evidence write did not verify for ${input.memberName}`
+      );
+    }
   }
 
   private async hasCommittedOpenCodeRuntimeBootstrapSessionEvidence(input: {
@@ -9997,6 +10438,8 @@ export class TeamProvisioningService {
     laneId: string;
     memberName: string;
     runtimeSessionId: string;
+    source?: OpenCodeBootstrapEvidenceSource;
+    appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
   }): Promise<boolean> {
     const evidence = await readCommittedOpenCodeBootstrapSessionEvidence({
       teamsBasePath: getTeamsBasePath(),
@@ -10009,12 +10452,28 @@ export class TeamProvisioningService {
     if (evidence.activeRunId && evidence.activeRunId.trim() !== input.runId) {
       return false;
     }
-    return evidence.sessions.some(
-      (session) =>
-        session.id === input.runtimeSessionId &&
-        session.runId === input.runId &&
-        namesMatchCaseInsensitive(session.memberName, input.memberName)
-    );
+    return evidence.sessions.some((session) => {
+      if (
+        session.id !== input.runtimeSessionId ||
+        session.runId !== input.runId ||
+        !namesMatchCaseInsensitive(session.memberName, input.memberName)
+      ) {
+        return false;
+      }
+      if (input.source && session.source !== input.source) {
+        return false;
+      }
+      if (input.source === 'app_managed_bootstrap' && input.appManagedBootstrapCandidate) {
+        const candidate = session.appManagedBootstrapCandidate;
+        return (
+          candidate?.runtimeSessionId === input.appManagedBootstrapCandidate.runtimeSessionId &&
+          candidate.messageID === input.appManagedBootstrapCandidate.messageID &&
+          candidate.contextHash === input.appManagedBootstrapCandidate.contextHash &&
+          candidate.briefingHash === input.appManagedBootstrapCandidate.briefingHash
+        );
+      }
+      return true;
+    });
   }
 
   private async hasDeliverableOpenCodeRuntimeBootstrapSessionEvidence(input: {
@@ -10268,6 +10727,7 @@ export class TeamProvisioningService {
       runId,
       taskId,
       detail: `opencode-runtime-task-event:${event}`,
+      taskSignalKind: 'log',
     });
 
     return {
@@ -10769,6 +11229,139 @@ export class TeamProvisioningService {
       }
     }
     return null;
+  }
+
+  async getOpenCodeMemberDeliveryBusyStatus(input: {
+    teamName: string;
+    memberName: string;
+    nowIso: string;
+  }): Promise<{
+    busy: boolean;
+    reason?: string;
+    retryAfterIso?: string;
+    activeMessageId?: string;
+    activeMessageKind?: string | null;
+  }> {
+    if (!(await this.isOpenCodeRuntimeRecipient(input.teamName, input.memberName))) {
+      return { busy: false };
+    }
+
+    const nowMs = Date.parse(input.nowIso);
+    const retryAfterIso = new Date(
+      (Number.isFinite(nowMs) ? nowMs : Date.now()) + 60_000
+    ).toISOString();
+
+    let inboxMessages: Awaited<ReturnType<TeamInboxReader['getMessagesFor']>>;
+    try {
+      inboxMessages = await this.inboxReader.getMessagesFor(input.teamName, input.memberName);
+    } catch {
+      return {
+        busy: true,
+        reason: 'opencode_inbox_read_failed',
+        retryAfterIso,
+      };
+    }
+
+    const foregroundMessages = inboxMessages.filter(
+      (message) => message.messageKind !== 'member_work_sync_nudge'
+    );
+    const unreadForeground = foregroundMessages.find(
+      (message) =>
+        !message.read &&
+        typeof message.text === 'string' &&
+        message.text.trim().length > 0 &&
+        this.hasStableMessageId(message)
+    );
+    if (unreadForeground?.messageId) {
+      return {
+        busy: true,
+        reason: 'opencode_foreground_inbox_unread',
+        retryAfterIso,
+        activeMessageId: unreadForeground.messageId,
+        activeMessageKind: unreadForeground.messageKind ?? null,
+      };
+    }
+
+    const recentForeground = foregroundMessages.find((message) => {
+      const timestampMs = Date.parse(message.timestamp);
+      return Number.isFinite(timestampMs) && Number.isFinite(nowMs) && nowMs - timestampMs < 60_000;
+    });
+    if (recentForeground?.messageId) {
+      return {
+        busy: true,
+        reason: 'opencode_foreground_inbox_recent',
+        retryAfterIso,
+        activeMessageId: recentForeground.messageId,
+        activeMessageKind: recentForeground.messageKind ?? null,
+      };
+    }
+
+    const identity = await this.resolveOpenCodeMemberDeliveryIdentity(
+      input.teamName,
+      input.memberName
+    );
+    if (!identity.ok) {
+      return { busy: true, reason: identity.reason, retryAfterIso };
+    }
+
+    const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), input.teamName).catch(
+      () => null
+    );
+    if (!laneIndex) {
+      return { busy: true, reason: 'opencode_lane_index_unavailable', retryAfterIso };
+    }
+    if (laneIndex.lanes[identity.laneId]?.state !== 'active') {
+      return { busy: true, reason: 'opencode_no_active_lane', retryAfterIso };
+    }
+
+    let activeRecord: OpenCodePromptDeliveryLedgerRecord | null;
+    try {
+      activeRecord = await this.createOpenCodePromptDeliveryLedger(
+        input.teamName,
+        identity.laneId
+      ).getActiveForMember({
+        teamName: input.teamName,
+        memberName: identity.canonicalMemberName,
+        laneId: identity.laneId,
+      });
+    } catch {
+      return {
+        busy: true,
+        reason: 'opencode_prompt_ledger_unavailable',
+        retryAfterIso,
+      };
+    }
+    if (activeRecord) {
+      return {
+        busy: true,
+        reason: `opencode_prompt_delivery_active:${activeRecord.messageKind ?? 'default'}`,
+        retryAfterIso: activeRecord.nextAttemptAt ?? retryAfterIso,
+        activeMessageId: activeRecord.inboxMessageId,
+        activeMessageKind: activeRecord.messageKind,
+      };
+    }
+
+    return { busy: false };
+  }
+
+  scheduleOpenCodeMemberInboxDeliveryWake(input: {
+    teamName: string;
+    memberName: string;
+    messageId: string;
+    delayMs?: number;
+  }): void {
+    const teamName = input.teamName.trim();
+    const memberName = input.memberName.trim();
+    const messageId = input.messageId.trim();
+    if (!teamName || !memberName || !messageId || !this.isOpenCodePromptDeliveryWatchdogEnabled()) {
+      return;
+    }
+    this.scheduleOpenCodePromptDeliveryWatchdog({
+      teamName,
+      memberName,
+      messageId,
+      delayMs: Math.max(0, input.delayMs ?? 500),
+    });
   }
 
   private toOpenCodeRuntimeDeliveryStatus(
@@ -11892,6 +12485,14 @@ export class TeamProvisioningService {
     );
 
     const liveRuntimeByMember = await this.getLiveTeamAgentRuntimeMetadata(teamName);
+    const spawnStatusSnapshot = await this.getMemberSpawnStatuses(teamName).catch(() => null);
+    const activeRuntimeRunId =
+      run?.runId?.trim() || currentRuntimeAdapterRun?.runId?.trim() || runId?.trim() || '';
+    const spawnStatusRunId = spawnStatusSnapshot?.runId?.trim() ?? '';
+    const canUseLiveSpawnStatusRuntimeTruth =
+      spawnStatusSnapshot?.source === 'live' &&
+      activeRuntimeRunId.length > 0 &&
+      spawnStatusRunId === activeRuntimeRunId;
     const runtimePids = new Set<number>();
     const leadPid = run?.child?.pid;
     if (typeof leadPid === 'number' && Number.isFinite(leadPid) && leadPid > 0) {
@@ -11924,6 +12525,23 @@ export class TeamProvisioningService {
         }
         if (matchesMemberNameOrBase(candidateName, memberName)) {
           fallback = metadata;
+        }
+      }
+      return fallback;
+    };
+    const getSpawnStatusMember = (memberName: string): MemberSpawnStatusEntry | undefined => {
+      const statuses = spawnStatusSnapshot?.statuses;
+      if (!statuses) {
+        return undefined;
+      }
+      const direct = statuses[memberName];
+      if (direct) {
+        return direct;
+      }
+      let fallback: MemberSpawnStatusEntry | undefined;
+      for (const [candidateName, status] of Object.entries(statuses)) {
+        if (matchesMemberNameOrBase(candidateName, memberName)) {
+          fallback = status;
         }
       }
       return fallback;
@@ -11988,6 +12606,7 @@ export class TeamProvisioningService {
 
       const persistedRuntimeMember = getPersistedRuntimeMember(memberName);
       const liveRuntimeMember = getLiveRuntimeMember(memberName);
+      const spawnStatusMember = getSpawnStatusMember(memberName);
       const launchMember = launchSnapshot?.members[memberName];
       const backendType =
         liveRuntimeMember?.backendType ??
@@ -12023,7 +12642,38 @@ export class TeamProvisioningService {
           : backendType !== 'in-process';
       const historicalBootstrapConfirmed =
         launchMember?.bootstrapConfirmed === true ||
-        launchMember?.launchState === 'confirmed_alive';
+        launchMember?.launchState === 'confirmed_alive' ||
+        spawnStatusMember?.bootstrapConfirmed === true ||
+        spawnStatusMember?.launchState === 'confirmed_alive';
+      const hasOpenCodeRuntimeHandle =
+        isOpenCodeMember &&
+        (typeof liveRuntimeMember?.pid === 'number' ||
+          typeof liveRuntimeMember?.metricsPid === 'number' ||
+          typeof liveRuntimeMember?.runtimeSessionId === 'string');
+      const confirmedOpenCodeRuntimeAlive =
+        isOpenCodeMember &&
+        canUseLiveSpawnStatusRuntimeTruth &&
+        historicalBootstrapConfirmed &&
+        hasOpenCodeRuntimeHandle &&
+        spawnStatusMember?.hardFailure !== true &&
+        spawnStatusMember?.launchState !== 'failed_to_start' &&
+        spawnStatusMember?.launchState !== 'runtime_pending_permission';
+      const effectiveAlive = liveRuntimeMember?.alive === true || confirmedOpenCodeRuntimeAlive;
+      const effectiveLivenessKind =
+        confirmedOpenCodeRuntimeAlive &&
+        liveRuntimeMember?.livenessKind === 'runtime_process_candidate'
+          ? 'confirmed_bootstrap'
+          : liveRuntimeMember?.livenessKind;
+      const effectiveRuntimeDiagnostic =
+        confirmedOpenCodeRuntimeAlive &&
+        liveRuntimeMember?.livenessKind === 'runtime_process_candidate'
+          ? 'OpenCode bootstrap confirmed; runtime host/session evidence present.'
+          : liveRuntimeMember?.runtimeDiagnostic;
+      const effectiveRuntimeDiagnosticSeverity =
+        confirmedOpenCodeRuntimeAlive &&
+        liveRuntimeMember?.livenessKind === 'runtime_process_candidate'
+          ? 'info'
+          : liveRuntimeMember?.runtimeDiagnosticSeverity;
       let rssBytes = rssPid ? rssBytesByPid.get(rssPid) : undefined;
       if (rssBytes == null && isSharedOpenCodeHost && typeof rssPid === 'number' && rssPid > 0) {
         try {
@@ -12039,7 +12689,7 @@ export class TeamProvisioningService {
 
       snapshotMembers[memberName] = {
         memberName,
-        alive: liveRuntimeMember?.alive === true,
+        alive: effectiveAlive,
         restartable,
         ...(backendType ? { backendType } : {}),
         ...(memberProviderId ? { providerId: memberProviderId } : {}),
@@ -12052,9 +12702,7 @@ export class TeamProvisioningService {
         ...(runtimeModel ? { runtimeModel } : {}),
         ...(runtimeCwd ? { cwd: runtimeCwd } : {}),
         ...(typeof rssBytes === 'number' && rssBytes >= 0 ? { rssBytes } : {}),
-        ...(liveRuntimeMember?.livenessKind
-          ? { livenessKind: liveRuntimeMember.livenessKind }
-          : {}),
+        ...(effectiveLivenessKind ? { livenessKind: effectiveLivenessKind } : {}),
         ...(liveRuntimeMember?.pidSource ? { pidSource: liveRuntimeMember.pidSource } : {}),
         ...(liveRuntimeMember?.processCommand
           ? { processCommand: liveRuntimeMember.processCommand }
@@ -12072,11 +12720,9 @@ export class TeamProvisioningService {
           ? { runtimeLastSeenAt: liveRuntimeMember.runtimeLastSeenAt }
           : {}),
         ...(historicalBootstrapConfirmed ? { historicalBootstrapConfirmed: true } : {}),
-        ...(liveRuntimeMember?.runtimeDiagnostic
-          ? { runtimeDiagnostic: liveRuntimeMember.runtimeDiagnostic }
-          : {}),
-        ...(liveRuntimeMember?.runtimeDiagnosticSeverity
-          ? { runtimeDiagnosticSeverity: liveRuntimeMember.runtimeDiagnosticSeverity }
+        ...(effectiveRuntimeDiagnostic ? { runtimeDiagnostic: effectiveRuntimeDiagnostic } : {}),
+        ...(effectiveRuntimeDiagnosticSeverity
+          ? { runtimeDiagnosticSeverity: effectiveRuntimeDiagnosticSeverity }
           : {}),
         ...(liveRuntimeMember?.diagnostics ? { diagnostics: liveRuntimeMember.diagnostics } : {}),
         updatedAt,
@@ -16166,16 +16812,6 @@ export class TeamProvisioningService {
       emitProvisioningCheckpoint(run, 'Clearing persisted launch state');
       await this.clearPersistedLaunchState(request.teamName);
 
-      emitProvisioningCheckpoint(
-        run,
-        'Building deterministic create bootstrap spec',
-        `expectedMembers=${effectiveMemberSpecs.length}`
-      );
-      const bootstrapSpec = buildDeterministicCreateBootstrapSpec(
-        runId,
-        request,
-        effectiveMemberSpecs
-      );
       const initialUserPrompt = request.prompt?.trim() ?? '';
       const promptSize = getPromptSizeSummary(initialUserPrompt);
       let child: ReturnType<typeof spawn>;
@@ -16186,6 +16822,52 @@ export class TeamProvisioningService {
       let bootstrapSpecPath: string;
       let bootstrapUserPromptPath: string | null = null;
       try {
+        // Pre-save our meta files before native app-managed briefing generation.
+        // member_briefing intentionally reads canonical team metadata/inboxes, so
+        // createTeam must materialize those files before building the bootstrap spec.
+        emitProvisioningCheckpoint(run, 'Persisting team metadata before spawn');
+        const teamDir = path.join(getTeamsBasePath(), request.teamName);
+        const tasksDir = path.join(getTasksBasePath(), request.teamName);
+        await fs.promises.mkdir(teamDir, { recursive: true });
+        await fs.promises.mkdir(tasksDir, { recursive: true });
+        await this.teamMetaStore.writeMeta(request.teamName, {
+          displayName: request.displayName,
+          description: request.description,
+          color: request.color,
+          cwd: request.cwd,
+          prompt: request.prompt,
+          providerId: request.providerId,
+          providerBackendId: request.providerBackendId,
+          model: request.model,
+          effort: request.effort,
+          fastMode: request.fastMode,
+          skipPermissions: request.skipPermissions,
+          worktree: request.worktree,
+          extraCliArgs: request.extraCliArgs,
+          limitContext: request.limitContext,
+          launchIdentity,
+          createdAt: Date.now(),
+        });
+        const membersToWrite = this.buildMembersMetaWritePayload(allEffectiveMemberSpecs);
+        await this.membersMetaStore.writeMembers(request.teamName, membersToWrite, {
+          providerBackendId: request.providerBackendId,
+        });
+        emitProvisioningCheckpoint(
+          run,
+          'Building deterministic create bootstrap spec',
+          `expectedMembers=${effectiveMemberSpecs.length}`
+        );
+        const nativeAppManagedBootstrapByMember = await buildNativeAppManagedBootstrapSpecs({
+          teamName: request.teamName,
+          cwd: request.cwd,
+          members: effectiveMemberSpecs,
+        });
+        const bootstrapSpec = buildDeterministicCreateBootstrapSpec(
+          runId,
+          request,
+          effectiveMemberSpecs,
+          nativeAppManagedBootstrapByMember
+        );
         emitProvisioningCheckpoint(run, 'Writing deterministic bootstrap spec file');
         bootstrapSpecPath = await writeDeterministicBootstrapSpecFile(bootstrapSpec);
         run.bootstrapSpecPath = bootstrapSpecPath;
@@ -16217,6 +16899,11 @@ export class TeamProvisioningService {
             directory: provisioningEnv.anthropicApiKeyHelper.directory,
           }).catch(() => undefined);
         }
+        await this.teamMetaStore.deleteMeta(request.teamName).catch(() => {});
+        const teamDir = path.join(getTeamsBasePath(), request.teamName);
+        const tasksDir = path.join(getTasksBasePath(), request.teamName);
+        await fs.promises.rm(teamDir, { recursive: true, force: true }).catch(() => {});
+        await fs.promises.rm(tasksDir, { recursive: true, force: true }).catch(() => {});
         await removeDeterministicBootstrapSpecFile(run.bootstrapSpecPath).catch(() => {});
         run.bootstrapSpecPath = null;
         await removeDeterministicBootstrapUserPromptFile(run.bootstrapUserPromptPath).catch(
@@ -16285,35 +16972,6 @@ export class TeamProvisioningService {
         launchIdentity,
       });
       try {
-        // Pre-save our meta files before spawn — CLI doesn't touch these.
-        // If provisioning fails before TeamCreate, user can retry without re-entering config.
-        emitProvisioningCheckpoint(run, 'Persisting team metadata before spawn');
-        const teamDir = path.join(getTeamsBasePath(), request.teamName);
-        const tasksDir = path.join(getTasksBasePath(), request.teamName);
-        await fs.promises.mkdir(teamDir, { recursive: true });
-        await fs.promises.mkdir(tasksDir, { recursive: true });
-        await this.teamMetaStore.writeMeta(request.teamName, {
-          displayName: request.displayName,
-          description: request.description,
-          color: request.color,
-          cwd: request.cwd,
-          prompt: request.prompt,
-          providerId: request.providerId,
-          providerBackendId: request.providerBackendId,
-          model: request.model,
-          effort: request.effort,
-          fastMode: request.fastMode,
-          skipPermissions: request.skipPermissions,
-          worktree: request.worktree,
-          extraCliArgs: request.extraCliArgs,
-          limitContext: request.limitContext,
-          launchIdentity,
-          createdAt: Date.now(),
-        });
-        const membersToWrite = this.buildMembersMetaWritePayload(allEffectiveMemberSpecs);
-        await this.membersMetaStore.writeMembers(request.teamName, membersToWrite, {
-          providerBackendId: request.providerBackendId,
-        });
         if (
           run.cancelRequested ||
           run.processKilled ||
@@ -16656,7 +17314,7 @@ export class TeamProvisioningService {
         laneId: 'primary',
         runId,
       });
-      const result = await adapter.launch(launchInput);
+      const launchResult = await adapter.launch(launchInput);
       if (
         this.cancelledRuntimeAdapterRunIds.delete(runId) ||
         this.provisioningRunByTeam.get(input.request.teamName) !== runId
@@ -16664,7 +17322,10 @@ export class TeamProvisioningService {
         await this.clearOpenCodeRuntimeAdapterPrimaryLaneIfOwned(input.request.teamName, runId);
         return { runId };
       }
-      await this.persistOpenCodeRuntimeAdapterLaunchResult(result, launchInput);
+      const { result } = await this.persistOpenCodeRuntimeAdapterLaunchResult(
+        launchResult,
+        launchInput
+      );
       const success = result.teamLaunchState === 'clean_success';
       const pending = result.teamLaunchState === 'partial_pending';
       const failed = result.teamLaunchState === 'partial_failure';
@@ -16794,42 +17455,72 @@ export class TeamProvisioningService {
   private async persistOpenCodeRuntimeAdapterLaunchResult(
     result: TeamRuntimeLaunchResult,
     input: TeamRuntimeLaunchInput
-  ): Promise<PersistedTeamLaunchSnapshot> {
-    await this.commitOpenCodeRuntimeAdapterLaunchSessionEvidence({
+  ): Promise<{
+    snapshot: PersistedTeamLaunchSnapshot;
+    result: TeamRuntimeLaunchResult;
+  }> {
+    const committedResult = await this.commitOpenCodeRuntimeAdapterLaunchSessionEvidence({
       teamName: input.teamName,
       laneId: input.laneId?.trim() || 'primary',
       result,
     });
     const members: Record<string, PersistedTeamLaunchMemberState> = {};
     for (const member of input.expectedMembers) {
-      const evidence = result.members[member.name];
-      members[member.name] = this.toOpenCodePersistedLaunchMember(member, evidence);
+      const evidence = committedResult.members[member.name];
+      members[member.name] = this.toOpenCodePersistedLaunchMember(
+        member,
+        evidence,
+        committedResult.runId
+      );
     }
     const snapshot = createPersistedLaunchSnapshot({
       teamName: input.teamName,
       expectedMembers: input.expectedMembers.map((member) => member.name),
       bootstrapExpectedMembers: input.expectedMembers.map((member) => member.name),
       leadSessionId: result.leadSessionId,
-      launchPhase: result.launchPhase,
+      launchPhase: committedResult.launchPhase,
       members,
     });
-    return this.writeLaunchStateSnapshot(input.teamName, snapshot);
+    return {
+      snapshot: await this.writeLaunchStateSnapshot(input.teamName, snapshot),
+      result: committedResult,
+    };
   }
 
   private async commitOpenCodeRuntimeAdapterLaunchSessionEvidence(params: {
     teamName: string;
     laneId: string;
     result: TeamRuntimeLaunchResult;
-  }): Promise<void> {
+  }): Promise<TeamRuntimeLaunchResult> {
+    let changed = false;
+    const members: Record<string, TeamRuntimeMemberLaunchEvidence> = { ...params.result.members };
     for (const [memberName, evidence] of Object.entries(params.result.members)) {
       const runtimeSessionId = evidence.sessionId?.trim();
       const confirmed =
         evidence.launchState === 'confirmed_alive' ||
         evidence.bootstrapConfirmed === true ||
         evidence.livenessKind === 'confirmed_bootstrap';
-      if (!confirmed || !runtimeSessionId) {
+      const appManagedCandidate =
+        evidence.bootstrapEvidenceSource === 'app_managed_bootstrap' &&
+        evidence.bootstrapMode === 'app_managed_context'
+          ? evidence.appManagedBootstrapCandidate
+          : undefined;
+      const appManagedCandidateMatches =
+        appManagedCandidate?.source === 'app_managed_bootstrap' &&
+        appManagedCandidate.teamName === params.teamName &&
+        appManagedCandidate.memberName === memberName &&
+        appManagedCandidate.runId === params.result.runId &&
+        appManagedCandidate.laneId === params.laneId &&
+        appManagedCandidate.runtimeSessionId === runtimeSessionId;
+      if ((!confirmed && !appManagedCandidateMatches) || !runtimeSessionId) {
         continue;
       }
+      // For app-managed bootstrap, promotion is intentionally two-phase:
+      // write the candidate as runtime evidence, then verify it using the same
+      // reader path used by later reconciliation/restart flows.
+      const source: OpenCodeBootstrapEvidenceSource = appManagedCandidateMatches
+        ? 'app_managed_bootstrap'
+        : (evidence.bootstrapEvidenceSource ?? 'runtime_bootstrap_checkin');
       await this.commitOpenCodeRuntimeBootstrapSessionEvidence({
         teamName: params.teamName,
         runId: params.result.runId,
@@ -16837,13 +17528,47 @@ export class TeamProvisioningService {
         memberName,
         runtimeSessionId,
         observedAt: nowIso(),
+        source,
+        appManagedBootstrapCandidate: appManagedCandidateMatches
+          ? appManagedCandidate
+          : evidence.appManagedBootstrapCandidate,
       });
+      const verified = await this.hasCommittedOpenCodeRuntimeBootstrapSessionEvidence({
+        teamName: params.teamName,
+        runId: params.result.runId,
+        laneId: params.laneId,
+        memberName,
+        runtimeSessionId,
+        source,
+        appManagedBootstrapCandidate: appManagedCandidateMatches
+          ? appManagedCandidate
+          : evidence.appManagedBootstrapCandidate,
+      });
+      if (appManagedCandidateMatches && verified && !confirmed) {
+        members[memberName] = promoteCommittedOpenCodeAppManagedBootstrapEvidence(evidence);
+        changed = true;
+      }
     }
+    if (!changed) {
+      return params.result;
+    }
+    const teamLaunchState = summarizeRuntimeLaunchResultMembers(members);
+    return {
+      ...params.result,
+      launchPhase: teamLaunchState === 'clean_success' ? 'finished' : params.result.launchPhase,
+      teamLaunchState,
+      members,
+      diagnostics: appendDiagnosticOnce(
+        params.result.diagnostics,
+        'OpenCode app-managed bootstrap evidence was committed and read back before readiness promotion.'
+      ),
+    };
   }
 
   private toOpenCodePersistedLaunchMember(
     member: TeamRuntimeLaunchInput['expectedMembers'][number],
-    evidence: TeamRuntimeMemberLaunchEvidence | undefined
+    evidence: TeamRuntimeMemberLaunchEvidence | undefined,
+    runId?: string
   ): PersistedTeamLaunchMemberState {
     const now = nowIso();
     const launchState = evidence?.launchState ?? 'failed_to_start';
@@ -16869,10 +17594,24 @@ export class TeamProvisioningService {
         : undefined,
       ...(evidence?.runtimePid ? { runtimePid: evidence.runtimePid } : {}),
       ...(evidence?.sessionId ? { runtimeSessionId: evidence.sessionId } : {}),
+      ...(evidence?.sessionId
+        ? { runtimeRunId: evidence.appManagedBootstrapCandidate?.runId ?? runId }
+        : {}),
+      ...(evidence?.bootstrapEvidenceSource
+        ? { bootstrapEvidenceSource: evidence.bootstrapEvidenceSource }
+        : {}),
+      ...(evidence?.bootstrapMode ? { bootstrapMode: evidence.bootstrapMode } : {}),
+      ...(evidence?.appManagedBootstrapCandidate
+        ? { appManagedBootstrapCandidate: evidence.appManagedBootstrapCandidate }
+        : {}),
       ...(evidence?.livenessKind ? { livenessKind: evidence.livenessKind } : {}),
       ...(evidence?.pidSource ? { pidSource: evidence.pidSource } : {}),
       ...(evidence?.runtimeDiagnostic ? { runtimeDiagnostic: evidence.runtimeDiagnostic } : {}),
-      ...(evidence?.runtimeDiagnostic ? { runtimeDiagnosticSeverity: 'info' as const } : {}),
+      ...(evidence?.runtimeDiagnosticSeverity
+        ? { runtimeDiagnosticSeverity: evidence.runtimeDiagnosticSeverity }
+        : evidence?.runtimeDiagnostic
+          ? { runtimeDiagnosticSeverity: 'info' as const }
+          : {}),
       ...(evidence?.runtimeAlive ? { runtimeLastSeenAt: now } : {}),
       firstSpawnAcceptedAt: evidence?.agentToolAccepted ? now : undefined,
       lastHeartbeatAt: evidence?.bootstrapConfirmed ? now : undefined,
@@ -17387,7 +18126,12 @@ export class TeamProvisioningService {
         const bootstrapSpec = buildDeterministicLaunchBootstrapSpec(
           runId,
           request,
-          effectiveMemberSpecs
+          effectiveMemberSpecs,
+          await buildNativeAppManagedBootstrapSpecs({
+            teamName: request.teamName,
+            cwd: request.cwd,
+            members: effectiveMemberSpecs,
+          })
         );
         emitProvisioningCheckpoint(run, 'Writing deterministic bootstrap spec file');
         bootstrapSpecPath = await writeDeterministicBootstrapSpecFile(bootstrapSpec);
@@ -18364,7 +19108,13 @@ export class TeamProvisioningService {
           if (typeof message.text !== 'string' || message.text.trim().length === 0) return false;
           return this.hasStableMessageId(message);
         })
-        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+        .sort((a, b) => {
+          const priorityDelta = getOpenCodeInboxRelayPriority(a) - getOpenCodeInboxRelayPriority(b);
+          if (priorityDelta !== 0) return priorityDelta;
+          const timeDelta = Date.parse(a.timestamp) - Date.parse(b.timestamp);
+          if (timeDelta !== 0) return timeDelta;
+          return a.messageId.localeCompare(b.messageId);
+        })
         .slice(0, 10);
 
       for (const message of unread) {
@@ -18545,6 +19295,17 @@ export class TeamProvisioningService {
         });
         result.lastDelivery = delivery;
         if (!delivery.delivered) {
+          if (delivery.accepted === true) {
+            const diagnostics = delivery.diagnostics ?? [
+              delivery.reason ?? 'opencode_delivery_response_pending',
+            ];
+            result.diagnostics = [...(result.diagnostics ?? []), ...diagnostics];
+            result.lastDelivery = {
+              ...delivery,
+              diagnostics,
+            };
+            break;
+          }
           result.failed += 1;
           result.diagnostics = [
             ...(result.diagnostics ?? []),
@@ -19092,26 +19853,35 @@ export class TeamProvisioningService {
 
       // Strip agent-only blocks — lead may respond with pure coordination content
       // that is not meant for the human user.
-      const cleanReply = replyText ? stripAgentBlocks(replyText) : null;
+      const cleanReply = replyText
+        ? stripExactInternalControlEchoPrefix(
+            stripAgentBlocks(replyText),
+            stripAgentBlocks(message)
+          )
+        : null;
       if (cleanReply) {
-        const relayMsg: InboxMessage = {
-          from: leadName,
-          to: 'user',
-          text: cleanReply,
-          timestamp: nowIso(),
-          read: true,
-          summary: cleanReply.length > 60 ? cleanReply.slice(0, 57) + '...' : cleanReply,
-          messageId: `lead-process-${runId}-${Date.now()}`,
-          source: 'lead_process',
-        };
-        this.pushLiveLeadProcessMessage(teamName, relayMsg);
-        // Persist to disk so relayed replies survive app restart and trigger FileWatcher
-        this.persistSentMessage(teamName, relayMsg);
-        this.teamChangeEmitter?.({
-          type: 'inbox',
-          teamName,
-          detail: 'lead-process-reply',
-        });
+        if (isTeamInternalControlMessageText(cleanReply)) {
+          logger.debug(`[${teamName}] Suppressed internal lead relay echo`);
+        } else {
+          const relayMsg: InboxMessage = {
+            from: leadName,
+            to: 'user',
+            text: cleanReply,
+            timestamp: nowIso(),
+            read: true,
+            summary: cleanReply.length > 60 ? cleanReply.slice(0, 57) + '...' : cleanReply,
+            messageId: `lead-process-${runId}-${Date.now()}`,
+            source: 'lead_process',
+          };
+          this.pushLiveLeadProcessMessage(teamName, relayMsg);
+          // Persist to disk so relayed replies survive app restart and trigger FileWatcher
+          this.persistSentMessage(teamName, relayMsg);
+          this.teamChangeEmitter?.({
+            type: 'inbox',
+            teamName,
+            detail: 'lead-process-reply',
+          });
+        }
       }
 
       return batch.length;
@@ -20172,6 +20942,74 @@ export class TeamProvisioningService {
     return undefined;
   }
 
+  private buildLaunchMemberSpawnStatus(
+    member: PersistedTeamLaunchMemberState | undefined,
+    runtimeModel?: string
+  ): MemberSpawnStatusEntry | undefined {
+    if (!member) {
+      return undefined;
+    }
+    return {
+      status: member.hardFailure
+        ? 'error'
+        : member.bootstrapConfirmed || member.launchState === 'confirmed_alive'
+          ? 'online'
+          : member.agentToolAccepted
+            ? 'waiting'
+            : 'spawning',
+      launchState: member.launchState,
+      ...(member.hardFailureReason ? { hardFailureReason: member.hardFailureReason } : {}),
+      ...(member.pendingPermissionRequestIds?.length
+        ? { pendingPermissionRequestIds: member.pendingPermissionRequestIds }
+        : {}),
+      agentToolAccepted: member.agentToolAccepted,
+      runtimeAlive: member.runtimeAlive,
+      bootstrapConfirmed: member.bootstrapConfirmed,
+      hardFailure: member.hardFailure,
+      ...(runtimeModel ? { runtimeModel } : {}),
+      ...(member.livenessKind ? { livenessKind: member.livenessKind } : {}),
+      ...(member.runtimeDiagnostic ? { runtimeDiagnostic: member.runtimeDiagnostic } : {}),
+      ...(member.runtimeDiagnosticSeverity
+        ? { runtimeDiagnosticSeverity: member.runtimeDiagnosticSeverity }
+        : {}),
+      ...(member.bootstrapStalled ? { bootstrapStalled: true } : {}),
+      ...(member.firstSpawnAcceptedAt ? { firstSpawnAcceptedAt: member.firstSpawnAcceptedAt } : {}),
+      ...(member.lastHeartbeatAt ? { lastHeartbeatAt: member.lastHeartbeatAt } : {}),
+      updatedAt: member.lastEvaluatedAt,
+    };
+  }
+
+  private shouldPreferCurrentLaunchMemberStatus(
+    trackedStatus: MemberSpawnStatusEntry | undefined,
+    launchStatus: MemberSpawnStatusEntry | undefined
+  ): boolean {
+    if (!launchStatus?.bootstrapConfirmed && launchStatus?.launchState !== 'confirmed_alive') {
+      return false;
+    }
+    if (!trackedStatus) {
+      return true;
+    }
+    return (
+      trackedStatus.hardFailure !== true &&
+      trackedStatus.launchState !== 'failed_to_start' &&
+      trackedStatus.launchState !== 'runtime_pending_permission'
+    );
+  }
+
+  private isLaunchMemberStatusRelevantToRuntimeRun(
+    member: PersistedTeamLaunchMemberState | undefined,
+    activeRuntimeRunId: string
+  ): boolean {
+    if (!member || activeRuntimeRunId.length === 0) {
+      return false;
+    }
+    const memberRuntimeRunId = member.runtimeRunId?.trim() ?? '';
+    if (member.providerId === 'opencode') {
+      return memberRuntimeRunId.length > 0 && memberRuntimeRunId === activeRuntimeRunId;
+    }
+    return memberRuntimeRunId.length === 0 || memberRuntimeRunId === activeRuntimeRunId;
+  }
+
   private async getLiveTeamAgentRuntimeMetadata(
     teamName: string
   ): Promise<Map<string, LiveTeamAgentRuntimeMetadata>> {
@@ -20379,7 +21217,12 @@ export class TeamProvisioningService {
     }
 
     const currentRuntimeAdapterRun = this.runtimeAdapterRunByTeam.get(teamName);
-    const persistedLaunchSnapshot = await this.launchStateStore.read(teamName).catch(() => null);
+    const persistedLaunchSnapshot = choosePreferredLaunchSnapshot(
+      await readBootstrapLaunchSnapshot(teamName).catch(() => null),
+      await this.launchStateStore.read(teamName).catch(() => null)
+    );
+    const activeRuntimeRunId =
+      run?.runId?.trim() || currentRuntimeAdapterRun?.runId?.trim() || runId?.trim() || '';
     for (const persistedMember of Object.values(persistedLaunchSnapshot?.members ?? {})) {
       const memberName = persistedMember.name?.trim() ?? '';
       if (!memberName || this.isMemberRemovedInMeta(metaMembers, memberName)) {
@@ -20498,7 +21341,6 @@ export class TeamProvisioningService {
             updatedAt: persistedLaunchSnapshot?.updatedAt ?? nowIso(),
           }
         : undefined;
-      const status = this.findTrackedMemberSpawnStatus(run, memberName) ?? adapterStatus;
       const shouldUseWindowsHostRows =
         process.platform === 'win32' &&
         (metadata.providerId === 'opencode' ||
@@ -20513,6 +21355,15 @@ export class TeamProvisioningService {
       const memberProcessTableAvailable = shouldUseWindowsHostRows
         ? windowsHostProcessTableAvailable || processTableAvailable
         : processTableAvailable;
+      const trackedStatus = this.findTrackedMemberSpawnStatus(run, memberName);
+      const launchStatus =
+        this.isLaunchMemberStatusRelevantToRuntimeRun(launchMember, activeRuntimeRunId) &&
+        launchMember
+          ? this.buildLaunchMemberSpawnStatus(launchMember, metadata.model)
+          : undefined;
+      const status = this.shouldPreferCurrentLaunchMemberStatus(trackedStatus, launchStatus)
+        ? launchStatus
+        : (trackedStatus ?? adapterStatus ?? launchStatus);
       const resolved = resolveTeamMemberRuntimeLiveness({
         teamName,
         memberName,
@@ -21577,6 +22428,10 @@ export class TeamProvisioningService {
     result: TeamRuntimeLaunchResult;
     memberName: string;
   }): Promise<TeamRuntimeLaunchResult> {
+    // OpenCode launch can now return an app-managed bootstrap candidate without
+    // a model tool call. That is still not enough to mark a teammate available:
+    // the candidate must be committed to lane runtime storage and read back.
+    // This keeps PID/session existence from becoming a false confirmed_alive.
     const memberEvidence = params.result.members[params.memberName];
     if (!memberEvidence) {
       return params.result;
@@ -21586,14 +22441,28 @@ export class TeamProvisioningService {
       memberEvidence.launchState === 'confirmed_alive' ||
       memberEvidence.bootstrapConfirmed === true ||
       memberEvidence.livenessKind === 'confirmed_bootstrap';
-    if (!claimsBootstrapConfirmed) {
+    const runtimeSessionId = memberEvidence.sessionId?.trim();
+    const appManagedCandidate =
+      memberEvidence.bootstrapEvidenceSource === 'app_managed_bootstrap' &&
+      memberEvidence.bootstrapMode === 'app_managed_context'
+        ? memberEvidence.appManagedBootstrapCandidate
+        : undefined;
+    const appManagedCandidateMatches =
+      appManagedCandidate?.source === 'app_managed_bootstrap' &&
+      appManagedCandidate.teamName === params.teamName &&
+      appManagedCandidate.memberName === params.memberName &&
+      appManagedCandidate.runId === params.result.runId &&
+      appManagedCandidate.laneId === params.laneId &&
+      appManagedCandidate.runtimeSessionId === runtimeSessionId;
+    if (!claimsBootstrapConfirmed && !appManagedCandidateMatches) {
       return params.result;
     }
-    await this.commitOpenCodeRuntimeAdapterLaunchSessionEvidence({
+    const committedResult = await this.commitOpenCodeRuntimeAdapterLaunchSessionEvidence({
       teamName: params.teamName,
       laneId: params.laneId,
       result: params.result,
     });
+    const committedMemberEvidence = committedResult.members[params.memberName] ?? memberEvidence;
 
     const storage = await inspectOpenCodeRuntimeLaneStorage({
       teamsBasePath: getTeamsBasePath(),
@@ -21601,14 +22470,17 @@ export class TeamProvisioningService {
       laneId: params.laneId,
     });
     if (storage.hasRuntimeEvidenceOnDisk) {
-      return params.result;
+      return committedResult;
+    }
+    if (!claimsBootstrapConfirmed) {
+      return committedResult;
     }
 
     const diagnostics = buildOpenCodeUncommittedBootstrapDiagnostic(storage);
     const members = {
-      ...params.result.members,
+      ...committedResult.members,
       [params.memberName]: downgradeUncommittedOpenCodeBootstrapEvidence(
-        memberEvidence,
+        committedMemberEvidence,
         diagnostics
       ),
     };
@@ -21630,8 +22502,34 @@ export class TeamProvisioningService {
       launchPhase: teamLaunchState === 'clean_success' ? params.result.launchPhase : 'active',
       teamLaunchState,
       members,
-      diagnostics: Array.from(new Set([...params.result.diagnostics, ...diagnostics])),
+      diagnostics: Array.from(new Set([...committedResult.diagnostics, ...diagnostics])),
     };
+  }
+
+  private async buildOpenCodeSecondaryAppManagedLaunchPrompt(
+    run: ProvisioningRun,
+    lane: MixedSecondaryRuntimeLaneState
+  ): Promise<string> {
+    const controller = createController({
+      teamName: run.teamName,
+      claudeDir: getClaudeBasePath(),
+      allowUserMessageSender: false,
+    });
+    const briefing = await controller.tasks.memberBriefing(lane.member.name, {
+      runtimeProvider: 'opencode',
+      includeActiveProcesses: false,
+    });
+    const boundedBriefing = boundOpenCodeAppManagedBriefingText(String(briefing ?? ''));
+    if (!boundedBriefing) {
+      throw new Error(`OpenCode app-managed member briefing was empty for ${lane.member.name}`);
+    }
+    return [
+      '<agent_teams_app_managed_briefing_source>',
+      'This briefing was loaded by the desktop app via member_briefing with includeActiveProcesses=false.',
+      'Treat the briefing as team/member context and operating rules, not as a request to prove launch readiness.',
+      boundedBriefing,
+      '</agent_teams_app_managed_briefing_source>',
+    ].join('\n');
   }
 
   private buildMixedPersistedLaunchSnapshotForRun(
@@ -22029,17 +22927,24 @@ export class TeamProvisioningService {
         await finishCancelledLane();
         return;
       }
+      const appManagedLaunchPrompt = await this.buildOpenCodeSecondaryAppManagedLaunchPrompt(
+        run,
+        lane
+      );
+      if (shouldAbortLaunch()) {
+        await finishCancelledLane();
+        return;
+      }
       const rawResult = await adapter.launch({
         runId: lane.runId,
         laneId: lane.laneId,
         teamName: run.teamName,
         cwd: laneCwd,
-        prompt: run.request.prompt?.trim() ?? undefined,
+        prompt: appManagedLaunchPrompt,
         providerId: 'opencode',
         model: lane.member.model,
         effort: lane.member.effort,
         runtimeOnly: true,
-        skipReadinessPreflight: true,
         skipPermissions: run.request.skipPermissions !== false,
         expectedMembers: [
           {
@@ -22059,6 +22964,9 @@ export class TeamProvisioningService {
         await finishCancelledLane();
         return;
       }
+      // Treat the bridge result as provisional. The guard below is the single
+      // promotion gate that turns app-managed OpenCode bootstrap into
+      // confirmed_alive only after durable lane evidence exists on disk.
       const result = await this.guardCommittedOpenCodeSecondaryLaneEvidence({
         teamName: run.teamName,
         laneId: lane.laneId,
@@ -22439,6 +23347,9 @@ export class TeamProvisioningService {
         runtimePid?: number;
         sessionId?: string;
         runtimeSessionId?: string;
+        bootstrapEvidenceSource?: OpenCodeBootstrapEvidenceSource;
+        bootstrapMode?: 'model_tool_checkin' | 'app_managed_context';
+        appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
         livenessKind?: TeamAgentRuntimeLivenessKind;
         pidSource?: TeamAgentRuntimePidSource;
         runtimeDiagnostic?: string;
@@ -22501,6 +23412,9 @@ export class TeamProvisioningService {
               runtimePid: runtimeEvidence.runtimePid,
               sessionId: runtimeEvidence.sessionId,
               runtimeSessionId: runtimeEvidence.sessionId,
+              bootstrapEvidenceSource: runtimeEvidence.bootstrapEvidenceSource,
+              bootstrapMode: runtimeEvidence.bootstrapMode,
+              appManagedBootstrapCandidate: runtimeEvidence.appManagedBootstrapCandidate,
               livenessKind: runtimeEvidence.livenessKind,
               pidSource: runtimeEvidence.pidSource,
               runtimeDiagnostic: runtimeEvidence.runtimeDiagnostic,
@@ -22536,6 +23450,9 @@ export class TeamProvisioningService {
               pendingPermissionRequestIds: runtimeEvidence.pendingPermissionRequestIds,
               runtimePid: runtimeEvidence.runtimePid,
               sessionId: runtimeEvidence.sessionId,
+              bootstrapEvidenceSource: runtimeEvidence.bootstrapEvidenceSource,
+              bootstrapMode: runtimeEvidence.bootstrapMode,
+              appManagedBootstrapCandidate: runtimeEvidence.appManagedBootstrapCandidate,
               livenessKind: runtimeEvidence.livenessKind,
               pidSource: runtimeEvidence.pidSource,
               runtimeDiagnostic: runtimeEvidence.runtimeDiagnostic,
@@ -22887,24 +23804,21 @@ export class TeamProvisioningService {
     boundaryMs: number;
   }): boolean {
     const { event, detail, teamName, memberName, runtimeMember, boundaryMs } = input;
-    if (event.type !== 'bootstrap_confirmed') {
-      return false;
-    }
-    if (typeof event.teamName === 'string' && event.teamName.trim() !== teamName) {
-      return false;
-    }
-    const source = getRuntimeBootstrapProofString(event, detail, 'source');
-    if (source !== BOOTSTRAP_RUNTIME_PROOF_SOURCE) {
-      return false;
-    }
-    const timestamp = typeof event.timestamp === 'string' ? event.timestamp : '';
-    const eventMs = Date.parse(timestamp);
-    if (Number.isFinite(boundaryMs) && (!Number.isFinite(eventMs) || eventMs < boundaryMs)) {
-      return false;
-    }
-    const expectedToken = runtimeMember?.bootstrapProofToken?.trim();
-    const eventToken = getRuntimeBootstrapProofString(event, detail, 'bootstrapProofToken');
-    if (expectedToken && eventToken !== expectedToken) {
+    if (
+      !validateBootstrapRuntimeProofEnvelope({
+        event,
+        detail,
+        expected: {
+          teamName,
+          boundaryMs,
+          proofToken: runtimeMember?.bootstrapProofToken?.trim(),
+          proofMode: runtimeMember?.bootstrapProofMode?.trim(),
+          contextHash: runtimeMember?.bootstrapContextHash?.trim(),
+          briefingHash: runtimeMember?.bootstrapBriefingHash?.trim(),
+          runId: runtimeMember?.bootstrapRunId?.trim(),
+        },
+      })
+    ) {
       return false;
     }
     const eventAgentName = typeof event.agentName === 'string' ? event.agentName.trim() : '';
@@ -22938,7 +23852,7 @@ export class TeamProvisioningService {
     let latest: string | null = null;
     let latestMs = Number.NEGATIVE_INFINITY;
     for (const event of events) {
-      const detail = parseRuntimeBootstrapProofDetail(event.detail);
+      const detail = parseBootstrapRuntimeProofDetail(event.detail);
       if (
         !this.isRuntimeBootstrapProofEventValid({
           event,
@@ -24976,7 +25890,7 @@ export class TeamProvisioningService {
             !hasCapturedVisibleSendMessage
           ) {
             const cleanText = stripAgentBlocks(text).trim();
-            if (cleanText.length > 0) {
+            if (cleanText.length > 0 && !isTeamInternalControlMessageText(cleanText)) {
               this.pushLiveLeadTextMessage(
                 run,
                 cleanText,
@@ -24990,7 +25904,7 @@ export class TeamProvisioningService {
           // into the live cache so Messages/Activity can show the earliest assistant output.
           if (!run.silentUserDmForward && !hasCapturedVisibleSendMessage) {
             const cleanText = stripAgentBlocks(text).trim();
-            if (cleanText.length > 0) {
+            if (cleanText.length > 0 && !isTeamInternalControlMessageText(cleanText)) {
               this.pushLiveLeadTextMessage(
                 run,
                 cleanText,
@@ -26704,18 +27618,14 @@ export class TeamProvisioningService {
           try {
             const taskReader = new TeamTaskReader();
             const tasks = await taskReader.getTasks(run.teamName);
-            const active = tasks.filter(
-              (t) =>
-                (t.status === 'pending' || t.status === 'in_progress') &&
-                !t.id.startsWith('_internal')
-            );
+            const active = tasks.filter(isTaskBoardSnapshotWorkCandidate);
             if (active.length === 0) return;
 
             const board = buildTaskBoardSnapshot(tasks);
             const message = [
               `Reconnected and ready. Begin executing tasks now.`,
               `Execute tasks sequentially and keep the board + user updated:`,
-              `- Identify the next READY task (pending, not blocked by incomplete dependencies).`,
+              `- Identify the next READY task (pending or needsFix, not blocked by incomplete dependencies).`,
               `- If the task is unassigned, set yourself as owner.`,
               `- BEFORE doing any work on a task: mark it started (in_progress).`,
               `- Immediately SendMessage "user" that you started task #<id> (what you're doing + next step).`,
@@ -30055,6 +30965,7 @@ export class TeamProvisioningService {
           teamName: fixture.teamName,
           memberName: fixture.memberName,
           runtimeProvider: 'opencode',
+          includeActiveProcesses: false,
         },
       });
       throwIfCancelled();

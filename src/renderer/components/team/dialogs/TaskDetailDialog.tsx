@@ -54,7 +54,11 @@ import {
 } from '@renderer/utils/taskChangeRequest';
 import { linkifyTaskIdsInMarkdown, parseTaskLinkHref } from '@renderer/utils/taskReferenceUtils';
 import { isLeadMember } from '@shared/utils/leadDetection';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskFinishedForDependency,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import {
   deriveTaskDisplayId,
   formatTaskDisplayLabel,
@@ -598,12 +602,10 @@ export const TaskDetailDialog = ({
     );
   }
 
-  const kanbanColumn =
-    kanbanTaskState?.column ??
-    getTaskKanbanColumn({
-      reviewState: currentTask.reviewState,
-      kanbanColumn: currentTask.kanbanColumn,
-    });
+  const kanbanColumn = getTeamTaskWorkflowColumn({
+    ...currentTask,
+    ...(kanbanTaskState?.column ? { kanbanColumn: kanbanTaskState.column } : {}),
+  });
   const status = currentTask.status;
   const statusStyle =
     kanbanColumn && KANBAN_COLUMN_DISPLAY[kanbanColumn]
@@ -659,13 +661,13 @@ export const TaskDetailDialog = ({
               <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
                 {formatTaskDisplayLabel(currentTask)}
               </Badge>
-              {(currentTask.reviewState === 'approved' || currentTask.reviewState === 'review') &&
+              {(kanbanColumn === 'approved' || kanbanColumn === 'review') &&
               currentTask.reviewer &&
               currentTask.reviewer !== 'user' ? (
                 (() => {
                   const reviewerColor = colorMap.get(currentTask.reviewer);
                   const colors =
-                    currentTask.reviewState === 'review'
+                    kanbanColumn === 'review'
                       ? getTeamColorSet('blue')
                       : getTeamColorSet(reviewerColor ?? '');
                   const reviewerBadgeStyle = {
@@ -677,7 +679,7 @@ export const TaskDetailDialog = ({
                   };
                   const lastReviewEvent = currentTask.historyEvents
                     ?.filter((e) =>
-                      currentTask.reviewState === 'approved'
+                      kanbanColumn === 'approved'
                         ? e.type === 'review_approved'
                         : e.type === 'review_requested' || e.type === 'review_started'
                     )
@@ -731,7 +733,7 @@ export const TaskDetailDialog = ({
                   {statusLabel}
                 </span>
               )}
-              {currentTask.reviewState === 'needsFix' ? (
+              {isTeamTaskNeedsFixActionable(currentTask) ? (
                 <span
                   className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
                 >
@@ -941,7 +943,9 @@ export const TaskDetailDialog = ({
                     </span>
                     {blockedByIds.map((id) => {
                       const depTask = taskMap.get(id);
-                      const isCompleted = depTask?.status === 'completed';
+                      const isCompleted = depTask
+                        ? isTeamTaskFinishedForDependency(depTask)
+                        : false;
                       const label = depTask
                         ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
                         : `#${deriveTaskDisplayId(id)}`;
@@ -977,7 +981,9 @@ export const TaskDetailDialog = ({
                     </span>
                     {blocksIds.map((id) => {
                       const depTask = taskMap.get(id);
-                      const isCompleted = depTask?.status === 'completed';
+                      const isCompleted = depTask
+                        ? isTeamTaskFinishedForDependency(depTask)
+                        : false;
                       const label = depTask
                         ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
                         : `#${deriveTaskDisplayId(id)}`;

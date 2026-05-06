@@ -1,4 +1,11 @@
 import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskFinishedForDependency,
+  isTeamTaskNeedsFixActionable,
+  isTeamTaskTerminalForActionableWork,
+} from '@shared/utils/teamTaskState';
+
+import {
   buildAgendaFingerprintPayload,
   canonicalizeAgendaFingerprintPayload,
   formatAgendaFingerprint,
@@ -19,6 +26,7 @@ export interface MemberWorkSyncTaskLike {
   status: string;
   owner?: string | null;
   reviewState?: string | null;
+  kanbanColumn?: string | null;
   needsClarification?: 'lead' | 'user' | null;
   blockedBy?: string[];
   blocks?: string[];
@@ -43,10 +51,6 @@ export interface BuildActionableWorkAgendaInput {
   kanbanReviewersByTaskId?: Record<string, string | null | undefined>;
   sourceRevision?: string;
   hash: (canonicalPayload: string) => string;
-}
-
-function isCompletedOrDeleted(task: MemberWorkSyncTaskLike): boolean {
-  return task.status === 'completed' || task.status === 'deleted' || Boolean(task.deletedAt);
 }
 
 function getActiveMemberNames(members: MemberWorkSyncMemberLike[]): Set<string> {
@@ -114,7 +118,9 @@ export function buildActionableWorkAgenda(
 
   if (activeMemberNames.has(memberName)) {
     for (const task of input.tasks) {
-      if (!task.id || isCompletedOrDeleted(task)) {
+      const workflowColumn = getTeamTaskWorkflowColumn(task);
+      const isReviewWorkflow = workflowColumn === 'review';
+      if (!task.id || (isTeamTaskTerminalForActionableWork(task) && !isReviewWorkflow)) {
         continue;
       }
 
@@ -128,7 +134,7 @@ export function buildActionableWorkAgenda(
         const dependency = tasksByReference.get(dependencyId) ?? null;
         if (!dependency || dependency.status === 'deleted' || dependency.deletedAt) {
           brokenDependencyIds.push(dependencyId);
-        } else if (dependency.status !== 'completed') {
+        } else if (!isTeamTaskFinishedForDependency(dependency)) {
           waitingDependencyIds.push(dependencyId);
         }
       }
@@ -174,11 +180,13 @@ export function buildActionableWorkAgenda(
         continue;
       }
 
-      const reviewOwner = resolveCurrentReviewOwner({
-        reviewState: task.reviewState,
-        kanbanReviewer: input.kanbanReviewersByTaskId?.[task.id] ?? null,
-        historyEvents: task.historyEvents,
-      });
+      const reviewOwner = isReviewWorkflow
+        ? resolveCurrentReviewOwner({
+            reviewState: workflowColumn,
+            kanbanReviewer: input.kanbanReviewersByTaskId?.[task.id] ?? null,
+            historyEvents: task.historyEvents,
+          })
+        : null;
 
       if (reviewOwner && sameMemberName(reviewOwner.reviewer, memberName)) {
         items.push({
@@ -199,6 +207,10 @@ export function buildActionableWorkAgenda(
         continue;
       }
 
+      if (isReviewWorkflow) {
+        continue;
+      }
+
       if (!sameMemberName(owner, memberName)) {
         continue;
       }
@@ -214,18 +226,17 @@ export function buildActionableWorkAgenda(
       if (
         task.status === 'pending' ||
         task.status === 'in_progress' ||
-        task.reviewState === 'needsFix'
+        isTeamTaskNeedsFixActionable(task)
       ) {
         items.push({
           ...base,
           kind: 'work',
           priority: 'normal',
-          reason:
-            task.reviewState === 'needsFix'
-              ? 'review_changes_requested'
-              : task.status === 'pending'
-                ? 'owned_pending_task'
-                : 'owned_in_progress_task',
+          reason: isTeamTaskNeedsFixActionable(task)
+            ? 'review_changes_requested'
+            : task.status === 'pending'
+              ? 'owned_pending_task'
+              : 'owned_in_progress_task',
           evidence: {
             status: task.status,
             owner: memberName,

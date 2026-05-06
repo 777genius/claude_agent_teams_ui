@@ -547,6 +547,31 @@ function createMemberSpawnRun(params?: {
   } as any;
 }
 
+const TEST_OPENCODE_APP_MANAGED_BOOTSTRAP_PROMPT = [
+  'AGENT_TEAMS_APP_MANAGED_BOOTSTRAP_V1',
+  '<agent_teams_app_managed_briefing_source>',
+  'Test app-managed member briefing.',
+  '</agent_teams_app_managed_briefing_source>',
+].join('\n');
+
+function stubOpenCodeAppManagedLaunchPrompt(svc: TeamProvisioningService) {
+  return vi
+    .spyOn(svc as any, 'buildOpenCodeSecondaryAppManagedLaunchPrompt')
+    .mockImplementation(async (_run: unknown, lane: unknown) => {
+      const memberName =
+        lane &&
+        typeof lane === 'object' &&
+        'member' in lane &&
+        lane.member &&
+        typeof lane.member === 'object' &&
+        'name' in lane.member &&
+        typeof lane.member.name === 'string'
+          ? lane.member.name
+          : 'unknown';
+      return `${TEST_OPENCODE_APP_MANAGED_BOOTSTRAP_PROMPT}\nmember=${memberName}`;
+    });
+}
+
 function createClaudeLogsRun(overrides: Record<string, unknown> = {}) {
   return {
     runId: 'run-logs-1',
@@ -4357,25 +4382,21 @@ describe('TeamProvisioningService', () => {
         const teamName = String(input.teamName);
         const laneId = String(input.laneId);
         const runId = String(input.runId);
-        const manifestPath = getOpenCodeRuntimeManifestPath(tempTeamsBase, teamName, laneId);
-        await fsPromises.mkdir(path.dirname(manifestPath), { recursive: true });
-        await fsPromises.writeFile(
-          manifestPath,
-          `${JSON.stringify(
+        await writeCommittedOpenCodeSessionStore({
+          teamName,
+          laneId,
+          runId,
+          sessions: [
             {
-              ...createDefaultRuntimeStoreManifest(teamName, '2026-04-22T12:00:00.000Z'),
-              activeRunId: runId,
+              id: 'oc-session-bob',
+              teamName,
+              memberName: 'bob',
+              laneId,
+              runId,
+              source: 'runtime_bootstrap_checkin',
             },
-            null,
-            2
-          )}\n`,
-          'utf8'
-        );
-        await fsPromises.writeFile(
-          path.join(path.dirname(manifestPath), 'opencode-sessions.json'),
-          `${JSON.stringify({ sessions: [{ id: 'oc-session-bob' }] })}\n`,
-          'utf8'
-        );
+          ],
+        });
         return {
           runId,
           teamName,
@@ -4408,6 +4429,7 @@ describe('TeamProvisioningService', () => {
         } as any,
       ]);
       svc.setRuntimeAdapterRegistry(registry);
+      stubOpenCodeAppManagedLaunchPrompt(svc);
 
       (svc as any).launchStateStore = {
         read: vi.fn(async () => null),
@@ -4480,7 +4502,7 @@ describe('TeamProvisioningService', () => {
           model: 'minimax-m2.5-free',
           effort: 'medium',
           runtimeOnly: true,
-          skipReadinessPreflight: true,
+          prompt: expect.stringContaining('AGENT_TEAMS_APP_MANAGED_BOOTSTRAP_V1'),
           cwd: '/tmp/mixed-team',
           expectedMembers: [
             expect.objectContaining({
@@ -4493,6 +4515,7 @@ describe('TeamProvisioningService', () => {
           ],
         })
       );
+      expect(adapterLaunch.mock.calls[0]?.[0]).not.toHaveProperty('skipReadinessPreflight');
     });
 
     it('does not trust OpenCode secondary bootstrap success without committed lane evidence', async () => {
@@ -6622,6 +6645,57 @@ describe('TeamProvisioningService', () => {
       });
     });
 
+    it('treats OpenCode empty assistant turns with prompt proof as pending delivery', async () => {
+      const svc = new TeamProvisioningService();
+      const sendMessageToMember = vi.fn(async (input: Record<string, unknown>) => ({
+        ok: false,
+        providerId: 'opencode',
+        memberName: String(input.memberName),
+        sessionId: 'oc-session-bob',
+        prePromptCursor: 'cursor-before',
+        responseObservation: {
+          state: 'empty_assistant_turn' as const,
+          deliveredUserMessageId: 'oc-user-empty',
+          assistantMessageId: null,
+          toolCallNames: [],
+          visibleMessageToolCallId: null,
+          visibleReplyMessageId: null,
+          visibleReplyCorrelation: null,
+          latestAssistantPreview: null,
+          reason: 'empty_assistant_turn',
+        },
+        diagnostics: ['empty_assistant_turn'],
+      }));
+      await configureOpenCodeBobDeliveryService({ svc, sendMessageToMember });
+
+      await expect(
+        svc.deliverOpenCodeMemberMessage('team-a', {
+          memberName: 'bob',
+          text: 'Work sync check for #task-1.',
+          messageId: 'msg-empty-assistant-pending',
+          replyRecipient: 'team-lead',
+          actionMode: 'do',
+          messageKind: 'member_work_sync_nudge',
+          taskRefs: [
+            {
+              taskId: 'task-1',
+              displayId: 'task-1',
+              teamName: 'team-a',
+            },
+          ],
+          source: 'watcher',
+          inboxTimestamp: '2026-04-25T10:00:00.000Z',
+        })
+      ).resolves.toMatchObject({
+        delivered: true,
+        accepted: true,
+        responsePending: true,
+        responseState: 'prompt_delivered_no_assistant_message',
+        ledgerStatus: 'retry_scheduled',
+        reason: 'prompt_delivered_no_assistant_message',
+      });
+    });
+
     it('marks OpenCode delivery terminal after max attempts instead of leaving it pending', async () => {
       const svc = new TeamProvisioningService();
       const emptyResponseObservation = {
@@ -7624,6 +7698,7 @@ describe('TeamProvisioningService', () => {
         } as any,
       ]);
       svc.setRuntimeAdapterRegistry(registry);
+      stubOpenCodeAppManagedLaunchPrompt(svc);
 
       (svc as any).launchStateStore = {
         read: vi.fn(async () => null),
@@ -7761,6 +7836,7 @@ describe('TeamProvisioningService', () => {
           } as any,
         ])
       );
+      stubOpenCodeAppManagedLaunchPrompt(svc);
       (svc as any).launchStateStore = {
         read: vi.fn(async () => null),
         write: vi.fn(async () => {}),
@@ -7873,6 +7949,7 @@ describe('TeamProvisioningService', () => {
           } as any,
         ])
       );
+      stubOpenCodeAppManagedLaunchPrompt(svc);
       (svc as any).launchStateStore = {
         read: vi.fn(async () => null),
         write: vi.fn(async () => {}),
@@ -10828,6 +10905,7 @@ describe('TeamProvisioningService', () => {
         resolvedFastMode: null,
         fastResolutionReason: null,
       }));
+      stubOpenCodeAppManagedLaunchPrompt(svc);
 
       return { svc, mcpConfigBuilder, membersMetaStore, teamMetaStore };
     }
@@ -11121,25 +11199,21 @@ describe('TeamProvisioningService', () => {
         const teamName = String(input.teamName);
         const laneId = String(input.laneId);
         const runId = String(input.runId);
-        const manifestPath = getOpenCodeRuntimeManifestPath(tempTeamsBase, teamName, laneId);
-        await fsPromises.mkdir(path.dirname(manifestPath), { recursive: true });
-        await fsPromises.writeFile(
-          manifestPath,
-          `${JSON.stringify(
+        await writeCommittedOpenCodeSessionStore({
+          teamName,
+          laneId,
+          runId,
+          sessions: [
             {
-              ...createDefaultRuntimeStoreManifest(teamName, '2026-04-22T12:00:00.000Z'),
-              activeRunId: runId,
+              id: `oc-session-${memberName}`,
+              teamName,
+              memberName,
+              laneId,
+              runId,
+              source: 'runtime_bootstrap_checkin',
             },
-            null,
-            2
-          )}\n`,
-          'utf8'
-        );
-        await fsPromises.writeFile(
-          path.join(path.dirname(manifestPath), 'opencode-sessions.json'),
-          `${JSON.stringify({ sessions: [{ id: `oc-session-${memberName}` }] })}\n`,
-          'utf8'
-        );
+          ],
+        });
         return {
           runId,
           teamName,
@@ -11447,9 +11521,27 @@ describe('TeamProvisioningService', () => {
       const adapterLaunch = vi.fn(async (input: Record<string, unknown>) => {
         const expectedMembers = input.expectedMembers as Array<{ name: string }>;
         const memberName = expectedMembers[0]?.name ?? 'unknown';
+        const teamName = String(input.teamName);
+        const laneId = String(input.laneId);
+        const runId = String(input.runId);
+        await writeCommittedOpenCodeSessionStore({
+          teamName,
+          laneId,
+          runId,
+          sessions: [
+            {
+              id: `oc-session-${memberName}`,
+              teamName,
+              memberName,
+              laneId,
+              runId,
+              source: 'runtime_bootstrap_checkin',
+            },
+          ],
+        });
         return {
-          runId: String(input.runId),
-          teamName: String(input.teamName),
+          runId,
+          teamName,
           launchPhase: 'finished',
           teamLaunchState: 'clean_success',
           members: {
@@ -12684,6 +12776,167 @@ describe('TeamProvisioningService', () => {
       runtimeAlive: true,
       hardFailure: false,
       error: undefined,
+    });
+  });
+
+  it('heals terminal bootstrap-state failures when native app-managed proof matches token and hashes', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-native-runtime-proof-heals';
+    const leadSessionId = 'lead-session';
+    const projectPath = '/Users/test/proj';
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const proofAt = new Date(Date.now() - 60_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+    const proofToken = 'proof-token-jack-native';
+    const bootstrapRunId = 'run-native-proof';
+    const contextHash = 'a'.repeat(64);
+    const briefingHash = 'b'.repeat(64);
+    const runtimeEventsPath = path.join(tempTeamsBase, teamName, 'runtime', 'jack.runtime.jsonl');
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    const configPath = path.join(tempTeamsBase, teamName, 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      members: Array<Record<string, unknown>>;
+    };
+    config.members = config.members.map((member) =>
+      member.name === 'jack'
+        ? {
+            ...member,
+            agentId: `jack@${teamName}`,
+            bootstrapExpectedAfter: acceptedAt,
+            bootstrapProofToken: proofToken,
+            bootstrapRunId,
+            bootstrapProofMode: 'native_app_managed_context',
+            bootstrapContextHash: contextHash,
+            bootstrapBriefingHash: briefingHash,
+            bootstrapRuntimeEventsPath: runtimeEventsPath,
+          }
+        : member
+    );
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+    fs.mkdirSync(path.dirname(runtimeEventsPath), { recursive: true });
+    fs.writeFileSync(
+      runtimeEventsPath,
+      `${JSON.stringify({
+        version: 1,
+        type: 'bootstrap_confirmed',
+        timestamp: proofAt,
+        pid: 1234,
+        teamName,
+        agentName: 'jack',
+        agentId: `jack@${teamName}`,
+        runId: bootstrapRunId,
+        source: 'native_app_managed_bootstrap_private_turn',
+        bootstrapProofToken: proofToken,
+        contextHash,
+        briefingHash,
+      })}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('clean_success');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      runtimeAlive: true,
+      hardFailure: false,
+      error: undefined,
+    });
+  });
+
+  it('does not heal terminal bootstrap-state failures from native app-managed proof with mismatched hashes', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-native-runtime-proof-hash-mismatch';
+    const leadSessionId = 'lead-session';
+    const projectPath = '/Users/test/proj';
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const proofAt = new Date(Date.now() - 60_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+    const proofToken = 'proof-token-jack-native';
+    const bootstrapRunId = 'run-native-proof';
+    const runtimeEventsPath = path.join(tempTeamsBase, teamName, 'runtime', 'jack.runtime.jsonl');
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    const configPath = path.join(tempTeamsBase, teamName, 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      members: Array<Record<string, unknown>>;
+    };
+    config.members = config.members.map((member) =>
+      member.name === 'jack'
+        ? {
+            ...member,
+            agentId: `jack@${teamName}`,
+            bootstrapExpectedAfter: acceptedAt,
+            bootstrapProofToken: proofToken,
+            bootstrapRunId,
+            bootstrapProofMode: 'native_app_managed_context',
+            bootstrapContextHash: 'a'.repeat(64),
+            bootstrapBriefingHash: 'b'.repeat(64),
+            bootstrapRuntimeEventsPath: runtimeEventsPath,
+          }
+        : member
+    );
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+    fs.mkdirSync(path.dirname(runtimeEventsPath), { recursive: true });
+    fs.writeFileSync(
+      runtimeEventsPath,
+      `${JSON.stringify({
+        version: 1,
+        type: 'bootstrap_confirmed',
+        timestamp: proofAt,
+        pid: 1234,
+        teamName,
+        agentName: 'jack',
+        agentId: `jack@${teamName}`,
+        runId: bootstrapRunId,
+        source: 'native_app_managed_bootstrap_private_turn',
+        bootstrapProofToken: proofToken,
+        contextHash: 'c'.repeat(64),
+        briefingHash: 'b'.repeat(64),
+      })}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('partial_failure');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'error',
+      launchState: 'failed_to_start',
+      bootstrapConfirmed: false,
+      runtimeAlive: false,
+      hardFailure: true,
     });
   });
 

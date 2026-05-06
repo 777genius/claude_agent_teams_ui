@@ -4,6 +4,7 @@ import * as path from 'path';
 
 import Fastify from 'fastify';
 
+import { buildMemberWorkSyncRuntimeTurnSettledEnvironment } from '../../../../src/features/member-work-sync/main';
 import { registerTeamRoutes } from '../../../../src/main/http/teams';
 import { applyOpenCodeAutoUpdatePolicy } from '../../../../src/main/services/runtime/openCodeAutoUpdatePolicy';
 import { OpenCodeBridgeCommandClient } from '../../../../src/main/services/team/opencode/bridge/OpenCodeBridgeCommandClient';
@@ -39,6 +40,7 @@ export interface InboxMessage {
   to?: string;
   text?: string;
   messageId?: string;
+  messageKind?: string;
   read?: boolean;
   taskRefs?: TaskRef[];
   source?: string;
@@ -55,13 +57,17 @@ export async function createOpenCodeLiveHarness(input: {
   tempDir: string;
   selectedModel: string;
   projectPath?: string;
+  configureServices?: (
+    svc: TeamProvisioningService
+  ) => Partial<HttpServices> | Promise<Partial<HttpServices> | void> | void;
 }): Promise<OpenCodeLiveHarness> {
   const orchestratorCli =
     process.env.CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH?.trim() || DEFAULT_ORCHESTRATOR_CLI;
   await assertExecutable(orchestratorCli);
 
   const svc = new TeamProvisioningService();
-  const controlApi = await startLiveTeamControlApi(svc);
+  const extraServices = (await input.configureServices?.(svc)) ?? {};
+  const controlApi = await startLiveTeamControlApi(svc, extraServices);
   svc.setControlApiBaseUrlResolver(async () => controlApi.baseUrl);
 
   const mcpLaunchSpec = await resolveAgentTeamsMcpLaunchSpec();
@@ -75,6 +81,13 @@ export async function createOpenCodeLiveHarness(input: {
     CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ENTRY: mcpLaunchSpec.args[0] ?? '',
     CLAUDE_MULTIMODEL_AGENT_TEAMS_MCP_ARGS_JSON: JSON.stringify(mcpLaunchSpec.args),
   };
+  const turnSettledEnv = await buildMemberWorkSyncRuntimeTurnSettledEnvironment({
+    teamsBasePath: getTeamsBasePath(),
+    provider: 'opencode',
+  });
+  if (turnSettledEnv) {
+    Object.assign(bridgeEnv, turnSettledEnv);
+  }
   if (process.env.OPENCODE_E2E_USE_REAL_APP_CREDENTIALS !== '1') {
     bridgeEnv.XDG_DATA_HOME = path.join(input.tempDir, 'xdg-data');
   } else if (stableBridgeEnv.XDG_DATA_HOME) {
@@ -326,13 +339,17 @@ function getTranscriptDurableState(transcript: unknown): string | null {
   return typeof durableState === 'string' ? durableState : null;
 }
 
-async function startLiveTeamControlApi(svc: TeamProvisioningService): Promise<{
+async function startLiveTeamControlApi(
+  svc: TeamProvisioningService,
+  extraServices: Partial<HttpServices> = {}
+): Promise<{
   baseUrl: string;
   close: () => Promise<void>;
 }> {
   const app = Fastify({ logger: false });
   registerTeamRoutes(app, {
     teamProvisioningService: svc,
+    ...extraServices,
   } as HttpServices);
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();

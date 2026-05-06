@@ -4,6 +4,8 @@ import {
 } from '@renderer/utils/bootstrapPromptSanitizer';
 import { shouldKeepIdleMessageInActivityWhenNoiseHidden } from '@renderer/utils/idleNotificationSemantics';
 import { isInboxNoiseMessage } from '@shared/utils/inboxNoise';
+import { isTaskStallRemediationMessage } from '@shared/utils/teamAutomationMessages';
+import { isTeamInternalControlMessageEnvelope } from '@shared/utils/teamInternalControlMessages';
 
 import type { InboxMessage } from '@shared/types';
 
@@ -110,6 +112,7 @@ export function filterTeamMessages(
   messages: InboxMessage[],
   options: {
     includePassiveIdlePeerSummariesWhenNoiseHidden?: boolean;
+    includeAutomationEvents?: boolean;
     leadNames?: Iterable<string>;
     timeWindow?: { start: number; end: number } | null;
     filter: TeamMessagesFilter;
@@ -118,6 +121,7 @@ export function filterTeamMessages(
 ): InboxMessage[] {
   const {
     includePassiveIdlePeerSummariesWhenNoiseHidden = false,
+    includeAutomationEvents = false,
     leadNames: rawLeadNames,
     timeWindow,
     filter,
@@ -125,7 +129,12 @@ export function filterTeamMessages(
   } = options;
   const leadNames = normalizeLeadNames(rawLeadNames);
 
-  let list = messages.filter((m) => m.messageKind !== 'task_comment_notification');
+  let list = messages.filter(
+    (m) =>
+      m.messageKind !== 'task_comment_notification' &&
+      (includeAutomationEvents || !isTaskStallRemediationMessage(m)) &&
+      !isTeamInternalControlMessageEnvelope(m)
+  );
   if (timeWindow) {
     list = list.filter((m) => {
       const ts = new Date(m.timestamp).getTime();

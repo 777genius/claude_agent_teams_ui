@@ -15,6 +15,10 @@ import {
   validateRuntimeStoreManifest,
 } from './RuntimeStoreManifest';
 
+import type {
+  OpenCodeAppManagedBootstrapCandidate,
+  OpenCodeBootstrapEvidenceSource,
+} from '@shared/types/team';
 import type { RuntimeStoreManifestEvidence } from '../bridge/OpenCodeBridgeCommandContract';
 import type { RuntimeStoreManifestReader } from '../bridge/OpenCodeStateChangingBridgeCommandService';
 import type { RuntimeStoreManifestEntryState } from './RuntimeStoreManifest';
@@ -65,7 +69,8 @@ export interface OpenCodeCommittedBootstrapSessionRecord {
   laneId: string;
   runId: string | null;
   observedAt: string | null;
-  source: 'runtime_bootstrap_checkin';
+  source: OpenCodeBootstrapEvidenceSource;
+  appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
 }
 
 export interface OpenCodeCommittedBootstrapSessionEvidence {
@@ -301,10 +306,20 @@ function normalizeOpenCodeBootstrapSessionRecord(
   const memberName = normalizeNonEmptyStoreString(record.memberName);
   const laneId = normalizeNonEmptyStoreString(record.laneId);
   const source = normalizeNonEmptyStoreString(record.source);
-  if (!id || !teamName || !memberName || !laneId || source !== 'runtime_bootstrap_checkin') {
+  if (
+    !id ||
+    !teamName ||
+    !memberName ||
+    !laneId ||
+    (source !== 'runtime_bootstrap_checkin' && source !== 'app_managed_bootstrap')
+  ) {
     return null;
   }
   const observedAt = normalizeOptionalStoreIso(record.observedAt);
+  const appManagedBootstrapCandidate =
+    source === 'app_managed_bootstrap'
+      ? normalizeAppManagedBootstrapCandidate(record.appManagedBootstrapCandidate)
+      : undefined;
   return {
     id,
     teamName,
@@ -312,7 +327,62 @@ function normalizeOpenCodeBootstrapSessionRecord(
     laneId,
     runId: normalizeNonEmptyStoreString(record.runId),
     observedAt,
-    source: 'runtime_bootstrap_checkin',
+    source,
+    ...(appManagedBootstrapCandidate ? { appManagedBootstrapCandidate } : {}),
+  };
+}
+
+function normalizeAppManagedBootstrapCandidate(
+  value: unknown
+): OpenCodeAppManagedBootstrapCandidate | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.schemaVersion !== 1 || record.source !== 'app_managed_bootstrap') {
+    return undefined;
+  }
+  const teamName = normalizeNonEmptyStoreString(record.teamName);
+  const memberName = normalizeNonEmptyStoreString(record.memberName);
+  const runId = normalizeNonEmptyStoreString(record.runId);
+  const laneId = normalizeNonEmptyStoreString(record.laneId);
+  const runtimeSessionId = normalizeNonEmptyStoreString(record.runtimeSessionId);
+  const messageID = normalizeNonEmptyStoreString(record.messageID);
+  const contextHash = normalizeNonEmptyStoreString(record.contextHash);
+  const briefingHash = normalizeNonEmptyStoreString(record.briefingHash);
+  const injectionVerifiedAt = normalizeNonEmptyStoreString(record.injectionVerifiedAt);
+  const candidateAt = normalizeNonEmptyStoreString(record.candidateAt);
+  if (
+    !teamName ||
+    !memberName ||
+    !runId ||
+    !laneId ||
+    !runtimeSessionId ||
+    !messageID ||
+    !contextHash ||
+    !briefingHash ||
+    !injectionVerifiedAt ||
+    !candidateAt
+  ) {
+    return undefined;
+  }
+  const model = normalizeNonEmptyStoreString(record.model);
+  const agent = normalizeNonEmptyStoreString(record.agent);
+  return {
+    schemaVersion: 1,
+    source: 'app_managed_bootstrap',
+    teamName,
+    memberName,
+    runId,
+    laneId,
+    runtimeSessionId,
+    messageID,
+    contextHash,
+    briefingHash,
+    injectionVerifiedAt,
+    candidateAt,
+    ...(model ? { model } : {}),
+    ...(agent ? { agent } : {}),
   };
 }
 
@@ -560,7 +630,7 @@ export async function readCommittedOpenCodeBootstrapSessionEvidence(params: {
     }
   );
   if (sessions.length === 0) {
-    diagnostics.push('OpenCode session store has no committed bootstrap check-in sessions.');
+    diagnostics.push('OpenCode session store has no committed bootstrap sessions.');
   }
   return {
     state: 'healthy',

@@ -3,6 +3,10 @@ import type {
   OpenCodeBridgeHandshake,
   OpenCodeBridgePeerIdentity,
 } from './OpenCodeBridgeCommandContract';
+import {
+  OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION,
+  OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION,
+} from './OpenCodeBridgeCommandContract';
 import type {
   OpenCodeBridgeCommandExecutor,
   OpenCodeBridgeHandshakePort,
@@ -96,6 +100,8 @@ export function createOpenCodeBridgeClientIdentity(input: {
         'opencode.recoverDeliveryJournal',
         'opencode.backfillTaskLedger',
       ],
+      opencodeTaskLedgerEvidenceContractVersion: OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION,
+      opencodeAppManagedBootstrapContractVersion: OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION,
     },
     runtime: {
       providerId: 'opencode',

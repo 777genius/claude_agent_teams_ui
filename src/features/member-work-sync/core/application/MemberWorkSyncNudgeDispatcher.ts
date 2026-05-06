@@ -1,8 +1,9 @@
 import { appendMemberWorkSyncAudit, reasonToAuditEvent } from './MemberWorkSyncAudit';
+import { decideMemberWorkSyncNudgeActivation } from './MemberWorkSyncNudgeActivationPolicy';
 import { finalizeMemberWorkSyncAgenda } from './MemberWorkSyncReconciler';
 import { decideMemberWorkSyncStatus } from '../domain';
 
-import type { MemberWorkSyncOutboxItem } from '../../contracts';
+import type { MemberWorkSyncOutboxItem, MemberWorkSyncStatus } from '../../contracts';
 import type { MemberWorkSyncAuditEventName, MemberWorkSyncUseCaseDeps } from './ports';
 
 const MEMBER_WORK_SYNC_MAX_NUDGES_PER_MEMBER_PER_HOUR = 2;
@@ -151,6 +152,12 @@ export class MemberWorkSyncNudgeDispatcher {
         nowIso,
       });
       await this.appendDispatchAudit(item, 'nudge_delivered', 'inbox_inserted');
+      await this.scheduleDeliveryWake(
+        item,
+        inserted.messageId,
+        inserted.inserted,
+        revalidation.providerId
+      );
       return 'delivered';
     } catch (error) {
       await outbox.markFailed({
@@ -188,7 +195,8 @@ export class MemberWorkSyncNudgeDispatcher {
     item: MemberWorkSyncOutboxItem,
     nowIso: string
   ): Promise<
-    { ok: true } | { ok: false; reason: string; retryable: boolean; nextAttemptAt?: string }
+    | { ok: true; providerId?: MemberWorkSyncStatus['providerId'] }
+    | { ok: false; reason: string; retryable: boolean; nextAttemptAt?: string }
   > {
     const teamActive = this.deps.lifecycle
       ? await this.deps.lifecycle.isTeamActive(item.teamName)
@@ -221,6 +229,24 @@ export class MemberWorkSyncNudgeDispatcher {
       nowIso,
       inactive: source.inactive || !teamActive,
     });
+    const providerId = source.providerId ?? previous.providerId;
+    const revalidatedStatus: MemberWorkSyncStatus = {
+      ...previous,
+      state: decision.state,
+      agenda,
+      ...(decision.acceptedReport ? { report: decision.acceptedReport } : {}),
+      shadow: {
+        ...previous.shadow,
+        reconciledBy: previous.shadow?.reconciledBy ?? 'queue',
+        wouldNudge: decision.state === 'needs_sync' && agenda.items.length > 0,
+        fingerprintChanged:
+          Boolean(previous.agenda.fingerprint) &&
+          previous.agenda.fingerprint !== agenda.fingerprint,
+      },
+      evaluatedAt: nowIso,
+      diagnostics: [...agenda.diagnostics, ...decision.diagnostics],
+      ...(providerId ? { providerId } : {}),
+    };
     if (
       decision.state !== 'needs_sync' ||
       agenda.items.length === 0 ||
@@ -233,7 +259,11 @@ export class MemberWorkSyncNudgeDispatcher {
       return { ok: false, reason: 'metrics_unavailable', retryable: true };
     }
     const metrics = await this.deps.statusStore.readTeamMetrics(item.teamName);
-    if (metrics.phase2Readiness.state !== 'shadow_ready') {
+    const activation = decideMemberWorkSyncNudgeActivation({
+      status: revalidatedStatus,
+      metrics,
+    });
+    if (!activation.active) {
       return { ok: false, reason: 'phase2_not_ready', retryable: true };
     }
 
@@ -281,6 +311,37 @@ export class MemberWorkSyncNudgeDispatcher {
       return { ok: false, reason: 'watchdog_cooldown_active', retryable: true };
     }
 
-    return { ok: true };
+    return { ok: true, ...(providerId ? { providerId } : {}) };
+  }
+
+  private async scheduleDeliveryWake(
+    item: MemberWorkSyncOutboxItem,
+    messageId: string,
+    inserted: boolean,
+    providerId?: MemberWorkSyncStatus['providerId']
+  ): Promise<void> {
+    if (!this.deps.nudgeDeliveryWake) {
+      return;
+    }
+
+    try {
+      await this.deps.nudgeDeliveryWake.schedule({
+        teamName: item.teamName,
+        memberName: item.memberName,
+        messageId,
+        ...(providerId ? { providerId } : {}),
+        reason: inserted ? 'member_work_sync_nudge_inserted' : 'member_work_sync_nudge_existing',
+        delayMs: 500,
+      });
+    } catch (error) {
+      const reason = `nudge_wake_failed:${String(error)}`;
+      await this.appendDispatchAudit(item, 'nudge_wake_failed', reason);
+      this.deps.logger?.warn('member work sync nudge delivery wake failed', {
+        teamName: item.teamName,
+        memberName: item.memberName,
+        messageId,
+        error: String(error),
+      });
+    }
   }
 }

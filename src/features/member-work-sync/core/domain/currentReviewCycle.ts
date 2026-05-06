@@ -6,6 +6,8 @@ export interface ReviewHistoryEventLike {
   timestamp?: string;
   actor?: string;
   reviewer?: string;
+  from?: string;
+  to?: string;
 }
 
 export interface CurrentReviewOwner {

@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { MemberSpawnStatusEntry, ResolvedTeamMember } from '@shared/types';
+import type { MemberSpawnStatusEntry, ResolvedTeamMember, TeamTaskWithKanban } from '@shared/types';
 
 vi.mock('@renderer/components/team/members/MemberCard', () => ({
   MemberCard: ({
@@ -10,6 +10,8 @@ vi.mock('@renderer/components/team/members/MemberCard', () => ({
     spawnError,
     spawnStatus,
     spawnLaunchState,
+    currentTask,
+    reviewTask,
     onRestartMember,
     onSkipMemberForLaunch,
   }: {
@@ -17,6 +19,8 @@ vi.mock('@renderer/components/team/members/MemberCard', () => ({
     spawnError?: string;
     spawnStatus?: string;
     spawnLaunchState?: string;
+    currentTask?: TeamTaskWithKanban | null;
+    reviewTask?: TeamTaskWithKanban | null;
     onRestartMember?: (memberName: string) => void;
     onSkipMemberForLaunch?: (memberName: string) => void;
   }) =>
@@ -24,6 +28,12 @@ vi.mock('@renderer/components/team/members/MemberCard', () => ({
       'div',
       { 'data-testid': `member-${member.name}` },
       spawnError ?? '',
+      currentTask
+        ? React.createElement('span', { 'data-testid': `current-${member.name}` }, currentTask.id)
+        : null,
+      reviewTask
+        ? React.createElement('span', { 'data-testid': `review-${member.name}` }, reviewTask.id)
+        : null,
       onRestartMember && (spawnStatus === 'error' || spawnLaunchState === 'failed_to_start')
         ? React.createElement(
             'button',
@@ -188,6 +198,41 @@ describe('MemberList spawn-status memoization', () => {
 
     expect(secondRestart).toHaveBeenCalledWith('bob');
     expect(firstRestart).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+  });
+
+  it('shows a review task when a stale currentTaskId points at the same non-active task', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const members: ResolvedTeamMember[] = [{ ...member, currentTaskId: 'task-review' }];
+    const reviewTask: TeamTaskWithKanban = {
+      id: 'task-review',
+      subject: 'Review this',
+      status: 'completed',
+      reviewState: 'review',
+      kanbanColumn: 'review',
+      reviewer: 'bob',
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(MemberList, {
+          members,
+          isTeamAlive: true,
+          taskMap: new Map([[reviewTask.id, reviewTask]]),
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.querySelector('[data-testid="current-bob"]')).toBeNull();
+    expect(host.querySelector('[data-testid="review-bob"]')?.textContent).toBe('task-review');
 
     await act(async () => {
       root.unmount();

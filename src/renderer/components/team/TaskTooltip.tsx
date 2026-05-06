@@ -7,7 +7,10 @@ import { useStore } from '@renderer/store';
 import { selectResolvedMembersForTeamName } from '@renderer/store/slices/teamSlice';
 import { buildMemberColorMap, REVIEW_STATE_DISPLAY } from '@renderer/utils/memberHelpers';
 import { linkifyTaskIdsInMarkdown } from '@renderer/utils/taskReferenceUtils';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import { formatTaskDisplayLabel, taskMatchesRef } from '@shared/utils/taskIdentity';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -29,7 +32,7 @@ const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
 };
 
 function getEffectiveColumn(task: TeamTaskWithKanban): string {
-  const reviewColumn = getTaskKanbanColumn(task);
+  const reviewColumn = getTeamTaskWorkflowColumn(task);
   if (reviewColumn) return reviewColumn;
   if (task.status === 'pending') return 'todo';
   if (task.status === 'completed') return 'done';
@@ -159,7 +162,7 @@ export const TaskTooltip = memo(function TaskTooltip({
           >
             {label}
           </span>
-          {task.reviewState === 'needsFix' ? (
+          {isTeamTaskNeedsFixActionable(task) ? (
             <span
               className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
             >

@@ -67,4 +67,63 @@ describe('taskChangeState utils', () => {
       })
     ).toBe('active');
   });
+
+  it('treats in-progress tasks approved through kanban overlay as approved', () => {
+    const bucket = getTaskChangeStateBucket({
+      status: 'in_progress',
+      kanbanColumn: 'approved',
+    });
+
+    expect(bucket).toBe('approved');
+    expect(isTaskChangeSummaryCacheable(bucket)).toBe(true);
+  });
+
+  it('does not treat pending tasks with stale approved kanban overlay as approved', () => {
+    expect(
+      getTaskChangeStateBucket({
+        status: 'pending',
+        kanbanColumn: 'approved',
+      })
+    ).toBe('active');
+  });
+
+  it('does not treat pending tasks with stale review kanban overlay as review', () => {
+    expect(
+      getTaskChangeStateBucket({
+        status: 'pending',
+        kanbanColumn: 'review',
+      })
+    ).toBe('active');
+  });
+
+  it('lets current kanban review overlay win over stale approved review state', () => {
+    expect(
+      getTaskChangeStateBucket({
+        status: 'completed',
+        reviewState: 'approved',
+        kanbanColumn: 'review',
+      })
+    ).toBe('review');
+  });
+
+  it('does not cache completed tasks that still need fixes', () => {
+    const bucket = getTaskChangeStateBucket({
+      status: 'completed',
+      reviewState: 'needsFix',
+    });
+
+    expect(bucket).toBe('active');
+    expect(isTaskChangeSummaryCacheable(bucket)).toBe(false);
+  });
+
+  it('lets current approved overlay win over stale needsFix for change summary caching', () => {
+    const bucket = getTaskChangeStateBucket({
+      status: 'completed',
+      reviewState: 'needsFix',
+      kanbanColumn: 'approved',
+    });
+
+    expect(bucket).toBe('approved');
+    expect(isTaskChangeSummaryCacheable(bucket)).toBe(true);
+  });
 });

@@ -91,6 +91,7 @@ import {
 import { shouldSuppressDesktopNotificationForInboxText } from '@shared/utils/idleNotificationSemantics';
 import { parseInboxJson } from '@shared/utils/inboxNoise';
 import { createLogger } from '@shared/utils/logger';
+import { isTeamInternalControlMessageEnvelope } from '@shared/utils/teamInternalControlMessages';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -470,6 +471,9 @@ async function notifyNewInboxMessages(teamName: string, detail: string): Promise
       const msg = newMessages[i];
       // Skip messages sent from our own UI
       if (msg.source && suppressedSources.has(msg.source)) continue;
+      // Skip app-owned private bootstrap/control prompts. They are durable runtime proof inputs,
+      // not user-visible conversation messages.
+      if (isTeamInternalControlMessageEnvelope(msg)) continue;
       // Skip internal coordination noise (idle_notification, shutdown_*, etc.)
       if (shouldSuppressDesktopNotificationForInboxText(msg.text)) continue;
 
@@ -1140,6 +1144,9 @@ async function initializeServices(): Promise<void> {
   teamDataService = new TeamDataService();
   teamDataService.setMemberRuntimeAdvisoryService(teamMemberRuntimeAdvisoryService);
   teamProvisioningService = new TeamProvisioningService();
+  teamProvisioningService.setMemberRuntimeAdvisoryInvalidator((teamName, memberName) => {
+    teamMemberRuntimeAdvisoryService.invalidateMemberAdvisory(teamName, memberName);
+  });
   teamProvisioningService.setRuntimeAdapterRegistry(await createOpenCodeRuntimeAdapterRegistry());
   await cleanupOpenCodeHostsForLifecycle('startup').catch((error: unknown) =>
     logger.warn(`[OpenCode] Startup host cleanup failed: ${String(error)}`)
@@ -1357,6 +1364,24 @@ async function initializeServices(): Promise<void> {
               teamProvisioningService.hasProvisioningRun(team.teamName))
         )
         .map((team) => team.teamName);
+    },
+    extraBusySignals: [
+      {
+        isBusy: (input) => teamProvisioningService.getOpenCodeMemberDeliveryBusyStatus(input),
+      },
+    ],
+    nudgeDeliveryWake: {
+      schedule: (input) => {
+        if (input.providerId !== 'opencode') {
+          return;
+        }
+        teamProvisioningService.scheduleOpenCodeMemberInboxDeliveryWake({
+          teamName: input.teamName,
+          memberName: input.memberName,
+          messageId: input.messageId,
+          delayMs: input.delayMs,
+        });
+      },
     },
     logger: createLogger('Feature:MemberWorkSync'),
   });

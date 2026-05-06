@@ -71,6 +71,7 @@ export function useTeamGraphAdapter(
     gridOwnerOrder,
     slotAssignments,
     graphLayoutSession,
+    activeTaskLogActivity,
     ensureTeamGraphSlotAssignments,
   } = useStore(
     useShallow((s) => ({
@@ -92,6 +93,8 @@ export function useTeamGraphAdapter(
       gridOwnerOrder: isActive && teamName ? s.gridOwnerOrderByTeam[teamName] : undefined,
       slotAssignments: isActive && teamName ? s.slotAssignmentsByTeam[teamName] : undefined,
       graphLayoutSession: isActive && teamName ? s.graphLayoutSessionByTeam[teamName] : undefined,
+      activeTaskLogActivity:
+        isActive && teamName ? s.activeTaskLogActivityByTeam[teamName] : undefined,
       ensureTeamGraphSlotAssignments: s.ensureTeamGraphSlotAssignments,
     }))
   );
@@ -189,7 +192,8 @@ export function useTeamGraphAdapter(
       memberSpawnSnapshot,
       effectiveSlotAssignments,
       graphLayoutMode ?? 'radial',
-      gridOwnerOrder
+      gridOwnerOrder,
+      activeTaskLogActivity
     );
   }, [
     isActive,
@@ -208,6 +212,7 @@ export function useTeamGraphAdapter(
     effectiveSlotAssignments,
     graphLayoutMode,
     gridOwnerOrder,
+    activeTaskLogActivity,
   ]);
 
   useLayoutEffect(() => {

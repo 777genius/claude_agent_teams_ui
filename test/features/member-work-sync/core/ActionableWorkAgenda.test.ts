@@ -43,6 +43,177 @@ describe('buildActionableWorkAgenda', () => {
     ]);
   });
 
+  it('does not keep stale terminal task state in the work agenda', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'jack',
+      generatedAt: '2026-05-06T19:06:07.257Z',
+      members: [{ name: 'jack' }],
+      tasks: [
+        {
+          id: 'task-completed',
+          displayId: '#6d4db591',
+          subject: 'Completed after stale work-sync status',
+          status: 'completed',
+          owner: 'jack',
+        },
+        {
+          id: 'task-deleted',
+          subject: 'Deleted after stale work-sync status',
+          status: 'in_progress',
+          owner: 'jack',
+          deletedAt: '2026-05-06T19:06:07.257Z',
+        },
+        {
+          id: 'task-review-approved',
+          subject: 'Approved review after stale work-sync status',
+          status: 'in_progress',
+          owner: 'jack',
+          reviewState: 'approved',
+        },
+        {
+          id: 'task-kanban-approved',
+          subject: 'Approved kanban after stale work-sync status',
+          status: 'in_progress',
+          owner: 'jack',
+          kanbanColumn: 'approved',
+        },
+        {
+          id: 'task-stale-needsfix-approved',
+          subject: 'Approved task after stale needsFix status',
+          status: 'in_progress',
+          owner: 'jack',
+          reviewState: 'needsFix',
+          kanbanColumn: 'approved',
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items).toEqual([]);
+  });
+
+  it('projects reopened in-progress work after a previous completion', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'jack',
+      generatedAt: '2026-05-06T18:56:19.173Z',
+      members: [{ name: 'jack' }],
+      tasks: [
+        {
+          id: 'task-reopened',
+          displayId: '#6d4db591',
+          subject: 'Reopened work',
+          status: 'in_progress',
+          owner: 'jack',
+          historyEvents: [
+            {
+              id: 'evt-completed',
+              type: 'status_changed',
+              timestamp: '2026-05-06T18:50:05.662Z',
+              from: 'in_progress',
+              to: 'completed',
+            },
+            {
+              id: 'evt-reopened',
+              type: 'status_changed',
+              timestamp: '2026-05-06T18:56:19.173Z',
+              from: 'completed',
+              to: 'in_progress',
+            },
+          ],
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items.map((item) => [item.taskId, item.reason])).toEqual([
+      ['task-reopened', 'owned_in_progress_task'],
+    ]);
+  });
+
+  it('does not treat approved dependencies as waiting blockers', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'jack',
+      generatedAt: '2026-05-06T19:06:07.257Z',
+      members: [{ name: 'jack' }],
+      tasks: [
+        {
+          id: 'task-approved',
+          subject: 'Approved dependency',
+          status: 'in_progress',
+          owner: 'alice',
+          kanbanColumn: 'approved',
+        },
+        {
+          id: 'task-dependent',
+          subject: 'Depends on approved task',
+          status: 'in_progress',
+          owner: 'jack',
+          blockedBy: ['task-approved'],
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items.map((item) => [item.taskId, item.reason])).toEqual([
+      ['task-dependent', 'owned_in_progress_task'],
+    ]);
+  });
+
+  it('keeps dependencies blocked while completed work is still in review', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'jack',
+      generatedAt: '2026-05-06T19:06:07.257Z',
+      members: [{ name: 'jack' }, { name: 'alice' }],
+      tasks: [
+        {
+          id: 'task-review',
+          subject: 'Dependency waiting for review',
+          status: 'completed',
+          owner: 'alice',
+          reviewState: 'review',
+          kanbanColumn: 'review',
+        },
+        {
+          id: 'task-dependent',
+          subject: 'Depends on reviewed task',
+          status: 'in_progress',
+          owner: 'jack',
+          blockedBy: ['task-review'],
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items).toEqual([]);
+  });
+
+  it('does not let stale kanban approved hide a reopened pending task', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'jack',
+      generatedAt: '2026-05-06T19:06:07.257Z',
+      members: [{ name: 'jack' }],
+      tasks: [
+        {
+          id: 'task-reopened-pending',
+          subject: 'Reopened pending work',
+          status: 'pending',
+          owner: 'jack',
+          kanbanColumn: 'approved',
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items.map((item) => [item.taskId, item.reason])).toEqual([
+      ['task-reopened-pending', 'owned_pending_task'],
+    ]);
+  });
+
   it('assigns active review work to the current-cycle reviewer only', () => {
     const agenda = buildActionableWorkAgenda({
       teamName: 'team-a',
@@ -76,6 +247,98 @@ describe('buildActionableWorkAgenda', () => {
       assignee: 'alice',
       evidence: { reviewer: 'alice' },
     });
+  });
+
+  it('keeps completed tasks actionable for the current reviewer while workflow is review', () => {
+    const agenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'alice',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      members: [{ name: 'alice' }, { name: 'bob' }],
+      tasks: [
+        {
+          id: 'task-review',
+          subject: 'Review completed work',
+          status: 'completed',
+          owner: 'bob',
+          reviewState: 'review',
+          historyEvents: [
+            {
+              id: 'evt-review',
+              type: 'review_requested',
+              timestamp: '2026-04-29T00:00:00.000Z',
+              reviewer: 'alice',
+            },
+          ],
+        },
+      ],
+      hash,
+    });
+
+    expect(agenda.items).toHaveLength(1);
+    expect(agenda.items[0]).toMatchObject({
+      taskId: 'task-review',
+      kind: 'review',
+      assignee: 'alice',
+    });
+  });
+
+  it('does not assign owner work while stale in-progress task is in review workflow', () => {
+    const ownerAgenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'bob',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      members: [{ name: 'alice' }, { name: 'bob' }],
+      tasks: [
+        {
+          id: 'task-review',
+          subject: 'Review in progress status',
+          status: 'in_progress',
+          owner: 'bob',
+          reviewState: 'none',
+          kanbanColumn: 'review',
+          historyEvents: [
+            {
+              id: 'evt-review',
+              type: 'review_requested',
+              timestamp: '2026-04-29T00:00:00.000Z',
+              reviewer: 'alice',
+            },
+          ],
+        },
+      ],
+      hash,
+    });
+    const reviewerAgenda = buildActionableWorkAgenda({
+      teamName: 'team-a',
+      memberName: 'alice',
+      generatedAt: '2026-04-29T00:00:00.000Z',
+      members: [{ name: 'alice' }, { name: 'bob' }],
+      tasks: [
+        {
+          id: 'task-review',
+          subject: 'Review in progress status',
+          status: 'in_progress',
+          owner: 'bob',
+          reviewState: 'none',
+          kanbanColumn: 'review',
+          historyEvents: [
+            {
+              id: 'evt-review',
+              type: 'review_requested',
+              timestamp: '2026-04-29T00:00:00.000Z',
+              reviewer: 'alice',
+            },
+          ],
+        },
+      ],
+      hash,
+    });
+
+    expect(ownerAgenda.items).toEqual([]);
+    expect(reviewerAgenda.items.map((item) => [item.taskId, item.kind, item.reason])).toEqual([
+      ['task-review', 'review', 'current_cycle_review_assigned'],
+    ]);
   });
 
   it('does not resurrect a stale reviewer after review was approved', () => {
@@ -257,12 +520,20 @@ describe('buildActionableWorkAgenda', () => {
           owner: 'bob',
           reviewState: 'needsFix',
         },
+        {
+          id: 'task-2',
+          subject: 'Fix completed review',
+          status: 'completed',
+          owner: 'bob',
+          reviewState: 'needsFix',
+        },
       ],
       hash,
     });
 
     expect(agenda.items.map((item) => [item.taskId, item.kind, item.reason])).toEqual([
       ['task-1', 'work', 'review_changes_requested'],
+      ['task-2', 'work', 'review_changes_requested'],
     ]);
   });
 

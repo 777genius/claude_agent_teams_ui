@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs';
+import { isTaskLogActivityChangeEvent } from '@renderer/utils/teamChangeEvents';
+import { isDisplayableCurrentTask } from '@renderer/utils/teamTaskDisplayState';
 
 import { ExecutionSessionsSection } from './ExecutionSessionsSection';
 import { isBoardTaskActivityUiEnabled, isBoardTaskExactLogsUiEnabled } from './featureGates';
@@ -64,9 +66,10 @@ export const TaskLogsPanel = ({
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countRequestSeqRef = useRef(0);
-  const taskLogTrackingEnabled =
-    hasOpenedContent && task.status === 'in_progress' && availableTabs.includes('stream');
-  const taskLogSummaryEnabled = hasOpenedContent && availableTabs.includes('stream');
+  const hasTaskLogStream = availableTabs.includes('stream');
+  const taskIsActivelyWorked = isDisplayableCurrentTask(task);
+  const taskLogActivityTrackingEnabled = taskIsActivelyWorked && hasTaskLogStream;
+  const taskLogSummaryEnabled = hasOpenedContent && hasTaskLogStream;
 
   useEffect(() => {
     setActiveTab(defaultTab);
@@ -133,7 +136,7 @@ export const TaskLogsPanel = ({
   }, [task.id, taskLogSummaryEnabled, teamName]);
 
   useEffect(() => {
-    if (!taskLogTrackingEnabled || !api.teams.setTaskLogStreamTracking) {
+    if (!taskLogActivityTrackingEnabled || !api.teams.setTaskLogStreamTracking) {
       return;
     }
 
@@ -143,10 +146,10 @@ export const TaskLogsPanel = ({
         () => undefined
       );
     };
-  }, [taskLogTrackingEnabled, teamName]);
+  }, [taskLogActivityTrackingEnabled, teamName]);
 
   useEffect(() => {
-    if (!taskLogTrackingEnabled) {
+    if (!taskLogActivityTrackingEnabled) {
       if (pulseTimerRef.current) {
         clearTimeout(pulseTimerRef.current);
         pulseTimerRef.current = null;
@@ -160,7 +163,7 @@ export const TaskLogsPanel = ({
     }
 
     const scheduleCountReload = (): void => {
-      if (!api.teams.getTaskLogStreamSummary) {
+      if (!taskLogSummaryEnabled || !api.teams.getTaskLogStreamSummary) {
         return;
       }
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -187,7 +190,7 @@ export const TaskLogsPanel = ({
     const unsubscribe = api.teams.onTeamChange?.((_event, event) => {
       if (
         event.teamName !== teamName ||
-        event.type !== 'task-log-change' ||
+        !isTaskLogActivityChangeEvent(event) ||
         event.taskId !== task.id
       ) {
         return;
@@ -230,7 +233,7 @@ export const TaskLogsPanel = ({
         unsubscribe();
       }
     };
-  }, [task.id, taskLogTrackingEnabled, teamName]);
+  }, [task.id, taskLogActivityTrackingEnabled, taskLogSummaryEnabled, teamName]);
 
   return (
     <Tabs
@@ -260,7 +263,7 @@ export const TaskLogsPanel = ({
             teamName={teamName}
             taskId={task.id}
             taskStatus={task.status}
-            liveEnabled={isOpen && task.status === 'in_progress'}
+            liveEnabled={isOpen && taskIsActivelyWorked}
           />
         </TabsContent>
       ) : null}

@@ -1,7 +1,14 @@
 import { createHash } from 'crypto';
 
+import type {
+  OpenCodeAppManagedBootstrapCandidate,
+  OpenCodeBootstrapEvidenceSource,
+  OpenCodeBootstrapMode,
+} from '@shared/types/team';
+
 export const OPEN_CODE_BRIDGE_SCHEMA_VERSION = 1 as const;
 export const OPEN_CODE_TASK_LEDGER_EVIDENCE_CONTRACT_VERSION = 1 as const;
+export const OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION = 1 as const;
 
 export type OpenCodeBridgeCommandName =
   | 'opencode.handshake'
@@ -65,6 +72,9 @@ export interface OpenCodeLaunchTeamCommandBody {
 export interface OpenCodeTeamMemberLaunchCommandData {
   sessionId: string;
   launchState: OpenCodeTeamMemberLaunchBridgeState;
+  bootstrapEvidenceSource?: OpenCodeBootstrapEvidenceSource;
+  bootstrapMode?: OpenCodeBootstrapMode;
+  appManagedBootstrapCandidate?: OpenCodeAppManagedBootstrapCandidate;
   pendingPermissionRequestIds?: string[];
   diagnostics?: string[];
   model: string;
@@ -166,6 +176,7 @@ export interface OpenCodeSendMessageCommandBody {
     | 'slash_command'
     | 'slash_command_result'
     | 'task_comment_notification'
+    | 'task_stall_remediation'
     | 'member_work_sync_nudge'
     | 'agent_error';
   taskRefs?: { taskId: string; displayId: string; teamName: string }[];
@@ -373,6 +384,7 @@ export interface OpenCodeBridgePeerIdentity {
     currentVersion: number;
     supportedCommands: OpenCodeBridgeCommandName[];
     opencodeTaskLedgerEvidenceContractVersion?: number;
+    opencodeAppManagedBootstrapContractVersion?: number;
   };
   runtime: {
     providerId: 'opencode';
@@ -589,6 +601,26 @@ export function validateOpenCodeBridgeHandshake(input: {
 
   if (!input.handshake.server.bridgeProtocol.supportedCommands.includes(input.requiredCommand)) {
     return { ok: false, reason: `Bridge server does not support command ${input.requiredCommand}` };
+  }
+
+  if (input.requiredCommand === 'opencode.launchTeam') {
+    if (!input.expectedCapabilitySnapshotId) {
+      return {
+        ok: false,
+        reason:
+          'OpenCode app-managed bootstrap launch requires a fresh capability snapshot before state-changing launch',
+      };
+    }
+    if (
+      input.handshake.server.bridgeProtocol.opencodeAppManagedBootstrapContractVersion !==
+      OPEN_CODE_APP_MANAGED_BOOTSTRAP_CONTRACT_VERSION
+    ) {
+      return {
+        ok: false,
+        reason:
+          'OpenCode app-managed bootstrap is required, but the orchestrator does not advertise contract version 1. Update agent_teams_orchestrator and restart the app.',
+      };
+    }
   }
 
   if (
@@ -860,7 +892,10 @@ function isPeerIdentity(value: unknown): value is OpenCodeBridgePeerIdentity {
     !bridgeProtocol.supportedCommands.every(isOpenCodeBridgeCommandName) ||
     (bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion !== undefined &&
       (!Number.isInteger(bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion) ||
-        (bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion as number) < 1))
+        (bridgeProtocol.opencodeTaskLedgerEvidenceContractVersion as number) < 1)) ||
+    (bridgeProtocol.opencodeAppManagedBootstrapContractVersion !== undefined &&
+      (!Number.isInteger(bridgeProtocol.opencodeAppManagedBootstrapContractVersion) ||
+        (bridgeProtocol.opencodeAppManagedBootstrapContractVersion as number) < 1))
   ) {
     return false;
   }

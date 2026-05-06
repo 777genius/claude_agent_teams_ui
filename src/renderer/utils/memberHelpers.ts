@@ -321,8 +321,57 @@ function getRuntimeAdvisoryProviderLabel(providerId: TeamProviderId | undefined)
 }
 
 function appendRuntimeAdvisoryRawMessage(base: string, message: string | undefined): string {
-  const trimmed = message?.trim();
+  const trimmed = formatRuntimeAdvisoryDisplayMessage(message);
   return trimmed ? `${base}\n\n${trimmed}` : base;
+}
+
+function isOpenCodeRuntimeDeliveryAdvisoryMessage(message: string | undefined): boolean {
+  const displayMessage = formatRuntimeAdvisoryDisplayMessage(message);
+  return (
+    displayMessage.startsWith('OpenCode runtime delivery') ||
+    displayMessage.startsWith('OpenCode returned an empty assistant turn') ||
+    displayMessage.startsWith('OpenCode accepted the prompt') ||
+    displayMessage.startsWith('OpenCode responded, but did not create') ||
+    displayMessage.startsWith('OpenCode created a reply without') ||
+    displayMessage.startsWith('OpenCode used tools, but did not create')
+  );
+}
+
+function formatRuntimeAdvisoryDisplayMessage(message: string | undefined): string {
+  const trimmed = message?.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed === 'empty_assistant_turn') {
+    return 'OpenCode returned an empty assistant turn.';
+  }
+  if (trimmed === 'prompt_delivered_no_assistant_message') {
+    return 'OpenCode accepted the prompt, but no assistant turn was recorded.';
+  }
+  if (
+    trimmed === 'visible_reply_still_required' ||
+    trimmed === 'visible_reply_ack_only_still_requires_answer' ||
+    trimmed === 'plain_text_ack_only_still_requires_answer'
+  ) {
+    return 'OpenCode responded, but did not create a visible message_send reply.';
+  }
+  if (
+    trimmed === 'visible_reply_destination_not_found_yet' ||
+    trimmed === 'visible_reply_missing_relayOfMessageId'
+  ) {
+    return 'OpenCode created a reply without the required relayOfMessageId correlation.';
+  }
+  if (trimmed === 'non_visible_tool_without_task_progress') {
+    return 'OpenCode used tools, but did not create a visible reply or task progress proof.';
+  }
+  if (
+    trimmed.startsWith(
+      'OpenCode bootstrap MCP did not complete required tools before assistant response:'
+    )
+  ) {
+    return 'OpenCode runtime delivery did not complete.';
+  }
+  return trimmed;
 }
 
 function formatRuntimeAdvisoryBaseLabel(
@@ -344,8 +393,16 @@ function formatRuntimeAdvisoryBaseLabel(
         return 'Network error';
       case 'provider_overloaded':
         return providerLabel ? `${providerLabel} overload` : 'Provider overload';
+      case 'protocol_proof_missing':
+        return providerId === 'opencode' ? 'OpenCode proof missing' : 'Protocol proof missing';
       case 'backend_error':
       case 'unknown':
+        if (
+          providerId === 'opencode' &&
+          isOpenCodeRuntimeDeliveryAdvisoryMessage(advisory.message)
+        ) {
+          return 'OpenCode delivery error';
+        }
         return providerLabel ? `${providerLabel} API error` : 'API error';
       default:
         return 'API error';
@@ -365,6 +422,8 @@ function formatRuntimeAdvisoryBaseLabel(
       return 'Network retry';
     case 'provider_overloaded':
       return providerLabel ? `${providerLabel} overload retry` : 'Provider overload retry';
+    case 'protocol_proof_missing':
+      return providerId === 'opencode' ? 'OpenCode proof missing' : 'Protocol proof missing';
     case 'backend_error':
     case 'unknown':
       return 'Provider retry';
@@ -407,8 +466,24 @@ function formatRuntimeAdvisoryTitle(
           'Provider is temporarily overloaded.',
           advisory.message
         );
+      case 'protocol_proof_missing':
+        return appendRuntimeAdvisoryRawMessage(
+          providerId === 'opencode'
+            ? 'OpenCode delivery completed without required visible/progress proof.'
+            : 'Runtime delivery completed without required protocol proof.',
+          advisory.message
+        );
       case 'backend_error':
       case 'unknown':
+        if (
+          providerId === 'opencode' &&
+          isOpenCodeRuntimeDeliveryAdvisoryMessage(advisory.message)
+        ) {
+          return appendRuntimeAdvisoryRawMessage(
+            'OpenCode runtime delivery error.',
+            advisory.message
+          );
+        }
         return appendRuntimeAdvisoryRawMessage(
           `${providerLabel ?? 'Provider'} API error.`,
           advisory.message
@@ -447,6 +522,13 @@ function formatRuntimeAdvisoryTitle(
     case 'provider_overloaded':
       return appendRuntimeAdvisoryRawMessage(
         'Provider is temporarily overloaded. SDK is retrying automatically.',
+        advisory.message
+      );
+    case 'protocol_proof_missing':
+      return appendRuntimeAdvisoryRawMessage(
+        providerId === 'opencode'
+          ? 'OpenCode delivery is waiting for required visible/progress proof.'
+          : 'Runtime delivery is waiting for required protocol proof.',
         advisory.message
       );
     case 'backend_error':
@@ -504,6 +586,9 @@ export function getMemberRuntimeAdvisoryTone(
 ): 'error' | 'warning' | null {
   if (!advisory) {
     return null;
+  }
+  if (advisory.reasonCode === 'protocol_proof_missing') {
+    return 'warning';
   }
   return advisory.kind === 'api_error' ? 'error' : 'warning';
 }

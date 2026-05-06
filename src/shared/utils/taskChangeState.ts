@@ -1,4 +1,5 @@
 import { getReviewStateFromTask } from './reviewState';
+import { getTeamTaskWorkflowColumn } from './teamTaskState';
 
 import type { TeamReviewState } from '@shared/types';
 
@@ -9,6 +10,7 @@ interface TaskChangeStateLike {
   reviewState?: TeamReviewState | null;
   historyEvents?: unknown[];
   kanbanColumn?: 'review' | 'approved' | null;
+  deletedAt?: string | null;
 }
 
 function getEffectiveReviewState(task: TaskChangeStateLike): TeamReviewState {
@@ -17,8 +19,15 @@ function getEffectiveReviewState(task: TaskChangeStateLike): TeamReviewState {
 
 export function getTaskChangeStateBucket(task: TaskChangeStateLike): TaskChangeStateBucket {
   const reviewState = getEffectiveReviewState(task);
-  if (reviewState === 'approved') return 'approved';
-  if (reviewState === 'review') return 'review';
+  const workflowColumn = getTeamTaskWorkflowColumn({
+    status: task.status ?? '',
+    reviewState,
+    kanbanColumn: task.kanbanColumn,
+    deletedAt: task.deletedAt,
+  });
+  if (workflowColumn === 'approved') return 'approved';
+  if (workflowColumn === 'review') return 'review';
+  if (reviewState === 'needsFix') return 'active';
   return task.status === 'completed' ? 'completed' : 'active';
 }
 

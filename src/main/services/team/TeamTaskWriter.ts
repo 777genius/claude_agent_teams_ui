@@ -378,10 +378,24 @@ export class TeamTaskWriter {
       }
 
       const task = JSON.parse(raw) as TeamTask;
-      if (owner) {
-        task.owner = owner;
+      const previousOwner =
+        typeof task.owner === 'string' && task.owner.trim() ? task.owner.trim() : undefined;
+      const nextOwner = typeof owner === 'string' && owner.trim() ? owner.trim() : undefined;
+      if (nextOwner) {
+        task.owner = nextOwner;
       } else {
         delete task.owner;
+      }
+      if (previousOwner !== nextOwner) {
+        task.historyEvents = appendHistoryEvent(
+          Array.isArray(task.historyEvents) ? task.historyEvents : undefined,
+          {
+            type: 'owner_changed',
+            ...(previousOwner ? { from: previousOwner } : {}),
+            ...(nextOwner ? { to: nextOwner } : {}),
+            actor: 'user',
+          } as Omit<TaskHistoryEvent, 'id' | 'timestamp'>
+        );
       }
       await atomicWriteAsync(taskPath, JSON.stringify(task, null, 2));
     });

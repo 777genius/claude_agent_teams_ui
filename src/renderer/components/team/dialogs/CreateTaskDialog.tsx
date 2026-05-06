@@ -28,7 +28,7 @@ import {
   extractTaskRefsFromText,
   stripEncodedTaskReferenceMetadata,
 } from '@renderer/utils/taskReferenceUtils';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
+import { getTeamTaskWorkflowColumn } from '@shared/utils/teamTaskState';
 import { deriveTaskDisplayId, formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import { AlertTriangle, ChevronDown, ChevronRight, Search } from 'lucide-react';
 
@@ -153,7 +153,7 @@ export const CreateTaskDialog = ({
 
   // Only show non-internal, non-deleted tasks as candidates for blocking
   const availableTasks = tasks.filter(
-    (t) => t.status !== 'deleted' && getTaskKanbanColumn(t) !== 'approved'
+    (t) => t.status !== 'deleted' && getTeamTaskWorkflowColumn(t) !== 'approved'
   );
 
   const toggleBlockedBy = (taskId: string): void => {

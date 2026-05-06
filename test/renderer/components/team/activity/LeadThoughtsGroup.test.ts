@@ -130,6 +130,25 @@ describe('LeadThoughtsGroup', () => {
       expect(groupTimelineItems([noise])).toEqual([]);
     });
 
+    it('excludes Human-prefixed internal control echoes from timeline', () => {
+      const leadRelayEcho = makeLeadSessionMsg(`Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+If action is required, delegate via task creation or SendMessage, and keep responses minimal.
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`);
+      const teammateEcho = makeLeadSessionMsg(
+        'Human: <teammate-message teammate_id="alice">{"type":"idle_notification"}</teammate-message>'
+      );
+
+      expect(isLeadThought(leadRelayEcho)).toBe(false);
+      expect(isLeadThought(teammateEcho)).toBe(false);
+      expect(groupTimelineItems([leadRelayEcho, teammateEcho])).toEqual([]);
+    });
+
     it('does not exclude noise messages with a recipient (captured SendMessage)', () => {
       const sendMsg = makeLeadSessionMsg(
         '{"type":"idle_notification","from":"tom","idleReason":"available"}',

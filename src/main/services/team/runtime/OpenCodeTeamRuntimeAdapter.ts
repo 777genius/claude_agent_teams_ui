@@ -26,7 +26,12 @@ import type {
   TeamRuntimeStopInput,
   TeamRuntimeStopResult,
 } from './TeamRuntimeAdapter';
-import type { AgentActionMode, InboxMessageKind, TaskRef } from '@shared/types/team';
+import type {
+  AgentActionMode,
+  InboxMessageKind,
+  OpenCodeAppManagedBootstrapCandidate,
+  TaskRef,
+} from '@shared/types/team';
 
 export interface OpenCodeTeamRuntimeBridgePort {
   checkOpenCodeTeamLaunchReadiness(input: {
@@ -169,6 +174,15 @@ export class OpenCodeTeamRuntimeAdapter implements TeamLaunchRuntimeAdapter {
     const runtimeSnapshot = skipReadinessPreflight
       ? null
       : (this.bridge.getLastOpenCodeRuntimeSnapshot?.(input.cwd) ?? null);
+    if (
+      !skipReadinessPreflight &&
+      this.bridge.getLastOpenCodeRuntimeSnapshot &&
+      !runtimeSnapshot?.capabilitySnapshotId
+    ) {
+      return blockedLaunchResult(input, 'opencode_capability_snapshot_missing', [
+        'OpenCode app-managed launch requires a fresh capability snapshot before state-changing launch.',
+      ]);
+    }
     this.lastProjectPathByTeamName.set(input.teamName, input.cwd);
     const data = await this.bridge.launchOpenCodeTeam({
       runId: input.runId,
@@ -457,18 +471,24 @@ function mapOpenCodeLaunchDataToRuntimeResult(
     checkpointNames.has(name)
   );
   const bridgeReady = data.teamLaunchState === 'ready';
+  const isExpectedMemberConfirmed = (memberName: string): boolean => {
+    const bridgeMember = data.members[memberName];
+    return bridgeMember?.launchState === 'confirmed_alive';
+  };
   const missingExpectedMembers = input.expectedMembers
     .map((member) => member.name)
     .filter((memberName) => data.members[memberName] == null);
   const unconfirmedExpectedMembers = input.expectedMembers
     .map((member) => member.name)
-    .filter((memberName) => data.members[memberName]?.launchState !== 'confirmed_alive');
+    .filter((memberName) => !isExpectedMemberConfirmed(memberName));
   const anyExpectedMemberFailed = input.expectedMembers.some(
     (member) => data.members[member.name]?.launchState === 'failed'
   );
   const allExpectedMembersConfirmed =
     input.expectedMembers.length > 0 && unconfirmedExpectedMembers.length === 0;
-  const success = bridgeReady && readyCheckpointsPresent && allExpectedMembersConfirmed;
+  const success =
+    (bridgeReady && readyCheckpointsPresent && allExpectedMembersConfirmed) ||
+    (data.teamLaunchState === 'launching' && allExpectedMembersConfirmed);
   const checkpointDiagnostic = success
     ? []
     : bridgeReady && !readyCheckpointsPresent
@@ -522,6 +542,12 @@ function mapOpenCodeLaunchDataToRuntimeResult(
           bridgeMember?.pendingPermissionRequestIds,
           bridgeMember != null,
           memberDiagnostics,
+          input.runId,
+          input.laneId?.trim() || 'primary',
+          input.teamName,
+          bridgeMember?.bootstrapEvidenceSource,
+          bridgeMember?.bootstrapMode,
+          bridgeMember?.appManagedBootstrapCandidate,
           selectOpenCodeMemberFailureReason({
             memberDiagnostics: bridgeMember?.diagnostics ?? [],
             bridgeDiagnostics: data.diagnostics,
@@ -556,6 +582,61 @@ function mapOpenCodeLaunchDataToRuntimeResult(
   };
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeAppManagedBootstrapCandidate(
+  value: OpenCodeAppManagedBootstrapCandidate | undefined,
+  expected: {
+    teamName: string;
+    memberName: string;
+    runId: string;
+    laneId: string;
+    runtimeSessionId?: string;
+  }
+): OpenCodeAppManagedBootstrapCandidate | undefined {
+  if (!value || value.schemaVersion !== 1 || value.source !== 'app_managed_bootstrap') {
+    return undefined;
+  }
+  if (
+    value.teamName !== expected.teamName ||
+    value.memberName !== expected.memberName ||
+    value.runId !== expected.runId ||
+    value.laneId !== expected.laneId ||
+    (expected.runtimeSessionId && value.runtimeSessionId !== expected.runtimeSessionId)
+  ) {
+    return undefined;
+  }
+  if (
+    !isNonEmptyString(value.runtimeSessionId) ||
+    !isNonEmptyString(value.messageID) ||
+    !value.messageID.startsWith('msg') ||
+    !isNonEmptyString(value.contextHash) ||
+    !isNonEmptyString(value.briefingHash) ||
+    !isNonEmptyString(value.injectionVerifiedAt) ||
+    !isNonEmptyString(value.candidateAt)
+  ) {
+    return undefined;
+  }
+  return {
+    schemaVersion: 1,
+    source: 'app_managed_bootstrap',
+    teamName: value.teamName,
+    memberName: value.memberName,
+    runId: value.runId,
+    laneId: value.laneId,
+    runtimeSessionId: value.runtimeSessionId,
+    messageID: value.messageID,
+    contextHash: value.contextHash,
+    briefingHash: value.briefingHash,
+    injectionVerifiedAt: value.injectionVerifiedAt,
+    candidateAt: value.candidateAt,
+    ...(isNonEmptyString(value.model) ? { model: value.model } : {}),
+    ...(isNonEmptyString(value.agent) ? { agent: value.agent } : {}),
+  };
+}
+
 function mapBridgeMemberToRuntimeEvidence(
   memberName: string,
   launchState: OpenCodeTeamMemberLaunchBridgeState,
@@ -564,8 +645,30 @@ function mapBridgeMemberToRuntimeEvidence(
   pendingPermissionRequestIds: string[] | undefined,
   runtimeMaterialized: boolean,
   diagnostics: string[],
+  runId: string,
+  laneId: string,
+  teamName: string,
+  bootstrapEvidenceSource: TeamRuntimeMemberLaunchEvidence['bootstrapEvidenceSource'] | undefined,
+  bootstrapMode: TeamRuntimeMemberLaunchEvidence['bootstrapMode'] | undefined,
+  appManagedBootstrapCandidate: OpenCodeAppManagedBootstrapCandidate | undefined,
   selectedHardFailureReason: string
 ): TeamRuntimeMemberLaunchEvidence {
+  const normalizedAppManagedCandidate = normalizeAppManagedBootstrapCandidate(
+    appManagedBootstrapCandidate,
+    {
+      teamName,
+      memberName,
+      runId,
+      laneId,
+      runtimeSessionId: sessionId,
+    }
+  );
+  const appManagedCandidatePresent =
+    launchState === 'created' &&
+    isNonEmptyString(sessionId) &&
+    bootstrapEvidenceSource === 'app_managed_bootstrap' &&
+    bootstrapMode === 'app_managed_context' &&
+    normalizedAppManagedCandidate != null;
   const confirmed = launchState === 'confirmed_alive';
   const failed = launchState === 'failed';
   const hasRuntimePid =
@@ -580,20 +683,24 @@ function mapBridgeMemberToRuntimeEvidence(
       : launchState === 'permission_blocked'
         ? 'permission_blocked'
         : 'registered_only';
-  const runtimeDiagnostic = pendingRuntimeObserved
-    ? hasRuntimePid
-      ? 'OpenCode runtime pid reported by bridge without local process verification'
-      : 'OpenCode session exists without verified runtime pid'
-    : launchState === 'permission_blocked'
-      ? 'OpenCode runtime is waiting for permission approval'
-      : runtimeMaterialized
-        ? 'OpenCode bridge did not report a runtime session or pid for this member'
+  const runtimeDiagnostic = appManagedCandidatePresent
+    ? 'OpenCode app-managed bootstrap context was injected and verified by the bridge; waiting for app-owned durable evidence commit.'
+    : pendingRuntimeObserved
+      ? hasRuntimePid
+        ? 'OpenCode runtime pid reported by bridge without local process verification'
+        : 'OpenCode session exists without verified runtime pid'
+      : launchState === 'permission_blocked'
+        ? 'OpenCode runtime is waiting for permission approval'
+        : runtimeMaterialized
+          ? 'OpenCode bridge did not report a runtime session or pid for this member'
+          : undefined;
+  const runtimeDiagnosticSeverity = appManagedCandidatePresent
+    ? 'info'
+    : failed
+      ? 'error'
+      : pendingRuntimeObserved || launchState === 'permission_blocked' || runtimeMaterialized
+        ? 'warning'
         : undefined;
-  const runtimeDiagnosticSeverity = failed
-    ? 'error'
-    : pendingRuntimeObserved || launchState === 'permission_blocked' || runtimeMaterialized
-      ? 'warning'
-      : undefined;
   return {
     memberName,
     providerId: 'opencode',
@@ -618,6 +725,13 @@ function mapBridgeMemberToRuntimeEvidence(
         ? [...new Set(pendingPermissionRequestIds)]
         : undefined,
     sessionId,
+    ...(appManagedCandidatePresent
+      ? { bootstrapEvidenceSource: 'app_managed_bootstrap' as const }
+      : {}),
+    ...(appManagedCandidatePresent ? { bootstrapMode: 'app_managed_context' as const } : {}),
+    ...(normalizedAppManagedCandidate
+      ? { appManagedBootstrapCandidate: normalizedAppManagedCandidate }
+      : {}),
     ...(hasRuntimePid ? { runtimePid } : {}),
     livenessKind,
     ...(hasRuntimePid ? { pidSource: 'opencode_bridge' as const } : {}),
@@ -725,24 +839,24 @@ function buildMemberBootstrapPrompt(
   const role = member.role?.trim() || member.workflow?.trim() || 'teammate';
   const workflow = member.workflow?.trim();
   return [
+    '<agent_teams_app_managed_bootstrap_briefing>',
+    'AGENT_TEAMS_APP_MANAGED_BOOTSTRAP_V1',
     `You are ${member.name}, a ${role} on team "${input.teamName}".`,
     teamPrompt ? `Team launch context:\n${teamPrompt}` : null,
     workflow ? `Workflow:\n${workflow}` : null,
     '',
-    'This OpenCode session is already attached by the desktop app. Do NOT create local team files, run join scripts, or search the project for a fake team registry.',
+    'This OpenCode session is created, attached, and launch-verified by the desktop app.',
+    'Do not call runtime_bootstrap_checkin or member_briefing just to prove launch readiness.',
+    'Do NOT create local team files, run join scripts, or search the project for a fake team registry.',
     'Use the app MCP tools exposed by the "agent-teams" server for team communication and task state.',
-    'The desktop bridge may prepend runtime identity and bootstrap instructions. Follow those first.',
-    'After runtime identity check-in, if you have not already done so, call MCP tool agent-teams_member_briefing (or mcp__agent-teams__member_briefing if that is the exposed name) with:',
-    `{ "teamName": "${input.teamName}", "memberName": "${member.name}", "runtimeProvider": "opencode" }`,
-    'If that tool is not available, stay idle and wait for app-delivered instructions. Do not improvise a replacement workflow.',
     'Launch bootstrap is a silent attach, not a user/team conversation turn.',
-    'After runtime_bootstrap_checkin and member_briefing both succeed, stop this turn immediately and wait for app-delivered messages or actionable task assignments.',
     'Do not call task_briefing, message_send, or cross_team_send just to announce readiness, say understood, report no tasks, or ask for work.',
     'If the briefing says there are no actionable tasks, stay idle silently.',
     '',
     'When you need to message the human user, team lead, or another teammate, call MCP tool agent-teams_message_send (or mcp__agent-teams__message_send) with teamName, to, from, text, and optional summary.',
     `Always set from="${member.name}" when sending a team message from this OpenCode teammate.`,
     'Do not answer team/app messages only as plain assistant text when agent-teams_message_send is available.',
+    '</agent_teams_app_managed_bootstrap_briefing>',
   ]
     .filter((line): line is string => line !== null)
     .join('\n');
@@ -792,6 +906,10 @@ function buildOpenCodeRuntimeMessageText(input: OpenCodeTeamRuntimeMessageInput)
     input.taskRefs
       ?.map((ref) => ref.taskId?.trim())
       .filter((taskId): taskId is string => Boolean(taskId)) ?? [];
+  // Work-sync nudges are health/reporting probes. Requiring a visible
+  // message_send reply here causes false delivery failures, so accept the
+  // dedicated member_work_sync_report proof path while keeping normal user
+  // messages on the visible reply contract.
   const responseInstructions = isWorkSyncNudge
     ? [
         'This delivered app message is a member-work-sync nudge.',

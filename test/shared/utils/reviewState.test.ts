@@ -111,6 +111,39 @@ describe('reviewState utils', () => {
     ).toBe('none');
   });
 
+  it('lets canonical pending status clear stale review history when no reopen event exists', () => {
+    expect(
+      getReviewStateFromTask({
+        status: 'pending',
+        historyEvents: [
+          {
+            id: '1',
+            timestamp: '2026-01-01T00:00:00Z',
+            type: 'review_approved',
+            from: 'review',
+            to: 'approved',
+            actor: 'alice',
+          },
+        ],
+      })
+    ).toBe('none');
+    expect(
+      getReviewStateFromTask({
+        status: 'pending',
+        historyEvents: [
+          {
+            id: '1',
+            timestamp: '2026-01-01T00:00:00Z',
+            type: 'review_requested',
+            from: 'none',
+            to: 'review',
+            reviewer: 'bob',
+          },
+        ],
+      })
+    ).toBe('none');
+  });
+
   it('falls back to persisted legacy reviewState when history has no review signal', () => {
     expect(
       getReviewStateFromTask({
@@ -138,5 +171,26 @@ describe('reviewState utils', () => {
     expect(getReviewStateFromTask({ reviewState: 'needsFix', status: 'pending' })).toBe(
       'needsFix'
     );
+  });
+
+  it('keeps completed needsFix as a non-final review correction state', () => {
+    expect(getReviewStateFromTask({ reviewState: 'needsFix', status: 'completed' })).toBe(
+      'needsFix'
+    );
+    expect(
+      getReviewStateFromTask({
+        status: 'completed',
+        historyEvents: [
+          {
+            id: '1',
+            timestamp: '2026-01-01T00:00:00Z',
+            type: 'review_changes_requested',
+            from: 'review',
+            to: 'needsFix',
+            actor: 'reviewer',
+          },
+        ],
+      })
+    ).toBe('needsFix');
   });
 });

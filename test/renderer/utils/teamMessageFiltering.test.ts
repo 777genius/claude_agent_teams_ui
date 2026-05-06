@@ -37,6 +37,125 @@ describe('filterTeamMessages', () => {
     expect(result[0].source).toBe('lead_process');
   });
 
+  it('hides native app-managed bootstrap private control messages', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'native-bootstrap-private-check',
+        source: undefined,
+        text: '<agent_teams_native_app_managed_bootstrap_check>\nprivate\n</agent_teams_native_app_managed_bootstrap_check>',
+      }),
+      makeMessage({
+        messageId: 'visible-message',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['visible-message']);
+  });
+
+  it('keeps user-authored native bootstrap marker quotes visible', () => {
+    const messages = [
+      makeMessage({
+        from: 'user',
+        messageId: 'user-native-bootstrap-quote',
+        source: 'user_sent',
+        text: '<agent_teams_native_app_managed_bootstrap_check>\nquoted\n</agent_teams_native_app_managed_bootstrap_check>',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['user-native-bootstrap-quote']);
+  });
+
+  it('hides leaked lead inbox relay prompt echoes', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'lead-relay-echo',
+        source: 'lead_process',
+        to: 'user',
+        text: `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+If action is required, delegate via task creation or SendMessage, and keep responses minimal.
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+      }),
+      makeMessage({
+        messageId: 'visible-message',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['visible-message']);
+  });
+
+  it('does not hide user-authored text that quotes an internal prompt', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'quoted-control-prompt',
+        source: 'user_sent',
+        text: `Human: You have new inbox messages addressed to you (team lead "team-lead").
+Process them in order (oldest first).
+
+Messages:
+1) From: tom
+   Timestamp: 2026-05-06T15:02:54.853Z
+   Text:
+   #f8d7235a done.`,
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['quoted-control-prompt']);
+  });
+
+  it('hides Human-prefixed teammate protocol echoes', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'teammate-protocol-echo',
+        source: 'lead_process',
+        text: 'Human: <teammate-message teammate_id="alice">{"type":"idle_notification"}</teammate-message>',
+      }),
+      makeMessage({
+        messageId: 'visible-message',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['visible-message']);
+  });
+
   it('hides relay bridge copies when the original message is visible', () => {
     const messages = [
       makeMessage({
@@ -414,5 +533,55 @@ describe('filterTeamMessages', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].messageId).toBe('msg-2');
+  });
+
+  it('hides task stall remediation automation rows from conversational message counts by default', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'task-stall:demo:task-a:epoch-a',
+        from: 'system',
+        to: 'jack',
+        source: 'system_notification',
+        messageKind: 'task_stall_remediation',
+        summary: 'Potential stalled task',
+        text: 'Task #abcd1234 may be stalled.',
+      }),
+      makeMessage({
+        messageId: 'msg-2',
+        text: 'Visible message',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual(['msg-2']);
+  });
+
+  it('can include task stall remediation automation rows for the activity timeline', () => {
+    const messages = [
+      makeMessage({
+        messageId: 'task-stall:demo:task-a:legacy-epoch',
+        from: 'system',
+        to: 'jack',
+        source: 'system_notification',
+        summary: 'Potential stalled task',
+        text: 'Task #abcd1234 may be stalled.',
+      }),
+    ];
+
+    const result = filterTeamMessages(messages, {
+      includeAutomationEvents: true,
+      timeWindow: null,
+      filter: { from: new Set(), to: new Set(), showNoise: true },
+      searchQuery: '',
+    });
+
+    expect(result.map((message) => message.messageId)).toEqual([
+      'task-stall:demo:task-a:legacy-epoch',
+    ]);
   });
 });

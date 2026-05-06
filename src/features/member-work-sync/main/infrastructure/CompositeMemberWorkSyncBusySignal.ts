@@ -1,0 +1,38 @@
+import type {
+  MemberWorkSyncBusySignalPort,
+  MemberWorkSyncLoggerPort,
+} from '../../core/application';
+
+export class CompositeMemberWorkSyncBusySignal implements MemberWorkSyncBusySignalPort {
+  constructor(
+    private readonly signals: MemberWorkSyncBusySignalPort[],
+    private readonly logger?: MemberWorkSyncLoggerPort
+  ) {}
+
+  async isBusy(input: Parameters<MemberWorkSyncBusySignalPort['isBusy']>[0]) {
+    for (const signal of this.signals) {
+      try {
+        const result = await signal.isBusy(input);
+        if (result.busy) {
+          return result;
+        }
+      } catch (error) {
+        this.logger?.warn('member work sync busy signal failed', {
+          teamName: input.teamName,
+          memberName: input.memberName,
+          error: String(error),
+        });
+        const nowMs = Date.parse(input.nowIso);
+        return {
+          busy: true,
+          reason: 'busy_signal_error',
+          retryAfterIso: new Date(
+            (Number.isFinite(nowMs) ? nowMs : Date.now()) + 60_000
+          ).toISOString(),
+        };
+      }
+    }
+
+    return { busy: false };
+  }
+}

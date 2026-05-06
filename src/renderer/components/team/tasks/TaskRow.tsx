@@ -5,7 +5,10 @@ import {
   REVIEW_STATE_DISPLAY,
   TASK_STATUS_LABELS,
 } from '@renderer/utils/memberHelpers';
-import { getTaskKanbanColumn } from '@shared/utils/reviewState';
+import {
+  getTeamTaskWorkflowColumn,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import { deriveTaskDisplayId, formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 
 import type { TeamTaskWithKanban } from '@shared/types';
@@ -17,7 +20,7 @@ interface TaskRowProps {
 export const TaskRow = memo(function TaskRow({ task }: TaskRowProps): React.JSX.Element {
   const blockedByIds = task.blockedBy?.filter((id) => id.length > 0) ?? [];
   const blocksIds = task.blocks?.filter((id) => id.length > 0) ?? [];
-  const kanbanColumn = getTaskKanbanColumn(task);
+  const kanbanColumn = getTeamTaskWorkflowColumn(task);
 
   return (
     <tr className="border-t border-[var(--color-border)]">
@@ -35,7 +38,7 @@ export const TaskRow = memo(function TaskRow({ task }: TaskRowProps): React.JSX.
               ? KANBAN_COLUMN_DISPLAY[kanbanColumn].label
               : (TASK_STATUS_LABELS[task.status] ?? task.status)}
           </span>
-          {task.reviewState === 'needsFix' ? (
+          {isTeamTaskNeedsFixActionable(task) ? (
             <span
               className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
             >

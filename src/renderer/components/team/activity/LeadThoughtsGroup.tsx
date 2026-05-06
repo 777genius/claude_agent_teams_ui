@@ -37,6 +37,7 @@ import { stripAgentBlocks } from '@shared/constants/agentBlocks';
 import { isApiErrorMessage } from '@shared/utils/apiErrorDetector';
 import { isThoughtProtocolNoise } from '@shared/utils/inboxNoise';
 import { extractMarkdownPlainText } from '@shared/utils/markdownTextSearch';
+import { isTeamInternalControlMessageText } from '@shared/utils/teamInternalControlMessages';
 import { formatToolSummary, parseToolSummary } from '@shared/utils/toolSummary';
 import { ChevronDown, ChevronRight, ChevronUp, Maximize2 } from 'lucide-react';
 
@@ -73,6 +74,7 @@ export function isLeadThought(msg: InboxMessage): boolean {
   if (msg.messageKind === 'slash_command_result') return false;
   // Protocol noise (JSON coordination signals, raw teammate-message XML) should be hidden
   if (isThoughtProtocolNoise(msg.text)) return false;
+  if (isTeamInternalControlMessageText(msg.text)) return false;
   if (msg.source === 'lead_session') return true;
   if (msg.source === 'lead_process') return true;
   return false;
@@ -90,7 +92,7 @@ export function isLeadThought(msg: InboxMessage): boolean {
 function isLeadSessionNoise(msg: InboxMessage): boolean {
   if (msg.source !== 'lead_session' && msg.source !== 'lead_process') return false;
   if (typeof msg.to === 'string' && msg.to.trim().length > 0) return false;
-  return isThoughtProtocolNoise(msg.text);
+  return isThoughtProtocolNoise(msg.text) || isTeamInternalControlMessageText(msg.text);
 }
 
 export type TimelineItem =

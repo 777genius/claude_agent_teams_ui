@@ -368,7 +368,7 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
         members: [
           expect.objectContaining({
             name: 'alice',
-            prompt: expect.stringContaining('agent-teams_member_briefing'),
+            prompt: expect.stringContaining('AGENT_TEAMS_APP_MANAGED_BOOTSTRAP_V1'),
           }),
         ],
       })
@@ -377,6 +377,7 @@ describe('OpenCodeTeamRuntimeAdapter', () => {
     expect(launchArg?.members[0]?.prompt).toContain('Do NOT create local team files');
     expect(launchArg?.members[0]?.prompt).toContain('Launch bootstrap is a silent attach');
     expect(launchArg?.members[0]?.prompt).toContain('stay idle silently');
+    expect(launchArg?.members[0]?.prompt).not.toContain('agent-teams_member_briefing');
     expect(launchArg?.members[0]?.prompt).not.toContain('Join team "team-a"');
   });
 

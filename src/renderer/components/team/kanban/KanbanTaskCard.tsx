@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 
+import { OngoingIndicator } from '@renderer/components/common/OngoingIndicator';
 import { MemberBadge } from '@renderer/components/team/MemberBadge';
 import { UnreadCommentsBadge } from '@renderer/components/team/UnreadCommentsBadge';
 import { Button } from '@renderer/components/ui/button';
@@ -12,6 +13,10 @@ import {
   buildTaskChangeRequestOptions,
   canDisplayTaskChangesForOptions,
 } from '@renderer/utils/taskChangeRequest';
+import {
+  isTeamTaskFinishedForDependency,
+  isTeamTaskNeedsFixActionable,
+} from '@shared/utils/teamTaskState';
 import { deriveTaskDisplayId, formatTaskDisplayLabel } from '@shared/utils/taskIdentity';
 import {
   ArrowLeftFromLine,
@@ -38,6 +43,7 @@ interface KanbanTaskCardProps {
   compact?: boolean;
   taskMap: Map<string, TeamTask>;
   memberColorMap: Map<string, string>;
+  hasLiveTaskLogs?: boolean;
   onRequestReview: (taskId: string) => void;
   onApprove: (taskId: string) => void;
   onRequestChanges: (taskId: string) => void;
@@ -63,7 +69,7 @@ const DependencyBadge = ({
   onScrollToTask,
 }: DependencyBadgeProps): React.JSX.Element => {
   const depTask = taskMap.get(taskId);
-  const isCompleted = depTask?.status === 'completed';
+  const isCompleted = depTask ? isTeamTaskFinishedForDependency(depTask) : false;
   const label = depTask
     ? `${formatTaskDisplayLabel(depTask)}: ${depTask.subject}`
     : `#${deriveTaskDisplayId(taskId)}`;
@@ -227,6 +233,7 @@ export const KanbanTaskCard = memo(
     compact,
     taskMap,
     memberColorMap,
+    hasLiveTaskLogs = false,
     onRequestReview,
     onApprove,
     onRequestChanges,
@@ -245,6 +252,7 @@ export const KanbanTaskCard = memo(
     const blocksIds = task.blocks?.filter((id) => id.length > 0) ?? [];
     const hasBlockedBy = blockedByIds.length > 0;
     const hasBlocks = blocksIds.length > 0;
+    const shouldHighlightBlocked = hasBlockedBy && columnId !== 'done' && columnId !== 'approved';
     const cardSurfaceClass = isLight ? 'bg-white' : 'bg-[var(--color-surface-raised)]';
 
     const taskChangeRequestOptions = useMemo(() => buildTaskChangeRequestOptions(task), [task]);
@@ -288,8 +296,8 @@ export const KanbanTaskCard = memo(
     return (
       <div
         data-task-id={task.id}
-        className={`relative cursor-pointer rounded-md border px-1.5 py-3 transition-colors hover:border-[var(--color-border-emphasis)] ${
-          hasBlockedBy
+        className={`kanban-task-card relative cursor-pointer rounded-md border px-1.5 py-3 hover:border-[var(--color-border-emphasis)] ${
+          shouldHighlightBlocked
             ? `border-yellow-500/30 ${cardSurfaceClass}`
             : `border-[var(--color-border)] ${cardSurfaceClass}`
         }`}
@@ -303,8 +311,13 @@ export const KanbanTaskCard = memo(
           }
         }}
       >
-        <span className="absolute left-[3px] top-[2px] text-[9px] leading-none text-[var(--color-text-muted)]">
-          {formatTaskDisplayLabel(task)}
+        <span className="absolute left-[3px] top-[2px] flex max-w-[calc(100%-72px)] items-center gap-1 text-[9px] leading-none text-[var(--color-text-muted)]">
+          <span className="truncate">{formatTaskDisplayLabel(task)}</span>
+          {hasLiveTaskLogs ? (
+            <span aria-label="Task logs active" className="inline-flex">
+              <OngoingIndicator size="sm" title="New task logs arriving" />
+            </span>
+          ) : null}
         </span>
         {task.owner ? (
           <span className="absolute right-[6px] top-[2px]">
@@ -325,7 +338,7 @@ export const KanbanTaskCard = memo(
               {task.needsClarification === 'user' ? 'Awaiting user' : 'Awaiting lead'}
             </span>
           ) : null}
-          {task.reviewState === 'needsFix' ? (
+          {isTeamTaskNeedsFixActionable(task) ? (
             <span
               className={`mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATE_DISPLAY.needsFix.bg} ${REVIEW_STATE_DISPLAY.needsFix.text}`}
             >
@@ -490,6 +503,7 @@ export const KanbanTaskCard = memo(
     prev.compact === next.compact &&
     prev.taskMap === next.taskMap &&
     prev.memberColorMap === next.memberColorMap &&
+    prev.hasLiveTaskLogs === next.hasLiveTaskLogs &&
     prev.onRequestReview === next.onRequestReview &&
     prev.onApprove === next.onApprove &&
     prev.onRequestChanges === next.onRequestChanges &&
