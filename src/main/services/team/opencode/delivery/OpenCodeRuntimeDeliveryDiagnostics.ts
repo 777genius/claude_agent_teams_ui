@@ -1,7 +1,10 @@
 import type { OpenCodePromptDeliveryLedgerRecord } from './OpenCodePromptDeliveryLedger';
 
-const SECRET_VALUE_PATTERN =
-  /\b(?:sk-[A-Za-z0-9_-]{12,}|[A-Za-z0-9_-]*api[_-]?key[A-Za-z0-9_-]*[=:]\s*['"]?[^'"\s]+|authorization:\s*bearer\s+[^'"\s]+)\b/gi;
+const SECRET_VALUE_PATTERNS = [
+  /\bsk-[A-Z0-9_-]{12,}\b/gi,
+  /\b[A-Z0-9_-]*api[_-]?key[A-Z0-9_-]*[=:]\s*['"]?[^'"\s]+/gi,
+  /\bauthorization:\s*bearer\s+[^'"\s]+/gi,
+] as const;
 
 const GENERIC_DELIVERY_DIAGNOSTIC_TOKENS = [
   'opencode app mcp was reattached before message delivery',
@@ -43,12 +46,15 @@ const ACTION_REQUIRED_DELIVERY_ERROR_TOKENS = [
 export function normalizeOpenCodeRuntimeDeliveryDiagnostic(
   message: string | null | undefined
 ): string | null {
-  const normalized = message
+  const scrubbed = SECRET_VALUE_PATTERNS.reduce(
+    (current, pattern) => current.replace(pattern, '[redacted]'),
+    message ?? ''
+  );
+  const normalized = scrubbed
     ?.replace(/\s+/g, ' ')
     .trim()
     .replace(/^Latest assistant message\s+\S+\s+failed with APIError\s*[-:]\s*/i, '')
-    .replace(/^APIError\s*[-:]\s*/i, '')
-    .replace(SECRET_VALUE_PATTERN, '[redacted]');
+    .replace(/^APIError\s*[-:]\s*/i, '');
   return normalized && normalized.length > 0 ? normalized : null;
 }
 

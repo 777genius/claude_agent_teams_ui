@@ -596,6 +596,17 @@ export class TeamDataService {
     kanbanTaskState?: KanbanState['tasks'][string]
   ): 'none' | 'review' | 'needsFix' | 'approved' {
     const kanbanColumn = kanbanTaskState?.column;
+    const kanbanWorkflowColumn = kanbanColumn
+      ? getTeamTaskWorkflowColumn({
+          status: task.status,
+          reviewState: 'none',
+          kanbanColumn,
+        })
+      : undefined;
+    if (kanbanWorkflowColumn) {
+      return kanbanWorkflowColumn;
+    }
+
     const reviewState = getReviewStateFromTask({
       historyEvents: task.historyEvents,
       reviewState: task.reviewState,

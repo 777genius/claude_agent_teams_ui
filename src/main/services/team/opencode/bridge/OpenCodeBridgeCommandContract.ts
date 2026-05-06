@@ -176,6 +176,7 @@ export interface OpenCodeSendMessageCommandBody {
     | 'slash_command'
     | 'slash_command_result'
     | 'task_comment_notification'
+    | 'task_stall_remediation'
     | 'member_work_sync_nudge'
     | 'agent_error';
   taskRefs?: { taskId: string; displayId: string; teamName: string }[];

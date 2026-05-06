@@ -72,20 +72,7 @@ export function isTeamTaskTerminalForActionableWork(task: TeamTaskStateLike): bo
 }
 
 export function isTeamTaskFinalForCompletionNotification(task: TeamTaskStateLike): boolean {
-  if (isTeamTaskDeleted(task)) {
-    return true;
-  }
-
-  const workflowColumn = getTeamTaskWorkflowColumn(task);
-  if (workflowColumn === 'approved') {
-    return true;
-  }
-
-  if (workflowColumn === 'review' || isTeamTaskNeedsFixActionable(task)) {
-    return false;
-  }
-
-  return task.status === 'completed';
+  return isTeamTaskTerminalForActionableWork(task);
 }
 
 export function getTeamTaskWorkflowColumn(

@@ -1914,7 +1914,7 @@ describe('TeamDataService', () => {
         name: 'My team',
         members: [{ name: 'jack', role: 'developer' }],
       },
-      getTasks: async () => [
+      getTasks: async (): Promise<TeamTask[]> => [
         {
           id: 'task-approved',
           subject: 'Approved but stale status',
@@ -1975,6 +1975,7 @@ describe('TeamDataService', () => {
               id: 'review-started',
               type: 'review_started',
               timestamp: '2026-05-06T19:00:00.000Z',
+              from: 'none',
               to: 'review',
             },
           ],
@@ -2172,6 +2173,7 @@ describe('TeamDataService', () => {
               {
                 id: 'evt-review',
                 type: 'review_started',
+                from: 'none',
                 to: 'review',
                 timestamp: '2026-03-01T09:00:00.000Z',
               },
@@ -2179,6 +2181,7 @@ describe('TeamDataService', () => {
           },
         ]),
       } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
