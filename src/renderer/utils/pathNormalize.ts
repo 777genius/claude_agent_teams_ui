@@ -85,6 +85,7 @@ export function buildTaskCountsByOwner(
   for (const task of tasks) {
     const owner = task.owner?.trim();
     if (!owner || isTeamTaskDeleted(task)) continue;
+    if (getTeamTaskWorkflowColumn(task) === 'review') continue;
     const key = owner.toLowerCase();
     const counts = map.get(key) ?? { pending: 0, inProgress: 0, completed: 0 };
     map.set(key, incrementTaskStatus(counts, task));

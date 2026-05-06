@@ -655,9 +655,8 @@ describe('TeamMemberRuntimeAdvisoryService', () => {
 
     const firstRequest = service.getMemberAdvisories('signal-ops', [buildMember('Alice')]);
     const secondRequest = service.getMemberAdvisories('signal-ops', [buildMember('Alice')]);
-    await Promise.resolve();
 
-    expect(logsFinder.findMemberLogs).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(logsFinder.findMemberLogs).toHaveBeenCalledTimes(1));
 
     gate.resolve();
     const [first, second] = await Promise.all([firstRequest, secondRequest]);
