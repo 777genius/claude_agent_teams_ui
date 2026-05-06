@@ -255,6 +255,14 @@ import {
 import { TeamSentMessagesStore } from './TeamSentMessagesStore';
 import { TeamTaskReader } from './TeamTaskReader';
 import { TeamTranscriptProjectResolver } from './TeamTranscriptProjectResolver';
+import {
+  buildNativeAppManagedBootstrapSpecs,
+  type NativeAppManagedBootstrapSpec,
+} from './bootstrap/NativeAppManagedBootstrapContextBuilder';
+import {
+  parseBootstrapRuntimeProofDetail,
+  validateBootstrapRuntimeProofEnvelope,
+} from './bootstrap/BootstrapProofValidation';
 
 import type {
   OpenCodeCommittedBootstrapSessionRecord,
@@ -307,6 +315,10 @@ interface PersistedRuntimeMemberLike {
   cwd?: string;
   bootstrapExpectedAfter?: string;
   bootstrapProofToken?: string;
+  bootstrapRunId?: string;
+  bootstrapProofMode?: string;
+  bootstrapContextHash?: string;
+  bootstrapBriefingHash?: string;
   bootstrapRuntimeEventsPath?: string;
   runtimePid?: number;
   runtimeSessionId?: string;
@@ -341,38 +353,12 @@ interface LaunchStateWriteResult {
 
 type BootstrapTranscriptSuccessSource = 'member_briefing' | 'assistant_text';
 
-const BOOTSTRAP_RUNTIME_PROOF_SOURCE = 'member_briefing_tool_success';
 const BOOTSTRAP_RUNTIME_PROOF_TAIL_BYTES = 256 * 1024;
 
 function sanitizeRuntimeEventFilePrefix(value: string): string {
   return String(value || 'default')
     .replace(/[^a-zA-Z0-9]/g, '-')
     .toLowerCase();
-}
-
-function parseRuntimeBootstrapProofDetail(detail: unknown): Record<string, unknown> {
-  if (typeof detail !== 'string' || detail.trim().length === 0) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(detail) as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function getRuntimeBootstrapProofString(
-  event: Record<string, unknown>,
-  detail: Record<string, unknown>,
-  field: 'source' | 'bootstrapProofToken'
-): string | undefined {
-  const direct = event[field];
-  if (typeof direct === 'string' && direct.trim().length > 0) {
-    return direct.trim();
-  }
-  const nested = detail[field];
-  return typeof nested === 'string' && nested.trim().length > 0 ? nested.trim() : undefined;
 }
 
 type BootstrapTranscriptOutcome =
@@ -3927,6 +3913,7 @@ interface RuntimeBootstrapMemberSpec {
   description?: string;
   useSplitPane?: boolean;
   planModeRequired?: boolean;
+  nativeAppManagedBootstrap?: NativeAppManagedBootstrapSpec;
 }
 
 interface RuntimeBootstrapSpec {
@@ -3961,7 +3948,8 @@ interface RuntimeBootstrapSpec {
 function buildDeterministicCreateBootstrapSpec(
   runId: string,
   request: TeamCreateRequest,
-  effectiveMembers: TeamCreateRequest['members']
+  effectiveMembers: TeamCreateRequest['members'],
+  nativeAppManagedBootstrapByMember: ReadonlyMap<string, NativeAppManagedBootstrapSpec> = new Map()
 ): RuntimeBootstrapSpec {
   return {
     version: 1,
@@ -4001,6 +3989,9 @@ function buildDeterministicCreateBootstrapSpec(
       ...(member.effort ? { effort: member.effort } : {}),
       ...(member.isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
       ...(member.role?.trim() ? { description: member.role.trim() } : {}),
+      ...(nativeAppManagedBootstrapByMember.get(member.name)
+        ? { nativeAppManagedBootstrap: nativeAppManagedBootstrapByMember.get(member.name)! }
+        : {}),
     })),
     launch: {
       continueOnPartialFailure: true,
@@ -4014,7 +4005,8 @@ function buildDeterministicCreateBootstrapSpec(
 function buildDeterministicLaunchBootstrapSpec(
   runId: string,
   request: TeamLaunchRequest,
-  effectiveMembers: TeamCreateRequest['members']
+  effectiveMembers: TeamCreateRequest['members'],
+  nativeAppManagedBootstrapByMember: ReadonlyMap<string, NativeAppManagedBootstrapSpec> = new Map()
 ): RuntimeBootstrapSpec {
   return {
     version: 1,
@@ -4051,6 +4043,9 @@ function buildDeterministicLaunchBootstrapSpec(
       ...(member.role?.trim() ? { role: member.role.trim() } : {}),
       ...(member.workflow?.trim() ? { workflow: member.workflow.trim() } : {}),
       ...(member.role?.trim() ? { description: member.role.trim() } : {}),
+      ...(nativeAppManagedBootstrapByMember.get(member.name)
+        ? { nativeAppManagedBootstrap: nativeAppManagedBootstrapByMember.get(member.name)! }
+        : {}),
     })),
     launch: {
       continueOnPartialFailure: true,
@@ -12041,6 +12036,14 @@ export class TeamProvisioningService {
     );
 
     const liveRuntimeByMember = await this.getLiveTeamAgentRuntimeMetadata(teamName);
+    const spawnStatusSnapshot = await this.getMemberSpawnStatuses(teamName).catch(() => null);
+    const activeRuntimeRunId =
+      run?.runId?.trim() || currentRuntimeAdapterRun?.runId?.trim() || runId?.trim() || '';
+    const spawnStatusRunId = spawnStatusSnapshot?.runId?.trim() ?? '';
+    const canUseLiveSpawnStatusRuntimeTruth =
+      spawnStatusSnapshot?.source === 'live' &&
+      activeRuntimeRunId.length > 0 &&
+      spawnStatusRunId === activeRuntimeRunId;
     const runtimePids = new Set<number>();
     const leadPid = run?.child?.pid;
     if (typeof leadPid === 'number' && Number.isFinite(leadPid) && leadPid > 0) {
@@ -12073,6 +12076,23 @@ export class TeamProvisioningService {
         }
         if (matchesMemberNameOrBase(candidateName, memberName)) {
           fallback = metadata;
+        }
+      }
+      return fallback;
+    };
+    const getSpawnStatusMember = (memberName: string): MemberSpawnStatusEntry | undefined => {
+      const statuses = spawnStatusSnapshot?.statuses;
+      if (!statuses) {
+        return undefined;
+      }
+      const direct = statuses[memberName];
+      if (direct) {
+        return direct;
+      }
+      let fallback: MemberSpawnStatusEntry | undefined;
+      for (const [candidateName, status] of Object.entries(statuses)) {
+        if (matchesMemberNameOrBase(candidateName, memberName)) {
+          fallback = status;
         }
       }
       return fallback;
@@ -12137,6 +12157,7 @@ export class TeamProvisioningService {
 
       const persistedRuntimeMember = getPersistedRuntimeMember(memberName);
       const liveRuntimeMember = getLiveRuntimeMember(memberName);
+      const spawnStatusMember = getSpawnStatusMember(memberName);
       const launchMember = launchSnapshot?.members[memberName];
       const backendType =
         liveRuntimeMember?.backendType ??
@@ -12172,7 +12193,38 @@ export class TeamProvisioningService {
           : backendType !== 'in-process';
       const historicalBootstrapConfirmed =
         launchMember?.bootstrapConfirmed === true ||
-        launchMember?.launchState === 'confirmed_alive';
+        launchMember?.launchState === 'confirmed_alive' ||
+        spawnStatusMember?.bootstrapConfirmed === true ||
+        spawnStatusMember?.launchState === 'confirmed_alive';
+      const hasOpenCodeRuntimeHandle =
+        isOpenCodeMember &&
+        (typeof liveRuntimeMember?.pid === 'number' ||
+          typeof liveRuntimeMember?.metricsPid === 'number' ||
+          typeof liveRuntimeMember?.runtimeSessionId === 'string');
+      const confirmedOpenCodeRuntimeAlive =
+        isOpenCodeMember &&
+        canUseLiveSpawnStatusRuntimeTruth &&
+        historicalBootstrapConfirmed &&
+        hasOpenCodeRuntimeHandle &&
+        spawnStatusMember?.hardFailure !== true &&
+        spawnStatusMember?.launchState !== 'failed_to_start' &&
+        spawnStatusMember?.launchState !== 'runtime_pending_permission';
+      const effectiveAlive = liveRuntimeMember?.alive === true || confirmedOpenCodeRuntimeAlive;
+      const effectiveLivenessKind =
+        confirmedOpenCodeRuntimeAlive &&
+        liveRuntimeMember?.livenessKind === 'runtime_process_candidate'
+          ? 'confirmed_bootstrap'
+          : liveRuntimeMember?.livenessKind;
+      const effectiveRuntimeDiagnostic =
+        confirmedOpenCodeRuntimeAlive &&
+        liveRuntimeMember?.livenessKind === 'runtime_process_candidate'
+          ? 'OpenCode bootstrap confirmed; runtime host/session evidence present.'
+          : liveRuntimeMember?.runtimeDiagnostic;
+      const effectiveRuntimeDiagnosticSeverity =
+        confirmedOpenCodeRuntimeAlive &&
+        liveRuntimeMember?.livenessKind === 'runtime_process_candidate'
+          ? 'info'
+          : liveRuntimeMember?.runtimeDiagnosticSeverity;
       let rssBytes = rssPid ? rssBytesByPid.get(rssPid) : undefined;
       if (rssBytes == null && isSharedOpenCodeHost && typeof rssPid === 'number' && rssPid > 0) {
         try {
@@ -12188,7 +12240,7 @@ export class TeamProvisioningService {
 
       snapshotMembers[memberName] = {
         memberName,
-        alive: liveRuntimeMember?.alive === true,
+        alive: effectiveAlive,
         restartable,
         ...(backendType ? { backendType } : {}),
         ...(memberProviderId ? { providerId: memberProviderId } : {}),
@@ -12201,9 +12253,7 @@ export class TeamProvisioningService {
         ...(runtimeModel ? { runtimeModel } : {}),
         ...(runtimeCwd ? { cwd: runtimeCwd } : {}),
         ...(typeof rssBytes === 'number' && rssBytes >= 0 ? { rssBytes } : {}),
-        ...(liveRuntimeMember?.livenessKind
-          ? { livenessKind: liveRuntimeMember.livenessKind }
-          : {}),
+        ...(effectiveLivenessKind ? { livenessKind: effectiveLivenessKind } : {}),
         ...(liveRuntimeMember?.pidSource ? { pidSource: liveRuntimeMember.pidSource } : {}),
         ...(liveRuntimeMember?.processCommand
           ? { processCommand: liveRuntimeMember.processCommand }
@@ -12221,11 +12271,9 @@ export class TeamProvisioningService {
           ? { runtimeLastSeenAt: liveRuntimeMember.runtimeLastSeenAt }
           : {}),
         ...(historicalBootstrapConfirmed ? { historicalBootstrapConfirmed: true } : {}),
-        ...(liveRuntimeMember?.runtimeDiagnostic
-          ? { runtimeDiagnostic: liveRuntimeMember.runtimeDiagnostic }
-          : {}),
-        ...(liveRuntimeMember?.runtimeDiagnosticSeverity
-          ? { runtimeDiagnosticSeverity: liveRuntimeMember.runtimeDiagnosticSeverity }
+        ...(effectiveRuntimeDiagnostic ? { runtimeDiagnostic: effectiveRuntimeDiagnostic } : {}),
+        ...(effectiveRuntimeDiagnosticSeverity
+          ? { runtimeDiagnosticSeverity: effectiveRuntimeDiagnosticSeverity }
           : {}),
         ...(liveRuntimeMember?.diagnostics ? { diagnostics: liveRuntimeMember.diagnostics } : {}),
         updatedAt,
@@ -16315,16 +16363,6 @@ export class TeamProvisioningService {
       emitProvisioningCheckpoint(run, 'Clearing persisted launch state');
       await this.clearPersistedLaunchState(request.teamName);
 
-      emitProvisioningCheckpoint(
-        run,
-        'Building deterministic create bootstrap spec',
-        `expectedMembers=${effectiveMemberSpecs.length}`
-      );
-      const bootstrapSpec = buildDeterministicCreateBootstrapSpec(
-        runId,
-        request,
-        effectiveMemberSpecs
-      );
       const initialUserPrompt = request.prompt?.trim() ?? '';
       const promptSize = getPromptSizeSummary(initialUserPrompt);
       let child: ReturnType<typeof spawn>;
@@ -16335,6 +16373,52 @@ export class TeamProvisioningService {
       let bootstrapSpecPath: string;
       let bootstrapUserPromptPath: string | null = null;
       try {
+        // Pre-save our meta files before native app-managed briefing generation.
+        // member_briefing intentionally reads canonical team metadata/inboxes, so
+        // createTeam must materialize those files before building the bootstrap spec.
+        emitProvisioningCheckpoint(run, 'Persisting team metadata before spawn');
+        const teamDir = path.join(getTeamsBasePath(), request.teamName);
+        const tasksDir = path.join(getTasksBasePath(), request.teamName);
+        await fs.promises.mkdir(teamDir, { recursive: true });
+        await fs.promises.mkdir(tasksDir, { recursive: true });
+        await this.teamMetaStore.writeMeta(request.teamName, {
+          displayName: request.displayName,
+          description: request.description,
+          color: request.color,
+          cwd: request.cwd,
+          prompt: request.prompt,
+          providerId: request.providerId,
+          providerBackendId: request.providerBackendId,
+          model: request.model,
+          effort: request.effort,
+          fastMode: request.fastMode,
+          skipPermissions: request.skipPermissions,
+          worktree: request.worktree,
+          extraCliArgs: request.extraCliArgs,
+          limitContext: request.limitContext,
+          launchIdentity,
+          createdAt: Date.now(),
+        });
+        const membersToWrite = this.buildMembersMetaWritePayload(allEffectiveMemberSpecs);
+        await this.membersMetaStore.writeMembers(request.teamName, membersToWrite, {
+          providerBackendId: request.providerBackendId,
+        });
+        emitProvisioningCheckpoint(
+          run,
+          'Building deterministic create bootstrap spec',
+          `expectedMembers=${effectiveMemberSpecs.length}`
+        );
+        const nativeAppManagedBootstrapByMember = await buildNativeAppManagedBootstrapSpecs({
+          teamName: request.teamName,
+          cwd: request.cwd,
+          members: effectiveMemberSpecs,
+        });
+        const bootstrapSpec = buildDeterministicCreateBootstrapSpec(
+          runId,
+          request,
+          effectiveMemberSpecs,
+          nativeAppManagedBootstrapByMember
+        );
         emitProvisioningCheckpoint(run, 'Writing deterministic bootstrap spec file');
         bootstrapSpecPath = await writeDeterministicBootstrapSpecFile(bootstrapSpec);
         run.bootstrapSpecPath = bootstrapSpecPath;
@@ -16366,6 +16450,11 @@ export class TeamProvisioningService {
             directory: provisioningEnv.anthropicApiKeyHelper.directory,
           }).catch(() => undefined);
         }
+        await this.teamMetaStore.deleteMeta(request.teamName).catch(() => {});
+        const teamDir = path.join(getTeamsBasePath(), request.teamName);
+        const tasksDir = path.join(getTasksBasePath(), request.teamName);
+        await fs.promises.rm(teamDir, { recursive: true, force: true }).catch(() => {});
+        await fs.promises.rm(tasksDir, { recursive: true, force: true }).catch(() => {});
         await removeDeterministicBootstrapSpecFile(run.bootstrapSpecPath).catch(() => {});
         run.bootstrapSpecPath = null;
         await removeDeterministicBootstrapUserPromptFile(run.bootstrapUserPromptPath).catch(
@@ -16434,35 +16523,6 @@ export class TeamProvisioningService {
         launchIdentity,
       });
       try {
-        // Pre-save our meta files before spawn — CLI doesn't touch these.
-        // If provisioning fails before TeamCreate, user can retry without re-entering config.
-        emitProvisioningCheckpoint(run, 'Persisting team metadata before spawn');
-        const teamDir = path.join(getTeamsBasePath(), request.teamName);
-        const tasksDir = path.join(getTasksBasePath(), request.teamName);
-        await fs.promises.mkdir(teamDir, { recursive: true });
-        await fs.promises.mkdir(tasksDir, { recursive: true });
-        await this.teamMetaStore.writeMeta(request.teamName, {
-          displayName: request.displayName,
-          description: request.description,
-          color: request.color,
-          cwd: request.cwd,
-          prompt: request.prompt,
-          providerId: request.providerId,
-          providerBackendId: request.providerBackendId,
-          model: request.model,
-          effort: request.effort,
-          fastMode: request.fastMode,
-          skipPermissions: request.skipPermissions,
-          worktree: request.worktree,
-          extraCliArgs: request.extraCliArgs,
-          limitContext: request.limitContext,
-          launchIdentity,
-          createdAt: Date.now(),
-        });
-        const membersToWrite = this.buildMembersMetaWritePayload(allEffectiveMemberSpecs);
-        await this.membersMetaStore.writeMembers(request.teamName, membersToWrite, {
-          providerBackendId: request.providerBackendId,
-        });
         if (
           run.cancelRequested ||
           run.processKilled ||
@@ -17617,7 +17677,12 @@ export class TeamProvisioningService {
         const bootstrapSpec = buildDeterministicLaunchBootstrapSpec(
           runId,
           request,
-          effectiveMemberSpecs
+          effectiveMemberSpecs,
+          await buildNativeAppManagedBootstrapSpecs({
+            teamName: request.teamName,
+            cwd: request.cwd,
+            members: effectiveMemberSpecs,
+          })
         );
         emitProvisioningCheckpoint(run, 'Writing deterministic bootstrap spec file');
         bootstrapSpecPath = await writeDeterministicBootstrapSpecFile(bootstrapSpec);
@@ -20413,6 +20478,74 @@ export class TeamProvisioningService {
     return undefined;
   }
 
+  private buildLaunchMemberSpawnStatus(
+    member: PersistedTeamLaunchMemberState | undefined,
+    runtimeModel?: string
+  ): MemberSpawnStatusEntry | undefined {
+    if (!member) {
+      return undefined;
+    }
+    return {
+      status: member.hardFailure
+        ? 'error'
+        : member.bootstrapConfirmed || member.launchState === 'confirmed_alive'
+          ? 'online'
+          : member.agentToolAccepted
+            ? 'waiting'
+            : 'spawning',
+      launchState: member.launchState,
+      ...(member.hardFailureReason ? { hardFailureReason: member.hardFailureReason } : {}),
+      ...(member.pendingPermissionRequestIds?.length
+        ? { pendingPermissionRequestIds: member.pendingPermissionRequestIds }
+        : {}),
+      agentToolAccepted: member.agentToolAccepted,
+      runtimeAlive: member.runtimeAlive,
+      bootstrapConfirmed: member.bootstrapConfirmed,
+      hardFailure: member.hardFailure,
+      ...(runtimeModel ? { runtimeModel } : {}),
+      ...(member.livenessKind ? { livenessKind: member.livenessKind } : {}),
+      ...(member.runtimeDiagnostic ? { runtimeDiagnostic: member.runtimeDiagnostic } : {}),
+      ...(member.runtimeDiagnosticSeverity
+        ? { runtimeDiagnosticSeverity: member.runtimeDiagnosticSeverity }
+        : {}),
+      ...(member.bootstrapStalled ? { bootstrapStalled: true } : {}),
+      ...(member.firstSpawnAcceptedAt ? { firstSpawnAcceptedAt: member.firstSpawnAcceptedAt } : {}),
+      ...(member.lastHeartbeatAt ? { lastHeartbeatAt: member.lastHeartbeatAt } : {}),
+      updatedAt: member.lastEvaluatedAt,
+    };
+  }
+
+  private shouldPreferCurrentLaunchMemberStatus(
+    trackedStatus: MemberSpawnStatusEntry | undefined,
+    launchStatus: MemberSpawnStatusEntry | undefined
+  ): boolean {
+    if (!launchStatus?.bootstrapConfirmed && launchStatus?.launchState !== 'confirmed_alive') {
+      return false;
+    }
+    if (!trackedStatus) {
+      return true;
+    }
+    return (
+      trackedStatus.hardFailure !== true &&
+      trackedStatus.launchState !== 'failed_to_start' &&
+      trackedStatus.launchState !== 'runtime_pending_permission'
+    );
+  }
+
+  private isLaunchMemberStatusRelevantToRuntimeRun(
+    member: PersistedTeamLaunchMemberState | undefined,
+    activeRuntimeRunId: string
+  ): boolean {
+    if (!member || activeRuntimeRunId.length === 0) {
+      return false;
+    }
+    const memberRuntimeRunId = member.runtimeRunId?.trim() ?? '';
+    if (member.providerId === 'opencode') {
+      return memberRuntimeRunId.length > 0 && memberRuntimeRunId === activeRuntimeRunId;
+    }
+    return memberRuntimeRunId.length === 0 || memberRuntimeRunId === activeRuntimeRunId;
+  }
+
   private async getLiveTeamAgentRuntimeMetadata(
     teamName: string
   ): Promise<Map<string, LiveTeamAgentRuntimeMetadata>> {
@@ -20620,7 +20753,12 @@ export class TeamProvisioningService {
     }
 
     const currentRuntimeAdapterRun = this.runtimeAdapterRunByTeam.get(teamName);
-    const persistedLaunchSnapshot = await this.launchStateStore.read(teamName).catch(() => null);
+    const persistedLaunchSnapshot = choosePreferredLaunchSnapshot(
+      await readBootstrapLaunchSnapshot(teamName).catch(() => null),
+      await this.launchStateStore.read(teamName).catch(() => null)
+    );
+    const activeRuntimeRunId =
+      run?.runId?.trim() || currentRuntimeAdapterRun?.runId?.trim() || runId?.trim() || '';
     for (const persistedMember of Object.values(persistedLaunchSnapshot?.members ?? {})) {
       const memberName = persistedMember.name?.trim() ?? '';
       if (!memberName || this.isMemberRemovedInMeta(metaMembers, memberName)) {
@@ -20739,7 +20877,6 @@ export class TeamProvisioningService {
             updatedAt: persistedLaunchSnapshot?.updatedAt ?? nowIso(),
           }
         : undefined;
-      const status = this.findTrackedMemberSpawnStatus(run, memberName) ?? adapterStatus;
       const shouldUseWindowsHostRows =
         process.platform === 'win32' &&
         (metadata.providerId === 'opencode' ||
@@ -20754,6 +20891,15 @@ export class TeamProvisioningService {
       const memberProcessTableAvailable = shouldUseWindowsHostRows
         ? windowsHostProcessTableAvailable || processTableAvailable
         : processTableAvailable;
+      const trackedStatus = this.findTrackedMemberSpawnStatus(run, memberName);
+      const launchStatus =
+        this.isLaunchMemberStatusRelevantToRuntimeRun(launchMember, activeRuntimeRunId) &&
+        launchMember
+          ? this.buildLaunchMemberSpawnStatus(launchMember, metadata.model)
+          : undefined;
+      const status = this.shouldPreferCurrentLaunchMemberStatus(trackedStatus, launchStatus)
+        ? launchStatus
+        : (trackedStatus ?? adapterStatus ?? launchStatus);
       const resolved = resolveTeamMemberRuntimeLiveness({
         teamName,
         memberName,
@@ -23194,24 +23340,21 @@ export class TeamProvisioningService {
     boundaryMs: number;
   }): boolean {
     const { event, detail, teamName, memberName, runtimeMember, boundaryMs } = input;
-    if (event.type !== 'bootstrap_confirmed') {
-      return false;
-    }
-    if (typeof event.teamName === 'string' && event.teamName.trim() !== teamName) {
-      return false;
-    }
-    const source = getRuntimeBootstrapProofString(event, detail, 'source');
-    if (source !== BOOTSTRAP_RUNTIME_PROOF_SOURCE) {
-      return false;
-    }
-    const timestamp = typeof event.timestamp === 'string' ? event.timestamp : '';
-    const eventMs = Date.parse(timestamp);
-    if (Number.isFinite(boundaryMs) && (!Number.isFinite(eventMs) || eventMs < boundaryMs)) {
-      return false;
-    }
-    const expectedToken = runtimeMember?.bootstrapProofToken?.trim();
-    const eventToken = getRuntimeBootstrapProofString(event, detail, 'bootstrapProofToken');
-    if (expectedToken && eventToken !== expectedToken) {
+    if (
+      !validateBootstrapRuntimeProofEnvelope({
+        event,
+        detail,
+        expected: {
+          teamName,
+          boundaryMs,
+          proofToken: runtimeMember?.bootstrapProofToken?.trim(),
+          proofMode: runtimeMember?.bootstrapProofMode?.trim(),
+          contextHash: runtimeMember?.bootstrapContextHash?.trim(),
+          briefingHash: runtimeMember?.bootstrapBriefingHash?.trim(),
+          runId: runtimeMember?.bootstrapRunId?.trim(),
+        },
+      })
+    ) {
       return false;
     }
     const eventAgentName = typeof event.agentName === 'string' ? event.agentName.trim() : '';
@@ -23245,7 +23388,7 @@ export class TeamProvisioningService {
     let latest: string | null = null;
     let latestMs = Number.NEGATIVE_INFINITY;
     for (const event of events) {
-      const detail = parseRuntimeBootstrapProofDetail(event.detail);
+      const detail = parseBootstrapRuntimeProofDetail(event.detail);
       if (
         !this.isRuntimeBootstrapProofEventValid({
           event,

@@ -72,10 +72,10 @@ export async function resolveDesktopTeammateModeDecision(
     };
   }
 
-  const tmuxAvailable = await isTmuxAvailable();
+  await isTmuxAvailable();
 
   return {
-    injectedTeammateMode: tmuxAvailable ? 'tmux' : null,
+    injectedTeammateMode: null,
     forceProcessTeammates: true,
   };
 }

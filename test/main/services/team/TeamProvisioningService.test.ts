@@ -12779,6 +12779,167 @@ describe('TeamProvisioningService', () => {
     });
   });
 
+  it('heals terminal bootstrap-state failures when native app-managed proof matches token and hashes', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-native-runtime-proof-heals';
+    const leadSessionId = 'lead-session';
+    const projectPath = '/Users/test/proj';
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const proofAt = new Date(Date.now() - 60_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+    const proofToken = 'proof-token-jack-native';
+    const bootstrapRunId = 'run-native-proof';
+    const contextHash = 'a'.repeat(64);
+    const briefingHash = 'b'.repeat(64);
+    const runtimeEventsPath = path.join(tempTeamsBase, teamName, 'runtime', 'jack.runtime.jsonl');
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    const configPath = path.join(tempTeamsBase, teamName, 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      members: Array<Record<string, unknown>>;
+    };
+    config.members = config.members.map((member) =>
+      member.name === 'jack'
+        ? {
+            ...member,
+            agentId: `jack@${teamName}`,
+            bootstrapExpectedAfter: acceptedAt,
+            bootstrapProofToken: proofToken,
+            bootstrapRunId,
+            bootstrapProofMode: 'native_app_managed_context',
+            bootstrapContextHash: contextHash,
+            bootstrapBriefingHash: briefingHash,
+            bootstrapRuntimeEventsPath: runtimeEventsPath,
+          }
+        : member
+    );
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+    fs.mkdirSync(path.dirname(runtimeEventsPath), { recursive: true });
+    fs.writeFileSync(
+      runtimeEventsPath,
+      `${JSON.stringify({
+        version: 1,
+        type: 'bootstrap_confirmed',
+        timestamp: proofAt,
+        pid: 1234,
+        teamName,
+        agentName: 'jack',
+        agentId: `jack@${teamName}`,
+        runId: bootstrapRunId,
+        source: 'native_app_managed_bootstrap_private_turn',
+        bootstrapProofToken: proofToken,
+        contextHash,
+        briefingHash,
+      })}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('clean_success');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'online',
+      launchState: 'confirmed_alive',
+      bootstrapConfirmed: true,
+      runtimeAlive: true,
+      hardFailure: false,
+      error: undefined,
+    });
+  });
+
+  it('does not heal terminal bootstrap-state failures from native app-managed proof with mismatched hashes', async () => {
+    allowConsoleLogs();
+    const teamName = 'zz-unit-bootstrap-state-native-runtime-proof-hash-mismatch';
+    const leadSessionId = 'lead-session';
+    const projectPath = '/Users/test/proj';
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    const proofAt = new Date(Date.now() - 60_000).toISOString();
+    const failureAt = new Date(Date.now() - 30_000).toISOString();
+    const proofToken = 'proof-token-jack-native';
+    const bootstrapRunId = 'run-native-proof';
+    const runtimeEventsPath = path.join(tempTeamsBase, teamName, 'runtime', 'jack.runtime.jsonl');
+
+    writeLaunchConfig(teamName, projectPath, leadSessionId, ['jack']);
+    const configPath = path.join(tempTeamsBase, teamName, 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      members: Array<Record<string, unknown>>;
+    };
+    config.members = config.members.map((member) =>
+      member.name === 'jack'
+        ? {
+            ...member,
+            agentId: `jack@${teamName}`,
+            bootstrapExpectedAfter: acceptedAt,
+            bootstrapProofToken: proofToken,
+            bootstrapRunId,
+            bootstrapProofMode: 'native_app_managed_context',
+            bootstrapContextHash: 'a'.repeat(64),
+            bootstrapBriefingHash: 'b'.repeat(64),
+            bootstrapRuntimeEventsPath: runtimeEventsPath,
+          }
+        : member
+    );
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+    writeBootstrapState(
+      teamName,
+      [
+        {
+          name: 'jack',
+          status: 'failed',
+          lastAttemptAt: Date.parse(acceptedAt),
+          lastObservedAt: Date.parse(failureAt),
+          failureReason: 'Teammate was registered but did not bootstrap-confirm before timeout.',
+        },
+      ],
+      failureAt
+    );
+    fs.mkdirSync(path.dirname(runtimeEventsPath), { recursive: true });
+    fs.writeFileSync(
+      runtimeEventsPath,
+      `${JSON.stringify({
+        version: 1,
+        type: 'bootstrap_confirmed',
+        timestamp: proofAt,
+        pid: 1234,
+        teamName,
+        agentName: 'jack',
+        agentId: `jack@${teamName}`,
+        runId: bootstrapRunId,
+        source: 'native_app_managed_bootstrap_private_turn',
+        bootstrapProofToken: proofToken,
+        contextHash: 'c'.repeat(64),
+        briefingHash: 'b'.repeat(64),
+      })}\n`,
+      'utf8'
+    );
+
+    const svc = new TeamProvisioningService();
+    const result = await svc.getMemberSpawnStatuses(teamName);
+
+    expect(result.teamLaunchState).toBe('partial_failure');
+    expect(result.statuses.jack).toMatchObject({
+      status: 'error',
+      launchState: 'failed_to_start',
+      bootstrapConfirmed: false,
+      runtimeAlive: false,
+      hardFailure: true,
+    });
+  });
+
   it('does not heal bootstrap-state failures from stale runtime proof before spawn acceptance', async () => {
     allowConsoleLogs();
     const teamName = 'zz-unit-bootstrap-state-stale-runtime-proof-ignored';

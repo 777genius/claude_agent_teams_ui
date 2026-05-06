@@ -12,7 +12,7 @@ describe('runtimeTeammateMode', () => {
     vi.clearAllMocks();
   });
 
-  it('enables process teammates in auto mode when tmux runtime is ready', async () => {
+  it('does not inject tmux mode in default desktop launch when tmux runtime is ready', async () => {
     mockIsTmuxRuntimeReadyForCurrentPlatform.mockResolvedValue(true);
     const { resolveDesktopTeammateModeDecision } =
       await import('@main/services/team/runtimeTeammateMode');
@@ -20,7 +20,7 @@ describe('runtimeTeammateMode', () => {
     const decision = await resolveDesktopTeammateModeDecision(undefined);
 
     expect(decision.forceProcessTeammates).toBe(true);
-    expect(decision.injectedTeammateMode).toBe('tmux');
+    expect(decision.injectedTeammateMode).toBeNull();
   });
 
   it('uses native process teammates when tmux runtime is not ready', async () => {
@@ -97,6 +97,6 @@ describe('runtimeTeammateMode', () => {
     expect(firstDecision.forceProcessTeammates).toBe(true);
     expect(firstDecision.injectedTeammateMode).toBeNull();
     expect(secondDecision.forceProcessTeammates).toBe(true);
-    expect(secondDecision.injectedTeammateMode).toBe('tmux');
+    expect(secondDecision.injectedTeammateMode).toBeNull();
   });
 });

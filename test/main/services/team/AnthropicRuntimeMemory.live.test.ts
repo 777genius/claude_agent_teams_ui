@@ -177,7 +177,8 @@ async function assertExecutable(filePath: string): Promise<void> {
 }
 
 async function writeTrustedClaudeConfig(configDir: string, projectPath: string): Promise<void> {
-  const normalizedProjectPath = path.normalize(projectPath).replace(/\\/g, '/');
+  const realProjectPath = await fs.realpath(projectPath).catch(() => projectPath);
+  const normalizedProjectPath = path.normalize(realProjectPath).replace(/\\/g, '/');
   const approvedApiKeySuffix = process.env.ANTHROPIC_API_KEY?.trim().slice(-20);
   const config: {
     projects: Record<string, { hasTrustDialogAccepted: true }>;
@@ -203,17 +204,28 @@ async function writeTrustedClaudeConfig(configDir: string, projectPath: string):
 }
 
 async function removeTempDirWithRetries(dirPath: string): Promise<void> {
-  const attempts = process.platform === 'win32' ? 20 : 1;
+  const attempts = process.platform === 'win32' ? 20 : 5;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      await fs.rm(dirPath, { recursive: true, force: true });
+      await fs.rm(dirPath, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 200,
+      });
       return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if ((code !== 'EBUSY' && code !== 'EPERM') || attempt === attempts) {
+      if (code === 'ENOENT') {
+        return;
+      }
+      if (
+        (code !== 'EBUSY' && code !== 'EPERM' && code !== 'ENOTEMPTY') ||
+        attempt === attempts
+      ) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
 }
