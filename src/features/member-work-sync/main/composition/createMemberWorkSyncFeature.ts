@@ -20,6 +20,7 @@ import { TeamTaskAgendaSource } from '../adapters/output/TeamTaskAgendaSource';
 import { TeamTaskStallJournalWorkSyncCooldown } from '../adapters/output/TeamTaskStallJournalWorkSyncCooldown';
 import { ClaudeStopHookPayloadNormalizer } from '../infrastructure/ClaudeStopHookPayloadNormalizer';
 import { CodexNativeTurnSettledPayloadNormalizer } from '../infrastructure/CodexNativeTurnSettledPayloadNormalizer';
+import { CompositeMemberWorkSyncBusySignal } from '../infrastructure/CompositeMemberWorkSyncBusySignal';
 import { CompositeRuntimeTurnSettledPayloadNormalizer } from '../infrastructure/CompositeRuntimeTurnSettledPayloadNormalizer';
 import { FileMemberWorkSyncAuditJournal } from '../infrastructure/FileMemberWorkSyncAuditJournal';
 import { FileRuntimeTurnSettledEventStore } from '../infrastructure/FileRuntimeTurnSettledEventStore';
@@ -46,7 +47,11 @@ import type {
   MemberWorkSyncStatusRequest,
   MemberWorkSyncTeamMetrics,
 } from '../../contracts';
-import type { MemberWorkSyncLoggerPort } from '../../core/application';
+import type {
+  MemberWorkSyncBusySignalPort,
+  MemberWorkSyncLoggerPort,
+  MemberWorkSyncNudgeDeliveryWakePort,
+} from '../../core/application';
 import type { RuntimeTurnSettledProvider } from '../../core/domain';
 import type { TeamConfigReader } from '@main/services/team/TeamConfigReader';
 import type { TeamKanbanManager } from '@main/services/team/TeamKanbanManager';
@@ -93,6 +98,8 @@ export function createMemberWorkSyncFeature(deps: {
   listLifecycleActiveTeamNames?: () => Promise<string[]>;
   queueQuietWindowMs?: number;
   runtimeTurnSettledTargetResolver?: RuntimeTurnSettledTargetResolverPort;
+  extraBusySignals?: MemberWorkSyncBusySignalPort[];
+  nudgeDeliveryWake?: MemberWorkSyncNudgeDeliveryWakePort;
   logger?: MemberWorkSyncLoggerPort;
 }): MemberWorkSyncFeatureFacade {
   const clock = new SystemClockAdapter();
@@ -138,7 +145,12 @@ export function createMemberWorkSyncFeature(deps: {
     });
   const reportToken = new HmacMemberWorkSyncReportTokenAdapter(storePaths);
   const watchdogCooldown = new TeamTaskStallJournalWorkSyncCooldown(deps.teamsBasePath);
-  const busySignal = new MemberWorkSyncToolActivityBusySignal();
+  const toolActivityBusySignal = new MemberWorkSyncToolActivityBusySignal();
+  const busySignals = [toolActivityBusySignal, ...(deps.extraBusySignals ?? [])];
+  const busySignal =
+    busySignals.length === 1
+      ? toolActivityBusySignal
+      : new CompositeMemberWorkSyncBusySignal(busySignals, deps.logger);
   const inboxNudge = new TeamInboxMemberWorkSyncNudgeSink();
   const useCaseDeps = {
     clock,
@@ -150,6 +162,7 @@ export function createMemberWorkSyncFeature(deps: {
     inboxNudge,
     watchdogCooldown,
     busySignal,
+    ...(deps.nudgeDeliveryWake ? { nudgeDeliveryWake: deps.nudgeDeliveryWake } : {}),
     reportToken,
     auditJournal,
     ...(deps.isTeamActive ? { lifecycle: { isTeamActive: deps.isTeamActive } } : {}),
@@ -233,7 +246,7 @@ export function createMemberWorkSyncFeature(deps: {
     getMetrics: (request) => metricsReader.execute(request),
     report: (request) => reporter.execute(request),
     noteTeamChange: (event) => {
-      busySignal.noteTeamChange(event);
+      toolActivityBusySignal.noteTeamChange(event);
       router.noteTeamChange(event);
     },
     enqueueStartupScan: (teamNames) => router.enqueueStartupScan(teamNames),

@@ -1,6 +1,7 @@
 import { buildMemberWorkSyncOutboxEnsureInput } from '../domain';
 
 import { appendMemberWorkSyncAudit } from './MemberWorkSyncAudit';
+import { decideMemberWorkSyncNudgeActivation } from './MemberWorkSyncNudgeActivationPolicy';
 
 import type { MemberWorkSyncStatus } from '../../contracts';
 import type { MemberWorkSyncUseCaseDeps } from './ports';
@@ -38,7 +39,8 @@ export class MemberWorkSyncNudgeOutboxPlanner {
     }
 
     const metrics = await this.deps.statusStore.readTeamMetrics(status.teamName);
-    if (metrics.phase2Readiness.state !== 'shadow_ready') {
+    const activation = decideMemberWorkSyncNudgeActivation({ status, metrics });
+    if (!activation.active) {
       await this.appendPlanAudit(status, { planned: false, code: 'phase2_not_ready' });
       return { planned: false, code: 'phase2_not_ready' };
     }

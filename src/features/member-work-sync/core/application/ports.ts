@@ -82,6 +82,7 @@ export type MemberWorkSyncAuditEventName =
   | 'report_rejected'
   | 'nudge_planned'
   | 'nudge_delivered'
+  | 'nudge_wake_failed'
   | 'nudge_skipped'
   | 'nudge_retryable'
   | 'nudge_superseded'
@@ -181,6 +182,17 @@ export interface MemberWorkSyncBusySignalPort {
   }): Promise<{ busy: boolean; reason?: string; retryAfterIso?: string }>;
 }
 
+export interface MemberWorkSyncNudgeDeliveryWakePort {
+  schedule(input: {
+    teamName: string;
+    memberName: string;
+    messageId: string;
+    providerId?: MemberWorkSyncProviderId | null;
+    reason: 'member_work_sync_nudge_inserted' | 'member_work_sync_nudge_existing';
+    delayMs?: number;
+  }): Promise<void> | void;
+}
+
 export interface MemberWorkSyncUseCaseDeps {
   clock: MemberWorkSyncClockPort;
   hash: MemberWorkSyncHashPort;
@@ -191,6 +203,7 @@ export interface MemberWorkSyncUseCaseDeps {
   inboxNudge?: MemberWorkSyncInboxNudgePort;
   watchdogCooldown?: MemberWorkSyncWatchdogCooldownPort;
   busySignal?: MemberWorkSyncBusySignalPort;
+  nudgeDeliveryWake?: MemberWorkSyncNudgeDeliveryWakePort;
   reportToken?: MemberWorkSyncReportTokenPort;
   auditJournal?: MemberWorkSyncAuditJournalPort;
   lifecycle?: MemberWorkSyncLifecyclePort;

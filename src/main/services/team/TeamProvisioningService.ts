@@ -164,6 +164,10 @@ import {
   type OpenCodePromptDeliveryStatus,
 } from './opencode/delivery/OpenCodePromptDeliveryLedger';
 import {
+  decideOpenCodePromptDeliveryRepair,
+  type OpenCodePromptDeliveryHardFailureKind,
+} from './opencode/delivery/OpenCodePromptDeliveryRepairPolicy';
+import {
   isOpenCodePromptDeliveryObserveLaterResponseState,
   isOpenCodePromptDeliveryRetryableResponseState,
   isOpenCodePromptDeliveryRetryAttemptDue,
@@ -5192,6 +5196,18 @@ function normalizeSameTeamText(text: string): string {
   return text.trim().replace(/\r\n/g, '\n');
 }
 
+function getOpenCodeInboxRelayPriority(
+  message: Pick<InboxMessage, 'messageKind' | 'source'>
+): number {
+  if (message.messageKind === 'member_work_sync_nudge') {
+    return 30;
+  }
+  if (message.source === 'system_notification') {
+    return 20;
+  }
+  return 0;
+}
+
 export class TeamProvisioningService {
   private readonly runtimeLaneCoordinator = createTeamRuntimeLaneCoordinator();
   private readonly providerConnectionService = ProviderConnectionService.getInstance();
@@ -6713,6 +6729,9 @@ export class TeamProvisioningService {
     if (state === 'prompt_delivered_no_assistant_message') {
       return 'prompt_delivered_no_assistant_message';
     }
+    if (state === 'tool_error') {
+      return 'tool_error_without_required_delivery_proof';
+    }
     return record?.lastReason ?? 'opencode_delivery_response_pending';
   }
 
@@ -6775,40 +6794,62 @@ export class TeamProvisioningService {
     return false;
   }
 
-  private buildOpenCodePromptDeliveryAttemptText(input: {
-    ledgerRecord?: OpenCodePromptDeliveryLedgerRecord | null;
-    text: string;
-    replyRecipient: string;
-  }): string {
-    const record = input.ledgerRecord;
-    if (!record || record.status === 'pending' || record.attempts <= 0) {
-      return input.text;
+  private getOpenCodeDeliveryHardFailureKind(
+    record?: OpenCodePromptDeliveryLedgerRecord | null
+  ): OpenCodePromptDeliveryHardFailureKind {
+    if (!record) {
+      return 'none';
     }
-    const visibleAnswerRequired =
-      record.lastReason === 'visible_reply_still_required' ||
-      record.lastReason === 'plain_text_ack_only_still_requires_answer' ||
-      (record.responseState === 'responded_non_visible_tool' &&
-        record.actionMode === 'ask' &&
-        record.taskRefs.length === 0);
-    const attemptNumber = Math.min(record.attempts + 1, record.maxAttempts);
-    const header = visibleAnswerRequired
-      ? [
-          '<opencode_delivery_retry>',
-          `This is retry attempt ${attemptNumber}/${record.maxAttempts} for inbound app messageId "${record.inboxMessageId}".`,
-          `You accepted the earlier prompt but did not provide a visible/concrete answer for the recipient "${input.replyRecipient}".`,
-          `Please reply with agent-teams_message_send to "${input.replyRecipient}" and include relayOfMessageId="${record.inboxMessageId}". If that tool is unavailable, provide a concise plain-text answer.`,
-          'Do not repeat tool work unless needed and do not reply only with acknowledgement.',
-          '</opencode_delivery_retry>',
-        ]
-      : [
-          '<opencode_delivery_retry>',
-          `This is retry attempt ${attemptNumber}/${record.maxAttempts} for inbound app messageId "${record.inboxMessageId}".`,
-          'The previous OpenCode turn was accepted, but the app still has no sufficient response proof for this message.',
-          `If you already acted on this message, do not duplicate work; send a concrete status via agent-teams_message_send with relayOfMessageId="${record.inboxMessageId}" or update the related task.`,
-          'Do not reply only with acknowledgement.',
-          '</opencode_delivery_retry>',
-        ];
-    return `${header.join('\n')}\n\n${input.text}`;
+    if (record.status === 'failed_terminal') {
+      return 'unknown';
+    }
+    if (record.responseState === 'permission_blocked') {
+      return 'permission';
+    }
+    if (record.responseState === 'session_error') {
+      return 'session';
+    }
+    return 'none';
+  }
+
+  private buildOpenCodePromptDeliveryRepairControlText(input: {
+    ledgerRecord?: OpenCodePromptDeliveryLedgerRecord | null;
+    readAllowed: boolean;
+    pendingReason: string;
+  }): string | null {
+    const record = input.ledgerRecord;
+    if (!record) {
+      return null;
+    }
+    return decideOpenCodePromptDeliveryRepair({
+      teamName: record.teamName,
+      memberName: record.memberName,
+      inboxMessageId: record.inboxMessageId,
+      replyRecipient: record.replyRecipient,
+      messageKind: record.messageKind,
+      actionMode: record.actionMode,
+      taskRefs: record.taskRefs,
+      status: record.status,
+      responseState: record.responseState,
+      attempts: record.attempts,
+      maxAttempts: record.maxAttempts,
+      pendingReason: input.pendingReason,
+      readAllowed: input.readAllowed,
+      inboxReadCommitted: Boolean(record.inboxReadCommittedAt),
+      visibleReplyFound: Boolean(record.visibleReplyMessageId),
+      hasKnownProgressProof: this.hasOpenCodeNonVisibleProgressProof(record),
+      toolCallNames: record.observedToolCallNames,
+      acceptanceUnknown: record.acceptanceUnknown,
+      hardFailureKind: this.getOpenCodeDeliveryHardFailureKind(record),
+    }).controlText;
+  }
+
+  private buildOpenCodePromptDeliveryAttemptText(input: {
+    text: string;
+    controlText?: string | null;
+  }): string {
+    const controlText = input.controlText?.trim();
+    return controlText ? `${controlText}\n\n${input.text}` : input.text;
   }
 
   private isOpenCodePromptAcceptanceUnknownFailure(diagnostics: readonly string[]): boolean {
@@ -8182,10 +8223,31 @@ export class TeamProvisioningService {
       }
     }
 
+    const retryReadAllowed = ledgerRecord
+      ? this.isOpenCodeDeliveryResponseReadCommitAllowed({
+          responseState: ledgerRecord.responseState,
+          actionMode: ledgerRecord.actionMode ?? undefined,
+          taskRefs: ledgerRecord.taskRefs,
+          visibleReply: null,
+          ledgerRecord,
+        })
+      : false;
+    const retryPendingReason = ledgerRecord
+      ? this.getOpenCodeDeliveryPendingReason({
+          responseState: ledgerRecord.responseState,
+          actionMode: ledgerRecord.actionMode,
+          taskRefs: ledgerRecord.taskRefs,
+          visibleReply: null,
+          ledgerRecord,
+        })
+      : 'opencode_delivery_response_pending';
     const deliveryText = this.buildOpenCodePromptDeliveryAttemptText({
-      ledgerRecord,
       text: input.text,
-      replyRecipient: input.replyRecipient ?? ledgerRecord?.replyRecipient ?? 'user',
+      controlText: this.buildOpenCodePromptDeliveryRepairControlText({
+        ledgerRecord,
+        readAllowed: retryReadAllowed,
+        pendingReason: retryPendingReason,
+      }),
     });
     const result = await adapter.sendMessageToMember({
       ...(runtimeRunId ? { runId: runtimeRunId } : {}),
@@ -18663,7 +18725,13 @@ export class TeamProvisioningService {
           if (typeof message.text !== 'string' || message.text.trim().length === 0) return false;
           return this.hasStableMessageId(message);
         })
-        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+        .sort((a, b) => {
+          const priorityDelta = getOpenCodeInboxRelayPriority(a) - getOpenCodeInboxRelayPriority(b);
+          if (priorityDelta !== 0) return priorityDelta;
+          const timeDelta = Date.parse(a.timestamp) - Date.parse(b.timestamp);
+          if (timeDelta !== 0) return timeDelta;
+          return a.messageId.localeCompare(b.messageId);
+        })
         .slice(0, 10);
 
       for (const message of unread) {
