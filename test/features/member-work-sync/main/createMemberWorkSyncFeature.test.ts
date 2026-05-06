@@ -74,6 +74,111 @@ async function seedShadowReadyMetrics(input: {
   );
 }
 
+async function seedNonBlockingShadowCollectingMetrics(input: {
+  teamsBasePath: string;
+  teamName: string;
+  memberName: string;
+}): Promise<void> {
+  const metricsPath = path.join(
+    input.teamsBasePath,
+    input.teamName,
+    '.member-work-sync',
+    'indexes',
+    'metrics.json'
+  );
+  await fs.promises.mkdir(path.dirname(metricsPath), { recursive: true });
+  await fs.promises.writeFile(
+    metricsPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: 2,
+        members: {
+          [input.memberName]: {
+            memberName: input.memberName,
+            state: 'caught_up',
+            agendaFingerprint: 'agenda:v1:seed',
+            actionableCount: 0,
+            evaluatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+        recentEvents: Array.from({ length: 18 }, (_, index) => ({
+          id: `seed-status-${index}`,
+          teamName: input.teamName,
+          memberName: input.memberName,
+          kind: 'status_evaluated',
+          state: 'caught_up',
+          agendaFingerprint: `agenda:v1:seed-${index}`,
+          recordedAt: new Date(Date.UTC(2026, 0, 1, index * 6)).toISOString(),
+          actionableCount: 0,
+        })),
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+}
+
+async function seedBlockingShadowCollectingMetrics(input: {
+  teamsBasePath: string;
+  teamName: string;
+  memberName: string;
+}): Promise<void> {
+  const nowMs = Date.now();
+  const firstObservedAt = new Date(nowMs - 1_000).toISOString();
+  const secondObservedAt = new Date(nowMs).toISOString();
+  const metricsPath = path.join(
+    input.teamsBasePath,
+    input.teamName,
+    '.member-work-sync',
+    'indexes',
+    'metrics.json'
+  );
+  await fs.promises.mkdir(path.dirname(metricsPath), { recursive: true });
+  await fs.promises.writeFile(
+    metricsPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: 2,
+        members: {
+          [input.memberName]: {
+            memberName: input.memberName,
+            state: 'needs_sync',
+            agendaFingerprint: 'agenda:v1:seed',
+            actionableCount: 1,
+            evaluatedAt: firstObservedAt,
+          },
+        },
+        recentEvents: [
+          {
+            id: 'seed-status-0',
+            teamName: input.teamName,
+            memberName: input.memberName,
+            kind: 'status_evaluated',
+            state: 'needs_sync',
+            agendaFingerprint: 'agenda:v1:seed',
+            recordedAt: firstObservedAt,
+            actionableCount: 1,
+          },
+          {
+            id: 'seed-would-nudge-0',
+            teamName: input.teamName,
+            memberName: input.memberName,
+            kind: 'would_nudge',
+            state: 'needs_sync',
+            agendaFingerprint: 'agenda:v1:seed',
+            recordedAt: secondObservedAt,
+            actionableCount: 1,
+          },
+        ],
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+}
+
 async function waitForAssertion(assertion: () => Promise<void> | void): Promise<void> {
   const deadline = Date.now() + 2_000;
   let lastError: unknown;
@@ -438,6 +543,492 @@ describe('createMemberWorkSyncFeature composition', () => {
         teamName,
         memberName,
       });
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('delivers targeted OpenCode nudges during shadow collection and schedules a delivery wake', async () => {
+    const claudeRoot = makeTempRoot();
+    setClaudeBasePathOverride(claudeRoot);
+    const teamsBasePath = getTeamsBasePath();
+    const teamName = 'team-opencode-targeted';
+    const memberName = 'alice';
+    const nudgeDeliveryWake = {
+      schedule: vi.fn(async () => undefined),
+    };
+    const feature = createMemberWorkSyncFeature({
+      teamsBasePath,
+      configReader: {
+        getConfig: vi.fn(async () => ({
+          name: teamName,
+          members: [{ name: memberName, providerId: 'opencode' }],
+        })),
+      } as never,
+      taskReader: {
+        getTasks: vi.fn(async () => [
+          {
+            id: 'task-1',
+            displayId: '11111111',
+            subject: 'Ship OpenCode targeted nudge',
+            status: 'pending',
+            owner: memberName,
+          },
+        ]),
+      } as never,
+      kanbanManager: {
+        getState: vi.fn(async () => ({
+          teamName,
+          reviewers: [],
+          tasks: {},
+        })),
+      } as never,
+      membersMetaStore: {
+        getMembers: vi.fn(async () => []),
+      } as never,
+      isTeamActive: vi.fn(async () => true),
+      nudgeDeliveryWake,
+      queueQuietWindowMs: 1,
+    });
+
+    try {
+      await seedNonBlockingShadowCollectingMetrics({ teamsBasePath, teamName, memberName });
+      feature.noteTeamChange({ type: 'task', teamName, taskId: 'task-1' } as never);
+
+      await waitForAssertion(async () => {
+        expect(feature.getQueueDiagnostics()).toMatchObject({ reconciled: 1 });
+        const nudges = (await readInboxMessages({ teamsBasePath, teamName, memberName })).filter(
+          (message) => message.messageKind === 'member_work_sync_nudge'
+        );
+        expect(nudges).toHaveLength(1);
+        expect(nudges[0]?.text).toContain('11111111');
+        expect(nudgeDeliveryWake.schedule).toHaveBeenCalledTimes(1);
+        expect(nudgeDeliveryWake.schedule).toHaveBeenCalledWith({
+          teamName,
+          memberName,
+          messageId: nudges[0]?.messageId,
+          providerId: 'opencode',
+          reason: 'member_work_sync_nudge_inserted',
+          delayMs: 500,
+        });
+        await expect(feature.getMetrics({ teamName })).resolves.toMatchObject({
+          phase2Readiness: { state: 'collecting_shadow_data' },
+        });
+        await expect(feature.getStatus({ teamName, memberName })).resolves.toMatchObject({
+          state: 'needs_sync',
+          providerId: 'opencode',
+          shadow: { wouldNudge: true },
+        });
+        expect(
+          Object.values(await readMemberOutboxItems({ teamsBasePath, teamName, memberName }))
+        ).toEqual([
+          expect.objectContaining({
+            status: 'delivered',
+            deliveredMessageId: nudges[0]?.messageId,
+          }),
+        ]);
+      });
+
+      const journal = await fs.promises.readFile(
+        path.join(
+          teamsBasePath,
+          teamName,
+          'members',
+          memberName,
+          '.member-work-sync',
+          'journal.jsonl'
+        ),
+        'utf8'
+      );
+      expect(journal).toContain('"event":"nudge_delivered"');
+      expect(journal).not.toContain('"reason":"phase2_not_ready"');
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('does not apply the OpenCode shadow-collection exception to Codex members', async () => {
+    const claudeRoot = makeTempRoot();
+    setClaudeBasePathOverride(claudeRoot);
+    const teamsBasePath = getTeamsBasePath();
+    const teamName = 'team-codex-shadow-gated';
+    const memberName = 'bob';
+    const feature = createMemberWorkSyncFeature({
+      teamsBasePath,
+      configReader: {
+        getConfig: vi.fn(async () => ({
+          name: teamName,
+          members: [{ name: memberName, providerId: 'codex' }],
+        })),
+      } as never,
+      taskReader: {
+        getTasks: vi.fn(async () => [
+          {
+            id: 'task-1',
+            displayId: '11111111',
+            subject: 'Keep Codex gated during shadow collection',
+            status: 'pending',
+            owner: memberName,
+          },
+        ]),
+      } as never,
+      kanbanManager: {
+        getState: vi.fn(async () => ({
+          teamName,
+          reviewers: [],
+          tasks: {},
+        })),
+      } as never,
+      membersMetaStore: {
+        getMembers: vi.fn(async () => []),
+      } as never,
+      isTeamActive: vi.fn(async () => true),
+      queueQuietWindowMs: 1,
+    });
+
+    try {
+      await seedNonBlockingShadowCollectingMetrics({ teamsBasePath, teamName, memberName });
+      feature.noteTeamChange({ type: 'task', teamName, taskId: 'task-1' } as never);
+
+      await waitForAssertion(async () => {
+        expect(feature.getQueueDiagnostics()).toMatchObject({ reconciled: 1 });
+        expect(await readInboxMessages({ teamsBasePath, teamName, memberName })).toEqual([]);
+        expect(await readMemberOutboxItems({ teamsBasePath, teamName, memberName })).toEqual({});
+        await expect(feature.getMetrics({ teamName })).resolves.toMatchObject({
+          phase2Readiness: { state: 'collecting_shadow_data' },
+        });
+        await expect(feature.getStatus({ teamName, memberName })).resolves.toMatchObject({
+          state: 'needs_sync',
+          providerId: 'codex',
+          shadow: { wouldNudge: true },
+        });
+      });
+
+      const journal = await fs.promises.readFile(
+        path.join(
+          teamsBasePath,
+          teamName,
+          'members',
+          memberName,
+          '.member-work-sync',
+          'journal.jsonl'
+        ),
+        'utf8'
+      );
+      expect(journal).toContain('"event":"nudge_skipped"');
+      expect(journal).toContain('"reason":"phase2_not_ready"');
+      expect(journal).not.toContain('"event":"nudge_delivered"');
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('blocks targeted OpenCode nudges when phase2 metrics are unsafe', async () => {
+    const claudeRoot = makeTempRoot();
+    setClaudeBasePathOverride(claudeRoot);
+    const teamsBasePath = getTeamsBasePath();
+    const teamName = 'team-opencode-blocking-metrics';
+    const memberName = 'alice';
+    const nudgeDeliveryWake = {
+      schedule: vi.fn(async () => undefined),
+    };
+    const feature = createMemberWorkSyncFeature({
+      teamsBasePath,
+      configReader: {
+        getConfig: vi.fn(async () => ({
+          name: teamName,
+          members: [{ name: memberName, providerId: 'opencode' }],
+        })),
+      } as never,
+      taskReader: {
+        getTasks: vi.fn(async () => [
+          {
+            id: 'task-1',
+            displayId: '11111111',
+            subject: 'Do not nudge when metrics are unsafe',
+            status: 'pending',
+            owner: memberName,
+          },
+        ]),
+      } as never,
+      kanbanManager: {
+        getState: vi.fn(async () => ({
+          teamName,
+          reviewers: [],
+          tasks: {},
+        })),
+      } as never,
+      membersMetaStore: {
+        getMembers: vi.fn(async () => []),
+      } as never,
+      isTeamActive: vi.fn(async () => true),
+      nudgeDeliveryWake,
+      queueQuietWindowMs: 1,
+    });
+
+    try {
+      await seedBlockingShadowCollectingMetrics({ teamsBasePath, teamName, memberName });
+      feature.noteTeamChange({ type: 'task', teamName, taskId: 'task-1' } as never);
+
+      await waitForAssertion(async () => {
+        expect(feature.getQueueDiagnostics()).toMatchObject({ reconciled: 1 });
+        expect(await readInboxMessages({ teamsBasePath, teamName, memberName })).toEqual([]);
+        expect(await readMemberOutboxItems({ teamsBasePath, teamName, memberName })).toEqual({});
+        expect(nudgeDeliveryWake.schedule).not.toHaveBeenCalled();
+        await expect(feature.getMetrics({ teamName })).resolves.toMatchObject({
+          phase2Readiness: {
+            reasons: expect.arrayContaining(['would_nudge_rate_high']),
+          },
+        });
+      });
+
+      const journal = await fs.promises.readFile(
+        path.join(
+          teamsBasePath,
+          teamName,
+          'members',
+          memberName,
+          '.member-work-sync',
+          'journal.jsonl'
+        ),
+        'utf8'
+      );
+      expect(journal).toContain('"event":"nudge_skipped"');
+      expect(journal).toContain('"reason":"phase2_not_ready"');
+      expect(journal).not.toContain('"event":"nudge_delivered"');
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('recovers targeted OpenCode nudge delivery after unsafe metrics become ready', async () => {
+    const claudeRoot = makeTempRoot();
+    setClaudeBasePathOverride(claudeRoot);
+    const teamsBasePath = getTeamsBasePath();
+    const teamName = 'team-opencode-metrics-recovery';
+    const memberName = 'alice';
+    const nudgeDeliveryWake = {
+      schedule: vi.fn(async () => undefined),
+    };
+    const feature = createMemberWorkSyncFeature({
+      teamsBasePath,
+      configReader: {
+        getConfig: vi.fn(async () => ({
+          name: teamName,
+          members: [{ name: memberName, providerId: 'opencode' }],
+        })),
+      } as never,
+      taskReader: {
+        getTasks: vi.fn(async () => [
+          {
+            id: 'task-1',
+            displayId: '11111111',
+            subject: 'Recover OpenCode nudge after metrics ready',
+            status: 'pending',
+            owner: memberName,
+          },
+        ]),
+      } as never,
+      kanbanManager: {
+        getState: vi.fn(async () => ({
+          teamName,
+          reviewers: [],
+          tasks: {},
+        })),
+      } as never,
+      membersMetaStore: {
+        getMembers: vi.fn(async () => []),
+      } as never,
+      isTeamActive: vi.fn(async () => true),
+      nudgeDeliveryWake,
+      queueQuietWindowMs: 1,
+    });
+
+    try {
+      await seedBlockingShadowCollectingMetrics({ teamsBasePath, teamName, memberName });
+      feature.noteTeamChange({ type: 'task', teamName, taskId: 'task-1' } as never);
+
+      await waitForAssertion(async () => {
+        expect(feature.getQueueDiagnostics()).toMatchObject({ reconciled: 1 });
+        expect(await readInboxMessages({ teamsBasePath, teamName, memberName })).toEqual([]);
+        expect(await readMemberOutboxItems({ teamsBasePath, teamName, memberName })).toEqual({});
+        expect(nudgeDeliveryWake.schedule).not.toHaveBeenCalled();
+      });
+
+      await seedShadowReadyMetrics({ teamsBasePath, teamName, memberName });
+      feature.noteTeamChange({ type: 'task', teamName, taskId: 'task-1' } as never);
+
+      await waitForAssertion(async () => {
+        const nudges = (await readInboxMessages({ teamsBasePath, teamName, memberName })).filter(
+          (message) => message.messageKind === 'member_work_sync_nudge'
+        );
+        expect(nudges).toHaveLength(1);
+        expect(nudges[0]?.text).toContain('11111111');
+        expect(nudgeDeliveryWake.schedule).toHaveBeenCalledTimes(1);
+        expect(nudgeDeliveryWake.schedule).toHaveBeenCalledWith({
+          teamName,
+          memberName,
+          messageId: nudges[0]?.messageId,
+          providerId: 'opencode',
+          reason: 'member_work_sync_nudge_inserted',
+          delayMs: 500,
+        });
+        expect(
+          Object.values(await readMemberOutboxItems({ teamsBasePath, teamName, memberName }))
+        ).toEqual([
+          expect.objectContaining({
+            status: 'delivered',
+            deliveredMessageId: nudges[0]?.messageId,
+          }),
+        ]);
+      });
+    } finally {
+      await feature.dispose();
+    }
+  });
+
+  it('keeps targeted OpenCode nudges retryable when prompt delivery is busy', async () => {
+    const claudeRoot = makeTempRoot();
+    setClaudeBasePathOverride(claudeRoot);
+    const teamsBasePath = getTeamsBasePath();
+    const teamName = 'team-opencode-busy';
+    const memberName = 'alice';
+    const nudgeDeliveryWake = {
+      schedule: vi.fn(async () => undefined),
+    };
+    let promptDeliveryBusy = true;
+    const promptDeliveryBusySignal = {
+      isBusy: vi.fn(async () =>
+        promptDeliveryBusy
+          ? {
+              busy: true,
+              reason: 'opencode_prompt_delivery_active',
+              retryAfterIso: '2026-05-05T12:05:00.000Z',
+            }
+          : { busy: false }
+      ),
+    };
+    const feature = createMemberWorkSyncFeature({
+      teamsBasePath,
+      configReader: {
+        getConfig: vi.fn(async () => ({
+          name: teamName,
+          members: [{ name: memberName, providerId: 'opencode' }],
+        })),
+      } as never,
+      taskReader: {
+        getTasks: vi.fn(async () => [
+          {
+            id: 'task-1',
+            displayId: '11111111',
+            subject: 'Ship OpenCode busy nudge',
+            status: 'pending',
+            owner: memberName,
+          },
+        ]),
+      } as never,
+      kanbanManager: {
+        getState: vi.fn(async () => ({
+          teamName,
+          reviewers: [],
+          tasks: {},
+        })),
+      } as never,
+      membersMetaStore: {
+        getMembers: vi.fn(async () => []),
+      } as never,
+      isTeamActive: vi.fn(async () => true),
+      extraBusySignals: [promptDeliveryBusySignal],
+      nudgeDeliveryWake,
+      queueQuietWindowMs: 1,
+    });
+
+    try {
+      await seedNonBlockingShadowCollectingMetrics({ teamsBasePath, teamName, memberName });
+      feature.noteTeamChange({ type: 'task', teamName, taskId: 'task-1' } as never);
+
+      await waitForAssertion(async () => {
+        expect(feature.getQueueDiagnostics()).toMatchObject({ reconciled: 1 });
+        expect(await readInboxMessages({ teamsBasePath, teamName, memberName })).toEqual([]);
+        expect(nudgeDeliveryWake.schedule).not.toHaveBeenCalled();
+        expect(
+          Object.values(await readMemberOutboxItems({ teamsBasePath, teamName, memberName }))
+        ).toEqual([
+          expect.objectContaining({
+            status: 'failed_retryable',
+            lastError: 'member_busy:opencode_prompt_delivery_active',
+            nextAttemptAt: '2026-05-05T12:05:00.000Z',
+          }),
+        ]);
+      });
+
+      const journal = await fs.promises.readFile(
+        path.join(
+          teamsBasePath,
+          teamName,
+          'members',
+          memberName,
+          '.member-work-sync',
+          'journal.jsonl'
+        ),
+        'utf8'
+      );
+      expect(journal).toContain('"event":"member_busy"');
+      expect(journal).toContain('"reason":"member_busy:opencode_prompt_delivery_active"');
+      expect(journal).not.toContain('"event":"nudge_delivered"');
+
+      promptDeliveryBusy = false;
+      await forceRetryableOutboxDue({
+        teamsBasePath,
+        teamName,
+        memberName,
+        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      });
+
+      await expect(feature.dispatchDueNudges([teamName])).resolves.toEqual({
+        claimed: 1,
+        delivered: 1,
+        superseded: 0,
+        retryable: 0,
+        terminal: 0,
+      });
+      await waitForAssertion(async () => {
+        const nudges = (await readInboxMessages({ teamsBasePath, teamName, memberName })).filter(
+          (message) => message.messageKind === 'member_work_sync_nudge'
+        );
+        expect(nudges).toHaveLength(1);
+        expect(nudges[0]?.text).toContain('11111111');
+        expect(nudgeDeliveryWake.schedule).toHaveBeenCalledTimes(1);
+        expect(nudgeDeliveryWake.schedule).toHaveBeenCalledWith({
+          teamName,
+          memberName,
+          messageId: nudges[0]?.messageId,
+          providerId: 'opencode',
+          reason: 'member_work_sync_nudge_inserted',
+          delayMs: 500,
+        });
+        expect(
+          Object.values(await readMemberOutboxItems({ teamsBasePath, teamName, memberName }))
+        ).toEqual([
+          expect.objectContaining({
+            status: 'delivered',
+            deliveredMessageId: nudges[0]?.messageId,
+          }),
+        ]);
+      });
+
+      const recoveredJournal = await fs.promises.readFile(
+        path.join(
+          teamsBasePath,
+          teamName,
+          'members',
+          memberName,
+          '.member-work-sync',
+          'journal.jsonl'
+        ),
+        'utf8'
+      );
+      expect(recoveredJournal).toContain('"event":"nudge_delivered"');
     } finally {
       await feature.dispose();
     }

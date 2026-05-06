@@ -11064,16 +11064,23 @@ export class TeamProvisioningService {
       return { busy: true, reason: 'opencode_no_active_lane', retryAfterIso };
     }
 
-    const activeRecord = await this.createOpenCodePromptDeliveryLedger(
-      input.teamName,
-      identity.laneId
-    )
-      .getActiveForMember({
+    let activeRecord: OpenCodePromptDeliveryLedgerRecord | null;
+    try {
+      activeRecord = await this.createOpenCodePromptDeliveryLedger(
+        input.teamName,
+        identity.laneId
+      ).getActiveForMember({
         teamName: input.teamName,
         memberName: identity.canonicalMemberName,
         laneId: identity.laneId,
-      })
-      .catch(() => null);
+      });
+    } catch {
+      return {
+        busy: true,
+        reason: 'opencode_prompt_ledger_unavailable',
+        retryAfterIso,
+      };
+    }
     if (activeRecord) {
       return {
         busy: true,

@@ -156,8 +156,10 @@ vi.mock('agent-teams-controller', () => ({
 }));
 
 import { buildLegacyInboxMessageId } from '../../../../src/main/services/team/inboxMessageIdentity';
+import * as OpenCodeRuntimeStore from '../../../../src/main/services/team/opencode/store/OpenCodeRuntimeManifestEvidenceReader';
 import { TeamConfigReader } from '../../../../src/main/services/team/TeamConfigReader';
 import { TeamProvisioningService } from '../../../../src/main/services/team/TeamProvisioningService';
+import { getTeamsBasePath } from '../../../../src/main/utils/pathDecoder';
 
 function seedConfig(teamName: string): void {
   hoisted.files.set(
@@ -2737,5 +2739,177 @@ Messages:
     vi.mocked(console.warn).mockClear();
     const rows = JSON.parse(hoisted.files.get(`/mock/teams/${teamName}/inboxes/jack.json`) ?? '[]');
     expect(rows[0].read).toBe(false);
+  });
+
+  it('fails closed when OpenCode prompt ledger cannot be inspected for work-sync busy checks', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    const laneId = 'secondary:opencode:jack';
+    const teamsBasePath = getTeamsBasePath();
+    hoisted.files.set(
+      `${teamsBasePath}/${teamName}/config.json`,
+      JSON.stringify({
+        name: teamName,
+        projectPath: '/tmp/my-team',
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'jack', role: 'developer', providerId: 'opencode', model: 'openrouter/test' },
+        ],
+      })
+    );
+    hoisted.files.set(
+      OpenCodeRuntimeStore.getOpenCodeRuntimeLaneIndexPath(teamsBasePath, teamName),
+      JSON.stringify({
+        version: 1,
+        updatedAt: '2026-02-23T17:30:00.000Z',
+        lanes: {
+          primary: {
+            laneId: 'primary',
+            state: 'active',
+            updatedAt: '2026-02-23T17:30:00.000Z',
+          },
+          [laneId]: {
+            laneId,
+            state: 'active',
+            updatedAt: '2026-02-23T17:30:00.000Z',
+          },
+        },
+      })
+    );
+    vi.spyOn(OpenCodeRuntimeStore, 'readOpenCodeRuntimeLaneIndex').mockResolvedValue({
+      version: 1,
+      updatedAt: '2026-02-23T17:30:00.000Z',
+      lanes: {
+        [laneId]: {
+          laneId,
+          state: 'active',
+          updatedAt: '2026-02-23T17:30:00.000Z',
+        },
+      },
+    });
+    hoisted.files.set(`${teamsBasePath}/${teamName}/inboxes/jack.json`, JSON.stringify([]));
+    (service as any).resolveOpenCodeMemberDeliveryIdentity = vi.fn(async () => ({
+      ok: true,
+      canonicalMemberName: 'jack',
+      laneId,
+    }));
+    vi.spyOn(service as any, 'createOpenCodePromptDeliveryLedger').mockReturnValue({
+      getActiveForMember: vi.fn(async () => {
+        throw new Error('ledger read failed');
+      }),
+    });
+
+    const busy = await service.getOpenCodeMemberDeliveryBusyStatus({
+      teamName,
+      memberName: 'jack',
+      nowIso: '2026-02-23T17:31:00.000Z',
+    });
+
+    expect(busy).toMatchObject({
+      busy: true,
+      reason: 'opencode_prompt_ledger_unavailable',
+    });
+  });
+
+  it('treats unread OpenCode foreground inbox messages as busy for work-sync checks', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    const teamsBasePath = getTeamsBasePath();
+    hoisted.files.set(
+      `${teamsBasePath}/${teamName}/config.json`,
+      JSON.stringify({
+        name: teamName,
+        projectPath: '/tmp/my-team',
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'jack', role: 'developer', providerId: 'opencode', model: 'openrouter/test' },
+        ],
+      })
+    );
+    hoisted.files.set(
+      `${teamsBasePath}/${teamName}/inboxes/jack.json`,
+      JSON.stringify([
+        {
+          from: 'user',
+          to: 'jack',
+          text: 'Please check the current issue.',
+          timestamp: '2026-02-23T17:31:00.000Z',
+          read: false,
+          messageId: 'foreground-message-1',
+          messageKind: 'direct',
+        },
+      ])
+    );
+
+    const busy = await service.getOpenCodeMemberDeliveryBusyStatus({
+      teamName,
+      memberName: 'jack',
+      nowIso: '2026-02-23T17:31:10.000Z',
+    });
+
+    expect(busy).toMatchObject({
+      busy: true,
+      reason: 'opencode_foreground_inbox_unread',
+      activeMessageId: 'foreground-message-1',
+    });
+  });
+
+  it('does not treat unread OpenCode work-sync nudges as foreground busy blockers', async () => {
+    const service = new TeamProvisioningService();
+    const teamName = 'my-team';
+    const laneId = 'secondary:opencode:jack';
+    const teamsBasePath = getTeamsBasePath();
+    hoisted.files.set(
+      `${teamsBasePath}/${teamName}/config.json`,
+      JSON.stringify({
+        name: teamName,
+        projectPath: '/tmp/my-team',
+        members: [
+          { name: 'team-lead', agentType: 'team-lead' },
+          { name: 'jack', role: 'developer', providerId: 'opencode', model: 'openrouter/test' },
+        ],
+      })
+    );
+    hoisted.files.set(
+      `${teamsBasePath}/${teamName}/inboxes/jack.json`,
+      JSON.stringify([
+        {
+          from: 'system',
+          to: 'jack',
+          text: 'Work sync check.',
+          timestamp: '2026-02-23T17:31:00.000Z',
+          read: false,
+          messageId: 'work-sync-nudge-1',
+          messageKind: 'member_work_sync_nudge',
+        },
+      ])
+    );
+    (service as any).resolveOpenCodeMemberDeliveryIdentity = vi.fn(async () => ({
+      ok: true,
+      canonicalMemberName: 'jack',
+      laneId,
+    }));
+    vi.spyOn(OpenCodeRuntimeStore, 'readOpenCodeRuntimeLaneIndex').mockResolvedValue({
+      version: 1,
+      updatedAt: '2026-02-23T17:30:00.000Z',
+      lanes: {
+        [laneId]: {
+          laneId,
+          state: 'active',
+          updatedAt: '2026-02-23T17:30:00.000Z',
+        },
+      },
+    });
+    vi.spyOn(service as any, 'createOpenCodePromptDeliveryLedger').mockReturnValue({
+      getActiveForMember: vi.fn(async () => null),
+    });
+
+    const busy = await service.getOpenCodeMemberDeliveryBusyStatus({
+      teamName,
+      memberName: 'jack',
+      nowIso: '2026-02-23T17:31:10.000Z',
+    });
+
+    expect(busy).toEqual({ busy: false });
   });
 });
