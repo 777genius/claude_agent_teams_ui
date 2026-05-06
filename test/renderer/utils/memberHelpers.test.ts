@@ -699,6 +699,39 @@ describe('memberHelpers spawn-aware presence', () => {
     ).toContain('Anthropic authentication error');
   });
 
+  it('formats raw OpenCode protocol advisory reasons before showing them in titles', () => {
+    const advisory = {
+      kind: 'api_error' as const,
+      observedAt: '2026-04-07T09:00:00.000Z',
+      reasonCode: 'backend_error' as const,
+      message: 'visible_reply_still_required',
+    };
+
+    expect(getMemberRuntimeAdvisoryLabel(advisory, 'opencode')).toBe('OpenCode delivery error');
+
+    const title = getMemberRuntimeAdvisoryTitle(advisory, 'opencode');
+
+    expect(title).toContain('OpenCode runtime delivery error.');
+    expect(title).toContain('OpenCode responded, but did not create a visible message_send reply.');
+    expect(title).not.toContain('visible_reply_still_required');
+  });
+
+  it('hides internal OpenCode bootstrap MCP diagnostics from advisory titles', () => {
+    const title = getMemberRuntimeAdvisoryTitle(
+      {
+        kind: 'api_error',
+        observedAt: '2026-04-07T09:00:00.000Z',
+        reasonCode: 'backend_error',
+        message:
+          'OpenCode bootstrap MCP did not complete required tools before assistant response: runtime_bootstrap_checkin, member_briefing',
+      },
+      'opencode'
+    );
+
+    expect(title).toContain('OpenCode runtime delivery did not complete.');
+    expect(title).not.toContain('runtime_bootstrap_checkin');
+  });
+
   it('renders Codex native timeout separately from network errors', () => {
     const advisory = {
       kind: 'api_error' as const,

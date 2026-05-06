@@ -85,7 +85,7 @@ function resolveLeadName(config: TeamConfig): string {
   return lead?.name?.trim() || 'team-lead';
 }
 
-function resolveOpenCodeBootstrapTimestamp(config: TeamConfig, member: TeamConfigMember): string {
+function resolveSyntheticBootstrapTimestamp(config: TeamConfig, member: TeamConfigMember): string {
   const raw = member.joinedAt ?? (config as { createdAt?: unknown }).createdAt;
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     return new Date(raw).toISOString();
@@ -99,43 +99,49 @@ function resolveOpenCodeBootstrapTimestamp(config: TeamConfig, member: TeamConfi
   return new Date(0).toISOString();
 }
 
-function buildOpenCodeBootstrapDisplayPrompt(config: TeamConfig, member: TeamConfigMember): string {
+function buildSyntheticBootstrapDisplayPrompt(
+  config: TeamConfig,
+  member: TeamConfigMember
+): string {
   const role = member.role?.trim() || member.agentType?.trim() || 'team member';
   const displayName = config.description?.trim() || config.name;
-  const providerLine = '\nProvider override for this teammate: opencode.';
+  const providerId = member.providerId?.trim();
+  const providerLine = providerId ? `\nProvider override for this teammate: ${providerId}.` : '';
   const modelLine = member.model?.trim()
     ? `\nModel override for this teammate: ${member.model.trim()}.`
     : '';
+  const runtimeProviderField = providerId === 'opencode' ? ', runtimeProvider: "opencode"' : '';
 
   return `You are ${member.name}, a ${role} on team "${displayName}" (${config.name}).${providerLine}${modelLine}
 
 The team has already been created and you are being attached as a persistent teammate.
 Your FIRST action: call MCP tool member_briefing on the "agent-teams" server with:
-{ teamName: "${config.name}", memberName: "${member.name}", runtimeProvider: "opencode" }
+{ teamName: "${config.name}", memberName: "${member.name}"${runtimeProviderField} }
 Call member_briefing directly yourself. Do NOT use Agent, any subagent, or a delegated helper for this step.
 After member_briefing succeeds, wait for instructions from the lead and use team mailbox/task tools normally.`;
 }
 
-function buildSyntheticOpenCodeBootstrapMessages(config: TeamConfig): InboxMessage[] {
+function buildSyntheticBootstrapMessages(config: TeamConfig): InboxMessage[] {
   const members = Array.isArray(config.members) ? config.members : [];
   const leadName = resolveLeadName(config);
+  const normalizedLeadName = leadName.trim().toLowerCase();
   return members
     .filter(
       (member) =>
         member &&
         member.name?.trim() &&
-        member.providerId === 'opencode' &&
+        member.name.trim().toLowerCase() !== normalizedLeadName &&
         member.removedAt == null &&
         (member as { isActive?: unknown }).isActive !== false
     )
     .map((member) => ({
       from: leadName,
       to: member.name,
-      text: buildOpenCodeBootstrapDisplayPrompt(config, member),
-      timestamp: resolveOpenCodeBootstrapTimestamp(config, member),
+      text: buildSyntheticBootstrapDisplayPrompt(config, member),
+      timestamp: resolveSyntheticBootstrapTimestamp(config, member),
       read: true,
       source: 'system_notification' as const,
-      messageId: `opencode-bootstrap-start:${config.name}:${member.name}`,
+      messageId: `bootstrap-start:${config.name}:${member.name}`,
     }));
 }
 
@@ -503,7 +509,7 @@ export class TeamMessageFeedService {
     const sourceMs = Date.now() - sourceStartedAt;
 
     const normalizeStartedAt = Date.now();
-    const syntheticMessages = buildSyntheticOpenCodeBootstrapMessages(config);
+    const syntheticMessages = buildSyntheticBootstrapMessages(config);
     let messages = [...inboxMessages, ...leadTexts, ...sentMessages, ...syntheticMessages].filter(
       isVisibleTeamMessage
     );

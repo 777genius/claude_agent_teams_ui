@@ -100,6 +100,7 @@ const RELEVANT_TEAM_CHANGE_EVENT_TYPES = new Set<TeamChangeEvent['type']>([
   'lead-message',
   'lead-context',
   'lead-activity',
+  'member-advisory',
   'process',
   'member-spawn',
 ]);
@@ -268,6 +269,7 @@ export function initializeNotificationListeners(): () => void {
   let teamRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let teamMessageRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let teamPresenceRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let memberAdvisorySafetyRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let memberSpawnRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let teamAgentRuntimeRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let toolActivityTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1610,6 +1612,75 @@ export function initializeNotificationListeners(): () => void {
         return;
       }
 
+      if (event.type === 'member-advisory') {
+        if (!event?.teamName || !isTeamVisibleInAnyPane(event.teamName)) {
+          return;
+        }
+        cancelProcessLiteStructuralReconcile(event.teamName);
+        const eventReason = buildTeamChangeFanoutReason(event.type);
+        const selectedForRefresh = useStore.getState().selectedTeamName === event.teamName;
+        const activeTabForRefresh = getFocusedVisibleTeamName() === event.teamName;
+        const existingSafetyTimer = memberAdvisorySafetyRefreshTimers.get(event.teamName);
+        if (existingSafetyTimer) {
+          clearTimeout(existingSafetyTimer);
+        }
+        memberAdvisorySafetyRefreshTimers.set(
+          event.teamName,
+          setTimeout(() => {
+            memberAdvisorySafetyRefreshTimers.delete(event.teamName);
+            if (!isTeamVisibleInAnyPane(event.teamName)) {
+              return;
+            }
+            const current = useStore.getState();
+            noteTeamRefreshFanout({
+              teamName: event.teamName,
+              surface: 'team-change-listener',
+              phase: 'executed',
+              reason: `${eventReason}:safety`,
+              operation: 'refreshTeamData',
+              eventType: event.type,
+              selected: current.selectedTeamName === event.teamName,
+              visible: true,
+              activeTab: getFocusedVisibleTeamName() === event.teamName,
+            });
+            void current.refreshTeamData(event.teamName);
+          }, TEAM_REFRESH_THROTTLE_MS + 250)
+        );
+        const existingDetailTimer = teamRefreshTimers.get(event.teamName);
+        noteTeamRefreshFanout({
+          teamName: event.teamName,
+          surface: 'team-change-listener',
+          phase: existingDetailTimer ? 'coalesced' : 'scheduled',
+          reason: eventReason,
+          operation: 'refreshTeamData',
+          eventType: event.type,
+          selected: selectedForRefresh,
+          visible: true,
+          activeTab: activeTabForRefresh,
+        });
+        if (existingDetailTimer) {
+          return;
+        }
+        const timer = setTimeout(() => {
+          teamRefreshTimers.delete(event.teamName);
+          const current = useStore.getState();
+          noteTeamRefreshFanout({
+            teamName: event.teamName,
+            surface: 'team-change-listener',
+            phase: 'executed',
+            reason: eventReason,
+            operation: 'refreshTeamData',
+            eventType: event.type,
+            selected: current.selectedTeamName === event.teamName,
+            visible: isTeamVisibleInAnyPane(event.teamName),
+            activeTab: getFocusedVisibleTeamName() === event.teamName,
+          });
+          void current.refreshTeamData(event.teamName, { withDedup: true });
+        }, TEAM_REFRESH_THROTTLE_MS);
+        teamRefreshTimers.set(event.teamName, timer);
+        return;
+      }
+
       if (event.type === 'log-source-change') {
         if (!event?.teamName || !isTeamVisibleInAnyPane(event.teamName)) {
           return;
@@ -1791,6 +1862,8 @@ export function initializeNotificationListeners(): () => void {
         teamMessageRefreshTimers = new Map();
         for (const t of teamPresenceRefreshTimers.values()) clearTimeout(t);
         teamPresenceRefreshTimers = new Map();
+        for (const t of memberAdvisorySafetyRefreshTimers.values()) clearTimeout(t);
+        memberAdvisorySafetyRefreshTimers = new Map();
         for (const t of memberSpawnRefreshTimers.values()) clearTimeout(t);
         memberSpawnRefreshTimers = new Map();
         for (const t of teamAgentRuntimeRefreshTimers.values()) clearTimeout(t);

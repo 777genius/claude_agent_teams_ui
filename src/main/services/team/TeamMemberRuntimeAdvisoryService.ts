@@ -1,7 +1,18 @@
 import { createLogger } from '@shared/utils/logger';
+import { getTeamsBasePath } from '@main/utils/pathDecoder';
 import * as fs from 'fs/promises';
 
+import { TeamInboxReader } from './TeamInboxReader';
 import { TeamMemberLogsFinder } from './TeamMemberLogsFinder';
+import {
+  createOpenCodePromptDeliveryLedgerStore,
+  type OpenCodePromptDeliveryLedgerRecord,
+} from './opencode/delivery/OpenCodePromptDeliveryLedger';
+import { selectOpenCodeRuntimeDeliveryReason } from './opencode/delivery/OpenCodeRuntimeDeliveryDiagnostics';
+import {
+  getOpenCodeLaneScopedRuntimeFilePath,
+  readOpenCodeRuntimeLaneIndex,
+} from './opencode/store/OpenCodeRuntimeManifestEvidenceReader';
 
 import type { MemberLogSummary, MemberRuntimeAdvisory, ResolvedTeamMember } from '@shared/types';
 
@@ -29,11 +40,13 @@ const CACHE_TTL_MS = 30_000;
 const TAIL_BYTES = 64 * 1024;
 const BATCH_WARN_MS = 1_000;
 const ADVISORY_FETCH_CONCURRENCY = 2;
+const OPENCODE_DELIVERY_ERROR_LOOKBACK_MS = 30 * 60 * 1000;
 const QUOTA_EXHAUSTED_TOKENS = [
   'exhausted your capacity',
   'capacity exceeded',
   'quota exceeded',
   'quota exhausted',
+  'insufficient credits',
 ];
 const RATE_LIMITED_TOKENS = [
   'rate limit',
@@ -70,7 +83,6 @@ const PROVIDER_OVERLOADED_TOKENS = [
   'service unavailable',
   '503',
 ];
-
 const logger = createLogger('Service:TeamMemberRuntimeAdvisory');
 
 interface CachedRuntimeAdvisory {
@@ -114,6 +126,43 @@ function classifyRetryReason(message: string | undefined): MemberRuntimeAdvisory
   return 'backend_error';
 }
 
+function getRecordTimeMs(record: OpenCodePromptDeliveryLedgerRecord): number {
+  const candidates = [
+    record.failedAt,
+    record.respondedAt,
+    record.lastObservedAt,
+    record.updatedAt,
+    record.createdAt,
+  ];
+  for (const candidate of candidates) {
+    const time = Date.parse(candidate ?? '');
+    if (Number.isFinite(time)) {
+      return time;
+    }
+  }
+  return 0;
+}
+
+function isTerminalSuccessfulRecord(record: OpenCodePromptDeliveryLedgerRecord): boolean {
+  return (
+    record.status === 'responded' &&
+    Boolean(record.inboxReadCommittedAt || record.visibleReplyMessageId)
+  );
+}
+
+function isPotentialRuntimeDeliveryError(record: OpenCodePromptDeliveryLedgerRecord): boolean {
+  if (record.status === 'failed_terminal') {
+    return true;
+  }
+  return (
+    record.status !== 'responded' &&
+    (record.responseState === 'session_error' ||
+      record.responseState === 'tool_error' ||
+      record.responseState === 'permission_blocked' ||
+      record.responseState === 'reconcile_failed')
+  );
+}
+
 async function mapLimit<T, R>(
   items: readonly T[],
   limit: number,
@@ -137,8 +186,10 @@ async function mapLimit<T, R>(
 }
 
 export class TeamMemberRuntimeAdvisoryService {
+  private readonly inboxReader = new TeamInboxReader();
   private readonly memberCache = new Map<string, CachedRuntimeAdvisory>();
   private readonly teamBatchCacheByTeam = new Map<string, CachedTeamBatchAdvisories>();
+  private readonly cacheGenerationByTeam = new Map<string, number>();
   private readonly inFlightBatchRequests = new Map<
     string,
     Promise<Map<string, MemberRuntimeAdvisory>>
@@ -147,6 +198,23 @@ export class TeamMemberRuntimeAdvisoryService {
   constructor(
     private readonly logsFinder: RuntimeAdvisoryLogsFinder = new TeamMemberLogsFinder()
   ) {}
+
+  invalidateMemberAdvisory(teamName: string, memberName: string): void {
+    const teamKey = this.normalizeToken(teamName);
+    const memberKey = this.normalizeToken(memberName);
+    if (!teamKey || !memberKey) {
+      return;
+    }
+
+    this.cacheGenerationByTeam.set(teamKey, (this.cacheGenerationByTeam.get(teamKey) ?? 0) + 1);
+    this.memberCache.delete(`${teamKey}::${memberKey}`);
+    this.teamBatchCacheByTeam.delete(teamKey);
+    for (const key of this.inFlightBatchRequests.keys()) {
+      if (key.startsWith(`${teamKey}::`)) {
+        this.inFlightBatchRequests.delete(key);
+      }
+    }
+  }
 
   async getMemberAdvisories(
     teamName: string,
@@ -187,17 +255,21 @@ export class TeamMemberRuntimeAdvisoryService {
     teamName: string,
     memberName: string
   ): Promise<MemberRuntimeAdvisory | null> {
+    const teamKey = this.normalizeToken(teamName);
     const cacheKey = this.getMemberCacheKey(teamName, memberName);
     const cached = this.memberCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value ? this.cloneAdvisory(cached.value) : null;
     }
 
+    const generationAtStart = this.cacheGenerationByTeam.get(teamKey) ?? 0;
     const advisory = await this.findRecentMemberAdvisory(teamName, memberName);
-    this.memberCache.set(cacheKey, {
-      value: advisory,
-      expiresAt: Date.now() + CACHE_TTL_MS,
-    });
+    if ((this.cacheGenerationByTeam.get(teamKey) ?? 0) === generationAtStart) {
+      this.memberCache.set(cacheKey, {
+        value: advisory,
+        expiresAt: Date.now() + CACHE_TTL_MS,
+      });
+    }
     return advisory ? this.cloneAdvisory(advisory) : null;
   }
 
@@ -209,6 +281,7 @@ export class TeamMemberRuntimeAdvisoryService {
   ): Promise<Map<string, MemberRuntimeAdvisory>> {
     const startedAt = performance.now();
     const now = Date.now();
+    const generationAtStart = this.cacheGenerationByTeam.get(teamKey) ?? 0;
     const result = new Map<string, MemberRuntimeAdvisory>();
     const membersToFetch: string[] = [];
     let memberCacheHits = 0;
@@ -233,23 +306,29 @@ export class TeamMemberRuntimeAdvisoryService {
     if (membersToFetch.length > 0) {
       const fetched = await this.findRecentMemberAdvisories(teamName, membersToFetch);
       const fetchedAt = Date.now();
+      const cacheStillCurrent =
+        (this.cacheGenerationByTeam.get(teamKey) ?? 0) === generationAtStart;
       for (const [memberName, advisory] of fetched) {
         const normalizedMemberName = this.normalizeToken(memberName);
-        this.memberCache.set(`${teamKey}::${normalizedMemberName}`, {
-          value: advisory,
-          expiresAt: fetchedAt + CACHE_TTL_MS,
-        });
+        if (cacheStillCurrent) {
+          this.memberCache.set(`${teamKey}::${normalizedMemberName}`, {
+            value: advisory,
+            expiresAt: fetchedAt + CACHE_TTL_MS,
+          });
+        }
         if (advisory) {
           result.set(normalizedMemberName, this.cloneAdvisory(advisory));
         }
       }
     }
 
-    this.teamBatchCacheByTeam.set(teamKey, {
-      membersSignature,
-      value: this.cloneNormalizedAdvisories(result),
-      expiresAt: Date.now() + CACHE_TTL_MS,
-    });
+    if ((this.cacheGenerationByTeam.get(teamKey) ?? 0) === generationAtStart) {
+      this.teamBatchCacheByTeam.set(teamKey, {
+        membersSignature,
+        value: this.cloneNormalizedAdvisories(result),
+        expiresAt: Date.now() + CACHE_TTL_MS,
+      });
+    }
 
     const totalMs = performance.now() - startedAt;
     if (totalMs >= BATCH_WARN_MS) {
@@ -305,6 +384,11 @@ export class TeamMemberRuntimeAdvisoryService {
     teamName: string,
     memberName: string
   ): Promise<MemberRuntimeAdvisory | null> {
+    const openCodeAdvisory = await this.findRecentOpenCodeDeliveryAdvisory(teamName, memberName);
+    if (openCodeAdvisory) {
+      return openCodeAdvisory;
+    }
+
     const summaries = await this.logsFinder.findMemberLogs(
       teamName,
       memberName,
@@ -319,9 +403,33 @@ export class TeamMemberRuntimeAdvisoryService {
     teamName: string,
     memberNames: readonly string[]
   ): Promise<readonly (readonly [string, MemberRuntimeAdvisory | null])[]> {
+    const openCodeAdvisories = await this.findRecentOpenCodeDeliveryAdvisories(
+      teamName,
+      memberNames
+    );
+    const remainingMemberNames = memberNames.filter(
+      (memberName) => !openCodeAdvisories.has(memberName)
+    );
+    if (remainingMemberNames.length === 0) {
+      return memberNames.map(
+        (memberName) => [memberName, openCodeAdvisories.get(memberName) ?? null] as const
+      );
+    }
+
     if (this.logsFinder.findRecentMemberLogFileRefsByMember) {
       try {
-        return await this.findRecentMemberAdvisoriesFromBatchRefs(teamName, memberNames);
+        const logAdvisories = await this.findRecentMemberAdvisoriesFromBatchRefs(
+          teamName,
+          remainingMemberNames
+        );
+        const logMap = new Map(logAdvisories);
+        return memberNames.map(
+          (memberName) =>
+            [
+              memberName,
+              openCodeAdvisories.get(memberName) ?? logMap.get(memberName) ?? null,
+            ] as const
+        );
       } catch (error) {
         logger.warn('batch member runtime advisory log lookup failed; falling back', {
           teamName,
@@ -330,10 +438,226 @@ export class TeamMemberRuntimeAdvisoryService {
       }
     }
 
-    return mapLimit(memberNames, ADVISORY_FETCH_CONCURRENCY, async (memberName) => {
-      const advisory = await this.findRecentMemberAdvisory(teamName, memberName);
-      return [memberName, advisory] as const;
+    const logAdvisories = await mapLimit(
+      remainingMemberNames,
+      ADVISORY_FETCH_CONCURRENCY,
+      async (memberName) => {
+        const summaries = await this.logsFinder.findMemberLogs(
+          teamName,
+          memberName,
+          Date.now() - LOOKBACK_MS
+        );
+        return [
+          memberName,
+          await this.findRecentMemberAdvisoryInFiles(
+            summaries.flatMap((summary) => summary.filePath ?? [])
+          ),
+        ] as const;
+      }
+    );
+    const logMap = new Map(logAdvisories);
+    return memberNames.map(
+      (memberName) =>
+        [memberName, openCodeAdvisories.get(memberName) ?? logMap.get(memberName) ?? null] as const
+    );
+  }
+
+  private async findRecentOpenCodeDeliveryAdvisory(
+    teamName: string,
+    memberName: string
+  ): Promise<MemberRuntimeAdvisory | null> {
+    const advisories = await this.findRecentOpenCodeDeliveryAdvisories(teamName, [memberName]);
+    return advisories.get(memberName) ?? null;
+  }
+
+  private async findRecentOpenCodeDeliveryAdvisories(
+    teamName: string,
+    memberNames: readonly string[]
+  ): Promise<Map<string, MemberRuntimeAdvisory>> {
+    const activeMembersByKey = new Map<string, string>();
+    for (const memberName of memberNames) {
+      const normalized = this.normalizeToken(memberName);
+      if (normalized && !activeMembersByKey.has(normalized)) {
+        activeMembersByKey.set(normalized, memberName);
+      }
+    }
+    if (activeMembersByKey.size === 0) {
+      return new Map();
+    }
+
+    const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), teamName).catch(
+      () => null
+    );
+    if (!laneIndex) {
+      return new Map();
+    }
+
+    const now = Date.now();
+    const recordsByMember = new Map<string, OpenCodePromptDeliveryLedgerRecord[]>();
+    for (const lane of Object.values(laneIndex.lanes)) {
+      if (lane.state === 'stopped') {
+        continue;
+      }
+      const laneMember = this.getOpenCodeLaneMemberName(lane.laneId);
+      if (!laneMember || !activeMembersByKey.has(this.normalizeToken(laneMember))) {
+        continue;
+      }
+      const ledger = createOpenCodePromptDeliveryLedgerStore({
+        filePath: getOpenCodeLaneScopedRuntimeFilePath({
+          teamsBasePath: getTeamsBasePath(),
+          teamName,
+          laneId: lane.laneId,
+          fileName: 'opencode-prompt-delivery-ledger.json',
+        }),
+      });
+      const records = await ledger.list().catch(() => []);
+      const existing = recordsByMember.get(this.normalizeToken(laneMember)) ?? [];
+      existing.push(...records);
+      recordsByMember.set(this.normalizeToken(laneMember), existing);
+    }
+
+    const memberKeysWithRecentErrors = new Set<string>();
+    for (const [memberKey, records] of recordsByMember) {
+      if (
+        records.some((record) => {
+          const observedAt = getRecordTimeMs(record);
+          return (
+            isPotentialRuntimeDeliveryError(record) &&
+            Number.isFinite(observedAt) &&
+            now - observedAt <= OPENCODE_DELIVERY_ERROR_LOOKBACK_MS
+          );
+        })
+      ) {
+        memberKeysWithRecentErrors.add(memberKey);
+      }
+    }
+    if (memberKeysWithRecentErrors.size === 0) {
+      return new Map();
+    }
+
+    const visibleRuntimeReplyTimes = await this.readVisibleOpenCodeRuntimeDeliveryReplyTimes(
+      teamName,
+      memberKeysWithRecentErrors
+    );
+    const result = new Map<string, MemberRuntimeAdvisory>();
+    for (const [memberKey, records] of recordsByMember) {
+      if (!memberKeysWithRecentErrors.has(memberKey)) {
+        continue;
+      }
+      const originalName = activeMembersByKey.get(memberKey);
+      const advisory = originalName
+        ? this.buildOpenCodeDeliveryAdvisoryFromRecords(
+            originalName,
+            records,
+            now,
+            visibleRuntimeReplyTimes
+          )
+        : null;
+      if (advisory && originalName) {
+        result.set(originalName, advisory);
+      }
+    }
+    return result;
+  }
+
+  private getOpenCodeLaneMemberName(laneId: string): string | null {
+    const parts = laneId.split(':');
+    if (parts.length < 3 || parts[0] !== 'secondary' || parts[1] !== 'opencode') {
+      return null;
+    }
+    return parts.slice(2).join(':').trim() || null;
+  }
+
+  private buildOpenCodeDeliveryAdvisoryFromRecords(
+    memberName: string,
+    records: readonly OpenCodePromptDeliveryLedgerRecord[],
+    now: number,
+    visibleRuntimeReplyTimes: ReadonlyMap<string, number>
+  ): MemberRuntimeAdvisory | null {
+    const ordered = records
+      .slice()
+      .sort((left, right) => getRecordTimeMs(right) - getRecordTimeMs(left));
+    const latestSuccess = ordered.find(isTerminalSuccessfulRecord);
+    const latestError = ordered.find((record) => {
+      const observedAt = getRecordTimeMs(record);
+      return (
+        isPotentialRuntimeDeliveryError(record) &&
+        Number.isFinite(observedAt) &&
+        now - observedAt <= OPENCODE_DELIVERY_ERROR_LOOKBACK_MS
+      );
     });
+    if (!latestError) {
+      return null;
+    }
+    if (latestSuccess && getRecordTimeMs(latestSuccess) > getRecordTimeMs(latestError)) {
+      return null;
+    }
+    if (
+      this.hasVisibleRuntimeReplyForOpenCodeDeliveryRecord(
+        memberName,
+        latestError,
+        visibleRuntimeReplyTimes
+      )
+    ) {
+      return null;
+    }
+
+    const message = selectOpenCodeRuntimeDeliveryReason(latestError);
+    if (!message) {
+      return null;
+    }
+    const observedAt = getRecordTimeMs(latestError);
+    return {
+      kind: 'api_error',
+      observedAt: new Date(Number.isFinite(observedAt) ? observedAt : now).toISOString(),
+      reasonCode: classifyRetryReason(message),
+      message,
+    };
+  }
+
+  private async readVisibleOpenCodeRuntimeDeliveryReplyTimes(
+    teamName: string,
+    activeMemberKeys: ReadonlySet<string>
+  ): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    const inboxNames = await this.inboxReader.listInboxNames(teamName).catch(() => []);
+    await mapLimit(inboxNames, ADVISORY_FETCH_CONCURRENCY, async (inboxName) => {
+      const messages = await this.inboxReader.getMessagesFor(teamName, inboxName).catch(() => []);
+      for (const message of messages) {
+        if (message.source !== 'runtime_delivery' || !message.relayOfMessageId) {
+          continue;
+        }
+        const memberKey = this.normalizeToken(message.from);
+        if (activeMemberKeys.has(memberKey)) {
+          const observedAt = Date.parse(message.timestamp);
+          if (!Number.isFinite(observedAt)) {
+            continue;
+          }
+          const key = this.getOpenCodeRuntimeReplyKey(memberKey, message.relayOfMessageId);
+          result.set(key, Math.max(result.get(key) ?? 0, observedAt));
+        }
+      }
+    });
+    return result;
+  }
+
+  private hasVisibleRuntimeReplyForOpenCodeDeliveryRecord(
+    memberName: string,
+    record: OpenCodePromptDeliveryLedgerRecord,
+    visibleRuntimeReplyTimes: ReadonlyMap<string, number>
+  ): boolean {
+    const relayOfMessageId = record.inboxMessageId?.trim();
+    if (!relayOfMessageId) {
+      return false;
+    }
+    const replyObservedAt = visibleRuntimeReplyTimes.get(
+      this.getOpenCodeRuntimeReplyKey(this.normalizeToken(memberName), relayOfMessageId)
+    );
+    return typeof replyObservedAt === 'number' && replyObservedAt > getRecordTimeMs(record);
+  }
+
+  private getOpenCodeRuntimeReplyKey(memberKey: string, relayOfMessageId: string): string {
+    return `${memberKey}::${relayOfMessageId.trim()}`;
   }
 
   private async findRecentMemberAdvisoriesFromBatchRefs(

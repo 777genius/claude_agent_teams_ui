@@ -64,9 +64,9 @@ export const TaskLogsPanel = ({
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countRequestSeqRef = useRef(0);
-  const taskLogTrackingEnabled =
-    hasOpenedContent && task.status === 'in_progress' && availableTabs.includes('stream');
-  const taskLogSummaryEnabled = hasOpenedContent && availableTabs.includes('stream');
+  const hasTaskLogStream = availableTabs.includes('stream');
+  const taskLogActivityTrackingEnabled = task.status === 'in_progress' && hasTaskLogStream;
+  const taskLogSummaryEnabled = hasOpenedContent && hasTaskLogStream;
 
   useEffect(() => {
     setActiveTab(defaultTab);
@@ -133,7 +133,7 @@ export const TaskLogsPanel = ({
   }, [task.id, taskLogSummaryEnabled, teamName]);
 
   useEffect(() => {
-    if (!taskLogTrackingEnabled || !api.teams.setTaskLogStreamTracking) {
+    if (!taskLogActivityTrackingEnabled || !api.teams.setTaskLogStreamTracking) {
       return;
     }
 
@@ -143,10 +143,10 @@ export const TaskLogsPanel = ({
         () => undefined
       );
     };
-  }, [taskLogTrackingEnabled, teamName]);
+  }, [taskLogActivityTrackingEnabled, teamName]);
 
   useEffect(() => {
-    if (!taskLogTrackingEnabled) {
+    if (!taskLogActivityTrackingEnabled) {
       if (pulseTimerRef.current) {
         clearTimeout(pulseTimerRef.current);
         pulseTimerRef.current = null;
@@ -160,7 +160,7 @@ export const TaskLogsPanel = ({
     }
 
     const scheduleCountReload = (): void => {
-      if (!api.teams.getTaskLogStreamSummary) {
+      if (!taskLogSummaryEnabled || !api.teams.getTaskLogStreamSummary) {
         return;
       }
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -230,7 +230,7 @@ export const TaskLogsPanel = ({
         unsubscribe();
       }
     };
-  }, [task.id, taskLogTrackingEnabled, teamName]);
+  }, [task.id, taskLogActivityTrackingEnabled, taskLogSummaryEnabled, teamName]);
 
   return (
     <Tabs

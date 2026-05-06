@@ -16,10 +16,12 @@ export const WebPreviewBanner = (): React.JSX.Element | null => {
     >
       <FlaskConical className="mt-0.5 size-4 shrink-0 text-amber-600" />
       <div className="min-w-0">
-        <p className="text-sm font-medium text-amber-900">Web version is still in development</p>
+        <p className="text-sm font-medium text-amber-900">
+          Open the desktop app for full functionality
+        </p>
         <p className="mt-1 text-xs leading-relaxed text-amber-800">
-          Some desktop features are not available in the browser yet. Project actions, integrations,
-          and live status data may be limited or not work as expected.
+          The browser version is still in development. Project actions, integrations, and live
+          status updates may be limited here. Use the desktop app to access all features reliably.
         </p>
       </div>
     </div>

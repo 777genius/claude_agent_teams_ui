@@ -1201,6 +1201,7 @@ export interface TeamChangeEvent {
     | 'lead-message'
     | 'tool-activity'
     | 'member-turn-settled'
+    | 'member-advisory'
     | 'process'
     | 'member-spawn';
   teamName: string;

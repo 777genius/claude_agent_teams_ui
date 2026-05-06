@@ -321,8 +321,53 @@ function getRuntimeAdvisoryProviderLabel(providerId: TeamProviderId | undefined)
 }
 
 function appendRuntimeAdvisoryRawMessage(base: string, message: string | undefined): string {
-  const trimmed = message?.trim();
+  const trimmed = formatRuntimeAdvisoryDisplayMessage(message);
   return trimmed ? `${base}\n\n${trimmed}` : base;
+}
+
+function isOpenCodeRuntimeDeliveryAdvisoryMessage(message: string | undefined): boolean {
+  const displayMessage = formatRuntimeAdvisoryDisplayMessage(message);
+  return (
+    displayMessage.startsWith('OpenCode runtime delivery') ||
+    displayMessage.startsWith('OpenCode returned an empty assistant turn') ||
+    displayMessage.startsWith('OpenCode accepted the prompt') ||
+    displayMessage.startsWith('OpenCode responded, but did not create') ||
+    displayMessage.startsWith('OpenCode created a reply without')
+  );
+}
+
+function formatRuntimeAdvisoryDisplayMessage(message: string | undefined): string {
+  const trimmed = message?.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed === 'empty_assistant_turn') {
+    return 'OpenCode returned an empty assistant turn.';
+  }
+  if (trimmed === 'prompt_delivered_no_assistant_message') {
+    return 'OpenCode accepted the prompt, but no assistant turn was recorded.';
+  }
+  if (
+    trimmed === 'visible_reply_still_required' ||
+    trimmed === 'visible_reply_ack_only_still_requires_answer' ||
+    trimmed === 'plain_text_ack_only_still_requires_answer'
+  ) {
+    return 'OpenCode responded, but did not create a visible message_send reply.';
+  }
+  if (
+    trimmed === 'visible_reply_destination_not_found_yet' ||
+    trimmed === 'visible_reply_missing_relayOfMessageId'
+  ) {
+    return 'OpenCode created a reply without the required relayOfMessageId correlation.';
+  }
+  if (
+    trimmed.startsWith(
+      'OpenCode bootstrap MCP did not complete required tools before assistant response:'
+    )
+  ) {
+    return 'OpenCode runtime delivery did not complete.';
+  }
+  return trimmed;
 }
 
 function formatRuntimeAdvisoryBaseLabel(
@@ -346,6 +391,12 @@ function formatRuntimeAdvisoryBaseLabel(
         return providerLabel ? `${providerLabel} overload` : 'Provider overload';
       case 'backend_error':
       case 'unknown':
+        if (
+          providerId === 'opencode' &&
+          isOpenCodeRuntimeDeliveryAdvisoryMessage(advisory.message)
+        ) {
+          return 'OpenCode delivery error';
+        }
         return providerLabel ? `${providerLabel} API error` : 'API error';
       default:
         return 'API error';
@@ -409,6 +460,15 @@ function formatRuntimeAdvisoryTitle(
         );
       case 'backend_error':
       case 'unknown':
+        if (
+          providerId === 'opencode' &&
+          isOpenCodeRuntimeDeliveryAdvisoryMessage(advisory.message)
+        ) {
+          return appendRuntimeAdvisoryRawMessage(
+            'OpenCode runtime delivery error.',
+            advisory.message
+          );
+        }
         return appendRuntimeAdvisoryRawMessage(
           `${providerLabel ?? 'Provider'} API error.`,
           advisory.message

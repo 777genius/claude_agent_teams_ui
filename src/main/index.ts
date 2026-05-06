@@ -1144,6 +1144,9 @@ async function initializeServices(): Promise<void> {
   teamDataService = new TeamDataService();
   teamDataService.setMemberRuntimeAdvisoryService(teamMemberRuntimeAdvisoryService);
   teamProvisioningService = new TeamProvisioningService();
+  teamProvisioningService.setMemberRuntimeAdvisoryInvalidator((teamName, memberName) => {
+    teamMemberRuntimeAdvisoryService.invalidateMemberAdvisory(teamName, memberName);
+  });
   teamProvisioningService.setRuntimeAdapterRegistry(await createOpenCodeRuntimeAdapterRegistry());
   await cleanupOpenCodeHostsForLifecycle('startup').catch((error: unknown) =>
     logger.warn(`[OpenCode] Startup host cleanup failed: ${String(error)}`)

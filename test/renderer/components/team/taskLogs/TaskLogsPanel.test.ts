@@ -370,11 +370,14 @@ describe('TaskLogsPanel', () => {
     expect(apiState.setTaskLogStreamTracking).toHaveBeenLastCalledWith('demo', false);
   });
 
-  it('defers Task Log Stream work while collapsed, then starts tracking after first open', async () => {
+  it('tracks header activity while collapsed but defers Task Log Stream content until first open', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.useFakeTimers();
 
     const activityStates: boolean[] = [];
+    const onTaskLogActivityChange = (isActive: boolean): void => {
+      activityStates.push(isActive);
+    };
     let handler: ((event: unknown, data: TeamChangeEvent) => void) | null = null;
     apiState.onTeamChange.mockImplementation((callback) => {
       handler = callback;
@@ -393,7 +396,7 @@ describe('TaskLogsPanel', () => {
           teamName: 'demo',
           task: makeTask(),
           isOpen: false,
-          onTaskLogActivityChange: (isActive: boolean) => activityStates.push(isActive),
+          onTaskLogActivityChange,
         })
       );
       await flushMicrotasks();
@@ -402,10 +405,25 @@ describe('TaskLogsPanel', () => {
     expect(host.querySelector('[data-testid="task-log-stream"]')).toBeNull();
     expect(taskLogStreamProps.calls).toHaveLength(0);
     expect(apiState.getTaskLogStreamSummary).not.toHaveBeenCalled();
-    expect(apiState.setTaskLogStreamTracking).not.toHaveBeenCalled();
-    expect(apiState.onTeamChange).not.toHaveBeenCalled();
-    expect(handler).toBeNull();
+    expect(apiState.setTaskLogStreamTracking).toHaveBeenCalledWith('demo', true);
+    expect(apiState.onTeamChange).toHaveBeenCalledTimes(1);
+    expect(handler).toBeTypeOf('function');
     expect(activityStates).toEqual([false]);
+
+    await act(async () => {
+      handler?.(null, { teamName: 'demo', type: 'task-log-change', taskId: 'task-1' });
+      await flushMicrotasks();
+    });
+
+    expect(activityStates).toEqual([false, true]);
+    expect(apiState.getTaskLogStreamSummary).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1800);
+      await flushMicrotasks();
+    });
+
+    expect(activityStates).toEqual([false, true, false]);
 
     await act(async () => {
       root.render(
@@ -413,7 +431,7 @@ describe('TaskLogsPanel', () => {
           teamName: 'demo',
           task: makeTask(),
           isOpen: true,
-          onTaskLogActivityChange: (isActive: boolean) => activityStates.push(isActive),
+          onTaskLogActivityChange,
         })
       );
       await flushMicrotasks();
@@ -422,7 +440,6 @@ describe('TaskLogsPanel', () => {
 
     expect(host.querySelector('[data-testid="task-log-stream"]')).not.toBeNull();
     expect(apiState.getTaskLogStreamSummary).toHaveBeenCalledWith('demo', 'task-1');
-    expect(apiState.setTaskLogStreamTracking).toHaveBeenCalledWith('demo', true);
     expect(handler).toBeTypeOf('function');
 
     await act(async () => {
@@ -430,14 +447,14 @@ describe('TaskLogsPanel', () => {
       await flushMicrotasks();
     });
 
-    expect(activityStates).toEqual([false, false, true]);
+    expect(activityStates).toEqual([false, true, false, true]);
 
     await act(async () => {
       vi.advanceTimersByTime(1800);
       await flushMicrotasks();
     });
 
-    expect(activityStates).toEqual([false, false, true, false]);
+    expect(activityStates).toEqual([false, true, false, true, false]);
 
     await act(async () => {
       root.unmount();
