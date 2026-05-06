@@ -1362,6 +1362,24 @@ async function initializeServices(): Promise<void> {
         )
         .map((team) => team.teamName);
     },
+    extraBusySignals: [
+      {
+        isBusy: (input) => teamProvisioningService.getOpenCodeMemberDeliveryBusyStatus(input),
+      },
+    ],
+    nudgeDeliveryWake: {
+      schedule: (input) => {
+        if (input.providerId !== 'opencode') {
+          return;
+        }
+        teamProvisioningService.scheduleOpenCodeMemberInboxDeliveryWake({
+          teamName: input.teamName,
+          memberName: input.memberName,
+          messageId: input.messageId,
+          delayMs: input.delayMs,
+        });
+      },
+    },
     logger: createLogger('Feature:MemberWorkSync'),
   });
   teamProvisioningService.setRuntimeTurnSettledHookSettingsProvider((input) =>

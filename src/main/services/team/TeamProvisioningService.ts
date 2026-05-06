@@ -10981,6 +10981,132 @@ export class TeamProvisioningService {
     return null;
   }
 
+  async getOpenCodeMemberDeliveryBusyStatus(input: {
+    teamName: string;
+    memberName: string;
+    nowIso: string;
+  }): Promise<{
+    busy: boolean;
+    reason?: string;
+    retryAfterIso?: string;
+    activeMessageId?: string;
+    activeMessageKind?: string | null;
+  }> {
+    if (!(await this.isOpenCodeRuntimeRecipient(input.teamName, input.memberName))) {
+      return { busy: false };
+    }
+
+    const nowMs = Date.parse(input.nowIso);
+    const retryAfterIso = new Date(
+      (Number.isFinite(nowMs) ? nowMs : Date.now()) + 60_000
+    ).toISOString();
+
+    let inboxMessages: Awaited<ReturnType<TeamInboxReader['getMessagesFor']>>;
+    try {
+      inboxMessages = await this.inboxReader.getMessagesFor(input.teamName, input.memberName);
+    } catch {
+      return {
+        busy: true,
+        reason: 'opencode_inbox_read_failed',
+        retryAfterIso,
+      };
+    }
+
+    const foregroundMessages = inboxMessages.filter(
+      (message) => message.messageKind !== 'member_work_sync_nudge'
+    );
+    const unreadForeground = foregroundMessages.find(
+      (message) =>
+        !message.read &&
+        typeof message.text === 'string' &&
+        message.text.trim().length > 0 &&
+        this.hasStableMessageId(message)
+    );
+    if (unreadForeground?.messageId) {
+      return {
+        busy: true,
+        reason: 'opencode_foreground_inbox_unread',
+        retryAfterIso,
+        activeMessageId: unreadForeground.messageId,
+        activeMessageKind: unreadForeground.messageKind ?? null,
+      };
+    }
+
+    const recentForeground = foregroundMessages.find((message) => {
+      const timestampMs = Date.parse(message.timestamp);
+      return Number.isFinite(timestampMs) && Number.isFinite(nowMs) && nowMs - timestampMs < 60_000;
+    });
+    if (recentForeground?.messageId) {
+      return {
+        busy: true,
+        reason: 'opencode_foreground_inbox_recent',
+        retryAfterIso,
+        activeMessageId: recentForeground.messageId,
+        activeMessageKind: recentForeground.messageKind ?? null,
+      };
+    }
+
+    const identity = await this.resolveOpenCodeMemberDeliveryIdentity(
+      input.teamName,
+      input.memberName
+    );
+    if (!identity.ok) {
+      return { busy: true, reason: identity.reason, retryAfterIso };
+    }
+
+    const laneIndex = await readOpenCodeRuntimeLaneIndex(getTeamsBasePath(), input.teamName).catch(
+      () => null
+    );
+    if (!laneIndex) {
+      return { busy: true, reason: 'opencode_lane_index_unavailable', retryAfterIso };
+    }
+    if (laneIndex.lanes[identity.laneId]?.state !== 'active') {
+      return { busy: true, reason: 'opencode_no_active_lane', retryAfterIso };
+    }
+
+    const activeRecord = await this.createOpenCodePromptDeliveryLedger(
+      input.teamName,
+      identity.laneId
+    )
+      .getActiveForMember({
+        teamName: input.teamName,
+        memberName: identity.canonicalMemberName,
+        laneId: identity.laneId,
+      })
+      .catch(() => null);
+    if (activeRecord) {
+      return {
+        busy: true,
+        reason: `opencode_prompt_delivery_active:${activeRecord.messageKind ?? 'default'}`,
+        retryAfterIso: activeRecord.nextAttemptAt ?? retryAfterIso,
+        activeMessageId: activeRecord.inboxMessageId,
+        activeMessageKind: activeRecord.messageKind,
+      };
+    }
+
+    return { busy: false };
+  }
+
+  scheduleOpenCodeMemberInboxDeliveryWake(input: {
+    teamName: string;
+    memberName: string;
+    messageId: string;
+    delayMs?: number;
+  }): void {
+    const teamName = input.teamName.trim();
+    const memberName = input.memberName.trim();
+    const messageId = input.messageId.trim();
+    if (!teamName || !memberName || !messageId || !this.isOpenCodePromptDeliveryWatchdogEnabled()) {
+      return;
+    }
+    this.scheduleOpenCodePromptDeliveryWatchdog({
+      teamName,
+      memberName,
+      messageId,
+      delayMs: Math.max(0, input.delayMs ?? 500),
+    });
+  }
+
   private toOpenCodeRuntimeDeliveryStatus(
     record: OpenCodePromptDeliveryLedgerRecord
   ): OpenCodeRuntimeDeliveryStatus {
