@@ -18,6 +18,9 @@ Messages:
    Timestamp: 2026-05-06T15:02:54.853Z
    Text:
    #f8d7235a done.`;
+const nativeBootstrapPrompt = `<agent_teams_native_app_managed_bootstrap_check>
+Your Agent Teams startup context was already loaded by the app.
+</agent_teams_native_app_managed_bootstrap_check>`;
 
 describe('teamInternalControlMessages', () => {
   it('detects lead inbox relay prompts and Human-prefixed echoes', () => {
@@ -58,6 +61,38 @@ describe('teamInternalControlMessages', () => {
     expect(
       isTeamInternalControlMessageEnvelope({
         text: `Human: ${leadRelayPrompt}`,
+      })
+    ).toBe(false);
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        text: nativeBootstrapPrompt,
+        from: 'team-lead',
+      })
+    ).toBe(true);
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        text: nativeBootstrapPrompt,
+        from: 'orchestrator',
+      })
+    ).toBe(true);
+    expect(isTeamInternalControlMessageText(`Human: ${nativeBootstrapPrompt}`)).toBe(true);
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        source: 'lead_process',
+        text: `Visible note quoting ${nativeBootstrapPrompt}`,
+      })
+    ).toBe(false);
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        source: 'user_sent',
+        text: nativeBootstrapPrompt,
+        from: 'user',
+      })
+    ).toBe(false);
+    expect(
+      isTeamInternalControlMessageEnvelope({
+        text: nativeBootstrapPrompt,
+        from: 'user',
       })
     ).toBe(false);
   });

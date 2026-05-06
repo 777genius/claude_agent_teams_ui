@@ -71,11 +71,30 @@ Do NOT send acknowledgement-only messages such as "ready" or "online".`);
       `<agent_teams_native_app_managed_bootstrap_check>
 Your Agent Teams startup context was already loaded by the app.
 </agent_teams_native_app_managed_bootstrap_check>`,
-      { source: 'system_notification' }
+      { source: undefined }
     );
 
     expect(getInternalControlMessageDisplay(message)?.summary).toBe('Internal bootstrap check');
     expect(getSanitizedInboxMessageText(message)).toBe('Internal bootstrap check hidden in the UI.');
+  });
+
+  it('does not sanitize user-authored native bootstrap marker quotes', () => {
+    const text = `<agent_teams_native_app_managed_bootstrap_check>
+Your Agent Teams startup context was already loaded by the app.
+</agent_teams_native_app_managed_bootstrap_check>`;
+    const message = makeMessage(text, { from: 'user', source: 'user_sent' });
+
+    expect(getInternalControlMessageDisplay(message)).toBeNull();
+    expect(getSanitizedInboxMessageText(message)).toBe(text);
+  });
+
+  it('does not sanitize visible lead text that only mentions the native bootstrap marker', () => {
+    const text =
+      'Visible note quoting <agent_teams_native_app_managed_bootstrap_check> for diagnostics.';
+    const message = makeMessage(text, { from: 'team-lead', source: 'lead_process' });
+
+    expect(getInternalControlMessageDisplay(message)).toBeNull();
+    expect(getSanitizedInboxMessageText(message)).toBe(text);
   });
 
   it('sanitizes leaked lead inbox relay prompts defensively', () => {

@@ -135,7 +135,7 @@ export interface InternalControlMessageDisplay {
 }
 
 export function getInternalControlMessageDisplay(
-  message: Pick<InboxMessage, 'text'> & Partial<Pick<InboxMessage, 'source'>>
+  message: Pick<InboxMessage, 'text'> & Partial<Pick<InboxMessage, 'from' | 'source'>>
 ): InternalControlMessageDisplay | null {
   if (!isTeamInternalControlMessageEnvelope(message)) {
     return null;
@@ -237,7 +237,7 @@ export function getBootstrapAcknowledgementDisplay(
 }
 
 export function getSanitizedInboxMessageText(
-  message: Pick<InboxMessage, 'text' | 'to'> & Partial<Pick<InboxMessage, 'source'>>
+  message: Pick<InboxMessage, 'text' | 'to'> & Partial<Pick<InboxMessage, 'from' | 'source'>>
 ): string {
   return (
     getInternalControlMessageDisplay(message)?.body ??

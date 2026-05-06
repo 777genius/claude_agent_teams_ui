@@ -8,6 +8,7 @@ const INTERNAL_CONTROL_MESSAGE_SOURCES = new Set([
   'runtime_delivery',
   'system_notification',
 ]);
+const INTERNAL_BOOTSTRAP_AUTHORS = new Set(['team-lead', 'lead', 'orchestrator']);
 
 export function stripTranscriptSpeakerPrefix(value: string): string {
   let normalized = value.trim();
@@ -22,7 +23,7 @@ export function stripTranscriptSpeakerPrefix(value: string): string {
 export function isNativeAppManagedBootstrapCheckText(value: unknown): boolean {
   return (
     typeof value === 'string' &&
-    stripTranscriptSpeakerPrefix(value).includes(NATIVE_APP_MANAGED_BOOTSTRAP_CHECK_OPEN)
+    stripTranscriptSpeakerPrefix(value).startsWith(NATIVE_APP_MANAGED_BOOTSTRAP_CHECK_OPEN)
   );
 }
 
@@ -56,7 +57,17 @@ export function isTeamInternalControlMessageText(value: unknown): boolean {
 export function isTeamInternalControlMessageEnvelope(message: {
   text?: unknown;
   source?: unknown;
+  from?: unknown;
 }): boolean {
+  if (isNativeAppManagedBootstrapCheckText(message.text)) {
+    if (typeof message.source === 'string') {
+      return INTERNAL_CONTROL_MESSAGE_SOURCES.has(message.source);
+    }
+    return (
+      typeof message.from === 'string' &&
+      INTERNAL_BOOTSTRAP_AUTHORS.has(message.from.trim().toLowerCase())
+    );
+  }
   if (!isTeamInternalControlMessageText(message.text)) {
     return false;
   }

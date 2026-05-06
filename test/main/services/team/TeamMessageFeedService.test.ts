@@ -79,8 +79,10 @@ describe('TeamMessageFeedService', () => {
       getConfig: vi.fn(async () => config),
       getInboxMessages: vi.fn(async () => [
         makeMessage({
+          from: 'team-lead',
+          to: undefined,
           messageId: 'native-bootstrap-private-check',
-          source: 'system_notification',
+          source: undefined,
           text: '<agent_teams_native_app_managed_bootstrap_check>\nprivate\n</agent_teams_native_app_managed_bootstrap_check>',
         }),
         makeMessage({
@@ -121,6 +123,27 @@ Messages:
     const feed = await service.getFeed('signal-ops-4');
 
     expect(feed.messages.map((message) => message.messageId)).toEqual(['quoted-control-prompt']);
+  });
+
+  it('does not hide user-authored native bootstrap marker quotes from the feed', async () => {
+    const service = new TeamMessageFeedService({
+      getConfig: vi.fn(async () => config),
+      getInboxMessages: vi.fn(async () => [
+        makeMessage({
+          messageId: 'quoted-native-bootstrap-control',
+          source: 'user_sent',
+          text: '<agent_teams_native_app_managed_bootstrap_check>\nquoted\n</agent_teams_native_app_managed_bootstrap_check>',
+        }),
+      ]),
+      getLeadSessionMessages: vi.fn(async () => []),
+      getSentMessages: vi.fn(async () => []),
+    });
+
+    const feed = await service.getFeed('signal-ops-4');
+
+    expect(feed.messages.map((message) => message.messageId)).toEqual([
+      'quoted-native-bootstrap-control',
+    ]);
   });
 
   it('refreshes the durable feed after cache expiry even when the dirty signal was missed', async () => {
